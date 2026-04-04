@@ -1,0 +1,1 @@
+-- Optional: lokale Seed-Daten für `supabase db reset`
