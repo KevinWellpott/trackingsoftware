@@ -100,7 +100,7 @@ export function OverallSection({ allContacts, lists, today, todayCounts = { Kevi
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
       {/* Section Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
+        <div className="section-header-mobile" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Zap size={13} color="#818cf8" />
@@ -126,7 +126,7 @@ export function OverallSection({ allContacts, lists, today, todayCounts = { Kevi
       </div>
 
       {/* Tagesziel je Person */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+      <div className="daily-goal-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
         {(["Kevin", "Simon"] as const).map((owner) => {
           const count = todayCounts[owner];
           const done  = count >= dailyGoal;
@@ -175,7 +175,7 @@ export function OverallSection({ allContacts, lists, today, todayCounts = { Kevi
       </div>
 
       {/* 4 Stat Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.875rem" }}>
+      <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.875rem" }}>
         {[
           { label: "Gesamt DMs", num: total, suffix: "", color: METRIC_COLORS.dms },
           { label: "Antwortrate", num: pct(answered, total), suffix: "%", color: METRIC_COLORS.answers, sub: `${answered} Antworten` },

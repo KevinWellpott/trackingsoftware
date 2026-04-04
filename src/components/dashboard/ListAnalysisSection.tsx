@@ -66,7 +66,7 @@ export function ListAnalysisSection({ allContacts, lists }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
       {/* Section Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
+        <div className="section-header-mobile" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <TrendingUp size={13} color="#4ade80" />
@@ -91,7 +91,7 @@ export function ListAnalysisSection({ allContacts, lists }: Props) {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+      <div className="grid-2-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
         {/* Chart */}
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem" }}>
           <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#fafafa", marginBottom: "0.25rem" }}>Antwort- & Terminrate je Liste</div>

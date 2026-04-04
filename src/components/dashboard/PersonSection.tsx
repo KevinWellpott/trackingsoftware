@@ -91,7 +91,7 @@ export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek,
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
       {/* Section Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
+        <div className="section-header-mobile" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Users size={13} color="#a78bfa" />
@@ -119,7 +119,7 @@ export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek,
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+      <div className="grid-2-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
         {(["Kevin", "Simon"] as const).map((owner) => {
           if (f.owner && f.owner !== owner) return null;
           const ps = personStats(owner);
@@ -168,7 +168,7 @@ export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek,
                 );
               })()}
               {/* Metrics grid */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", borderBottom: "1px solid var(--border)" }}>
+              <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", borderBottom: "1px solid var(--border)" }}>
                 {[
                   { label: "Antwortrate", value: `${ps.answerRate}%`, color: METRIC_COLORS.answers },
                   { label: "Terminrate",  value: `${ps.apptRate}%`,   color: METRIC_COLORS.appointments },

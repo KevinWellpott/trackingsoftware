@@ -465,13 +465,13 @@ export function ListBoard({ listId, stages, contacts }: {
           />
         </div>
         {search && <span style={{ fontSize: "0.75rem", color: "#52525b" }}>{filtered.length}/{contacts.length}</span>}
-        <div style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "#27272a" }}>Klicken zum Bearbeiten · Enter zum Speichern</div>
+        <div className="hide-on-mobile" style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "#27272a" }}>Klicken zum Bearbeiten · Enter zum Speichern</div>
       </div>
 
       {/* Table */}
-      <div style={{ border: "1px solid #1c1c1f", borderRadius: 12, overflow: "hidden", background: "#09090b" }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem", tableLayout: "auto" }}>
+      <div style={{ border: "1px solid #1c1c1f", borderRadius: 12, background: "#09090b", overflow: "clip" }}>
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" as never }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem", tableLayout: "auto", minWidth: 700 }}>
             <thead>
               <tr style={{ background: "#0d0d10", borderBottom: "1px solid #1c1c1f" }}>
                 {["Datum", "Name", "FU", "Antwort", "Termin", "Kategorie", "Was war die Antwort?", "Notizen", ""].map((h, i) => (

@@ -78,7 +78,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
         <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "#52525b", textDecoration: "none", marginBottom: "0.875rem" }}>
           <ArrowLeft size={13} /> Dashboard
         </Link>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "0.25rem" }}>
               {L.owner_name && (
@@ -101,7 +101,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
       {total > 0 && (
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", marginBottom: "1.25rem", overflow: "hidden" }}>
           {/* Stat Pills */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", borderBottom: "1px solid var(--border)" }}>
+          <div className="grid-6-stat" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", borderBottom: "1px solid var(--border)" }}>
             {[
               { label: "DMs", value: total, color: METRIC_COLORS.dms, icon: <Users size={12} /> },
               { label: "Antwortrate", value: `${answerRate}%`, color: METRIC_COLORS.answers, icon: <TrendingUp size={12} /> },
@@ -121,7 +121,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
           </div>
 
           {/* Charts row */}
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 0 }}>
+          <div className="chart-grid-2" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 0 }}>
             <div style={{ padding: "1.125rem 1.375rem", borderRight: "1px solid var(--border)" }}>
               <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#52525b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.625rem" }}>Verlauf letzte 30 Tage</div>
               <MultiMetricBarChart data={chartData} />

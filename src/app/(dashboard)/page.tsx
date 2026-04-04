@@ -150,9 +150,9 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "1.5rem", alignItems: "center" }}>
+        <div className="duel-grid" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "1.5rem", alignItems: "center" }}>
           <DuelPanel owner="Kevin" count={kevinWeek} leader={leader} goal={WEEKLY_GOAL} />
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", flexShrink: 0 }}>
+          <div className="duel-vs" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", flexShrink: 0 }}>
             <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, rgba(99,102,241,0.35))" }} />
             <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "#3f3f46", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgba(99,102,241,0.15)", borderRadius: 99, background: "rgba(99,102,241,0.05)" }}>VS</div>
             <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, rgba(99,102,241,0.35), transparent)" }} />

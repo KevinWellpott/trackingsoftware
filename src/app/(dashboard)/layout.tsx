@@ -73,9 +73,10 @@ export default async function DashboardLayout({
         </div>
 
         <main
+          className="main-content"
           style={{
             flex: 1,
-            padding: "2rem 2rem",
+            padding: "2rem",
             maxWidth: "100%",
           }}
         >

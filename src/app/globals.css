@@ -393,6 +393,85 @@ body {
   animation: glow-pulse 2s ease-in-out infinite;
 }
 
+/* ─── Mobile responsive utilities ─────────────────────────── */
+@media (max-width: 767px) {
+  /* Main content padding on mobile */
+  .main-content {
+    padding: 1rem !important;
+  }
+
+  /* 4-col stat grids → 2 cols */
+  .grid-4-stat {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* 2-col grids → 1 col */
+  .grid-2-col {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 6-col strip → 3 cols */
+  .grid-6-stat {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+
+  /* Duel grid → stack */
+  .duel-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1.25rem !important;
+  }
+  .duel-vs { display: none !important; }
+
+  /* Section headers on mobile: stack filter below title */
+  .section-header-mobile {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.625rem !important;
+  }
+
+  /* Table scroll container */
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Chart: 2-col → 1 col */
+  .chart-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Page max-width: allow full width on mobile */
+  .page-container {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  /* Daily goal: 2 cols → 1 col */
+  .daily-goal-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Person cards: reduce padding */
+  .person-card-header {
+    padding: 0.75rem 1rem !important;
+  }
+
+  /* Filter bar: allow more wrapping */
+  .filter-bar-row {
+    gap: 0.25rem !important;
+  }
+
+  /* Reduce large number font on mobile */
+  .duel-number {
+    font-size: 2.25rem !important;
+  }
+
+  /* Hide chart on very small screens for performance */
+  .hide-on-mobile {
+    display: none !important;
+  }
+}
+
 /* ─── Fade-in animation for page content ──────────────────── */
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(8px); }
