@@ -13,13 +13,15 @@ type Props = {
   today: string;
   kevinWeek: number;
   simonWeek: number;
-  todayCounts: { Kevin: number; Simon: number };
+  danielWeek: number;
+  todayCounts: { Kevin: number; Simon: number; Daniel: number };
   dailyGoal: number;
 };
 
 const OWNER_STYLE = {
-  Kevin: { color: "#818cf8", glow: "rgba(99,102,241,0.4)", bg: "rgba(99,102,241,0.08)", border: "rgba(99,102,241,0.25)" },
-  Simon: { color: "#a78bfa", glow: "rgba(139,92,246,0.4)", bg: "rgba(139,92,246,0.08)", border: "rgba(139,92,246,0.25)" },
+  Kevin:  { color: "#818cf8", glow: "rgba(99,102,241,0.4)",  bg: "rgba(99,102,241,0.08)",  border: "rgba(99,102,241,0.25)" },
+  Simon:  { color: "#a78bfa", glow: "rgba(139,92,246,0.4)",  bg: "rgba(139,92,246,0.08)",  border: "rgba(139,92,246,0.25)" },
+  Daniel: { color: "#34d399", glow: "rgba(52,211,153,0.4)",  bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.25)" },
 };
 
 function localToday(): string {
@@ -57,7 +59,7 @@ function buildChartData(contacts: ContactWithStage[], from: string, to: string):
 
 function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 100); }
 
-export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek, todayCounts = { Kevin: 0, Simon: 0 }, dailyGoal }: Props) {
+export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek, danielWeek, todayCounts = { Kevin: 0, Simon: 0, Daniel: 0 }, dailyGoal }: Props) {
   const f = useSectionFilter(allContacts, lists, "all");
 
   // Per-person: date-filtered contacts
@@ -68,7 +70,7 @@ export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek,
     });
   }, [allContacts, f.effectiveFrom, f.effectiveTo]);
 
-  function personStats(owner: "Kevin" | "Simon") {
+  function personStats(owner: "Kevin" | "Simon" | "Daniel") {
     const ownerListIds = new Set(lists.filter((l) => l.owner_name === owner).map((l) => l.id));
     // If specific lists are selected, intersect with that person's lists
     const effectiveIds = f.selectedListIds.size > 0
@@ -86,7 +88,7 @@ export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek,
     return { total: t, answered: a, appts: ap, openFU: ofu, answerRate: pct(a, t), apptRate: pct(ap, t), chartData };
   }
 
-  const weekCounts  = { Kevin: kevinWeek, Simon: simonWeek };
+  const weekCounts  = { Kevin: kevinWeek, Simon: simonWeek, Daniel: danielWeek };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
@@ -96,7 +98,7 @@ export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek,
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Users size={13} color="#a78bfa" />
           </div>
-          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Kevin vs Simon</span>
+          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Kevin · Simon · Daniel</span>
           <span style={{ fontSize: "0.75rem", color: "#52525b" }}>
             · {f.periodLabel}
             {f.selectedListIds.size > 0 ? ` · ${f.selectedListIds.size} ${f.selectedListIds.size === 1 ? "Liste" : "Listen"} gefiltert` : " · alle Listen je Person"}
@@ -119,8 +121,8 @@ export function PersonSection({ allContacts, lists, today, kevinWeek, simonWeek,
         />
       </div>
 
-      <div className="grid-2-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-        {(["Kevin", "Simon"] as const).map((owner) => {
+      <div className="grid-3-col" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>
+        {(["Kevin", "Simon", "Daniel"] as const).map((owner) => {
           if (f.owner && f.owner !== owner) return null;
           const ps = personStats(owner);
           const s  = OWNER_STYLE[owner];

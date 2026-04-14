@@ -12,12 +12,14 @@ import { OverallSection } from "@/components/dashboard/OverallSection";
 import { PersonSection } from "@/components/dashboard/PersonSection";
 import { ListAnalysisSection } from "@/components/dashboard/ListAnalysisSection";
 
-const OWNERS = ["Kevin", "Simon"] as const;
+const OWNERS = ["Kevin", "Simon", "Daniel"] as const;
+type Owner = typeof OWNERS[number];
 const WEEKLY_GOAL = 100;
 
-const OWNER_STYLE = {
-  Kevin: { color: "#818cf8", glow: "rgba(99,102,241,0.4)", bg: "rgba(99,102,241,0.08)", border: "rgba(99,102,241,0.25)" },
-  Simon: { color: "#a78bfa", glow: "rgba(139,92,246,0.4)", bg: "rgba(139,92,246,0.08)", border: "rgba(139,92,246,0.25)" },
+const OWNER_STYLE: Record<Owner, { color: string; glow: string; bg: string; border: string }> = {
+  Kevin:  { color: "#818cf8", glow: "rgba(99,102,241,0.4)",  bg: "rgba(99,102,241,0.08)",  border: "rgba(99,102,241,0.25)" },
+  Simon:  { color: "#a78bfa", glow: "rgba(139,92,246,0.4)",  bg: "rgba(139,92,246,0.08)",  border: "rgba(139,92,246,0.25)" },
+  Daniel: { color: "#34d399", glow: "rgba(52,211,153,0.4)",  bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.25)" },
 };
 
 function getISOWeek(dateStr: string): number {
@@ -37,31 +39,39 @@ function weekStart(today: string): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
-function DuelPanel({ owner, count, leader, goal }: { owner: "Kevin" | "Simon"; count: number; leader: string | null; goal: number; }) {
+function DuelPanel({ owner, count, leader, loser, goal }: { owner: Owner; count: number; leader: Owner | null; loser: Owner | null; goal: number; }) {
   const s = OWNER_STYLE[owner];
   const isWinner = leader === owner;
-  const isLoser = !!leader && leader !== owner;
+  const isLoser = loser === owner;
   const progress = Math.min((count / goal) * 100, 100);
-  const isLeft = owner === "Kevin";
   return (
-    <div style={{ textAlign: isLeft ? "left" : "right" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "0.875rem", justifyContent: isLeft ? "flex-start" : "flex-end" }}>
-        {isLeft && <div style={{ width: 38, height: 38, borderRadius: "50%", background: `${s.color}22`, border: `2px solid ${isWinner ? s.color : s.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 800, color: s.color, boxShadow: isWinner ? `0 0 14px ${s.glow}` : "none", flexShrink: 0 }}>{owner[0]}</div>}
+    <div style={{ textAlign: "center" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
+        <div style={{ width: 38, height: 38, borderRadius: "50%", background: `${s.color}22`, border: `2px solid ${isWinner ? s.color : s.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 800, color: s.color, boxShadow: isWinner ? `0 0 14px ${s.glow}` : "none", flexShrink: 0 }}>{owner[0]}</div>
         <div>
           <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: isWinner ? s.color : "#e4e4e7" }}>{owner} {isWinner ? "👑" : ""}</div>
-          <div style={{ fontSize: "0.75rem", color: "#71717a" }}>{isLoser ? "zahlt das Essen 🍽️" : isWinner ? "führt diese Woche" : "gleichauf"}</div>
+          <div style={{ fontSize: "0.75rem", color: "#71717a" }}>{isLoser ? "zahlt das Essen 🍽️" : isWinner ? "führt diese Woche" : "im Rennen"}</div>
         </div>
-        {!isLeft && <div style={{ width: 38, height: 38, borderRadius: "50%", background: `${s.color}22`, border: `2px solid ${isWinner ? s.color : s.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 800, color: s.color, boxShadow: isWinner ? `0 0 14px ${s.glow}` : "none", flexShrink: 0 }}>{owner[0]}</div>}
       </div>
       <div style={{ fontSize: "3.25rem", fontWeight: 800, letterSpacing: "-0.04em", color: isWinner ? s.color : "#71717a", lineHeight: 1, marginBottom: "0.5rem", textShadow: isWinner ? `0 0 28px ${s.glow}` : "none" }}>
         {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "#3f3f46", marginLeft: 3 }}>/{goal}</span>
       </div>
       <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 99, height: 6, overflow: "hidden" }}>
-        <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: isWinner ? `linear-gradient(${isLeft ? 90 : 270}deg, ${s.color}, ${isLeft ? "#8b5cf6" : "#6366f1"})` : `${s.color}44`, boxShadow: isWinner ? `0 0 8px ${s.glow}` : "none" }} />
+        <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: isWinner ? `linear-gradient(90deg, ${s.color}, ${s.color}bb)` : `${s.color}44`, boxShadow: isWinner ? `0 0 8px ${s.glow}` : "none" }} />
       </div>
       <div style={{ fontSize: "0.6875rem", color: "#52525b", marginTop: "0.375rem" }}>
         {Math.round(progress)}% · noch {Math.max(0, goal - count)} bis {goal}
       </div>
+    </div>
+  );
+}
+
+function VSSep() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", flexShrink: 0 }}>
+      <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, rgba(99,102,241,0.35))" }} />
+      <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "#3f3f46", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgba(99,102,241,0.15)", borderRadius: 99, background: "rgba(99,102,241,0.05)" }}>VS</div>
+      <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, rgba(99,102,241,0.35), transparent)" }} />
     </div>
   );
 }
@@ -86,10 +96,19 @@ export default async function DashboardPage() {
   for (const l of pitchLists) { if (l.owner_name) listOwner[l.id] = l.owner_name; }
 
   // ── Wochenduell (Mo–So, damit Sa/So auch mitzählen)
-  const kevinWeek = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= monday && d <= sunday && listOwner[c.list_id] === "Kevin"; }).length;
-  const simonWeek = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= monday && d <= sunday && listOwner[c.list_id] === "Simon"; }).length;
-  const leader = kevinWeek > simonWeek ? "Kevin" : simonWeek > kevinWeek ? "Simon" : null;
-  const diff   = Math.abs(kevinWeek - simonWeek);
+  const kevinWeek  = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= monday && d <= sunday && listOwner[c.list_id] === "Kevin"; }).length;
+  const simonWeek  = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= monday && d <= sunday && listOwner[c.list_id] === "Simon"; }).length;
+  const danielWeek = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= monday && d <= sunday && listOwner[c.list_id] === "Daniel"; }).length;
+
+  const weekCounts: Record<Owner, number> = { Kevin: kevinWeek, Simon: simonWeek, Daniel: danielWeek };
+  const maxCount   = Math.max(kevinWeek, simonWeek, danielWeek);
+  const minCount   = Math.min(kevinWeek, simonWeek, danielWeek);
+  const leadersArr = OWNERS.filter((o) => weekCounts[o] === maxCount);
+  const losersArr  = OWNERS.filter((o) => weekCounts[o] === minCount);
+  const leader: Owner | null = leadersArr.length === 1 ? leadersArr[0] : null;
+  const loser:  Owner | null = losersArr.length === 1 && minCount < maxCount ? losersArr[0] : null;
+  const secondCount = leader ? Math.max(...OWNERS.filter((o) => o !== leader).map((o) => weekCounts[o])) : maxCount;
+  const diff = leader ? maxCount - secondCount : 0;
 
   // ── Historische Wochen (letzte 10, ebenfalls Mo–So)
   const historicalWeeks: WeeklyDuelPoint[] = [];
@@ -99,14 +118,16 @@ export default async function DashboardPage() {
     const weekLabel = `KW ${getISOWeek(wStart)}`;
     const kCount = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= wStart && d <= wEnd && listOwner[c.list_id] === "Kevin"; }).length;
     const sCount = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= wStart && d <= wEnd && listOwner[c.list_id] === "Simon"; }).length;
-    historicalWeeks.push({ week: weekLabel, Kevin: kCount, Simon: sCount });
+    const dCount = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= wStart && d <= wEnd && listOwner[c.list_id] === "Daniel"; }).length;
+    historicalWeeks.push({ week: weekLabel, Kevin: kCount, Simon: sCount, Daniel: dCount });
   }
 
   // ── Tagesziel (pro Person)
   const dailyGoal = 20;
   const todayCounts = {
-    Kevin: allContacts.filter((c) => (c.pitched_at ?? c.created_at.slice(0, 10)) === today && listOwner[c.list_id] === "Kevin").length,
-    Simon: allContacts.filter((c) => (c.pitched_at ?? c.created_at.slice(0, 10)) === today && listOwner[c.list_id] === "Simon").length,
+    Kevin:  allContacts.filter((c) => (c.pitched_at ?? c.created_at.slice(0, 10)) === today && listOwner[c.list_id] === "Kevin").length,
+    Simon:  allContacts.filter((c) => (c.pitched_at ?? c.created_at.slice(0, 10)) === today && listOwner[c.list_id] === "Simon").length,
+    Daniel: allContacts.filter((c) => (c.pitched_at ?? c.created_at.slice(0, 10)) === today && listOwner[c.list_id] === "Daniel").length,
   };
 
   // ── Follow-up alerts (always current, no filter)
@@ -143,27 +164,25 @@ export default async function DashboardPage() {
             <div style={{ fontSize: "0.75rem", color: "#52525b" }}>Ziel: {WEEKLY_GOAL} DMs · {monday} → {sunday} · Reset jeden Montag</div>
           </div>
           {leader && (
-            <div style={{ marginLeft: "auto", background: OWNER_STYLE[leader as keyof typeof OWNER_STYLE].bg, border: `1px solid ${OWNER_STYLE[leader as keyof typeof OWNER_STYLE].border}`, borderRadius: 99, padding: "0.2rem 0.75rem", display: "flex", alignItems: "center", gap: "0.375rem" }}>
+            <div style={{ marginLeft: "auto", background: OWNER_STYLE[leader].bg, border: `1px solid ${OWNER_STYLE[leader].border}`, borderRadius: 99, padding: "0.2rem 0.75rem", display: "flex", alignItems: "center", gap: "0.375rem" }}>
               <span style={{ fontSize: "0.875rem" }}>👑</span>
-              <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: OWNER_STYLE[leader as keyof typeof OWNER_STYLE].color }}>{leader} +{diff}</span>
+              <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: OWNER_STYLE[leader].color }}>{leader} +{diff}</span>
             </div>
           )}
         </div>
 
-        <div className="duel-grid" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "1.5rem", alignItems: "center" }}>
-          <DuelPanel owner="Kevin" count={kevinWeek} leader={leader} goal={WEEKLY_GOAL} />
-          <div className="duel-vs" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", flexShrink: 0 }}>
-            <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, rgba(99,102,241,0.35))" }} />
-            <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "#3f3f46", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgba(99,102,241,0.15)", borderRadius: 99, background: "rgba(99,102,241,0.05)" }}>VS</div>
-            <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, rgba(99,102,241,0.35), transparent)" }} />
-          </div>
-          <DuelPanel owner="Simon" count={simonWeek} leader={leader} goal={WEEKLY_GOAL} />
+        <div className="duel-grid" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr auto 1fr", gap: "1.5rem", alignItems: "center" }}>
+          <DuelPanel owner="Kevin"  count={kevinWeek}  leader={leader} loser={loser} goal={WEEKLY_GOAL} />
+          <VSSep />
+          <DuelPanel owner="Simon"  count={simonWeek}  leader={leader} loser={loser} goal={WEEKLY_GOAL} />
+          <VSSep />
+          <DuelPanel owner="Daniel" count={danielWeek} leader={leader} loser={loser} goal={WEEKLY_GOAL} />
         </div>
 
         <div style={{ marginTop: "1rem", paddingTop: "0.875rem", borderTop: "1px solid rgba(255,255,255,0.05)", fontSize: "0.8125rem", color: "#52525b", textAlign: "center" }}>
-          {leader && diff > 0 ? <><span style={{ color: "#a1a1aa" }}>{leader === "Kevin" ? "Simon" : "Kevin"} braucht noch </span><span style={{ color: "#fbbf24", fontWeight: 700 }}>{diff} DMs</span><span style={{ color: "#a1a1aa" }}> zum Gleichstand · </span></> : <span style={{ color: "#52525b" }}>Gleichstand · </span>}
-          <span style={{ color: WEEKLY_GOAL - Math.max(kevinWeek, simonWeek) > 0 ? "#6366f1" : "#4ade80", fontWeight: 600 }}>
-            {WEEKLY_GOAL - Math.max(kevinWeek, simonWeek) > 0 ? `${WEEKLY_GOAL - Math.max(kevinWeek, simonWeek)} bis zur 100er-Marke` : "🎉 100er-Marke erreicht!"}
+          {leader && diff > 0 ? <><span style={{ color: "#a1a1aa" }}>2. Platz braucht noch </span><span style={{ color: "#fbbf24", fontWeight: 700 }}>{diff} DMs</span><span style={{ color: "#a1a1aa" }}> zum Gleichstand · </span></> : <span style={{ color: "#52525b" }}>Gleichstand · </span>}
+          <span style={{ color: WEEKLY_GOAL - maxCount > 0 ? "#6366f1" : "#4ade80", fontWeight: 600 }}>
+            {WEEKLY_GOAL - maxCount > 0 ? `${WEEKLY_GOAL - maxCount} bis zur 100er-Marke` : "🎉 100er-Marke erreicht!"}
           </span>
         </div>
       </div>
@@ -174,7 +193,7 @@ export default async function DashboardPage() {
           <History size={14} color="#fbbf24" />
           <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Duell-Verlauf letzte 10 Wochen</span>
           <div style={{ marginLeft: "auto", display: "flex", gap: "0.75rem" }}>
-            {[{ label: "Kevin", color: METRIC_COLORS.dms }, { label: "Simon", color: METRIC_COLORS.appointments }, { label: `Ziel ${WEEKLY_GOAL}`, color: "#fbbf24" }].map((m) => (
+            {[{ label: "Kevin", color: METRIC_COLORS.dms }, { label: "Simon", color: METRIC_COLORS.appointments }, { label: "Daniel", color: "#34d399" }, { label: `Ziel ${WEEKLY_GOAL}`, color: "#fbbf24" }].map((m) => (
               <div key={m.label} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: m.color }} />
                 <span style={{ fontSize: "0.6875rem", color: "#71717a" }}>{m.label}</span>
@@ -184,19 +203,24 @@ export default async function DashboardPage() {
         </div>
         <WeeklyDuelChart data={historicalWeeks} goal={WEEKLY_GOAL} />
         {(() => {
-          const kevinWins = historicalWeeks.filter((w) => w.Kevin > w.Simon).length;
-          const simonWins = historicalWeeks.filter((w) => w.Simon > w.Kevin).length;
-          const draws = historicalWeeks.filter((w) => w.Kevin === w.Simon && w.Kevin > 0).length;
+          const kevinWins  = historicalWeeks.filter((w) => w.Kevin > w.Simon && w.Kevin > w.Daniel).length;
+          const simonWins  = historicalWeeks.filter((w) => w.Simon > w.Kevin && w.Simon > w.Daniel).length;
+          const danielWins = historicalWeeks.filter((w) => w.Daniel > w.Kevin && w.Daniel > w.Simon).length;
+          const draws      = historicalWeeks.filter((w) => w.Kevin === w.Simon && w.Kevin === w.Daniel && w.Kevin > 0).length;
+          const topWins    = Math.max(kevinWins, simonWins, danielWins);
+          const overallLeader = [{ n: "Kevin", w: kevinWins }, { n: "Simon", w: simonWins }, { n: "Daniel", w: danielWins }]
+            .filter((x) => x.w === topWins);
           return (
             <div style={{ display: "flex", gap: "1rem", marginTop: "0.875rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border)" }}>
               <div style={{ fontSize: "0.75rem", color: "#52525b" }}>Siege 10 Wochen:</div>
               <div style={{ display: "flex", gap: "0.875rem" }}>
                 <span style={{ fontSize: "0.875rem", fontWeight: 700, color: METRIC_COLORS.dms }}>Kevin {kevinWins}W</span>
                 <span style={{ fontSize: "0.875rem", fontWeight: 700, color: METRIC_COLORS.appointments }}>Simon {simonWins}W</span>
+                <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#34d399" }}>Daniel {danielWins}W</span>
                 {draws > 0 && <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#52525b" }}>{draws}×Unentschieden</span>}
               </div>
               <div style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#52525b" }}>
-                Gesamtduell: {kevinWins > simonWins ? `Kevin führt (+${kevinWins - simonWins})` : simonWins > kevinWins ? `Simon führt (+${simonWins - kevinWins})` : "Gleichstand"}
+                {overallLeader.length === 1 ? `${overallLeader[0].n} führt (+${topWins - Math.max(...[kevinWins, simonWins, danielWins].filter((w) => w !== topWins || [kevinWins, simonWins, danielWins].indexOf(w) > [kevinWins, simonWins, danielWins].indexOf(topWins)))})` : "Gleichstand"}
               </div>
             </div>
           );
@@ -248,13 +272,14 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* ══ SEKTION 2: KEVIN VS SIMON (Client, eigener Filter) ══ */}
+      {/* ══ SEKTION 2: KEVIN vs SIMON vs DANIEL (Client, eigener Filter) ══ */}
       <PersonSection
         allContacts={allContacts}
         lists={pitchLists}
         today={today}
         kevinWeek={kevinWeek}
         simonWeek={simonWeek}
+        danielWeek={danielWeek}
         todayCounts={todayCounts}
         dailyGoal={dailyGoal}
       />

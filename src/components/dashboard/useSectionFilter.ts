@@ -8,7 +8,7 @@ export type SectionFilterState = {
   from: string;
   to: string;
   selectedListIds: Set<string>;
-  owner: "" | "Kevin" | "Simon";
+  owner: "" | "Kevin" | "Simon" | "Daniel";
 };
 
 function weekStart(today: string): string {
@@ -42,7 +42,7 @@ export function useSectionFilter(
   const [from, setFrom] = useState("");
   const [to, setTo] = useState(today);
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
-  const [owner, setOwner] = useState<"" | "Kevin" | "Simon">("");
+  const [owner, setOwner] = useState<"" | "Kevin" | "Simon" | "Daniel">("");
 
   const effectiveFrom: string = useMemo(() => {
     if (period === "custom") return from;

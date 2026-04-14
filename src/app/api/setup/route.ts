@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// Einmalige Setup-Route — erstellt Kevin + Simon + Workspace
+// Einmalige Setup-Route — erstellt Kevin + Simon + Daniel + Workspace
 // Aufruf: GET /api/setup
-// Danach kann man sich mit Kevin/Kevin und Simon/Simon einloggen
+// Danach kann man sich mit Kevin/Kevin, Simon/Simon und Daniel/Daniel einloggen
 
 const USERS = [
   { username: "Kevin", password: "Kevin" },
   { username: "Simon", password: "Simon" },
+  { username: "Daniel", password: "Daniel" },
 ];
 
 export async function GET() {
@@ -127,6 +128,7 @@ export async function GET() {
     <div style="font-size:0.75rem;font-weight:700;color:#52525b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.75rem">Login-Daten</div>
     <div class="cred"><span class="label">Kevin</span><span class="val">Kevin / Kevin</span></div>
     <div class="cred"><span class="label">Simon</span><span class="val">Simon / Simon</span></div>
+    <div class="cred"><span class="label">Daniel</span><span class="val">Daniel / Daniel</span></div>
   </div>
   <a href="/login">→ Jetzt einloggen</a>
 </div>

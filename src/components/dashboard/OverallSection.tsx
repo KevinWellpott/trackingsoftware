@@ -9,15 +9,16 @@ import { MultiMetricBarChart, METRIC_COLORS, type MultiMetricDay } from "@/compo
 import type { ContactWithStage, PitchList } from "@/lib/types";
 
 const OWNER_STYLE = {
-  Kevin: { color: "#818cf8", glow: "rgba(99,102,241,0.35)", gradient: "linear-gradient(90deg, #6366f1, #8b5cf6)" },
-  Simon: { color: "#a78bfa", glow: "rgba(139,92,246,0.35)", gradient: "linear-gradient(90deg, #8b5cf6, #a78bfa)" },
+  Kevin:  { color: "#818cf8", glow: "rgba(99,102,241,0.35)",  gradient: "linear-gradient(90deg, #6366f1, #8b5cf6)" },
+  Simon:  { color: "#a78bfa", glow: "rgba(139,92,246,0.35)",  gradient: "linear-gradient(90deg, #8b5cf6, #a78bfa)" },
+  Daniel: { color: "#34d399", glow: "rgba(52,211,153,0.35)",  gradient: "linear-gradient(90deg, #10b981, #34d399)" },
 };
 
 type Props = {
   allContacts: ContactWithStage[];
   lists: PitchList[];
   today: string;
-  todayCounts: { Kevin: number; Simon: number };
+  todayCounts: { Kevin: number; Simon: number; Daniel: number };
   dailyGoal: number;
 };
 
@@ -81,7 +82,7 @@ function buildChartData(contacts: ContactWithStage[], from: string, to: string):
 
 function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 100); }
 
-export function OverallSection({ allContacts, lists, today, todayCounts = { Kevin: 0, Simon: 0 }, dailyGoal }: Props) {
+export function OverallSection({ allContacts, lists, today, todayCounts = { Kevin: 0, Simon: 0, Daniel: 0 }, dailyGoal }: Props) {
   const f = useSectionFilter(allContacts, lists, "all");
 
   const total    = f.filtered.length;
@@ -126,8 +127,8 @@ export function OverallSection({ allContacts, lists, today, todayCounts = { Kevi
       </div>
 
       {/* Tagesziel je Person */}
-      <div className="daily-goal-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-        {(["Kevin", "Simon"] as const).map((owner) => {
+      <div className="daily-goal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem" }}>
+        {(["Kevin", "Simon", "Daniel"] as const).map((owner) => {
           const count = todayCounts[owner];
           const done  = count >= dailyGoal;
           const s     = OWNER_STYLE[owner];

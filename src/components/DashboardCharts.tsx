@@ -120,19 +120,20 @@ export function ListComparisonChart({ data }: { data: ListBar[] }) {
 }
 
 // ── Historical weekly duel chart ─────────────────────────────
-export type WeeklyDuelPoint = { week: string; Kevin: number; Simon: number };
+export type WeeklyDuelPoint = { week: string; Kevin: number; Simon: number; Daniel: number };
 
 export function WeeklyDuelChart({ data, goal }: { data: WeeklyDuelPoint[]; goal: number }) {
-  if (data.every((d) => d.Kevin === 0 && d.Simon === 0)) return <EmptyState text="Noch keine Verlaufsdaten." />;
+  if (data.every((d) => d.Kevin === 0 && d.Simon === 0 && d.Daniel === 0)) return <EmptyState text="Noch keine Verlaufsdaten." />;
   return (
     <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={data} barSize={10} barGap={3} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
+      <BarChart data={data} barSize={8} barGap={2} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
         <XAxis dataKey="week" tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
         <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
         <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
         <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "#71717a" }} />
         <Bar dataKey="Kevin" fill={METRIC_COLORS.dms} radius={[3, 3, 0, 0]} />
         <Bar dataKey="Simon" fill={METRIC_COLORS.appointments} radius={[3, 3, 0, 0]} />
+        <Bar dataKey="Daniel" fill="#34d399" radius={[3, 3, 0, 0]} />
         {/* Goal reference rendered as a separate thin line */}
         <Bar dataKey={() => goal} name={`Ziel (${goal})`} fill="transparent" stroke="#fbbf24" strokeWidth={1.5} radius={0} opacity={0} />
       </BarChart>

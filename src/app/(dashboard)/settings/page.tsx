@@ -19,8 +19,9 @@ export default async function SettingsPage({
   const { users } = isOwner ? await listUsers(m.workspace_id) : { users: [] };
 
   const OWNER_COLORS: Record<string, string> = {
-    Kevin: "#818cf8",
-    Simon: "#a78bfa",
+    Kevin:  "#818cf8",
+    Simon:  "#a78bfa",
+    Daniel: "#34d399",
   };
 
   return (

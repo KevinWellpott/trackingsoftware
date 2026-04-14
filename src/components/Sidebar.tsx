@@ -102,6 +102,7 @@ function ListLink({
 const OWNER_COLORS: Record<string, string> = {
   Kevin: "#6366f1",
   Simon: "#8b5cf6",
+  Daniel: "#10b981",
 };
 
 function OwnerFolder({
@@ -207,13 +208,13 @@ function OwnerFolder({
 
 export function SidebarContent({ workspaceName, username, workspaceId, lists, onClose }: Props) {
   const [showNewList, setShowNewList] = useState(false);
-  const [newListOwner, setNewListOwner] = useState<"Kevin" | "Simon">("Kevin");
+  const [newListOwner, setNewListOwner] = useState<"Kevin" | "Simon" | "Daniel">("Kevin");
   const nameRef = useRef<HTMLInputElement>(null);
 
   // Gruppiere nach owner_name
   const owners = Array.from(
-    new Set(["Kevin", "Simon", ...lists.map((l) => l.owner_name ?? "Ohne Zuordnung")]),
-  ).filter((o) => o === "Kevin" || o === "Simon" || lists.some((l) => (l.owner_name ?? "Ohne Zuordnung") === o));
+    new Set(["Kevin", "Simon", "Daniel", ...lists.map((l) => l.owner_name ?? "Ohne Zuordnung")]),
+  ).filter((o) => o === "Kevin" || o === "Simon" || o === "Daniel" || lists.some((l) => (l.owner_name ?? "Ohne Zuordnung") === o));
 
   const grouped: Record<string, SidebarList[]> = {};
   for (const l of lists) {
@@ -319,7 +320,7 @@ export function SidebarContent({ workspaceName, username, workspaceId, lists, on
                 style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.3125rem 0.5rem", fontSize: "0.8125rem", color: "var(--text-primary)", outline: "none", marginBottom: "0.375rem" }}
               />
               <div style={{ display: "flex", gap: "0.375rem", marginBottom: "0.375rem" }}>
-                {(["Kevin", "Simon"] as const).map((o) => (
+                {(["Kevin", "Simon", "Daniel"] as const).map((o) => (
                   <button
                     key={o}
                     type="button"

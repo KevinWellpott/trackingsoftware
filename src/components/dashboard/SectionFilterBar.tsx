@@ -5,7 +5,7 @@ import { Calendar, ChevronDown, X } from "lucide-react";
 import type { PitchList } from "@/lib/types";
 import type { SectionFilterState } from "./useSectionFilter";
 
-const OWNER_COLORS: Record<string, string> = { Kevin: "#818cf8", Simon: "#a78bfa" };
+const OWNER_COLORS: Record<string, string> = { Kevin: "#818cf8", Simon: "#a78bfa", Daniel: "#34d399" };
 
 type Props = {
   lists: PitchList[];
@@ -13,12 +13,12 @@ type Props = {
   from: string;
   to: string;
   selectedListIds: Set<string>;
-  owner: "" | "Kevin" | "Simon";
+  owner: "" | "Kevin" | "Simon" | "Daniel";
   periodLabel: string;
   onPeriod: (p: SectionFilterState["period"]) => void;
   onCustom: (from: string, to: string) => void;
   onToggleList: (id: string) => void;
-  onOwner: (o: "" | "Kevin" | "Simon") => void;
+  onOwner: (o: "" | "Kevin" | "Simon" | "Daniel") => void;
   onFromChange: (v: string) => void;
   onToChange: (v: string) => void;
   hideOwner?: boolean;
@@ -81,7 +81,7 @@ export function SectionFilterBar({
         {/* Owner filter */}
         {!hideOwner && (
           <div style={{ display: "flex", gap: "0.2rem", marginLeft: "0.25rem" }}>
-            {(["", "Kevin", "Simon"] as const).map((o) => (
+            {(["", "Kevin", "Simon", "Daniel"] as const).map((o) => (
               <button key={o || "all"} type="button" onClick={() => onOwner(o)}
                 style={pill(owner === o, o ? OWNER_COLORS[o] : "#6366f1")}>
                 {o || "Alle"}
