@@ -250,10 +250,9 @@ export default async function OrganicPage() {
               const lTikTok = avg(lPosts.filter((p) => p.tiktok_impressions != null).map((p) => p.tiktok_impressions!));
               const ownerColor = list.owner_name === "Kevin" ? "#818cf8" : "#a78bfa";
               return (
-                <Link key={list.id} href={`/organic/${list.id}`} style={{ textDecoration: "none" }}>
+                <Link key={list.id} href={`/organic/${list.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
                   <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 10, padding: "0.875rem", transition: "border-color 0.15s, background 0.15s" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = ownerColor; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; }}
+                    className="organic-list-card"
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
                       <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: ownerColor, background: ownerColor + "22", borderRadius: 99, padding: "0.1rem 0.4rem" }}>{list.owner_name ?? "?"}</span>
