@@ -9,9 +9,10 @@ type Props = {
   username: string;
   workspaceId: string;
   lists: { id: string; name: string; owner_name: string | null }[];
+  organicLists?: { id: string; name: string; owner_name: string | null }[];
 };
 
-export function MobileHeader({ workspaceName, username, workspaceId, lists }: Props) {
+export function MobileHeader({ workspaceName, username, workspaceId, lists, organicLists }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
@@ -79,6 +80,7 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists }: Pr
         username={username}
         workspaceId={workspaceId}
         lists={lists}
+        organicLists={organicLists}
       />
     </>
   );

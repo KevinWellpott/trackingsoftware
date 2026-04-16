@@ -14,17 +14,26 @@ export default async function DashboardLayout({
 
   const supabase = await createClient();
 
-  const { data: lists } = await supabase
-    .from("lists")
-    .select("id, name, archived_at, owner_name")
-    .eq("workspace_id", m.workspace_id)
-    .is("archived_at", null)
-    .order("sort_order", { ascending: true });
+  const [{ data: lists }, { data: organicListsData }, userResult] = await Promise.all([
+    supabase
+      .from("lists")
+      .select("id, name, archived_at, owner_name")
+      .eq("workspace_id", m.workspace_id)
+      .is("archived_at", null)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("organic_lists")
+      .select("id, name, owner_name")
+      .eq("workspace_id", m.workspace_id)
+      .is("archived_at", null)
+      .order("created_at", { ascending: false }),
+    supabase.auth.getUser(),
+  ]);
 
   const { data: profileData } = await supabase
     .from("profiles")
     .select("username")
-    .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "")
+    .eq("user_id", userResult.data.user?.id ?? "")
     .maybeSingle();
 
   const username =
@@ -32,6 +41,12 @@ export default async function DashboardLayout({
     m.workspaces.name;
 
   const sidebarLists = (lists ?? []).map((l) => ({
+    id: l.id,
+    name: l.name,
+    owner_name: (l as { owner_name?: string | null }).owner_name ?? null,
+  }));
+
+  const organicLists = (organicListsData ?? []).map((l) => ({
     id: l.id,
     name: l.name,
     owner_name: (l as { owner_name?: string | null }).owner_name ?? null,
@@ -57,6 +72,7 @@ export default async function DashboardLayout({
           username={username}
           workspaceId={m.workspace_id}
           lists={sidebarLists}
+          organicLists={organicLists}
         />
       </aside>
 
@@ -69,6 +85,7 @@ export default async function DashboardLayout({
             username={username}
             workspaceId={m.workspace_id}
             lists={sidebarLists}
+            organicLists={organicLists}
           />
         </div>
 
