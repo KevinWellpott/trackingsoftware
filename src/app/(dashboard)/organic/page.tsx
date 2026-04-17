@@ -133,6 +133,42 @@ export default async function OrganicPage() {
   // ── Insights
   const insights = generateOrganicInsights(posts);
 
+  // ── Zielsetzung 01.05
+  const DEADLINE = "2026-05-01";
+  const VIEWS_GOAL = 10000;
+  const FOLLOWER_GOAL = 100;
+
+  const deadlineDate = new Date(DEADLINE + "T00:00:00");
+  const todayDate    = new Date(today + "T00:00:00");
+  const daysLeft     = Math.max(0, Math.ceil((deadlineDate.getTime() - todayDate.getTime()) / 86400000));
+  const isPast       = daysLeft === 0;
+
+  // Bestes Video nach Gesamt-Impressionen
+  const bestVideoImpressions = posts.reduce((max, p) => {
+    const total = (p.insta_impressions ?? 0) + (p.tiktok_impressions ?? 0);
+    return total > max ? total : max;
+  }, 0);
+  const bestVideoPost = posts.find((p) =>
+    (p.insta_impressions ?? 0) + (p.tiktok_impressions ?? 0) === bestVideoImpressions && bestVideoImpressions > 0
+  ) ?? null;
+
+  const viewsPct     = Math.min((bestVideoImpressions / VIEWS_GOAL) * 100, 100);
+  const viewsReached = bestVideoImpressions >= VIEWS_GOAL;
+
+  // Urgency colour
+  const urgencyColor  = isPast ? "#34d399" : daysLeft <= 7 ? "#f87171" : daysLeft <= 14 ? "#f59e0b" : "#e879f9";
+  const urgencyGlow   = isPast ? "rgba(52,211,153,0.35)" : daysLeft <= 7 ? "rgba(248,113,113,0.35)" : daysLeft <= 14 ? "rgba(245,158,11,0.35)" : "rgba(232,121,249,0.35)";
+  const urgencyBg     = isPast ? "rgba(52,211,153,0.06)" : daysLeft <= 7 ? "rgba(248,113,113,0.06)" : daysLeft <= 14 ? "rgba(245,158,11,0.06)" : "rgba(232,121,249,0.06)";
+  const urgencyBorder = isPast ? "rgba(52,211,153,0.2)"  : daysLeft <= 7 ? "rgba(248,113,113,0.2)"  : daysLeft <= 14 ? "rgba(245,158,11,0.2)"  : "rgba(232,121,249,0.2)";
+
+  const motivText = isPast
+    ? { emoji: "🎉", line1: "Deadline war gestern — wie war die Mission?", line2: "Checkt euren besten Hook und skaliert ihn weiter. Der Algorithmus belohnt Konsistenz." }
+    : daysLeft <= 7
+    ? { emoji: "🔥", line1: `Noch ${daysLeft} Tag${daysLeft === 1 ? "" : "e"}. Alles rauslassen jetzt!`, line2: "In der letzten Woche entscheidet sich alles. Jeder Post kann der Durchbruch sein." }
+    : daysLeft <= 14
+    ? { emoji: "⚡", line1: `${daysLeft} Tage — es wird ernst.`, line2: "Zwei Wochen. Jetzt den Hook-Stil testen der bisher am besten lief und verdoppeln." }
+    : { emoji: "🚀", line1: `${daysLeft} Tage bis zum 01.05 — ihr schafft das.`, line2: "Konsistenz schlägt Perfektion. Jeden Tag posten, testen, lernen." };
+
   // ── Historical weekly data (last 10 weeks)
   const weeklyHistory: { week: string; Kevin: number; Simon: number }[] = [];
   for (let i = 9; i >= 0; i--) {
@@ -179,6 +215,76 @@ export default async function OrganicPage() {
           <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.25rem 0.625rem" }}>
             {lists.length} Content-Serien · {posts.length} Posts total
           </span>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════
+          ZIELSETZUNG 01.05
+      ══════════════════════════════════════════════════════════ */}
+      <div style={{ position: "relative", background: urgencyBg, border: `1px solid ${urgencyBorder}`, borderRadius: 16, padding: "1.375rem 1.75rem", marginBottom: "1.5rem", overflow: "hidden" }}>
+        {/* Glow */}
+        <div style={{ position: "absolute", top: -60, right: -40, width: 220, height: 220, background: `radial-gradient(circle, ${urgencyGlow} 0%, transparent 70%)`, pointerEvents: "none" }} />
+
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "1.5rem", flexWrap: "wrap" }}>
+          {/* Countdown */}
+          <div style={{ textAlign: "center", flexShrink: 0, minWidth: 80 }}>
+            <div style={{ fontSize: "2.5rem", lineHeight: 1 }}>{motivText.emoji}</div>
+            <div style={{ marginTop: "0.5rem" }}>
+              <div style={{ fontSize: "2.5rem", fontWeight: 900, color: urgencyColor, letterSpacing: "-0.05em", lineHeight: 1, textShadow: `0 0 20px ${urgencyGlow}` }}>
+                {isPast ? "✓" : daysLeft}
+              </div>
+              <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: urgencyColor, opacity: 0.75, marginTop: "0.125rem" }}>
+                {isPast ? "Erreicht" : daysLeft === 1 ? "Tag noch" : "Tage noch"}
+              </div>
+              <div style={{ fontSize: "0.625rem", color: "var(--text-subtle)", marginTop: "0.125rem" }}>bis 01.05.2026</div>
+            </div>
+          </div>
+
+          {/* Text + Goals */}
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: "1rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.02em", marginBottom: "0.25rem", lineHeight: 1.3 }}>
+              {motivText.line1}
+            </div>
+            <p style={{ fontSize: "0.8125rem", color: "#a1a1aa", margin: "0 0 1rem", lineHeight: 1.55 }}>
+              {motivText.line2}
+            </p>
+
+            {/* Goal 1: 10k Views */}
+            <div style={{ marginBottom: "0.75rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "0.375rem" }}>
+                <span style={{ fontWeight: 700, color: viewsReached ? "#34d399" : "#fafafa" }}>
+                  {viewsReached ? "✅" : "🎬"} Ein Video mit 10.000+ Views
+                </span>
+                <span style={{ color: viewsReached ? "#34d399" : urgencyColor, fontWeight: 700 }}>
+                  {bestVideoImpressions.toLocaleString()} / {VIEWS_GOAL.toLocaleString()}
+                </span>
+              </div>
+              <div style={{ position: "relative", height: 8, borderRadius: 99, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 99,
+                  width: `${viewsPct}%`,
+                  background: viewsReached
+                    ? "linear-gradient(90deg, #34d399, #4ade80)"
+                    : `linear-gradient(90deg, ${urgencyColor}88, ${urgencyColor})`,
+                  boxShadow: `0 0 6px ${urgencyGlow}`,
+                  transition: "width 0.6s ease",
+                }} />
+              </div>
+              {bestVideoPost && !viewsReached && (
+                <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginTop: "0.25rem" }}>
+                  Bestes Video: {bestVideoPost.hook_text ? `"${bestVideoPost.hook_text.slice(0, 50)}${bestVideoPost.hook_text.length > 50 ? "…" : ""}"` : bestVideoPost.posted_at}
+                  {" · "}noch {(VIEWS_GOAL - bestVideoImpressions).toLocaleString()} Views bis Ziel
+                </div>
+              )}
+            </div>
+
+            {/* Goal 2: 100 Follower */}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 8, padding: "0.5rem 0.75rem" }}>
+              <span style={{ fontSize: "0.875rem" }}>👥</span>
+              <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#fafafa" }}>100 neue Follower</span>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", marginLeft: "auto" }}>manuell tracken — Einstellungen → Notizen</span>
+            </div>
+          </div>
         </div>
       </div>
 
