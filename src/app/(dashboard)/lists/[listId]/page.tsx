@@ -20,7 +20,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   if (le || !list) notFound();
 
   const { data: stages } = await supabase.from("pipeline_stages").select("*").eq("list_id", listId).order("sort_order");
-  const { data: rawContacts } = await supabase.from("contacts").select("*, pipeline_stages (*)").eq("list_id", listId).order("pitched_at", { ascending: false, nullsFirst: false });
+  const { data: rawContacts } = await supabase.from("contacts").select("*, pipeline_stages (*)").eq("list_id", listId).order("pitched_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false });
 
   const contacts = (rawContacts ?? []) as unknown as ContactWithStage[];
   const L = list as PitchList;
@@ -72,7 +72,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   const insightColors = { success: "#4ade80", warning: "#fbbf24", tip: "#818cf8" };
 
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       {/* ── Header ── */}
       <div style={{ marginBottom: "1.5rem" }}>
         <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "#52525b", textDecoration: "none", marginBottom: "0.875rem" }}>

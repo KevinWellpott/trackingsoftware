@@ -471,7 +471,7 @@ export function ListBoard({ listId, stages, contacts }: {
       {/* Table */}
       <div style={{ border: "1px solid #1c1c1f", borderRadius: 12, background: "#09090b", overflow: "clip" }}>
         <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" as never }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem", tableLayout: "auto", minWidth: 700 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem", tableLayout: "auto", minWidth: 980 }}>
             <thead>
               <tr style={{ background: "#0d0d10", borderBottom: "1px solid #1c1c1f" }}>
                 {["Datum", "Name", "FU", "Antwort", "Termin", "Kategorie", "Was war die Antwort?", "Notizen", ""].map((h, i) => (
