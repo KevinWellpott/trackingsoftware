@@ -10,7 +10,7 @@ import { ArrowLeft, Calendar, CheckCircle, Clock, FileText, TrendingUp, Users } 
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 100); }
+function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1000) / 10; }
 
 export default async function ListDetailPage({ params }: { params: Promise<{ listId: string }> }) {
   const { listId } = await params;

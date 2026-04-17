@@ -18,7 +18,7 @@ const OWNER_COLORS: Record<string, { bg: string; border: string; text: string }>
   Simon: { bg: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.25)", text: "#a78bfa" },
 };
 
-function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 100); }
+function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1000) / 10; }
 
 function RankBadge({ rank }: { rank: number }) {
   const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;

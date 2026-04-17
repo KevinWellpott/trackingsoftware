@@ -80,7 +80,7 @@ function buildChartData(contacts: ContactWithStage[], from: string, to: string):
   return Object.values(days).slice(-60);
 }
 
-function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 100); }
+function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1000) / 10; }
 
 export function OverallSection({ allContacts, lists, today, todayCounts = { Kevin: 0, Simon: 0, Daniel: 0 }, dailyGoal }: Props) {
   const f = useSectionFilter(allContacts, lists, "all");

@@ -404,7 +404,7 @@ function StatsRow({ contacts }: { contacts: ContactWithStage[] }) {
   const fu1 = contacts.filter((c) => c.follow_up_number === 1).length;
   const fu2 = contacts.filter((c) => c.follow_up_number === 2).length;
   const fu3 = contacts.filter((c) => c.follow_up_number === 3).length;
-  const pct = (n: number) => total === 0 ? "0%" : `${Math.round((n / total) * 100)}%`;
+  const pct = (n: number) => total === 0 ? "0%" : `${Math.round((n / total) * 1000) / 10}%`;
 
   const catCounts: Record<string, number> = {};
   for (const c of contacts) if (c.answer_category) catCounts[c.answer_category] = (catCounts[c.answer_category] ?? 0) + 1;
