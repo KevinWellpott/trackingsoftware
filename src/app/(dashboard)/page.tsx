@@ -241,7 +241,7 @@ export default async function DashboardPage() {
               {[
                 { label: "DMs gesamt", value: totalDMs.toLocaleString(), color: "#71717a" },
                 { label: "Termine", value: totalAppts.toLocaleString(), color: mot.color },
-                { label: "Noch bis 7%", value: totalDMs > 0 ? `${Math.max(0, Math.ceil(totalDMs * 0.07) - totalAppts)} Termine`, color: apptStatus === "above" ? "#34d399" : "#52525b" },
+                { label: "Noch bis 7%", value: totalDMs > 0 ? `${Math.max(0, Math.ceil(totalDMs * 0.07) - totalAppts)} Termine` : "—", color: apptStatus === "above" ? "#34d399" : "#52525b" },
               ].map((s) => (
                 <div key={s.label}>
                   <div style={{ fontSize: "0.6875rem", color: "#3f3f46", textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
