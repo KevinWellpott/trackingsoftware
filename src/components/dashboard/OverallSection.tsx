@@ -186,7 +186,11 @@ export function OverallSection({ allContacts, lists, today, todayCounts = { Kevi
           <div key={card.label} style={{ position: "relative", background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.25rem", overflow: "hidden" }}>
             <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#52525b", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.625rem" }}>{card.label}</div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 2 }}>
-              <NumberTicker value={card.num} style={{ fontSize: "2rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.04em", lineHeight: 1 }} />
+              {card.suffix === "%" ? (
+                <span style={{ fontSize: "2rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.04em", lineHeight: 1 }}>{card.num}</span>
+              ) : (
+                <NumberTicker value={card.num} style={{ fontSize: "2rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.04em", lineHeight: 1 }} />
+              )}
               {card.suffix && <span style={{ fontSize: "0.9375rem", fontWeight: 600, color: card.color }}>{card.suffix}</span>}
             </div>
             {"sub" in card && card.sub && <div style={{ fontSize: "0.6875rem", color: "#52525b", marginTop: "0.25rem" }}>{card.sub}</div>}
