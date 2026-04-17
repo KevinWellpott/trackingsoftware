@@ -139,6 +139,43 @@ export default async function DashboardPage() {
   // ── Insights (overall, no filter)
   const insights = generateInsights(pitchLists, allContacts);
 
+  // ── Terminquote Ziel (3–7%)
+  const totalDMs   = allContacts.length;
+  const totalAppts = allContacts.filter((c) => c.appointment_set === true).length;
+  const apptRate   = totalDMs > 0 ? (totalAppts / totalDMs) * 100 : 0;
+  const apptRateRounded = Math.round(apptRate * 10) / 10;
+  const GOAL_MIN = 3, GOAL_MAX = 7;
+
+  const apptStatus: "below" | "zone" | "above" =
+    apptRate < GOAL_MIN ? "below" : apptRate > GOAL_MAX ? "above" : "zone";
+
+  const MOTIVATION: Record<typeof apptStatus, { emoji: string; headline: string; sub: string; color: string; glow: string; bg: string; border: string }> = {
+    below: {
+      emoji: "🚀",
+      headline: "Jeder DM zählt — die Quote kommt mit Volumen.",
+      sub: "Die besten Closer der Welt brauchen 30–50 Nein's für jedes Ja. Ihr seid im Aufbau — weiter machen!",
+      color: "#818cf8", glow: "rgba(99,102,241,0.35)", bg: "rgba(99,102,241,0.06)", border: "rgba(99,102,241,0.18)",
+    },
+    zone: {
+      emoji: "🎯",
+      headline: "Ihr seid genau im Ziel — dieser Pitch funktioniert!",
+      sub: "3–7% Terminquote ist das, was Top-Closer im Cold Outreach erzielen. Skaliert diesen Ansatz jetzt!",
+      color: "#34d399", glow: "rgba(52,211,153,0.35)", bg: "rgba(52,211,153,0.06)", border: "rgba(52,211,153,0.2)",
+    },
+    above: {
+      emoji: "🏆",
+      headline: "Über Ziel! Ihr spielt in einer anderen Liga.",
+      sub: "Über 7% Terminquote? Das ist Elite-Niveau. Dupliziert diesen Pitch sofort auf mehr Listen!",
+      color: "#fbbf24", glow: "rgba(251,191,36,0.35)", bg: "rgba(251,191,36,0.06)", border: "rgba(251,191,36,0.2)",
+    },
+  };
+  const mot = MOTIVATION[apptStatus];
+
+  // Progress bar: 0–10% als Skala, Zielzone 3–7% markiert
+  const barPct = Math.min((apptRate / 10) * 100, 100);
+  const goalMinPct = (GOAL_MIN / 10) * 100;
+  const goalMaxPct = (GOAL_MAX / 10) * 100;
+
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.75rem" }}>
 
@@ -148,6 +185,72 @@ export default async function DashboardPage() {
         <p style={{ fontSize: "0.8125rem", color: "#52525b", marginTop: 2 }}>
           Performance-Übersicht · {m.workspaces.name}
         </p>
+      </div>
+
+      {/* ══ ZIELSETZUNGS-CARD ══ */}
+      <div style={{ position: "relative", background: mot.bg, border: `1px solid ${mot.border}`, borderRadius: "var(--radius-xl)", padding: "1.375rem 1.75rem", overflow: "hidden" }}>
+        {/* Glow blob */}
+        <div style={{ position: "absolute", top: -60, right: -40, width: 220, height: 220, background: `radial-gradient(circle, ${mot.glow} 0%, transparent 70%)`, pointerEvents: "none" }} />
+
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "1.25rem", flexWrap: "wrap" }}>
+          {/* Left: Big number */}
+          <div style={{ textAlign: "center", flexShrink: 0 }}>
+            <div style={{ fontSize: "3rem", lineHeight: 1 }}>{mot.emoji}</div>
+            <div style={{ marginTop: "0.5rem" }}>
+              <div style={{ fontSize: "2.25rem", fontWeight: 900, color: mot.color, letterSpacing: "-0.05em", lineHeight: 1, textShadow: `0 0 24px ${mot.glow}` }}>
+                {totalDMs === 0 ? "—" : `${apptRateRounded}%`}
+              </div>
+              <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: mot.color, opacity: 0.7, marginTop: "0.125rem" }}>
+                Terminquote
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Text + bar */}
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontSize: "1rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.02em", marginBottom: "0.375rem", lineHeight: 1.3 }}>
+              {mot.headline}
+            </div>
+            <p style={{ fontSize: "0.8125rem", color: "#a1a1aa", margin: "0 0 1rem", lineHeight: 1.55 }}>
+              {mot.sub}
+            </p>
+
+            {/* Progress bar mit Zielzone */}
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.6875rem", color: "#52525b", marginBottom: "0.375rem" }}>
+                <span>0%</span>
+                <span style={{ color: mot.color, fontWeight: 700 }}>Ziel {GOAL_MIN}–{GOAL_MAX}%</span>
+                <span>10%+</span>
+              </div>
+              <div style={{ position: "relative", height: 10, borderRadius: 99, background: "rgba(255,255,255,0.05)", overflow: "visible" }}>
+                {/* Zielzone Highlight */}
+                <div style={{ position: "absolute", left: `${goalMinPct}%`, width: `${goalMaxPct - goalMinPct}%`, top: -2, bottom: -2, background: `${mot.color}18`, border: `1px solid ${mot.color}44`, borderRadius: 4 }} />
+                {/* Aktueller Wert */}
+                {totalDMs > 0 && (
+                  <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${barPct}%`, borderRadius: 99, background: `linear-gradient(90deg, ${mot.color}88, ${mot.color})`, boxShadow: `0 0 8px ${mot.glow}`, transition: "width 0.6s ease" }} />
+                )}
+                {/* Nadel */}
+                {totalDMs > 0 && (
+                  <div style={{ position: "absolute", left: `calc(${barPct}% - 4px)`, top: "50%", transform: "translateY(-50%)", width: 8, height: 8, borderRadius: "50%", background: mot.color, boxShadow: `0 0 10px ${mot.glow}`, border: "2px solid #09090b" }} />
+                )}
+              </div>
+            </div>
+
+            {/* Mini-Stats */}
+            <div style={{ display: "flex", gap: "1.25rem", marginTop: "0.875rem", flexWrap: "wrap" }}>
+              {[
+                { label: "DMs gesamt", value: totalDMs.toLocaleString(), color: "#71717a" },
+                { label: "Termine", value: totalAppts.toLocaleString(), color: mot.color },
+                { label: "Noch bis 7%", value: totalDMs > 0 ? `${Math.max(0, Math.ceil(totalDMs * 0.07) - totalAppts)} Termine`, color: apptStatus === "above" ? "#34d399" : "#52525b" },
+              ].map((s) => (
+                <div key={s.label}>
+                  <div style={{ fontSize: "0.6875rem", color: "#3f3f46", textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
+                  <div style={{ fontSize: "0.9375rem", fontWeight: 800, color: s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ══ WOCHENDUELL ══ */}
