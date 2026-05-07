@@ -13,12 +13,16 @@ const OWNER_STYLE = {
   Simon:  { color: "#a78bfa", glow: "rgba(139,92,246,0.35)",  gradient: "linear-gradient(90deg, #8b5cf6, #a78bfa)" },
   Daniel: { color: "#34d399", glow: "rgba(52,211,153,0.35)",  gradient: "linear-gradient(90deg, #10b981, #34d399)" },
 };
+const PERSONAL_STYLE = { color: "#f59e0b", glow: "rgba(245,158,11,0.35)", gradient: "linear-gradient(90deg, #f59e0b, #fbbf24)" };
 
 type Props = {
   allContacts: ContactWithStage[];
   lists: PitchList[];
   today: string;
   todayCounts: { Kevin: number; Simon: number; Daniel: number };
+  personalMode?: boolean;
+  personalOwnerName?: string;
+  personalTodayCount?: number;
   dailyGoal: number;
 };
 
@@ -82,7 +86,16 @@ function buildChartData(contacts: ContactWithStage[], from: string, to: string):
 
 function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1000) / 10; }
 
-export function OverallSection({ allContacts, lists, today, todayCounts = { Kevin: 0, Simon: 0, Daniel: 0 }, dailyGoal }: Props) {
+export function OverallSection({
+  allContacts,
+  lists,
+  today,
+  todayCounts = { Kevin: 0, Simon: 0, Daniel: 0 },
+  personalMode = false,
+  personalOwnerName = "Du",
+  personalTodayCount = 0,
+  dailyGoal,
+}: Props) {
   const f = useSectionFilter(allContacts, lists, "all");
 
   const total    = f.filtered.length;
@@ -123,12 +136,56 @@ export function OverallSection({ allContacts, lists, today, todayCounts = { Kevi
           onOwner={f.setOwner}
           onFromChange={f.setFrom}
           onToChange={f.setTo}
+          hideOwner={personalMode}
         />
       </div>
 
       {/* Tagesziel je Person */}
-      <div className="daily-goal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem" }}>
-        {(["Kevin", "Simon", "Daniel"] as const).map((owner) => {
+      {personalMode ? (
+        <div style={{ background: `linear-gradient(135deg, ${PERSONAL_STYLE.color}0d, transparent)`, border: `1px solid ${PERSONAL_STYLE.color}30`, borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>
+          {(() => {
+            const count = personalTodayCount;
+            const done = count >= dailyGoal;
+            const pct = Math.min((count / dailyGoal) * 100, 100);
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
+                <div style={{ position: "relative", width: 48, height: 48, flexShrink: 0 }}>
+                  <svg width="48" height="48" viewBox="0 0 48 48" style={{ transform: "rotate(-90deg)" }}>
+                    <circle cx="24" cy="24" r="18" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="5" />
+                    <circle cx="24" cy="24" r="18" fill="none" stroke={done ? "#4ade80" : PERSONAL_STYLE.color} strokeWidth="5"
+                      strokeDasharray={`${2 * Math.PI * 18}`}
+                      strokeDashoffset={`${2 * Math.PI * 18 * (1 - pct / 100)}`}
+                      strokeLinecap="round"
+                      style={{ filter: `drop-shadow(0 0 4px ${done ? "#4ade80" : PERSONAL_STYLE.glow})` }}
+                    />
+                  </svg>
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: done ? "#4ade80" : PERSONAL_STYLE.color }}>
+                    {Math.round(pct)}%
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.25rem" }}>
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", background: `${PERSONAL_STYLE.color}18`, border: `1.5px solid ${PERSONAL_STYLE.color}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: PERSONAL_STYLE.color }}>{personalOwnerName[0]?.toUpperCase() ?? "D"}</div>
+                    <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: PERSONAL_STYLE.color }}>{personalOwnerName}</span>
+                    {done && <span style={{ fontSize: "0.75rem" }}>🎉</span>}
+                  </div>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.03em", color: done ? "#4ade80" : "#fafafa", lineHeight: 1.1 }}>
+                    {count}<span style={{ fontSize: "0.875rem", color: "#3f3f46", fontWeight: 500 }}>/{dailyGoal}</span>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 99, height: 4, overflow: "hidden", marginTop: "0.375rem" }}>
+                    <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`, background: done ? "#4ade80" : PERSONAL_STYLE.gradient, transition: "width 0.4s ease", boxShadow: done ? "0 0 6px rgba(74,222,128,0.4)" : `0 0 6px ${PERSONAL_STYLE.glow}` }} />
+                  </div>
+                  <div style={{ fontSize: "0.6875rem", color: "#52525b", marginTop: "0.25rem" }}>
+                    {done ? "Tagesziel erreicht!" : `Noch ${dailyGoal - count} DMs heute`}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      ) : (
+        <div className="daily-goal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem" }}>
+          {(["Kevin", "Simon", "Daniel"] as const).map((owner) => {
           const count = todayCounts[owner];
           const done  = count >= dailyGoal;
           const s     = OWNER_STYLE[owner];
@@ -172,8 +229,9 @@ export function OverallSection({ allContacts, lists, today, todayCounts = { Kevi
               </div>
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
 
       {/* 4 Stat Cards */}
       <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.875rem" }}>

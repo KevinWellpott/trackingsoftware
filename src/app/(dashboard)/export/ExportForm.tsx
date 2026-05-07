@@ -18,6 +18,8 @@ type Props = {
 const OWNER_COLORS: Record<string, string> = {
   Kevin: "#818cf8",
   Simon: "#a78bfa",
+  Daniel: "#34d399",
+  "Paul Bajorat": "#f59e0b",
 };
 
 const labelStyle: React.CSSProperties = {
@@ -75,9 +77,10 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
     startTransition(() => router.push("/export", { scroll: false }));
   }
 
-  const kevinLists = lists.filter((l) => l.owner_name === "Kevin");
-  const simonLists = lists.filter((l) => l.owner_name === "Simon");
-  const otherLists = lists.filter((l) => !l.owner_name);
+  const owners = Array.from(
+    new Set(lists.map((l) => l.owner_name).filter((o): o is string => Boolean(o))),
+  );
+  const unassignedLists = lists.filter((l) => !l.owner_name);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", opacity: isPending ? 0.6 : 1, transition: "opacity 0.15s" }}>
@@ -114,11 +117,14 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
       <div>
         <label style={labelStyle}>Person</label>
         <div style={{ display: "flex", gap: "0.375rem" }}>
-          {["", "Kevin", "Simon"].map((o) => (
-            <button key={o || "all"} type="button" onClick={() => setOwner(o)} style={{ flex: 1, padding: "0.3rem", borderRadius: 8, border: `1px solid ${owner === o ? (o ? OWNER_COLORS[o] + "55" : "rgba(99,102,241,0.4)") : "#27272a"}`, background: owner === o ? (o ? OWNER_COLORS[o] + "15" : "rgba(99,102,241,0.1)") : "transparent", color: owner === o ? (o ? OWNER_COLORS[o] : "#818cf8") : "#52525b", fontSize: "0.8125rem", fontWeight: owner === o ? 700 : 400, cursor: "pointer", transition: "all 0.12s" }}>
-              {o || "Alle"}
-            </button>
-          ))}
+          {["", ...owners].map((o) => {
+            const color = o ? OWNER_COLORS[o] ?? "#71717a" : "#818cf8";
+            return (
+              <button key={o || "all"} type="button" onClick={() => setOwner(o)} style={{ flex: 1, padding: "0.3rem", borderRadius: 8, border: `1px solid ${owner === o ? (o ? color + "55" : "rgba(99,102,241,0.4)") : "#27272a"}`, background: owner === o ? (o ? color + "15" : "rgba(99,102,241,0.1)") : "transparent", color: owner === o ? color : "#52525b", fontSize: "0.8125rem", fontWeight: owner === o ? 700 : 400, cursor: "pointer", transition: "all 0.12s" }}>
+                {o || "Alle"}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -147,9 +153,8 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
           {selectedListIds.size > 0 && <button type="button" onClick={() => setSelectedListIds(new Set())} style={{ padding: "2px 8px", borderRadius: 99, border: "1px solid #27272a", background: "transparent", color: "#52525b", fontSize: "0.6875rem", cursor: "pointer" }}>✕ Auswahl löschen</button>}
         </div>
         {[
-          { owner: "Kevin", lists: kevinLists },
-          { owner: "Simon", lists: simonLists },
-          ...(otherLists.length > 0 ? [{ owner: "Ohne Zuordnung", lists: otherLists }] : []),
+          ...owners.map((o) => ({ owner: o, lists: lists.filter((l) => l.owner_name === o) })),
+          ...(unassignedLists.length > 0 ? [{ owner: "Ohne Zuordnung", lists: unassignedLists }] : []),
         ].map(({ owner: ownerName, lists: ownerLists }) => ownerLists.length === 0 ? null : (
           <div key={ownerName} style={{ marginBottom: "0.5rem" }}>
             <div style={{ fontSize: "0.6875rem", color: OWNER_COLORS[ownerName] ?? "#52525b", fontWeight: 700, marginBottom: "0.25rem" }}>{ownerName}</div>

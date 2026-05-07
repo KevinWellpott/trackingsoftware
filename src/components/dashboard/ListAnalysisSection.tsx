@@ -11,11 +11,14 @@ import type { ContactWithStage, PitchList } from "@/lib/types";
 type Props = {
   allContacts: ContactWithStage[];
   lists: PitchList[];
+  personalMode?: boolean;
 };
 
 const OWNER_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   Kevin: { bg: "rgba(99,102,241,0.12)", border: "rgba(99,102,241,0.25)", text: "#818cf8" },
   Simon: { bg: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.25)", text: "#a78bfa" },
+  Daniel: { bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.25)", text: "#34d399" },
+  "Paul Bajorat": { bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.25)", text: "#f59e0b" },
 };
 
 function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1000) / 10; }
@@ -33,7 +36,7 @@ function RankBadge({ rank }: { rank: number }) {
   );
 }
 
-export function ListAnalysisSection({ allContacts, lists }: Props) {
+export function ListAnalysisSection({ allContacts, lists, personalMode = false }: Props) {
   const f = useSectionFilter(allContacts, lists, "all");
 
   const listStats = useMemo(() => {
@@ -88,6 +91,7 @@ export function ListAnalysisSection({ allContacts, lists }: Props) {
           onOwner={f.setOwner}
           onFromChange={f.setFrom}
           onToChange={f.setTo}
+          hideOwner={personalMode}
         />
       </div>
 
@@ -95,7 +99,9 @@ export function ListAnalysisSection({ allContacts, lists }: Props) {
         {/* Chart */}
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem" }}>
           <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#fafafa", marginBottom: "0.25rem" }}>Antwort- & Terminrate je Liste</div>
-          <div style={{ fontSize: "0.6875rem", color: "#52525b", marginBottom: "0.875rem" }}>Präfix = Besitzer (K = Kevin, S = Simon)</div>
+          <div style={{ fontSize: "0.6875rem", color: "#52525b", marginBottom: "0.875rem" }}>
+            {personalMode ? "Deine Listen im Vergleich" : "Präfix = Besitzer"}
+          </div>
           <ListComparisonChart data={listBarData} />
           <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.875rem", paddingTop: "0.625rem", borderTop: "1px solid var(--border)" }}>
             {[{ label: "Antwortrate", color: METRIC_COLORS.answers }, { label: "Terminrate", color: METRIC_COLORS.appointments }].map((m) => (

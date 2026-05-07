@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getMembership } from "@/lib/workspace";
+import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { MobileHeader } from "@/components/MobileHeader";
 import { SidebarContent } from "@/components/Sidebar";
 import { redirect } from "next/navigation";
@@ -9,36 +9,33 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const m = await getMembership();
-  if (!m) redirect("/onboarding");
+  const access = await getAccessContext();
+  if (!access) redirect("/onboarding");
 
   const supabase = await createClient();
+  let listsQuery = supabase
+    .from("lists")
+    .select("id, name, archived_at, owner_name")
+    .eq("workspace_id", access.workspace_id)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true });
+  let organicListsQuery = supabase
+    .from("organic_lists")
+    .select("id, name, owner_name")
+    .eq("workspace_id", access.workspace_id)
+    .is("archived_at", null)
+    .order("created_at", { ascending: false });
 
-  const [{ data: lists }, { data: organicListsData }, userResult] = await Promise.all([
-    supabase
-      .from("lists")
-      .select("id, name, archived_at, owner_name")
-      .eq("workspace_id", m.workspace_id)
-      .is("archived_at", null)
-      .order("sort_order", { ascending: true }),
-    supabase
-      .from("organic_lists")
-      .select("id, name, owner_name")
-      .eq("workspace_id", m.workspace_id)
-      .is("archived_at", null)
-      .order("created_at", { ascending: false }),
-    supabase.auth.getUser(),
+  if (access.effective_user_id) {
+    listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
+    organicListsQuery = organicListsQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+
+  const [{ data: lists }, { data: organicListsData }, dataViewUsers] = await Promise.all([
+    listsQuery,
+    organicListsQuery,
+    access.can_switch_view ? listDataViewUsers(access.workspace_id) : Promise.resolve([]),
   ]);
-
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("username")
-    .eq("user_id", userResult.data.user?.id ?? "")
-    .maybeSingle();
-
-  const username =
-    (profileData as { username: string } | null)?.username ??
-    m.workspaces.name;
 
   const sidebarLists = (lists ?? []).map((l) => ({
     id: l.id,
@@ -68,11 +65,18 @@ export default async function DashboardLayout({
         className="hidden md:block"
       >
         <SidebarContent
-          workspaceName={m.workspaces.name}
-          username={username}
-          workspaceId={m.workspace_id}
+          workspaceName={access.workspaces.name}
+          username={access.username}
+          workspaceId={access.workspace_id}
           lists={sidebarLists}
           organicLists={organicLists}
+          dataScope={access.data_scope}
+          dataView={{
+            canSwitch: access.can_switch_view,
+            activeUserId: access.effective_user_id,
+            activeLabel: access.effective_username ?? "Alle Daten",
+            users: dataViewUsers,
+          }}
         />
       </aside>
 
@@ -81,11 +85,18 @@ export default async function DashboardLayout({
         {/* Mobile header */}
         <div className="md:hidden">
           <MobileHeader
-            workspaceName={m.workspaces.name}
-            username={username}
-            workspaceId={m.workspace_id}
+            workspaceName={access.workspaces.name}
+            username={access.username}
+            workspaceId={access.workspace_id}
             lists={sidebarLists}
             organicLists={organicLists}
+            dataScope={access.data_scope}
+            dataView={{
+              canSwitch: access.can_switch_view,
+              activeUserId: access.effective_user_id,
+              activeLabel: access.effective_username ?? "Alle Daten",
+              users: dataViewUsers,
+            }}
           />
         </div>
 

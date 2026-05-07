@@ -22,6 +22,9 @@ type Props = {
   todayPosts: { Kevin: number; Simon: number };
   todayStories: { Kevin: number; Simon: number };
   weeklyHistory: { week: string; Kevin: number; Simon: number }[];
+  personalMode?: boolean;
+  personalOwnerName?: string;
+  personalWeeklyHistory?: { week: string; count: number }[];
 };
 
 const CONTENT_TYPE_LABELS: Record<string, string> = {
@@ -323,7 +326,19 @@ function PersonSection({ posts, lists, listOwner, today }: { posts: OrganicPost[
 }
 
 // ── List Analysis section ──────────────────────────────────────────────────
-function ListAnalysisSection({ posts, lists, listOwner, today }: { posts: OrganicPost[]; lists: OrganicList[]; listOwner: Record<string, string>; today: string }) {
+function ListAnalysisSection({
+  posts,
+  lists,
+  listOwner,
+  today,
+  personalMode = false,
+}: {
+  posts: OrganicPost[];
+  lists: OrganicList[];
+  listOwner: Record<string, string>;
+  today: string;
+  personalMode?: boolean;
+}) {
   const { filtered, period, setPeriod, from, setFrom, to, setTo } = usePeriodFilter(posts, today);
 
   const listStats = lists.map((list) => {
@@ -341,7 +356,7 @@ function ListAnalysisSection({ posts, lists, listOwner, today }: { posts: Organi
   }).sort((a, b) => b.totalImp - a.totalImp);
 
   const barData = listStats.map((s) => ({
-    name: `${s.list.owner_name ? s.list.owner_name[0] + "·" : ""}${s.list.name.slice(0, 16)}`,
+    name: `${!personalMode && s.list.owner_name ? s.list.owner_name[0] + "·" : ""}${s.list.name.slice(0, 16)}`,
     insta:  s.avgInsta,
     tiktok: s.avgTikTok,
   }));
@@ -371,12 +386,14 @@ function ListAnalysisSection({ posts, lists, listOwner, today }: { posts: Organi
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {listStats.map((s, i) => {
-              const ownerColor = s.list.owner_name === "Kevin" ? "#818cf8" : "#a78bfa";
+              const ownerColor = s.list.owner_name === "Kevin" ? "#818cf8" : s.list.owner_name === "Simon" ? "#a78bfa" : "#f59e0b";
               return (
                 <Link key={s.list.id} href={`/organic/${s.list.id}`} style={{ textDecoration: "none" }}>
                   <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.625rem 0.875rem", display: "flex", alignItems: "center", gap: "0.75rem", transition: "border-color 0.15s" }}>
                     <span style={{ fontSize: "0.75rem", fontWeight: 800, color: i === 0 ? "#f59e0b" : "var(--text-subtle)", width: 20 }}>#{i + 1}</span>
-                    <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: ownerColor, background: ownerColor + "22", borderRadius: 99, padding: "0.1rem 0.4rem", flexShrink: 0 }}>{s.list.owner_name ?? "?"}</span>
+                    {!personalMode && (
+                      <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: ownerColor, background: ownerColor + "22", borderRadius: 99, padding: "0.1rem 0.4rem", flexShrink: 0 }}>{s.list.owner_name ?? "?"}</span>
+                    )}
                     <span style={{ flex: 1, fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.list.name}</span>
                     <div style={{ display: "flex", gap: "0.625rem", fontSize: "0.75rem", color: "var(--text-subtle)", flexShrink: 0 }}>
                       <span>{s.count} Posts</span>
@@ -419,14 +436,59 @@ function WeeklyHistorySection({ weeklyHistory }: { weeklyHistory: Props["weeklyH
   );
 }
 
+function PersonalWeeklyHistorySection({
+  weeklyHistory,
+  ownerName,
+}: {
+  weeklyHistory: { week: string; count: number }[];
+  ownerName: string;
+}) {
+  const max = Math.max(7, ...weeklyHistory.map((w) => w.count), 1);
+  return (
+    <div style={{ background: "var(--surface-50)", border: "1px solid var(--border)", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+        <span>📈</span>
+        <span style={{ fontWeight: 700, fontSize: "0.9375rem" }}>Dein Wochenverlauf</span>
+        <span style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>{ownerName} · letzte 10 Wochen</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${weeklyHistory.length}, minmax(0, 1fr))`, gap: "0.5rem", alignItems: "end", minHeight: 170 }}>
+        {weeklyHistory.map((week) => {
+          const height = Math.max(8, (week.count / max) * 130);
+          const reached = week.count >= 7;
+          return (
+            <div key={week.week} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.375rem" }}>
+              <div style={{ fontSize: "0.6875rem", color: reached ? "#34d399" : "#f59e0b", fontWeight: 800 }}>{week.count}</div>
+              <div style={{ width: "100%", maxWidth: 28, height, borderRadius: "6px 6px 2px 2px", background: reached ? "linear-gradient(180deg,#34d399,#10b981)" : "linear-gradient(180deg,#fbbf24,#f59e0b)", boxShadow: reached ? "0 0 10px rgba(52,211,153,0.25)" : "0 0 10px rgba(245,158,11,0.25)" }} />
+              <div style={{ fontSize: "0.625rem", color: "#52525b", whiteSpace: "nowrap" }}>{week.week}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main export ────────────────────────────────────────────────────────────
-export function OrganicDashboardClient({ posts, lists, listOwner, today, weeklyHistory }: Props) {
+export function OrganicDashboardClient({
+  posts,
+  lists,
+  listOwner,
+  today,
+  weeklyHistory,
+  personalMode = false,
+  personalOwnerName = "Du",
+  personalWeeklyHistory = [],
+}: Props) {
   return (
     <>
       <OverallSection posts={posts} today={today} />
-      <PersonSection posts={posts} lists={lists} listOwner={listOwner} today={today} />
-      <WeeklyHistorySection weeklyHistory={weeklyHistory} />
-      <ListAnalysisSection posts={posts} lists={lists} listOwner={listOwner} today={today} />
+      {!personalMode && <PersonSection posts={posts} lists={lists} listOwner={listOwner} today={today} />}
+      {personalMode ? (
+        <PersonalWeeklyHistorySection weeklyHistory={personalWeeklyHistory} ownerName={personalOwnerName} />
+      ) : (
+        <WeeklyHistorySection weeklyHistory={weeklyHistory} />
+      )}
+      <ListAnalysisSection posts={posts} lists={lists} listOwner={listOwner} today={today} personalMode={personalMode} />
     </>
   );
 }

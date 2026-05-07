@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getMembership } from "@/lib/workspace";
+import { getAccessContext } from "@/lib/access";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
@@ -54,17 +54,20 @@ export default async function OrganicListDetailPage({
   params: Promise<{ listId: string }>;
 }) {
   const { listId } = await params;
-  const m = await getMembership();
-  if (!m) return null;
+  const access = await getAccessContext();
+  if (!access) return null;
 
   const supabase = await createClient();
 
-  const { data: rawList } = await supabase
+  let listQuery = supabase
     .from("organic_lists")
     .select("*")
     .eq("id", listId)
-    .eq("workspace_id", m.workspace_id)
-    .maybeSingle();
+    .eq("workspace_id", access.workspace_id);
+  if (access.effective_user_id) {
+    listQuery = listQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data: rawList } = await listQuery.maybeSingle();
 
   if (!rawList) notFound();
 
@@ -109,7 +112,7 @@ export default async function OrganicListDetailPage({
     .sort((a, b) => b.avg - a.avg)[0] ?? null;
 
   const insights = generateOrganicInsights(posts);
-  const ownerColor = L.owner_name === "Kevin" ? "#818cf8" : "#a78bfa";
+  const ownerColor = L.owner_name === "Kevin" ? "#818cf8" : L.owner_name === "Simon" ? "#a78bfa" : "#f59e0b";
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>
@@ -156,7 +159,7 @@ export default async function OrganicListDetailPage({
           {bestPost && (
             <div style={{ background: "rgba(232,121,249,0.06)", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 10, padding: "0.875rem 1rem" }}>
               <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#e879f9", marginBottom: "0.375rem" }}>🏆 Bester Hook</div>
-              <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>"{bestPost.hook_text}"</div>
+              <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>&quot;{bestPost.hook_text}&quot;</div>
               <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>
                 {((bestPost.insta_impressions ?? 0) + (bestPost.tiktok_impressions ?? 0)).toLocaleString()} Impressionen · {bestPost.posted_at}
               </div>

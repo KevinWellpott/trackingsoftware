@@ -9,6 +9,7 @@ export type WorkspaceMember = {
   workspace_id: string;
   user_id: string;
   role: "owner" | "member";
+  data_scope: "workspace" | "own";
 };
 
 export type Profile = {
@@ -23,6 +24,7 @@ export type PitchList = {
   name: string;
   pitch_text: string | null;
   owner_name: string | null;
+  created_by_user_id: string | null;
   sort_order: number;
   archived_at: string | null;
   created_at: string;
@@ -59,6 +61,9 @@ export type Contact = {
   appointment_set: boolean | null;
   answer_text: string | null;
   answer_category: string | null;
+  meeting_notes: string | null;
+  deal_closed: boolean;
+  deal_lost_reason: string | null;
   created_at: string;
   updated_at: string;
 };

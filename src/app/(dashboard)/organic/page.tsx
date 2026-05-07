@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getMembership } from "@/lib/workspace";
+import { getAccessContext } from "@/lib/access";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -35,6 +35,8 @@ const OWNERS = ["Kevin", "Simon"] as const;
 type Owner = (typeof OWNERS)[number];
 const DAILY_VIDEO_GOAL = 1;
 const WEEKLY_VIDEO_GOAL = 7;
+const PERSONAL_COLOR = "#f59e0b";
+type PersonalWeekPoint = { week: string; count: number };
 
 const OWNER_STYLE: Record<Owner, { color: string; bg: string; border: string; glow: string }> = {
   Kevin: { color: "#818cf8", bg: "rgba(99,102,241,0.08)",  border: "rgba(99,102,241,0.25)", glow: "rgba(99,102,241,0.4)" },
@@ -75,30 +77,98 @@ function InsightCard({ level, title, body }: { level: string; title: string; bod
   );
 }
 
+function PersonalVideoWeekPanel({
+  name,
+  count,
+  todayCount,
+  storiesDone,
+  goal,
+  monday,
+  sunday,
+}: {
+  name: string;
+  count: number;
+  todayCount: number;
+  storiesDone: number;
+  goal: number;
+  monday: string;
+  sunday: string;
+}) {
+  const progress = Math.min((count / goal) * 100, 100);
+  return (
+    <div style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(232,121,249,0.06) 100%)", border: "1px solid rgba(245,158,11,0.22)", borderRadius: 16, padding: "1.5rem", marginBottom: "1.5rem", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: -60, right: -30, width: 220, height: 220, background: "radial-gradient(circle, rgba(245,158,11,0.14) 0%, transparent 70%)", pointerEvents: "none" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem", position: "relative" }}>
+        <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#f59e0b,#fbbf24)", display: "flex", alignItems: "center", justifyContent: "center", color: "#09090b", fontWeight: 900, boxShadow: "0 0 14px rgba(245,158,11,0.35)" }}>
+          {name[0]?.toUpperCase() ?? "D"}
+        </div>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: "0.9375rem", color: "#fafafa" }}>Deine Organic-Woche</div>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>{name} · {monday} → {sunday}</div>
+        </div>
+        <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--text-subtle)" }}>Ziel: {goal}/Woche</span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 240px) 1fr", gap: "1.5rem", alignItems: "center", position: "relative" }}>
+        <div>
+          <div style={{ fontSize: "3.25rem", fontWeight: 900, letterSpacing: "-0.05em", color: PERSONAL_COLOR, lineHeight: 1, textShadow: "0 0 26px rgba(245,158,11,0.35)" }}>
+            {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "#52525b", marginLeft: 3 }}>/{goal}</span>
+          </div>
+          <div style={{ fontSize: "0.75rem", color: "#71717a", marginTop: "0.5rem" }}>
+            {Math.round(progress)}% erreicht · noch {Math.max(0, goal - count)} Posts bis zum Wochenziel
+          </div>
+        </div>
+        <div>
+          <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 99, height: 12, overflow: "hidden" }}>
+            <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: "linear-gradient(90deg,#f59e0b,#fbbf24)", boxShadow: "0 0 12px rgba(245,158,11,0.35)", transition: "width 0.4s ease" }} />
+          </div>
+          <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
+            <span>Heute: <strong style={{ color: todayCount >= DAILY_VIDEO_GOAL ? "#34d399" : PERSONAL_COLOR }}>{todayCount}/{DAILY_VIDEO_GOAL}</strong></span>
+            <span>Stories: <strong style={{ color: storiesDone > 0 ? "#34d399" : "var(--text-subtle)" }}>{storiesDone > 0 ? "erledigt" : "offen"}</strong></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default async function OrganicPage() {
-  const m = await getMembership();
-  if (!m) return null;
+  const access = await getAccessContext();
+  if (!access) return null;
 
   const supabase = await createClient();
   const today    = localDateISO();
   const monday   = weekStart(today);
   const sunday   = addDays(monday, 6);
 
-  const { data: rawLists } = await supabase
+  let listsQuery = supabase
     .from("organic_lists")
     .select("*")
-    .eq("workspace_id", m.workspace_id)
+    .eq("workspace_id", access.workspace_id)
     .is("archived_at", null)
     .order("created_at", { ascending: false });
+  if (access.effective_user_id) {
+    listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data: rawLists } = await listsQuery;
 
-  const { data: rawPosts } = await supabase
+  const visibleListIds = (rawLists ?? []).map((l) => l.id);
+  let postsQuery = supabase
     .from("organic_posts")
     .select("*")
-    .eq("workspace_id", m.workspace_id)
+    .eq("workspace_id", access.workspace_id)
     .order("posted_at", { ascending: false });
+  if (access.effective_user_id) {
+    postsQuery = visibleListIds.length > 0
+      ? postsQuery.in("list_id", visibleListIds)
+      : postsQuery.in("list_id", ["00000000-0000-0000-0000-000000000000"]);
+  }
+  const { data: rawPosts } = await postsQuery;
 
   const lists = (rawLists ?? []) as OrganicList[];
   const posts = (rawPosts ?? []) as OrganicPost[];
+  const isPersonalView = Boolean(access.effective_user_id);
+  const personalName = access.effective_username ?? access.username;
 
   // List ID → owner lookup
   const listOwner: Record<string, string> = {};
@@ -117,6 +187,9 @@ export default async function OrganicPage() {
     Kevin: posts.filter((p) => p.posted_at === today && p.stories_done && listOwner[p.list_id] === "Kevin").length,
     Simon: posts.filter((p) => p.posted_at === today && p.stories_done && listOwner[p.list_id] === "Simon").length,
   };
+  const personalWeekCount = posts.filter((p) => p.posted_at >= monday && p.posted_at <= sunday).length;
+  const personalTodayPosts = posts.filter((p) => p.posted_at === today).length;
+  const personalTodayStories = posts.filter((p) => p.posted_at === today && p.stories_done).length;
 
   const leader: Owner | null =
     kevinWeek > simonWeek ? "Kevin" : simonWeek > kevinWeek ? "Simon" : null;
@@ -171,6 +244,7 @@ export default async function OrganicPage() {
 
   // ── Historical weekly data (last 10 weeks)
   const weeklyHistory: { week: string; Kevin: number; Simon: number }[] = [];
+  const personalWeeklyHistory: PersonalWeekPoint[] = [];
   for (let i = 9; i >= 0; i--) {
     const wMon = weekStart(addDays(today, -i * 7));
     const wSun = addDays(wMon, 6);
@@ -179,6 +253,10 @@ export default async function OrganicPage() {
       week: label,
       Kevin: posts.filter((p) => p.posted_at >= wMon && p.posted_at <= wSun && listOwner[p.list_id] === "Kevin").length,
       Simon: posts.filter((p) => p.posted_at >= wMon && p.posted_at <= wSun && listOwner[p.list_id] === "Simon").length,
+    });
+    personalWeeklyHistory.push({
+      week: label,
+      count: posts.filter((p) => p.posted_at >= wMon && p.posted_at <= wSun).length,
     });
   }
 
@@ -194,6 +272,9 @@ export default async function OrganicPage() {
     ctaRate,
     todayPosts,
     todayStories,
+    personalMode: isPersonalView,
+    personalOwnerName: personalName,
+    personalWeeklyHistory,
   };
 
   return (
@@ -288,29 +369,35 @@ export default async function OrganicPage() {
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════════════════════
-          WEEKLY DUEL
-      ══════════════════════════════════════════════════════════ */}
-      <div style={{ background: "linear-gradient(135deg, rgba(232,121,249,0.06) 0%, rgba(99,102,241,0.06) 100%)", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 16, padding: "1.5rem", marginBottom: "1.5rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem" }}>
-          <Trophy size={16} color="#e879f9" />
-          <span style={{ fontWeight: 800, fontSize: "0.9375rem", color: "#e879f9" }}>Wochenduell — Videos</span>
-          <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--text-subtle)" }}>Ziel: {WEEKLY_VIDEO_GOAL}/Woche · {monday} → {sunday} · Reset jeden Montag</span>
-        </div>
-
-        <div className="duel-grid" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "1.5rem", alignItems: "center" }}>
-          {/* Kevin */}
-          <DuelPanel owner="Kevin" count={kevinWeek} leader={leader} loser={loser} goal={WEEKLY_VIDEO_GOAL} todayCount={todayPosts.Kevin} storiesDone={todayStories.Kevin} />
-          {/* VS */}
-          <div className="duel-vs" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem" }}>
-            <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, rgba(232,121,249,0.35))" }} />
-            <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "#3f3f46", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 99, background: "rgba(232,121,249,0.05)" }}>VS</div>
-            <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, rgba(232,121,249,0.35), transparent)" }} />
+      {isPersonalView ? (
+        <PersonalVideoWeekPanel
+          name={personalName}
+          count={personalWeekCount}
+          todayCount={personalTodayPosts}
+          storiesDone={personalTodayStories}
+          goal={WEEKLY_VIDEO_GOAL}
+          monday={monday}
+          sunday={sunday}
+        />
+      ) : (
+        <div style={{ background: "linear-gradient(135deg, rgba(232,121,249,0.06) 0%, rgba(99,102,241,0.06) 100%)", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 16, padding: "1.5rem", marginBottom: "1.5rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem" }}>
+            <Trophy size={16} color="#e879f9" />
+            <span style={{ fontWeight: 800, fontSize: "0.9375rem", color: "#e879f9" }}>Wochenduell — Videos</span>
+            <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--text-subtle)" }}>Ziel: {WEEKLY_VIDEO_GOAL}/Woche · {monday} → {sunday} · Reset jeden Montag</span>
           </div>
-          {/* Simon */}
-          <DuelPanel owner="Simon" count={simonWeek} leader={leader} loser={loser} goal={WEEKLY_VIDEO_GOAL} todayCount={todayPosts.Simon} storiesDone={todayStories.Simon} />
+
+          <div className="duel-grid" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "1.5rem", alignItems: "center" }}>
+            <DuelPanel owner="Kevin" count={kevinWeek} leader={leader} loser={loser} goal={WEEKLY_VIDEO_GOAL} todayCount={todayPosts.Kevin} storiesDone={todayStories.Kevin} />
+            <div className="duel-vs" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem" }}>
+              <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, rgba(232,121,249,0.35))" }} />
+              <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "#3f3f46", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 99, background: "rgba(232,121,249,0.05)" }}>VS</div>
+              <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, rgba(232,121,249,0.35), transparent)" }} />
+            </div>
+            <DuelPanel owner="Simon" count={simonWeek} leader={leader} loser={loser} goal={WEEKLY_VIDEO_GOAL} todayCount={todayPosts.Simon} storiesDone={todayStories.Simon} />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════════
           CLIENT-SIDE SECTIONS (filters + charts)
@@ -354,7 +441,7 @@ export default async function OrganicPage() {
               const lPosts = posts.filter((p) => p.list_id === list.id);
               const lInsta  = avg(lPosts.filter((p) => p.insta_impressions  != null).map((p) => p.insta_impressions!));
               const lTikTok = avg(lPosts.filter((p) => p.tiktok_impressions != null).map((p) => p.tiktok_impressions!));
-              const ownerColor = list.owner_name === "Kevin" ? "#818cf8" : "#a78bfa";
+              const ownerColor = list.owner_name === "Kevin" ? "#818cf8" : list.owner_name === "Simon" ? "#a78bfa" : "#f59e0b";
               return (
                 <Link key={list.id} href={`/organic/${list.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
                   <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 10, padding: "0.875rem", transition: "border-color 0.15s, background 0.15s" }}

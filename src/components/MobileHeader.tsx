@@ -10,9 +10,16 @@ type Props = {
   workspaceId: string;
   lists: { id: string; name: string; owner_name: string | null }[];
   organicLists?: { id: string; name: string; owner_name: string | null }[];
+  dataScope?: "workspace" | "own";
+  dataView?: {
+    canSwitch: boolean;
+    activeUserId: string | null;
+    activeLabel: string;
+    users: { user_id: string; username: string; data_scope: "workspace" | "own" }[];
+  };
 };
 
-export function MobileHeader({ workspaceName, username, workspaceId, lists, organicLists }: Props) {
+export function MobileHeader({ workspaceName, username, workspaceId, lists, organicLists, dataScope, dataView }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
@@ -81,6 +88,8 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, orga
         workspaceId={workspaceId}
         lists={lists}
         organicLists={organicLists}
+        dataScope={dataScope}
+        dataView={dataView}
       />
     </>
   );

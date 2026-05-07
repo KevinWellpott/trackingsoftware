@@ -1,0 +1,68 @@
+import { FollowUpBoard, type FollowUpContact } from "@/components/FollowUpBoard";
+import { createClient } from "@/lib/supabase/server";
+import { getAccessContext } from "@/lib/access";
+import { ArrowLeft, Clock } from "lucide-react";
+import Link from "next/link";
+
+type VisibleList = {
+  id: string;
+  name: string;
+  owner_name: string | null;
+};
+
+export default async function FollowUpPage() {
+  const access = await getAccessContext();
+  if (!access) return null;
+
+  const supabase = await createClient();
+  let listsQuery = supabase
+    .from("lists")
+    .select("id, name, owner_name")
+    .eq("workspace_id", access.workspace_id)
+    .order("sort_order", { ascending: true });
+
+  if (access.effective_user_id) {
+    listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+
+  const { data: listsRaw } = await listsQuery;
+  const lists = (listsRaw ?? []) as VisibleList[];
+  const listIds = lists.map((list) => list.id);
+
+  let contacts: FollowUpContact[] = [];
+  if (listIds.length > 0) {
+    const { data: contactsRaw } = await supabase
+      .from("contacts")
+      .select("*, pipeline_stages (*), lists!inner (id, name, owner_name)")
+      .in("list_id", listIds)
+      .not("next_follow_up_at", "is", null)
+      .order("next_follow_up_at", { ascending: true })
+      .order("created_at", { ascending: false });
+
+    contacts = ((contactsRaw ?? []) as unknown as FollowUpContact[]).filter((contact) =>
+      contact.appointment_set !== true &&
+      contact.answered !== true &&
+      contact.follow_up_number !== 3
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+      <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "#52525b", textDecoration: "none", marginBottom: "1.25rem" }}>
+        <ArrowLeft size={13} /> Dashboard
+      </Link>
+
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
+        <div style={{ width: 38, height: 38, borderRadius: 11, background: "linear-gradient(135deg,#6366f1,#0ea5e9)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 14px rgba(99,102,241,0.35)" }}>
+          <Clock size={18} color="white" />
+        </div>
+        <div>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 850, color: "#fafafa", letterSpacing: "-0.03em", margin: 0 }}>Follow-ups</h1>
+          <p style={{ fontSize: "0.8125rem", color: "#52525b", margin: 0 }}>Alle offenen Nachfasskontakte aus deinen Pitch-Listen.</p>
+        </div>
+      </div>
+
+      <FollowUpBoard contacts={contacts} />
+    </div>
+  );
+}

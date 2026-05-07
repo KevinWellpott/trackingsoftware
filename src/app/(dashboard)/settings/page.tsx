@@ -98,7 +98,9 @@ export default async function SettingsPage({
                       <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "#fafafa" }}>{u.username}</span>
                       {isMe && <span style={{ fontSize: "0.6875rem", color: "#52525b", background: "#27272a", borderRadius: 99, padding: "1px 6px" }}>Du</span>}
                     </div>
-                    <span style={{ fontSize: "0.75rem", color: u.role === "owner" ? "#818cf8" : "#52525b", fontWeight: 600 }}>{u.role === "owner" ? "Owner" : "Mitglied"}</span>
+                    <span style={{ fontSize: "0.75rem", color: u.role === "owner" ? "#818cf8" : "#52525b", fontWeight: 600 }}>
+                      {u.role === "owner" ? "Owner" : "Mitglied"} · {u.data_scope === "own" ? "Nur eigene Daten" : "Alle Daten"}
+                    </span>
                   </div>
                   {/* Delete (not self) */}
                   {!isMe && (
@@ -153,6 +155,13 @@ export default async function SettingsPage({
                   <select name="role" defaultValue="member" style={{ background: "#09090b", border: "1px solid #27272a", borderRadius: 8, padding: "0.4rem 0.625rem", fontSize: "0.875rem", color: "#fafafa", outline: "none" }}>
                     <option value="member">Member</option>
                     <option value="owner">Owner</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "#52525b", marginBottom: "0.3rem" }}>Datensicht</label>
+                  <select name="data_scope" defaultValue="workspace" style={{ background: "#09090b", border: "1px solid #27272a", borderRadius: 8, padding: "0.4rem 0.625rem", fontSize: "0.875rem", color: "#fafafa", outline: "none" }}>
+                    <option value="workspace">Alle Daten</option>
+                    <option value="own">Nur eigene Daten</option>
                   </select>
                 </div>
                 <button type="submit" style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: "0.375rem", padding: "0.5rem 1rem", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", fontWeight: 700, fontSize: "0.875rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(99,102,241,0.3)", whiteSpace: "nowrap" }}>

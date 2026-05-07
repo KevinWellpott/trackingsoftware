@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 
 export type ContactInput = {
@@ -22,6 +23,9 @@ export type ContactInput = {
   appointment_set?: boolean | null;
   answer_text?: string | null;
   answer_category?: string | null;
+  meeting_notes?: string | null;
+  deal_closed?: boolean | null;
+  deal_lost_reason?: string | null;
 };
 
 /** Berechnet next_follow_up_at automatisch aus pitched_at und follow_up_number. */
@@ -46,7 +50,26 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+async function canAccessPitchList(listId: string) {
+  const access = await getAccessContext();
+  if (!access) return false;
+  const supabase = await createClient();
+  let query = supabase
+    .from("lists")
+    .select("id")
+    .eq("id", listId)
+    .eq("workspace_id", access.workspace_id);
+  if (access.effective_user_id) {
+    query = query.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data } = await query.maybeSingle();
+  return Boolean(data);
+}
+
 export async function createContact(input: ContactInput) {
+  if (!(await canAccessPitchList(input.list_id))) {
+    return { error: "Keine Berechtigung." };
+  }
   const supabase = await createClient();
   // Sicherstellen dass pitched_at immer gesetzt ist — jeder Eintrag = eine DM
   if (!input.pitched_at) input.pitched_at = todayLocal();
@@ -71,11 +94,16 @@ export async function createContact(input: ContactInput) {
       appointment_set: input.appointment_set ?? null,
       answer_text: input.answer_text ?? null,
       answer_category: input.answer_category ?? null,
+      meeting_notes: input.meeting_notes ?? null,
+      deal_closed: input.deal_closed ?? false,
+      deal_lost_reason: input.deal_lost_reason ?? null,
     })
     .select("id")
     .single();
   if (error) return { error: error.message };
   revalidatePath(`/lists/${input.list_id}`, "page");
+  revalidatePath("/follow-up", "page");
+  revalidatePath("/crm", "page");
   revalidatePath("/", "layout");
   return { id: data.id };
 }
@@ -85,10 +113,22 @@ export async function updateContact(
   listId: string,
   patch: Partial<ContactInput>,
 ) {
+  if (!(await canAccessPitchList(listId))) {
+    return { error: "Keine Berechtigung." };
+  }
   const supabase = await createClient();
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("id, list_id")
+    .eq("id", contactId)
+    .eq("list_id", listId)
+    .maybeSingle();
+  if (!contact) return { error: "Keine Berechtigung." };
+
   const { name, ...rest } = patch;
   const payload: Record<string, unknown> = { ...rest };
   if (name !== undefined) payload.name = name.trim();
+  if (patch.deal_closed === null) payload.deal_closed = false;
 
   // Immer next_follow_up_at auto-berechnen wenn pitch-relevante Felder geändert werden
   if (
@@ -129,18 +169,33 @@ export async function updateContact(
     .eq("id", contactId);
   if (error) return { error: error.message };
   revalidatePath(`/lists/${listId}`, "page");
+  revalidatePath("/follow-up", "page");
+  revalidatePath("/crm", "page");
   revalidatePath("/", "layout");
   return {};
 }
 
 export async function deleteContact(contactId: string, listId: string) {
+  if (!(await canAccessPitchList(listId))) {
+    return { error: "Keine Berechtigung." };
+  }
   const supabase = await createClient();
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("id")
+    .eq("id", contactId)
+    .eq("list_id", listId)
+    .maybeSingle();
+  if (!contact) return { error: "Keine Berechtigung." };
+
   const { error } = await supabase
     .from("contacts")
     .delete()
     .eq("id", contactId);
   if (error) return { error: error.message };
   revalidatePath(`/lists/${listId}`, "page");
+  revalidatePath("/follow-up", "page");
+  revalidatePath("/crm", "page");
   revalidatePath("/", "layout");
   return {};
 }
@@ -214,6 +269,9 @@ export async function createContactForm(formData: FormData) {
     appointment_set: parseBool(formData.get("appointment_set")),
     answer_text: String(formData.get("answer_text") ?? "").trim() || null,
     answer_category: String(formData.get("answer_category") ?? "").trim() || null,
+    meeting_notes: String(formData.get("meeting_notes") ?? "").trim() || null,
+    deal_closed: parseBool(formData.get("deal_closed")),
+    deal_lost_reason: String(formData.get("deal_lost_reason") ?? "").trim() || null,
   });
 }
 
@@ -241,6 +299,9 @@ export async function updateContactForm(formData: FormData) {
     appointment_set: parseBool(formData.get("appointment_set")),
     answer_text: String(formData.get("answer_text") ?? "").trim() || null,
     answer_category: String(formData.get("answer_category") ?? "").trim() || null,
+    meeting_notes: String(formData.get("meeting_notes") ?? "").trim() || null,
+    deal_closed: parseBool(formData.get("deal_closed")),
+    deal_lost_reason: String(formData.get("deal_lost_reason") ?? "").trim() || null,
   });
 }
 

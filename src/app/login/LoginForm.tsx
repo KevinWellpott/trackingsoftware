@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { usernameToInternalEmail } from "@/lib/internal-email";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import { useState } from "react";
 
@@ -17,8 +18,7 @@ export function LoginForm() {
     setErrMsg("");
 
     const supabase = createClient();
-    // Intern wird username → username@pitchtracker.internal gemappt (kein RPC nötig)
-    const email = `${username.trim().toLowerCase()}@pitchtracker.internal`;
+    const email = usernameToInternalEmail(username);
 
     const { error: signInErr } = await supabase.auth.signInWithPassword({
       email,
@@ -130,7 +130,7 @@ export function LoginForm() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             className="input"
-            placeholder="Kevin oder Simon"
+            placeholder="z. B. Kevin oder Paul Bajorat"
           />
         </div>
 

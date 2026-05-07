@@ -12,7 +12,7 @@ export async function getMembership (): Promise<
 
   const { data: row, error: me } = await supabase
     .from("workspace_members")
-    .select("workspace_id, user_id, role")
+    .select("workspace_id, user_id, role, data_scope")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -30,6 +30,7 @@ export async function getMembership (): Promise<
     workspace_id: row.workspace_id,
     user_id: row.user_id,
     role: row.role as "owner" | "member",
+    data_scope: (row as { data_scope?: "workspace" | "own" | null }).data_scope ?? "workspace",
     workspaces: ws as Workspace,
   };
 }

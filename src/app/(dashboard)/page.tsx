@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { addDaysISO, localDateISO } from "@/lib/dates";
-import { getMembership } from "@/lib/workspace";
+import { getAccessContext } from "@/lib/access";
 import type { ContactWithStage, PitchList } from "@/lib/types";
 import Link from "next/link";
 import { AlertCircle, Bell, CheckCircle, History, Target, Trophy, Zap } from "lucide-react";
@@ -21,6 +21,8 @@ const OWNER_STYLE: Record<Owner, { color: string; glow: string; bg: string; bord
   Simon:  { color: "#a78bfa", glow: "rgba(139,92,246,0.4)",  bg: "rgba(139,92,246,0.08)",  border: "rgba(139,92,246,0.25)" },
   Daniel: { color: "#34d399", glow: "rgba(52,211,153,0.4)",  bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.25)" },
 };
+const PERSONAL_COLOR = "#f59e0b";
+type PersonalWeekPoint = { week: string; count: number };
 
 function getISOWeek(dateStr: string): number {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -76,20 +78,118 @@ function VSSep() {
   );
 }
 
+function PersonalWeekPanel({
+  name,
+  count,
+  goal,
+  monday,
+  sunday,
+}: {
+  name: string;
+  count: number;
+  goal: number;
+  monday: string;
+  sunday: string;
+}) {
+  const progress = Math.min((count / goal) * 100, 100);
+  return (
+    <div style={{ position: "relative", borderRadius: "var(--radius-xl)", overflow: "hidden", background: "linear-gradient(135deg, #11100d 0%, #17120a 50%, #0d1117 100%)", border: "1px solid rgba(245,158,11,0.22)", padding: "1.75rem 2rem 1.5rem", boxShadow: "0 0 50px rgba(245,158,11,0.07), 0 16px 32px rgba(0,0,0,0.5)" }}>
+      <div style={{ position: "absolute", top: -50, right: -20, width: 220, height: 220, background: "radial-gradient(circle, rgba(245,158,11,0.14) 0%, transparent 70%)", pointerEvents: "none" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem", position: "relative" }}>
+        <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#f59e0b,#fbbf24)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 14px rgba(245,158,11,0.4)", color: "#09090b", fontWeight: 900 }}>
+          {name[0]?.toUpperCase() ?? "P"}
+        </div>
+        <div>
+          <div style={{ fontSize: "0.9375rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.01em" }}>Deine Woche</div>
+          <div style={{ fontSize: "0.75rem", color: "#71717a" }}>{name} · {monday} → {sunday}</div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 240px) 1fr", gap: "1.5rem", alignItems: "center", position: "relative" }}>
+        <div>
+          <div style={{ fontSize: "3.25rem", fontWeight: 900, letterSpacing: "-0.05em", color: PERSONAL_COLOR, lineHeight: 1, textShadow: "0 0 28px rgba(245,158,11,0.35)" }}>
+            {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "#52525b", marginLeft: 3 }}>/{goal}</span>
+          </div>
+          <div style={{ fontSize: "0.75rem", color: "#71717a", marginTop: "0.5rem" }}>
+            {Math.round(progress)}% erreicht · noch {Math.max(0, goal - count)} DMs bis zum Wochenziel
+          </div>
+        </div>
+        <div>
+          <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 99, height: 12, overflow: "hidden" }}>
+            <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: "linear-gradient(90deg,#f59e0b,#fbbf24)", boxShadow: "0 0 12px rgba(245,158,11,0.35)", transition: "width 0.4s ease" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem", fontSize: "0.6875rem", color: "#52525b" }}>
+            <span>0</span>
+            <span style={{ color: PERSONAL_COLOR, fontWeight: 700 }}>Ziel {goal}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PersonalHistoryPanel({ weeks, goal }: { weeks: PersonalWeekPoint[]; goal: number }) {
+  const max = Math.max(goal, ...weeks.map((w) => w.count), 1);
+  return (
+    <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.5rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+        <History size={14} color={PERSONAL_COLOR} />
+        <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Dein Verlauf letzte 10 Wochen</span>
+        <span style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "#71717a" }}>Wochenziel {goal} DMs</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`, gap: "0.5rem", alignItems: "end", minHeight: 170 }}>
+        {weeks.map((week) => {
+          const height = Math.max(8, (week.count / max) * 130);
+          const reached = week.count >= goal;
+          return (
+            <div key={week.week} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.375rem" }}>
+              <div style={{ fontSize: "0.6875rem", color: reached ? "#4ade80" : PERSONAL_COLOR, fontWeight: 800 }}>{week.count}</div>
+              <div style={{ width: "100%", maxWidth: 28, height, borderRadius: "6px 6px 2px 2px", background: reached ? "linear-gradient(180deg,#4ade80,#16a34a)" : "linear-gradient(180deg,#fbbf24,#f59e0b)", boxShadow: reached ? "0 0 10px rgba(74,222,128,0.25)" : "0 0 10px rgba(245,158,11,0.25)" }} />
+              <div style={{ fontSize: "0.625rem", color: "#52525b", whiteSpace: "nowrap" }}>{week.week}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default async function DashboardPage() {
-  const m = await getMembership();
-  if (!m) return null;
+  const access = await getAccessContext();
+  if (!access) return null;
 
   const supabase = await createClient();
   const today = localDateISO();
   const monday = weekStart(today);
   const sunday = addDaysISO(monday, 6); // Woche läuft Mo–So komplett
 
-  const { data: lists } = await supabase.from("lists").select("*").eq("workspace_id", m.workspace_id).is("archived_at", null).order("sort_order");
-  const { data: rawContacts } = await supabase.from("contacts").select("*, pipeline_stages (*)").eq("workspace_id", m.workspace_id);
+  let listsQuery = supabase
+    .from("lists")
+    .select("*")
+    .eq("workspace_id", access.workspace_id)
+    .is("archived_at", null)
+    .order("sort_order");
+  if (access.effective_user_id) {
+    listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data: lists } = await listsQuery;
+
+  const visibleListIds = (lists ?? []).map((l) => l.id);
+  let contactsQuery = supabase
+    .from("contacts")
+    .select("*, pipeline_stages (*)")
+    .eq("workspace_id", access.workspace_id);
+  if (access.effective_user_id) {
+    contactsQuery = visibleListIds.length > 0
+      ? contactsQuery.in("list_id", visibleListIds)
+      : contactsQuery.in("list_id", ["00000000-0000-0000-0000-000000000000"]);
+  }
+  const { data: rawContacts } = await contactsQuery;
 
   const allContacts = (rawContacts ?? []) as unknown as ContactWithStage[];
   const pitchLists  = (lists ?? []) as PitchList[];
+  const isPersonalView = Boolean(access.effective_user_id);
+  const personalName = access.effective_username ?? access.username;
 
   // Liste → Owner lookup
   const listOwner: Record<string, string> = {};
@@ -129,6 +229,17 @@ export default async function DashboardPage() {
     Simon:  allContacts.filter((c) => (c.pitched_at ?? c.created_at.slice(0, 10)) === today && listOwner[c.list_id] === "Simon").length,
     Daniel: allContacts.filter((c) => (c.pitched_at ?? c.created_at.slice(0, 10)) === today && listOwner[c.list_id] === "Daniel").length,
   };
+  const personalTodayCount = allContacts.filter((c) => (c.pitched_at ?? c.created_at.slice(0, 10)) === today).length;
+  const personalWeekCount = allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= monday && d <= sunday; }).length;
+  const personalHistoricalWeeks: PersonalWeekPoint[] = [];
+  for (let i = 9; i >= 0; i--) {
+    const wStart = addDaysISO(monday, -i * 7);
+    const wEnd = addDaysISO(wStart, 6);
+    personalHistoricalWeeks.push({
+      week: `KW ${getISOWeek(wStart)}`,
+      count: allContacts.filter((c) => { const d = c.pitched_at ?? c.created_at.slice(0, 10); return d >= wStart && d <= wEnd; }).length,
+    });
+  }
 
   // ── Follow-up alerts (always current, no filter)
   const urgentThreshold = addDaysISO(today, -3);
@@ -183,7 +294,7 @@ export default async function DashboardPage() {
       <div>
         <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.03em", margin: 0 }}>Dashboard</h1>
         <p style={{ fontSize: "0.8125rem", color: "#52525b", marginTop: 2 }}>
-          Performance-Übersicht · {m.workspaces.name}
+          Performance-Übersicht · {access.effective_username ?? access.workspaces.name}
         </p>
       </div>
 
@@ -253,10 +364,23 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* ══ WOCHENDUELL ══ */}
-      <div style={{ position: "relative", borderRadius: "var(--radius-xl)", overflow: "hidden", background: "linear-gradient(135deg, #0d0d14 0%, #12101f 50%, #0d1117 100%)", border: "1px solid rgba(99,102,241,0.18)", padding: "1.75rem 2rem 1.5rem", boxShadow: "0 0 50px rgba(99,102,241,0.07), 0 16px 32px rgba(0,0,0,0.5)" }}>
-        <div style={{ position: "absolute", top: -40, left: "15%", width: 180, height: 180, background: "radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)", pointerEvents: "none" }} />
-        <div style={{ position: "absolute", top: -40, right: "15%", width: 180, height: 180, background: "radial-gradient(circle, rgba(139,92,246,0.1) 0%, transparent 70%)", pointerEvents: "none" }} />
+      {isPersonalView ? (
+        <>
+          <PersonalWeekPanel
+            name={personalName}
+            count={personalWeekCount}
+            goal={WEEKLY_GOAL}
+            monday={monday}
+            sunday={sunday}
+          />
+          <PersonalHistoryPanel weeks={personalHistoricalWeeks} goal={WEEKLY_GOAL} />
+        </>
+      ) : (
+        <>
+          {/* ══ WOCHENDUELL ══ */}
+          <div style={{ position: "relative", borderRadius: "var(--radius-xl)", overflow: "hidden", background: "linear-gradient(135deg, #0d0d14 0%, #12101f 50%, #0d1117 100%)", border: "1px solid rgba(99,102,241,0.18)", padding: "1.75rem 2rem 1.5rem", boxShadow: "0 0 50px rgba(99,102,241,0.07), 0 16px 32px rgba(0,0,0,0.5)" }}>
+          <div style={{ position: "absolute", top: -40, left: "15%", width: 180, height: 180, background: "radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", top: -40, right: "15%", width: 180, height: 180, background: "radial-gradient(circle, rgba(139,92,246,0.1) 0%, transparent 70%)", pointerEvents: "none" }} />
 
         <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "1.5rem" }}>
           <div style={{ width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 12px rgba(99,102,241,0.45)", flexShrink: 0 }}>
@@ -288,10 +412,10 @@ export default async function DashboardPage() {
             {WEEKLY_GOAL - maxCount > 0 ? `${WEEKLY_GOAL - maxCount} bis zur 100er-Marke` : "🎉 100er-Marke erreicht!"}
           </span>
         </div>
-      </div>
+          </div>
 
-      {/* ══ DUELL-VERLAUF ══ */}
-      <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.5rem" }}>
+          {/* ══ DUELL-VERLAUF ══ */}
+          <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.5rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
           <History size={14} color="#fbbf24" />
           <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Duell-Verlauf letzte 10 Wochen</span>
@@ -328,7 +452,9 @@ export default async function DashboardPage() {
             </div>
           );
         })()}
-      </div>
+          </div>
+        </>
+      )}
 
       {/* ══ SEKTION 1: GESAMT (Client, eigener Filter) ══ */}
       <OverallSection
@@ -336,6 +462,9 @@ export default async function DashboardPage() {
         lists={pitchLists}
         today={today}
         todayCounts={todayCounts}
+        personalMode={isPersonalView}
+        personalOwnerName={personalName}
+        personalTodayCount={personalTodayCount}
         dailyGoal={dailyGoal}
       />
 
@@ -375,22 +504,27 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* ══ SEKTION 2: KEVIN vs SIMON vs DANIEL (Client, eigener Filter) ══ */}
-      <PersonSection
-        allContacts={allContacts}
-        lists={pitchLists}
-        today={today}
-        kevinWeek={kevinWeek}
-        simonWeek={simonWeek}
-        danielWeek={danielWeek}
-        todayCounts={todayCounts}
-        dailyGoal={dailyGoal}
-      />
+      {!isPersonalView && (
+        <>
+          {/* ══ SEKTION 2: KEVIN vs SIMON vs DANIEL (Client, eigener Filter) ══ */}
+          <PersonSection
+            allContacts={allContacts}
+            lists={pitchLists}
+            today={today}
+            kevinWeek={kevinWeek}
+            simonWeek={simonWeek}
+            danielWeek={danielWeek}
+            todayCounts={todayCounts}
+            dailyGoal={dailyGoal}
+          />
+        </>
+      )}
 
       {/* ══ SEKTION 3: LISTEN-ANALYSE (Client, eigener Filter) ══ */}
       <ListAnalysisSection
         allContacts={allContacts}
         lists={pitchLists}
+        personalMode={isPersonalView}
       />
 
       {/* ══ SEKTION 4: KI-INSIGHTS ══ */}

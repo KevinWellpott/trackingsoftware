@@ -2,6 +2,7 @@ import { ArchiveListButton } from "@/components/ArchiveListButton";
 import { DeleteListButton } from "@/components/DeleteListButton";
 import { ListBoard } from "@/components/ListBoard";
 import { createClient } from "@/lib/supabase/server";
+import { getAccessContext } from "@/lib/access";
 import { updateListPitchForm } from "@/app/actions/lists";
 import { MultiMetricBarChart, AnswerDonutChart, METRIC_COLORS, type MultiMetricDay } from "@/components/DashboardCharts";
 import type { ContactWithStage, PipelineStage, PitchList } from "@/lib/types";
@@ -14,9 +15,20 @@ function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1
 
 export default async function ListDetailPage({ params }: { params: Promise<{ listId: string }> }) {
   const { listId } = await params;
+  const access = await getAccessContext();
+  if (!access) notFound();
+
   const supabase = await createClient();
 
-  const { data: list, error: le } = await supabase.from("lists").select("*").eq("id", listId).single();
+  let listQuery = supabase
+    .from("lists")
+    .select("*")
+    .eq("id", listId)
+    .eq("workspace_id", access.workspace_id);
+  if (access.effective_user_id) {
+    listQuery = listQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data: list, error: le } = await listQuery.single();
   if (le || !list) notFound();
 
   const { data: stages } = await supabase.from("pipeline_stages").select("*").eq("list_id", listId).order("sort_order");

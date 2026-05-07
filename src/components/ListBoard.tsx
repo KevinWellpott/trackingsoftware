@@ -3,7 +3,7 @@
 import { createContactForm, deleteContactForm, updateContact } from "@/app/actions/contacts";
 import type { ContactWithStage, PipelineStage } from "@/lib/types";
 import { ANSWER_CATEGORIES, CATEGORY_CONFIG, type AnswerCategory } from "@/lib/categories";
-import { Calendar, CheckCircle, Search, Trash2 } from "lucide-react";
+import { CheckCircle, Search, Trash2 } from "lucide-react";
 import { useRef, useState, useMemo, useTransition } from "react";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
@@ -339,24 +339,24 @@ function NewRow({ listId }: { listId: string }) {
   const nameRef = useRef<HTMLInputElement>(null);
 
   return (
-    <tr style={{ background: "#0a0a0d" }}>
-      <td style={{ ...td, borderBottom: "none" }}>
+    <tr style={{ background: "linear-gradient(90deg, rgba(99,102,241,0.12), rgba(99,102,241,0.03))", boxShadow: "inset 0 -1px 0 rgba(99,102,241,0.2)" }}>
+      <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <input form="new-row-form" name="pitched_at" type="date" defaultValue={today}
           style={{ ...editInput, width: 108, colorScheme: "dark", fontSize: "0.75rem" }} tabIndex={1} />
       </td>
-      <td style={{ ...td, minWidth: 140, borderBottom: "none" }}>
+      <td style={{ ...td, minWidth: 140, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <input
           ref={nameRef}
           form="new-row-form"
           name="name"
-          placeholder="+ Name eingeben…"
+          placeholder="+ Neuen Pitch-Kontakt hinzufügen…"
           required
           style={{ ...editInput, fontWeight: 600, color: "#818cf8", minWidth: 160 }}
           tabIndex={2}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); formRef.current?.requestSubmit(); } }}
         />
       </td>
-      <td style={{ ...td, borderBottom: "none" }}>
+      <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <select form="new-row-form" name="follow_up_number" defaultValue="" style={{ ...editInput, width: 64, fontSize: "0.75rem" }} tabIndex={3}>
           <option value="">—</option>
           <option value="1">FU1</option>
@@ -364,24 +364,24 @@ function NewRow({ listId }: { listId: string }) {
           <option value="3">FU3</option>
         </select>
       </td>
-      <td style={{ ...td, borderBottom: "none" }} colSpan={2}>
-        <span style={{ fontSize: "0.6875rem", color: "#27272a" }}>Antwort/Termin nach Anlegen</span>
+      <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }} colSpan={2}>
+        <span style={{ fontSize: "0.6875rem", color: "#52525b" }}>Antwort/Termin nach Anlegen</span>
       </td>
-      <td style={{ ...td, borderBottom: "none" }}>
+      <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <select form="new-row-form" name="answer_category" defaultValue="" style={{ ...editInput, fontSize: "0.75rem", maxWidth: 130 }} tabIndex={4}>
           <option value="">—</option>
           {ANSWER_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
         </select>
       </td>
-      <td style={{ ...td, borderBottom: "none" }}>
+      <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <input form="new-row-form" name="answer_text" placeholder="Antwort…" style={{ ...editInput, minWidth: 120 }} tabIndex={5}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); formRef.current?.requestSubmit(); } }} />
       </td>
-      <td style={{ ...td, borderBottom: "none" }}>
+      <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <input form="new-row-form" name="notes" placeholder="Notizen…" style={{ ...editInput, minWidth: 100 }} tabIndex={6}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); formRef.current?.requestSubmit(); } }} />
       </td>
-      <td style={{ ...td, borderBottom: "none" }}>
+      <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <button form="new-row-form" type="submit" tabIndex={7}
           style={{ background: "#6366f1", color: "white", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, fontSize: "0.75rem", padding: "3px 8px", display: "flex", alignItems: "center" }}>
           ✓
@@ -482,10 +482,10 @@ export function ListBoard({ listId, stages, contacts }: {
               </tr>
             </thead>
             <tbody>
+              {!search && <NewRow listId={listId} />}
               {filtered.map((c) => (
                 <ContactRow key={c.id} c={c} listId={listId} stages={stages} />
               ))}
-              {!search && <NewRow listId={listId} />}
             </tbody>
             {contacts.length > 0 && (
               <tfoot><StatsRow contacts={contacts} /></tfoot>

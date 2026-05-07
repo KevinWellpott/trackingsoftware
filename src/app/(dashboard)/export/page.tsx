@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getMembership } from "@/lib/workspace";
+import { getAccessContext } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
 import type { PitchList } from "@/lib/types";
 import { ANSWER_CATEGORIES, CATEGORY_CONFIG } from "@/lib/categories";
@@ -14,18 +14,22 @@ export default async function ExportPage({
     from?: string; to?: string; owner?: string; listIds?: string; category?: string;
   }>;
 }) {
-  const m = await getMembership();
-  if (!m) return null;
+  const access = await getAccessContext();
+  if (!access) return null;
 
   const supabase = await createClient();
   const q = await searchParams;
   const today = localDateISO();
 
-  const { data: listsRaw } = await supabase
+  let listsQuery = supabase
     .from("lists")
     .select("id, name, owner_name, archived_at")
-    .eq("workspace_id", m.workspace_id)
+    .eq("workspace_id", access.workspace_id)
     .order("sort_order");
+  if (access.effective_user_id) {
+    listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data: listsRaw } = await listsQuery;
 
   const allLists = (listsRaw ?? []) as PitchList[];
 
@@ -37,6 +41,8 @@ export default async function ExportPage({
   const category = q.category ?? "";
 
   // Preview: count matching contacts
+  const allowedListIds = allLists.map((l) => l.id);
+
   let countQ = supabase
     .from("contacts")
     .select("id, list_id, pitched_at, answer_category, lists!inner(owner_name)", { count: "exact", head: false });
@@ -44,16 +50,22 @@ export default async function ExportPage({
   if (from) countQ = countQ.gte("pitched_at", from);
   countQ = countQ.lte("pitched_at", to);
   if (listIds.length > 0) countQ = countQ.in("list_id", listIds);
+  else if (access.effective_user_id) countQ = countQ.in("list_id", allowedListIds.length ? allowedListIds : ["00000000-0000-0000-0000-000000000000"]);
 
   const { count: rawCount } = await countQ;
+  void rawCount;
 
   // Further filter by owner + category (client-side for preview since nested filters are limited)
-  const { data: previewRaw } = await supabase
+  let previewQuery = supabase
     .from("contacts")
     .select("id, list_id, answered, appointment_set, answer_category, lists!inner(owner_name)")
     .gte("pitched_at", from || "2000-01-01")
     .lte("pitched_at", to)
     .limit(2000);
+  if (access.effective_user_id) {
+    previewQuery = previewQuery.in("list_id", allowedListIds.length ? allowedListIds : ["00000000-0000-0000-0000-000000000000"]);
+  }
+  const { data: previewRaw } = await previewQuery;
 
   type PR = { id: string; list_id: string; answered: boolean | null; appointment_set: boolean | null; answer_category: string | null; lists: { owner_name: string | null } | null };
   let preview = (previewRaw ?? []) as unknown as PR[];

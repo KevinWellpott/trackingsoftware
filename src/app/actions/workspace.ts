@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { DATA_VIEW_COOKIE, getAccessContext, type DataScope } from "@/lib/access";
+import { usernameToInternalEmail } from "@/lib/internal-email";
 
 export async function bootstrapWorkspace(name: string) {
   const supabase = await createClient();
@@ -50,15 +53,19 @@ export async function joinWorkspaceForm(formData: FormData) {
   redirect("/");
 }
 
-export async function createUser(username: string, password: string, role: "owner" | "member" = "member") {
+export async function createUser(
+  username: string,
+  password: string,
+  role: "owner" | "member" = "member",
+  dataScope: DataScope = "workspace",
+) {
   if (!username.trim() || !password) {
     return { error: "Benutzername und Passwort sind erforderlich." };
   }
-  const supabase = await createClient();
   const m = await (await import("@/lib/workspace")).getMembership();
   if (!m || m.role !== "owner") return { error: "Keine Berechtigung." };
 
-  const email = `${username.trim().toLowerCase()}@pitchtracker.internal`;
+  const email = usernameToInternalEmail(username);
   const admin = createAdminClient();
 
   const { data, error } = await admin.auth.admin.createUser({
@@ -84,6 +91,7 @@ export async function createUser(username: string, password: string, role: "owne
     workspace_id: m.workspace_id,
     user_id: uid,
     role,
+    data_scope: dataScope,
   });
   if (memberError) {
     await admin.auth.admin.deleteUser(uid);
@@ -116,11 +124,34 @@ export async function createUserForm(formData: FormData) {
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const role = (String(formData.get("role") ?? "member")) as "owner" | "member";
-  const res = await createUser(username, password, role);
+  const dataScope = (String(formData.get("data_scope") ?? "workspace")) as DataScope;
+  const res = await createUser(username, password, role, dataScope);
   if (res.error) {
     redirect(`/settings?userErr=${encodeURIComponent(res.error)}`);
   }
   redirect("/settings?userOk=1");
+}
+
+export async function setDataViewForm(formData: FormData) {
+  const access = await getAccessContext();
+  if (!access?.can_switch_view) return;
+
+  const userId = String(formData.get("view_user_id") ?? "");
+  const next = String(formData.get("next") ?? "/") || "/";
+  const cookieStore = await cookies();
+
+  if (!userId) {
+    cookieStore.delete(DATA_VIEW_COOKIE);
+  } else {
+    cookieStore.set(DATA_VIEW_COOKIE, userId, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+    });
+  }
+
+  revalidatePath("/", "layout");
+  redirect(next);
 }
 
 export async function deleteUserForm(formData: FormData) {
@@ -137,13 +168,14 @@ export async function listUsers(workspaceId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("workspace_members")
-    .select("user_id, role, profiles (username)")
+    .select("user_id, role, data_scope, profiles (username)")
     .eq("workspace_id", workspaceId);
   if (error) return { error: error.message, users: [] };
   return {
     users: (data ?? []).map((row) => ({
       user_id: row.user_id,
       role: row.role,
+      data_scope: (row as { data_scope?: DataScope | null }).data_scope ?? "workspace",
       username:
         ((row.profiles as unknown) as { username: string } | null)?.username ?? row.user_id,
     })),

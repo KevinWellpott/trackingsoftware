@@ -64,7 +64,7 @@ export function DeleteListButton({ listId, listName, contactCount }: Props) {
         {/* Warning box */}
         <div style={{ background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.18)", borderRadius: 10, padding: "0.875rem 1rem", marginBottom: "1.25rem" }}>
           <div style={{ fontSize: "0.8125rem", color: "#fca5a5", fontWeight: 600, marginBottom: "0.375rem" }}>
-            "{listName}"
+            &quot;{listName}&quot;
           </div>
           <div style={{ fontSize: "0.75rem", color: "#71717a", lineHeight: 1.5 }}>
             {contactCount > 0 ? (

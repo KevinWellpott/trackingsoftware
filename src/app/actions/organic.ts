@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -29,6 +30,7 @@ export type OrganicList = {
   name: string;
   description: string | null;
   owner_name: string | null;
+  created_by_user_id: string | null;
   archived_at: string | null;
   created_at: string;
 };
@@ -66,14 +68,34 @@ function parseBool(v: FormDataEntryValue | null): boolean | null {
   return null;
 }
 
+async function canAccessOrganicList(listId: string) {
+  const access = await getAccessContext();
+  if (!access) return false;
+  const supabase = await createClient();
+  let query = supabase
+    .from("organic_lists")
+    .select("id")
+    .eq("id", listId)
+    .eq("workspace_id", access.workspace_id);
+  if (access.effective_user_id) {
+    query = query.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data } = await query.maybeSingle();
+  return Boolean(data);
+}
+
 // ── Create post ────────────────────────────────────────────────────────────
 export async function createOrganicPost(input: PostInput) {
+  const access = await getAccessContext();
+  if (!access || !(await canAccessOrganicList(input.list_id))) {
+    return { error: "Keine Berechtigung." };
+  }
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("organic_posts")
     .insert({
       list_id:            input.list_id,
-      owner_name:         input.owner_name ?? null,
+      owner_name:         access.data_scope === "own" ? access.username : input.owner_name ?? null,
       posted_at:          input.posted_at || todayLocal(),
       hook_text:          input.hook_text ?? null,
       topic:              input.topic ?? null,
@@ -114,7 +136,18 @@ export async function createOrganicPostForm(formData: FormData) {
 
 // ── Update post ────────────────────────────────────────────────────────────
 export async function updateOrganicPost(postId: string, listId: string, patch: Partial<PostInput>) {
+  if (!(await canAccessOrganicList(listId))) {
+    return { error: "Keine Berechtigung." };
+  }
   const supabase = await createClient();
+  const { data: post } = await supabase
+    .from("organic_posts")
+    .select("id")
+    .eq("id", postId)
+    .eq("list_id", listId)
+    .maybeSingle();
+  if (!post) return { error: "Keine Berechtigung." };
+
   const payload: Record<string, unknown> = {};
   if (patch.posted_at          !== undefined) payload.posted_at          = patch.posted_at;
   if (patch.hook_text          !== undefined) payload.hook_text          = patch.hook_text;
@@ -136,7 +169,18 @@ export async function updateOrganicPost(postId: string, listId: string, patch: P
 
 // ── Delete post ────────────────────────────────────────────────────────────
 export async function deleteOrganicPost(postId: string, listId: string) {
+  if (!(await canAccessOrganicList(listId))) {
+    return { error: "Keine Berechtigung." };
+  }
   const supabase = await createClient();
+  const { data: post } = await supabase
+    .from("organic_posts")
+    .select("id")
+    .eq("id", postId)
+    .eq("list_id", listId)
+    .maybeSingle();
+  if (!post) return { error: "Keine Berechtigung." };
+
   const { error } = await supabase.from("organic_posts").delete().eq("id", postId);
   if (error) return { error: error.message };
   revalidatePath(`/organic/${listId}`, "page");
@@ -153,14 +197,24 @@ export async function deleteOrganicPostForm(formData: FormData) {
 
 // ── Create organic list ────────────────────────────────────────────────────
 export async function createOrganicList(workspaceId: string, name: string, ownerName?: string, description?: string) {
+  void workspaceId;
+  const access = await getAccessContext();
+  if (!access) return { error: "Keine Berechtigung." };
+
   const supabase = await createClient();
+  const normalizedOwnerName =
+    access.data_scope === "own"
+      ? access.username
+      : ownerName?.trim() || null;
+
   const { data, error } = await supabase
     .from("organic_lists")
     .insert({
-      workspace_id: workspaceId,
+      workspace_id: access.workspace_id,
       name:         name.trim() || "Neue Serie",
-      owner_name:   ownerName?.trim() || null,
+      owner_name:   normalizedOwnerName,
       description:  description?.trim() || null,
+      created_by_user_id: access.user.id,
     })
     .select("id")
     .single();
@@ -182,6 +236,9 @@ export async function createOrganicListForm(formData: FormData) {
 
 // ── Delete organic list ────────────────────────────────────────────────────
 export async function deleteOrganicList(listId: string) {
+  if (!(await canAccessOrganicList(listId))) {
+    return { error: "Keine Berechtigung." };
+  }
   const supabase = await createClient();
   const { error } = await supabase.from("organic_lists").delete().eq("id", listId);
   if (error) return { error: error.message };

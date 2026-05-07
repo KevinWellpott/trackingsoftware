@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -24,14 +25,24 @@ export async function createList(
   pitchText?: string,
   ownerName?: string,
 ) {
+  void workspaceId;
+  const access = await getAccessContext();
+  if (!access) return { error: "Keine Berechtigung." };
+
   const supabase = await createClient();
+  const normalizedOwnerName =
+    access.data_scope === "own"
+      ? access.username
+      : ownerName?.trim() || null;
+
   const { data: list, error: le } = await supabase
     .from("lists")
     .insert({
-      workspace_id: workspaceId,
+      workspace_id: access.workspace_id,
       name: name.trim() || "Neue Liste",
       pitch_text: pitchText?.trim() || null,
-      owner_name: ownerName?.trim() || null,
+      owner_name: normalizedOwnerName,
+      created_by_user_id: access.user.id,
     })
     .select("id")
     .single();
@@ -57,7 +68,20 @@ export async function updateList(
   listId: string,
   patch: { name?: string; pitch_text?: string | null; archived_at?: string | null },
 ) {
+  const access = await getAccessContext();
+  if (!access) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
+  let accessQuery = supabase
+    .from("lists")
+    .select("id")
+    .eq("id", listId)
+    .eq("workspace_id", access.workspace_id);
+  if (access.effective_user_id) {
+    accessQuery = accessQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data: list } = await accessQuery.maybeSingle();
+  if (!list) return { error: "Keine Berechtigung." };
+
   const { error } = await supabase.from("lists").update(patch).eq("id", listId);
   if (error) return { error: error.message };
   revalidatePath("/", "layout");
@@ -66,7 +90,20 @@ export async function updateList(
 }
 
 export async function deleteList(listId: string) {
+  const access = await getAccessContext();
+  if (!access) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
+  let accessQuery = supabase
+    .from("lists")
+    .select("id")
+    .eq("id", listId)
+    .eq("workspace_id", access.workspace_id);
+  if (access.effective_user_id) {
+    accessQuery = accessQuery.eq("created_by_user_id", access.effective_user_id);
+  }
+  const { data: list } = await accessQuery.maybeSingle();
+  if (!list) return { error: "Keine Berechtigung." };
+
   const { error } = await supabase.from("lists").delete().eq("id", listId);
   if (error) return { error: error.message };
   revalidatePath("/", "layout");
