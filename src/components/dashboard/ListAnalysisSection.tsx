@@ -19,6 +19,7 @@ const OWNER_COLORS: Record<string, { bg: string; border: string; text: string }>
   Simon: { bg: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.25)", text: "#a78bfa" },
   Daniel: { bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.25)", text: "#34d399" },
   "Paul Bajorat": { bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.25)", text: "#f59e0b" },
+  "Samuel Kerber": { bg: "rgba(14,165,233,0.12)", border: "rgba(14,165,233,0.25)", text: "#38bdf8" },
 };
 
 function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1000) / 10; }

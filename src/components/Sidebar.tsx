@@ -163,6 +163,7 @@ const OWNER_COLORS: Record<string, string> = {
   Simon: "#8b5cf6",
   Daniel: "#10b981",
   "Paul Bajorat": "#f59e0b",
+  "Samuel Kerber": "#0ea5e9",
 };
 
 function OwnerFolder({

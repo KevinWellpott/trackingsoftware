@@ -20,6 +20,7 @@ const OWNER_COLORS: Record<string, string> = {
   Simon: "#a78bfa",
   Daniel: "#34d399",
   "Paul Bajorat": "#f59e0b",
+  "Samuel Kerber": "#38bdf8",
 };
 
 const labelStyle: React.CSSProperties = {
