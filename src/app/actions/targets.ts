@@ -3,46 +3,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
+import type {
+  PerformanceTarget,
+  TargetChannel,
+  TargetPeriod,
+  TargetMetric,
+} from "@/lib/targets";
 
 // Tages-/Wochenziele je Nutzer. RLS auf performance_targets erzwingt:
 // Workspace-Scope (inkl. Owner) darf alle setzen; 'own'-Scope nur die eigenen.
-
-export type TargetChannel = "linkedin" | "telefon";
-export type TargetPeriod = "daily" | "weekly";
-export type TargetMetric = "pitches" | "calls" | "appointments";
-
-export type PerformanceTarget = {
-  id: string;
-  workspace_id: string;
-  user_id: string;
-  channel: TargetChannel;
-  period: TargetPeriod;
-  metric: TargetMetric;
-  target_value: number;
-};
-
-// Sinnvolle Defaults, solange kein individuelles Ziel gesetzt ist
-// (entspricht den bisherigen Hardcodes: 20 DMs/Tag, 100 DMs/Woche).
-export const DEFAULT_TARGETS: Partial<
-  Record<`${TargetChannel}:${TargetPeriod}:${TargetMetric}`, number>
-> = {
-  "linkedin:daily:pitches": 20,
-  "linkedin:weekly:pitches": 100,
-  "linkedin:daily:appointments": 1,
-  "linkedin:weekly:appointments": 5,
-  "telefon:daily:calls": 40,
-  "telefon:weekly:calls": 200,
-  "telefon:daily:appointments": 1,
-  "telefon:weekly:appointments": 5,
-};
-
-export function targetKey(
-  channel: TargetChannel,
-  period: TargetPeriod,
-  metric: TargetMetric,
-): `${TargetChannel}:${TargetPeriod}:${TargetMetric}` {
-  return `${channel}:${period}:${metric}`;
-}
+// Reine Helfer/Typen/Defaults liegen in "@/lib/targets" (sync erlaubt).
 
 /** Alle sichtbaren Ziele des Workspaces (RLS-gescoped). */
 export async function getTargets(): Promise<PerformanceTarget[]> {
@@ -54,28 +24,6 @@ export async function getTargets(): Promise<PerformanceTarget[]> {
     .select("id, workspace_id, user_id, channel, period, metric, target_value")
     .eq("workspace_id", access.workspace_id);
   return (data ?? []) as PerformanceTarget[];
-}
-
-/**
- * Ziel für einen Nutzer nachschlagen (mit Default-Fallback).
- * `targets` ist die Liste aus getTargets(), damit Aufrufer nur einmal laden.
- */
-export function resolveTarget(
-  targets: PerformanceTarget[],
-  userId: string,
-  channel: TargetChannel,
-  period: TargetPeriod,
-  metric: TargetMetric,
-): number {
-  const hit = targets.find(
-    (t) =>
-      t.user_id === userId &&
-      t.channel === channel &&
-      t.period === period &&
-      t.metric === metric,
-  );
-  if (hit) return hit.target_value;
-  return DEFAULT_TARGETS[targetKey(channel, period, metric)] ?? 0;
 }
 
 /** Ein Ziel setzen/aktualisieren (Upsert). workspace_id setzt der DB-Trigger. */

@@ -3,6 +3,7 @@
 import { Menu, Zap } from "lucide-react";
 import { useState } from "react";
 import { MobileDrawer } from "./Sidebar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type Props = {
   workspaceName: string;
@@ -62,22 +63,25 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, orga
             Pitch Tracker
           </span>
         </div>
-        <button
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Menü öffnen"
-          style={{
-            background: "none",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm)",
-            cursor: "pointer",
-            color: "var(--text-secondary)",
-            padding: "0.375rem",
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
-          <Menu size={20} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <ThemeToggle compact />
+          <button
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Menü öffnen"
+            style={{
+              background: "none",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              cursor: "pointer",
+              color: "var(--text-secondary)",
+              padding: "0.375rem",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <Menu size={20} />
+          </button>
+        </div>
       </header>
 
       <MobileDrawer

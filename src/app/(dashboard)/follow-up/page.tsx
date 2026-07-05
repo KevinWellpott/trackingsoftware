@@ -53,17 +53,17 @@ export default async function FollowUpPage() {
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-      <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "#52525b", textDecoration: "none", marginBottom: "1.25rem" }}>
+      <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "var(--text-subtle)", textDecoration: "none", marginBottom: "1.25rem" }}>
         <ArrowLeft size={13} /> Dashboard
       </Link>
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
-        <div style={{ width: 38, height: 38, borderRadius: 11, background: "linear-gradient(135deg,#6366f1,#0ea5e9)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 14px rgba(99,102,241,0.35)" }}>
-          <Clock size={18} color="white" />
+        <div style={{ width: 38, height: 38, borderRadius: "var(--radius-md)", background: "rgb(24 98 184 / 0.10)", border: "1px solid rgb(24 98 184 / 0.25)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)" }}>
+          <Clock size={18} color="var(--brand-500)" />
         </div>
         <div>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 850, color: "#fafafa", letterSpacing: "-0.03em", margin: 0 }}>Follow-ups</h1>
-          <p style={{ fontSize: "0.8125rem", color: "#52525b", margin: 0 }}>Alle offenen Nachfasskontakte aus deinen Pitch-Listen.</p>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 850, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>Follow-ups</h1>
+          <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: 0 }}>Alle offenen Nachfasskontakte aus deinen Pitch-Listen.</p>
         </div>
       </div>
 

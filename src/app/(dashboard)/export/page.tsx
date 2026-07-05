@@ -90,17 +90,17 @@ export default async function ExportPage({
 
   return (
     <div style={{ maxWidth: 800, margin: "0 auto" }}>
-      <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "#52525b", textDecoration: "none", marginBottom: "1.25rem" }}>
+      <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "var(--text-subtle)", textDecoration: "none", marginBottom: "1.25rem" }}>
         <ArrowLeft size={13} /> Dashboard
       </Link>
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.75rem" }}>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 12px rgba(99,102,241,0.4)" }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--brand-500)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)" }}>
           <Download size={17} color="white" />
         </div>
         <div>
-          <h1 style={{ fontSize: "1.375rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.03em", margin: 0 }}>Daten exportieren</h1>
-          <p style={{ fontSize: "0.8125rem", color: "#52525b", margin: 0 }}>CSV-Download · Excel-kompatibel · alle Felder</p>
+          <h1 style={{ fontSize: "1.375rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>Daten exportieren</h1>
+          <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: 0 }}>CSV-Download · Excel-kompatibel · alle Felder</p>
         </div>
       </div>
 
@@ -108,8 +108,8 @@ export default async function ExportPage({
         {/* ── Filter Form ── */}
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
           <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <FileText size={14} color="#818cf8" />
-            <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Filter</span>
+            <FileText size={14} color="var(--brand-500)" />
+            <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Filter</span>
           </div>
           <div style={{ padding: "1.25rem 1.375rem" }}>
             <ExportForm
@@ -127,14 +127,14 @@ export default async function ExportPage({
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           {/* Stats */}
           <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.25rem" }}>
-            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#52525b", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem" }}>Vorschau</div>
+            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem" }}>Vorschau</div>
             {[
-              { label: "Datensätze", value: count, color: "#818cf8" },
-              { label: "Antworten", value: answered, color: "#4ade80" },
-              { label: "Termine", value: appts, color: "#a78bfa" },
+              { label: "Datensätze", value: count, color: "var(--brand-500)" },
+              { label: "Antworten", value: answered, color: "var(--color-success-text)" },
+              { label: "Termine", value: appts, color: "var(--brand-400)" },
             ].map((s) => (
               <div key={s.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.375rem" }}>
-                <span style={{ fontSize: "0.8125rem", color: "#71717a" }}>{s.label}</span>
+                <span style={{ fontSize: "0.8125rem", color: "var(--text-subtle)" }}>{s.label}</span>
                 <span style={{ fontSize: "1.125rem", fontWeight: 800, color: s.color }}>{s.value}</span>
               </div>
             ))}
@@ -151,14 +151,14 @@ export default async function ExportPage({
               gap: "0.5rem",
               padding: "0.875rem 1.25rem",
               borderRadius: "var(--radius-lg)",
-              background: count > 0 ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "#18181b",
-              color: count > 0 ? "white" : "#3f3f46",
+              background: count > 0 ? "var(--brand-500)" : "var(--surface-100)",
+              color: count > 0 ? "white" : "var(--text-subtle)",
               fontWeight: 700,
               fontSize: "0.9375rem",
               textDecoration: "none",
-              boxShadow: count > 0 ? "0 4px 16px rgba(99,102,241,0.4)" : "none",
+              boxShadow: count > 0 ? "var(--shadow-sm)" : "none",
               pointerEvents: count === 0 ? "none" : "auto",
-              border: `1px solid ${count > 0 ? "transparent" : "#27272a"}`,
+              border: `1px solid ${count > 0 ? "transparent" : "var(--border)"}`,
               transition: "all 0.15s",
             }}
           >
@@ -168,17 +168,17 @@ export default async function ExportPage({
           </a>
 
           {count === 0 && (
-            <p style={{ fontSize: "0.75rem", color: "#52525b", textAlign: "center" }}>
+            <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", textAlign: "center" }}>
               Keine Daten für diese Filter-Kombination.
             </p>
           )}
 
           {/* Field list */}
           <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1rem 1.25rem" }}>
-            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#52525b", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.625rem" }}>Felder im Export</div>
+            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.625rem" }}>Felder im Export</div>
             {["Datum", "Name", "Liste", "Owner", "FU-Nummer", "Kategorie", "Antwort erhalten", "Termin gesetzt", "Was war die Antwort?", "Notizen"].map((f) => (
-              <div key={f} style={{ fontSize: "0.75rem", color: "#71717a", display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.1875rem" }}>
-                <span style={{ color: "#4ade80", fontSize: "0.625rem" }}>✓</span> {f}
+              <div key={f} style={{ fontSize: "0.75rem", color: "var(--text-subtle)", display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.1875rem" }}>
+                <span style={{ color: "var(--color-success-text)", fontSize: "0.625rem" }}>✓</span> {f}
               </div>
             ))}
           </div>

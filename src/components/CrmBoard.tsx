@@ -17,17 +17,17 @@ export type CrmContact = ContactWithStage & {
 
 const td: React.CSSProperties = {
   padding: "0.625rem 0.75rem",
-  borderBottom: "1px solid #1c1c1f",
+  borderBottom: "1px solid var(--border)",
   verticalAlign: "top",
   fontSize: "0.8125rem",
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  background: "rgba(168,85,247,0.08)",
-  border: "1px solid rgba(168,85,247,0.45)",
-  borderRadius: 7,
-  color: "#fafafa",
+  background: "rgb(24 98 184 / 0.06)",
+  border: "1px solid rgb(24 98 184 / 0.45)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--text-primary)",
   padding: "0.375rem 0.5rem",
   fontSize: "0.8125rem",
   outline: "none",
@@ -85,7 +85,7 @@ function InlineTextarea({
         textAlign: "left",
         background: "transparent",
         border: "none",
-        color: value ? "#d4d4d8" : "#3f3f46",
+        color: value ? "var(--text-secondary)" : "var(--text-subtle)",
         cursor: "text",
         padding: 0,
         font: "inherit",
@@ -100,20 +100,20 @@ function InlineTextarea({
 function StatusPill({ contact }: { contact: CrmContact }) {
   if (contact.deal_closed) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "#4ade80", background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "var(--color-success-text)", background: "rgb(4 184 0 / 0.08)", border: "1px solid rgb(4 184 0 / 0.25)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
         <CheckCircle size={12} /> Gewonnen
       </span>
     );
   }
   if (contact.deal_lost_reason) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "#f87171", background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.25)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "var(--color-error-text)", background: "rgb(184 19 0 / 0.06)", border: "1px solid rgb(184 19 0 / 0.25)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
         <XCircle size={12} /> Verloren
       </span>
     );
   }
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "#a78bfa", background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "var(--text-muted)", background: "var(--surface-150)", border: "1px solid var(--border)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
       <CircleDollarSign size={12} /> Offen
     </span>
   );
@@ -146,9 +146,9 @@ function CrmRow({ contact }: { contact: CrmContact }) {
   return (
     <tr style={{ opacity: isPending ? 0.6 : 1 }}>
       <td style={{ ...td, minWidth: 210 }}>
-        <div style={{ color: "#fafafa", fontWeight: 800 }}>{contact.name}</div>
-        <div style={{ color: "#71717a", fontSize: "0.75rem", marginTop: 2 }}>{contact.company || "Keine Firma"}</div>
-        <div style={{ color: "#52525b", fontSize: "0.75rem", marginTop: 2 }}>{contact.lists?.name ?? "Liste"}</div>
+        <div style={{ color: "var(--text-primary)", fontWeight: 800 }}>{contact.name}</div>
+        <div style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: 2 }}>{contact.company || "Keine Firma"}</div>
+        <div style={{ color: "var(--text-subtle)", fontSize: "0.75rem", marginTop: 2 }}>{contact.lists?.name ?? "Liste"}</div>
       </td>
       <td style={{ ...td, minWidth: 270 }}>
         <InlineTextarea value={vals.meeting_notes} placeholder="Meeting Notizen eintragen..." onSave={(v) => save({ meeting_notes: v })} />
@@ -158,7 +158,7 @@ function CrmRow({ contact }: { contact: CrmContact }) {
           type="date"
           value={vals.next_follow_up_at}
           onChange={(e) => save({ next_follow_up_at: e.target.value })}
-          style={{ ...inputStyle, width: 142, colorScheme: "dark" }}
+          style={{ ...inputStyle, width: 142 }}
         />
       </td>
       <td style={td}>
@@ -170,9 +170,9 @@ function CrmRow({ contact }: { contact: CrmContact }) {
             alignItems: "center",
             gap: "0.375rem",
             borderRadius: 999,
-            border: `1px solid ${vals.deal_closed ? "#166534" : "#27272a"}`,
-            background: vals.deal_closed ? "#052e16" : "transparent",
-            color: vals.deal_closed ? "#4ade80" : "#71717a",
+            border: `1px solid ${vals.deal_closed ? "rgb(4 184 0 / 0.30)" : "var(--border)"}`,
+            background: vals.deal_closed ? "rgb(4 184 0 / 0.08)" : "transparent",
+            color: vals.deal_closed ? "var(--color-success-text)" : "var(--text-subtle)",
             padding: "0.35rem 0.65rem",
             fontSize: "0.75rem",
             fontWeight: 800,
@@ -223,13 +223,13 @@ export function CrmBoard({ contacts }: { contacts: CrmContact[] }) {
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "0.75rem" }}>
         {[
-          { label: "CRM-Kontakte", value: contacts.length, color: "#a78bfa" },
-          { label: "Offen", value: open, color: "#818cf8" },
-          { label: "Gewonnen", value: won, color: "#4ade80" },
-          { label: "Verloren", value: lost, color: "#f87171" },
+          { label: "CRM-Kontakte", value: contacts.length, color: "var(--text-primary)" },
+          { label: "Offen", value: open, color: "var(--brand-500)" },
+          { label: "Gewonnen", value: won, color: "var(--color-success-text)" },
+          { label: "Verloren", value: lost, color: "var(--color-error-text)" },
         ].map((stat) => (
-          <div key={stat.label} style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1rem" }}>
-            <div style={{ color: "#52525b", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>{stat.label}</div>
+          <div key={stat.label} style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1rem", boxShadow: "var(--shadow-sm)" }}>
+            <div style={{ color: "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>{stat.label}</div>
             <div style={{ color: stat.color, fontSize: "1.6rem", fontWeight: 900, lineHeight: 1.2 }}>{stat.value}</div>
           </div>
         ))}
@@ -237,13 +237,13 @@ export function CrmBoard({ contacts }: { contacts: CrmContact[] }) {
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 320 }}>
-          <Search size={14} style={{ position: "absolute", left: "0.625rem", top: "50%", transform: "translateY(-50%)", color: "#3f3f46" }} />
+          <Search size={14} style={{ position: "absolute", left: "0.625rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-subtle)" }} />
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="CRM suchen..."
-            style={{ ...inputStyle, paddingLeft: "2rem", background: "#0d0d10", borderColor: "#1c1c1f" }}
+            style={{ ...inputStyle, paddingLeft: "2rem", background: "var(--surface-100)", borderColor: "var(--border)" }}
           />
         </div>
         {[
@@ -257,9 +257,9 @@ export function CrmBoard({ contacts }: { contacts: CrmContact[] }) {
             type="button"
             onClick={() => setStatus(value as "all" | "open" | "won" | "lost")}
             style={{
-              border: `1px solid ${status === value ? "#a855f7" : "#27272a"}`,
-              background: status === value ? "rgba(168,85,247,0.16)" : "transparent",
-              color: status === value ? "#d8b4fe" : "#71717a",
+              border: `1px solid ${status === value ? "var(--brand-500)" : "var(--border)"}`,
+              background: status === value ? "rgb(24 98 184 / 0.10)" : "transparent",
+              color: status === value ? "var(--brand-500)" : "var(--text-subtle)",
               borderRadius: 999,
               padding: "0.4rem 0.75rem",
               fontSize: "0.75rem",
@@ -272,13 +272,13 @@ export function CrmBoard({ contacts }: { contacts: CrmContact[] }) {
         ))}
       </div>
 
-      <div style={{ border: "1px solid #1c1c1f", borderRadius: 12, background: "#09090b", overflow: "hidden" }}>
+      <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-100)", boxShadow: "var(--shadow-sm)", overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: 1180, borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ background: "#0d0d10" }}>
+              <tr style={{ background: "var(--surface-50)" }}>
                 {["Kontakt", "Meeting Notizen", "Wann Follow Up", "Deal abgeschlossen", "Warum nicht geklappt", "Status"].map((head) => (
-                  <th key={head} style={{ padding: "0.625rem 0.75rem", textAlign: "left", color: "#52525b", fontSize: "0.6875rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  <th key={head} style={{ padding: "0.625rem 0.75rem", textAlign: "left", color: "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                     {head}
                   </th>
                 ))}
@@ -290,7 +290,7 @@ export function CrmBoard({ contacts }: { contacts: CrmContact[] }) {
           </table>
         </div>
         {filtered.length === 0 && (
-          <div style={{ padding: "2rem", textAlign: "center", color: "#52525b", fontSize: "0.875rem" }}>
+          <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-subtle)", fontSize: "0.875rem" }}>
             Keine CRM-Kontakte für diese Auswahl.
           </div>
         )}

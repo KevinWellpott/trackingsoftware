@@ -17,17 +17,17 @@ export type FollowUpContact = ContactWithStage & {
 
 const td: React.CSSProperties = {
   padding: "0.625rem 0.75rem",
-  borderBottom: "1px solid #1c1c1f",
+  borderBottom: "1px solid var(--border)",
   verticalAlign: "top",
   fontSize: "0.8125rem",
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  background: "rgba(99,102,241,0.08)",
-  border: "1px solid rgba(99,102,241,0.45)",
-  borderRadius: 7,
-  color: "#fafafa",
+  background: "rgb(24 98 184 / 0.06)",
+  border: "1px solid rgb(24 98 184 / 0.45)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--text-primary)",
   padding: "0.375rem 0.5rem",
   fontSize: "0.8125rem",
   outline: "none",
@@ -97,7 +97,7 @@ function InlineText({
         textAlign: "left",
         background: "transparent",
         border: "none",
-        color: value ? "#d4d4d8" : "#3f3f46",
+        color: value ? "var(--text-secondary)" : "var(--text-subtle)",
         cursor: "text",
         padding: "0.125rem 0",
         font: "inherit",
@@ -127,9 +127,9 @@ function ToggleButton({
         alignItems: "center",
         gap: "0.375rem",
         borderRadius: 999,
-        border: `1px solid ${value ? "#166534" : "#27272a"}`,
-        background: value ? "#052e16" : "transparent",
-        color: value ? "#4ade80" : "#71717a",
+        border: `1px solid ${value ? "rgb(4 184 0 / 0.30)" : "var(--border)"}`,
+        background: value ? "rgb(4 184 0 / 0.08)" : "transparent",
+        color: value ? "var(--color-success-text)" : "var(--text-subtle)",
         padding: "0.35rem 0.65rem",
         fontSize: "0.75rem",
         fontWeight: 700,
@@ -172,8 +172,8 @@ function FollowUpRow({ contact }: { contact: FollowUpContact }) {
   return (
     <tr style={{ opacity: isPending ? 0.6 : 1 }}>
       <td style={td}>
-        <div style={{ color: "#fafafa", fontWeight: 800 }}>{contact.name}</div>
-        <div style={{ color: "#52525b", fontSize: "0.75rem", marginTop: 2 }}>
+        <div style={{ color: "var(--text-primary)", fontWeight: 800 }}>{contact.name}</div>
+        <div style={{ color: "var(--text-subtle)", fontSize: "0.75rem", marginTop: 2 }}>
           {contact.company || "Keine Firma"} · {contact.lists?.name ?? "Liste"}
         </div>
       </td>
@@ -182,7 +182,7 @@ function FollowUpRow({ contact }: { contact: FollowUpContact }) {
           type="date"
           value={vals.next_follow_up_at}
           onChange={(e) => save({ next_follow_up_at: e.target.value })}
-          style={{ ...inputStyle, width: 142, colorScheme: "dark" }}
+          style={{ ...inputStyle, width: 142 }}
         />
       </td>
       <td style={td}>
@@ -248,12 +248,12 @@ export function FollowUpBoard({ contacts }: { contacts: FollowUpContact[] }) {
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "0.75rem" }}>
         {[
-          { label: "Offene Follow-ups", value: contacts.length, color: "#818cf8", icon: <Clock size={15} /> },
-          { label: "Überfällig", value: overdue, color: overdue ? "#f87171" : "#4ade80", icon: <Calendar size={15} /> },
-          { label: "Heute", value: dueToday, color: dueToday ? "#fbbf24" : "#71717a", icon: <CheckCircle size={15} /> },
+          { label: "Offene Follow-ups", value: contacts.length, color: "var(--brand-500)", icon: <Clock size={15} /> },
+          { label: "Überfällig", value: overdue, color: overdue ? "var(--color-error-text)" : "var(--color-success-text)", icon: <Calendar size={15} /> },
+          { label: "Heute", value: dueToday, color: dueToday ? "var(--color-warning-text)" : "var(--text-subtle)", icon: <CheckCircle size={15} /> },
         ].map((stat) => (
-          <div key={stat.label} style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", color: "#52525b", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          <div key={stat.label} style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1rem", boxShadow: "var(--shadow-sm)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", color: "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
               {stat.icon}
               {stat.label}
             </div>
@@ -264,13 +264,13 @@ export function FollowUpBoard({ contacts }: { contacts: FollowUpContact[] }) {
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 320 }}>
-          <Search size={14} style={{ position: "absolute", left: "0.625rem", top: "50%", transform: "translateY(-50%)", color: "#3f3f46" }} />
+          <Search size={14} style={{ position: "absolute", left: "0.625rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-subtle)" }} />
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Follow-ups suchen..."
-            style={{ ...inputStyle, paddingLeft: "2rem", background: "#0d0d10", borderColor: "#1c1c1f" }}
+            style={{ ...inputStyle, paddingLeft: "2rem", background: "var(--surface-100)", borderColor: "var(--border)" }}
           />
         </div>
         {[
@@ -284,9 +284,9 @@ export function FollowUpBoard({ contacts }: { contacts: FollowUpContact[] }) {
             type="button"
             onClick={() => setFilter(value as "all" | "overdue" | "today" | "week")}
             style={{
-              border: `1px solid ${filter === value ? "#6366f1" : "#27272a"}`,
-              background: filter === value ? "rgba(99,102,241,0.16)" : "transparent",
-              color: filter === value ? "#a5b4fc" : "#71717a",
+              border: `1px solid ${filter === value ? "var(--brand-500)" : "var(--border)"}`,
+              background: filter === value ? "rgb(24 98 184 / 0.10)" : "transparent",
+              color: filter === value ? "var(--brand-500)" : "var(--text-subtle)",
               borderRadius: 999,
               padding: "0.4rem 0.75rem",
               fontSize: "0.75rem",
@@ -299,13 +299,13 @@ export function FollowUpBoard({ contacts }: { contacts: FollowUpContact[] }) {
         ))}
       </div>
 
-      <div style={{ border: "1px solid #1c1c1f", borderRadius: 12, background: "#09090b", overflow: "hidden" }}>
+      <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-100)", boxShadow: "var(--shadow-sm)", overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ background: "#0d0d10" }}>
+              <tr style={{ background: "var(--surface-50)" }}>
                 {["Kontakt", "Wann Follow Up", "Stufe", "Antwort", "Termin", "Antworttext", "Notizen"].map((head) => (
-                  <th key={head} style={{ padding: "0.625rem 0.75rem", textAlign: "left", color: "#52525b", fontSize: "0.6875rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  <th key={head} style={{ padding: "0.625rem 0.75rem", textAlign: "left", color: "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                     {head}
                   </th>
                 ))}
@@ -317,7 +317,7 @@ export function FollowUpBoard({ contacts }: { contacts: FollowUpContact[] }) {
           </table>
         </div>
         {filtered.length === 0 && (
-          <div style={{ padding: "2rem", textAlign: "center", color: "#52525b", fontSize: "0.875rem" }}>
+          <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-subtle)", fontSize: "0.875rem" }}>
             Keine offenen Follow-ups für diese Auswahl.
           </div>
         )}

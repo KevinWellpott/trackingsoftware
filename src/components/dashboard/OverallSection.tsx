@@ -5,31 +5,24 @@ import { Zap } from "lucide-react";
 import { useSectionFilter } from "./useSectionFilter";
 import { SectionFilterBar } from "./SectionFilterBar";
 import { NumberTicker } from "@/components/magicui/number-ticker";
-import { MultiMetricBarChart, METRIC_COLORS, type MultiMetricDay } from "@/components/DashboardCharts";
+import { MultiMetricBarChart, METRIC_COLORS, tint, type MultiMetricDay } from "@/components/DashboardCharts";
 import type { ContactWithStage, PitchList } from "@/lib/types";
 
-const OWNER_STYLE = {
-  Kevin:  { color: "#818cf8", glow: "rgba(99,102,241,0.35)",  gradient: "linear-gradient(90deg, #6366f1, #8b5cf6)" },
-  Simon:  { color: "#a78bfa", glow: "rgba(139,92,246,0.35)",  gradient: "linear-gradient(90deg, #8b5cf6, #a78bfa)" },
-  Daniel: { color: "#34d399", glow: "rgba(52,211,153,0.35)",  gradient: "linear-gradient(90deg, #10b981, #34d399)" },
-};
-const PERSONAL_STYLE = { color: "#f59e0b", glow: "rgba(245,158,11,0.35)", gradient: "linear-gradient(90deg, #f59e0b, #fbbf24)" };
+const PERSONAL_COLOR = "var(--color-warning-text)";
+
+type RosterMember = { name: string; color: string };
 
 type Props = {
   allContacts: ContactWithStage[];
   lists: PitchList[];
   today: string;
-  todayCounts: { Kevin: number; Simon: number; Daniel: number };
+  roster?: RosterMember[];
+  todayCounts: Record<string, number>;
   personalMode?: boolean;
   personalOwnerName?: string;
   personalTodayCount?: number;
   dailyGoal: number;
 };
-
-function localToday(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function addDays(base: string, n: number): string {
   const [y, m, d] = base.split("-").map(Number);
@@ -90,7 +83,8 @@ export function OverallSection({
   allContacts,
   lists,
   today,
-  todayCounts = { Kevin: 0, Simon: 0, Daniel: 0 },
+  roster = [],
+  todayCounts = {},
   personalMode = false,
   personalOwnerName = "Du",
   personalTodayCount = 0,
@@ -117,10 +111,10 @@ export function OverallSection({
         <div className="section-header-mobile" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Zap size={13} color="#818cf8" />
+            <Zap size={13} color="var(--brand-500)" />
           </div>
-          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Gesamt-Performance</span>
-          <span style={{ fontSize: "0.75rem", color: "#52525b" }}>· {f.periodLabel}</span>
+          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Gesamt-Performance</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>· {f.periodLabel}</span>
         </div>
         <SectionFilterBar
           lists={lists}
@@ -142,7 +136,7 @@ export function OverallSection({
 
       {/* Tagesziel je Person */}
       {personalMode ? (
-        <div style={{ background: `linear-gradient(135deg, ${PERSONAL_STYLE.color}0d, transparent)`, border: `1px solid ${PERSONAL_STYLE.color}30`, borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>
+        <div style={{ background: tint(PERSONAL_COLOR, 5), border: `1px solid ${tint(PERSONAL_COLOR, 19)}`, borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>
           {(() => {
             const count = personalTodayCount;
             const done = count >= dailyGoal;
@@ -151,31 +145,30 @@ export function OverallSection({
               <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
                 <div style={{ position: "relative", width: 48, height: 48, flexShrink: 0 }}>
                   <svg width="48" height="48" viewBox="0 0 48 48" style={{ transform: "rotate(-90deg)" }}>
-                    <circle cx="24" cy="24" r="18" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="5" />
-                    <circle cx="24" cy="24" r="18" fill="none" stroke={done ? "#4ade80" : PERSONAL_STYLE.color} strokeWidth="5"
+                    <circle cx="24" cy="24" r="18" fill="none" stroke="var(--surface-200)" strokeWidth="5" />
+                    <circle cx="24" cy="24" r="18" fill="none" stroke={done ? "var(--color-success-text)" : PERSONAL_COLOR} strokeWidth="5"
                       strokeDasharray={`${2 * Math.PI * 18}`}
                       strokeDashoffset={`${2 * Math.PI * 18 * (1 - pct / 100)}`}
                       strokeLinecap="round"
-                      style={{ filter: `drop-shadow(0 0 4px ${done ? "#4ade80" : PERSONAL_STYLE.glow})` }}
                     />
                   </svg>
-                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: done ? "#4ade80" : PERSONAL_STYLE.color }}>
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: done ? "var(--color-success-text)" : PERSONAL_COLOR }}>
                     {Math.round(pct)}%
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.25rem" }}>
-                    <div style={{ width: 20, height: 20, borderRadius: "50%", background: `${PERSONAL_STYLE.color}18`, border: `1.5px solid ${PERSONAL_STYLE.color}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: PERSONAL_STYLE.color }}>{personalOwnerName[0]?.toUpperCase() ?? "D"}</div>
-                    <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: PERSONAL_STYLE.color }}>{personalOwnerName}</span>
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", background: tint(PERSONAL_COLOR, 9), border: `1.5px solid ${tint(PERSONAL_COLOR, 27)}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: PERSONAL_COLOR }}>{personalOwnerName[0]?.toUpperCase() ?? "D"}</div>
+                    <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: PERSONAL_COLOR }}>{personalOwnerName}</span>
                     {done && <span style={{ fontSize: "0.75rem" }}>🎉</span>}
                   </div>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.03em", color: done ? "#4ade80" : "#fafafa", lineHeight: 1.1 }}>
-                    {count}<span style={{ fontSize: "0.875rem", color: "#3f3f46", fontWeight: 500 }}>/{dailyGoal}</span>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.03em", color: done ? "var(--color-success-text)" : "var(--text-primary)", lineHeight: 1.1 }}>
+                    {count}<span style={{ fontSize: "0.875rem", color: "var(--text-subtle)", fontWeight: 500 }}>/{dailyGoal}</span>
                   </div>
-                  <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 99, height: 4, overflow: "hidden", marginTop: "0.375rem" }}>
-                    <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`, background: done ? "#4ade80" : PERSONAL_STYLE.gradient, transition: "width 0.4s ease", boxShadow: done ? "0 0 6px rgba(74,222,128,0.4)" : `0 0 6px ${PERSONAL_STYLE.glow}` }} />
+                  <div style={{ background: "var(--surface-200)", borderRadius: 99, height: 4, overflow: "hidden", marginTop: "0.375rem" }}>
+                    <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`, background: done ? "var(--color-success-text)" : PERSONAL_COLOR, transition: "width 0.4s ease" }} />
                   </div>
-                  <div style={{ fontSize: "0.6875rem", color: "#52525b", marginTop: "0.25rem" }}>
+                  <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginTop: "0.25rem" }}>
                     {done ? "Tagesziel erreicht!" : `Noch ${dailyGoal - count} DMs heute`}
                   </div>
                 </div>
@@ -184,45 +177,45 @@ export function OverallSection({
           })()}
         </div>
       ) : (
-        <div className="daily-goal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem" }}>
-          {(["Kevin", "Simon", "Daniel"] as const).map((owner) => {
-          const count = todayCounts[owner];
+        <div className="daily-goal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.75rem" }}>
+          {roster.map((member) => {
+          const owner = member.name;
+          const count = todayCounts[owner] ?? 0;
           const done  = count >= dailyGoal;
-          const s     = OWNER_STYLE[owner];
+          const color = member.color;
           const pct   = Math.min((count / dailyGoal) * 100, 100);
           return (
-            <div key={owner} style={{ background: done ? "linear-gradient(135deg, rgba(74,222,128,0.07), rgba(74,222,128,0.02))" : `linear-gradient(135deg, ${s.color}0a, transparent)`, border: `1px solid ${done ? "rgba(74,222,128,0.2)" : s.color + "28"}`, borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>
+            <div key={owner} style={{ background: done ? "rgb(4 184 0 / 0.05)" : tint(color, 4), border: `1px solid ${done ? "rgb(4 184 0 / 0.2)" : tint(color, 16)}`, borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
                 {/* Ring */}
                 <div style={{ position: "relative", width: 48, height: 48, flexShrink: 0 }}>
                   <svg width="48" height="48" viewBox="0 0 48 48" style={{ transform: "rotate(-90deg)" }}>
-                    <circle cx="24" cy="24" r="18" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="5" />
-                    <circle cx="24" cy="24" r="18" fill="none" stroke={done ? "#4ade80" : s.color} strokeWidth="5"
+                    <circle cx="24" cy="24" r="18" fill="none" stroke="var(--surface-200)" strokeWidth="5" />
+                    <circle cx="24" cy="24" r="18" fill="none" stroke={done ? "var(--color-success-text)" : color} strokeWidth="5"
                       strokeDasharray={`${2 * Math.PI * 18}`}
                       strokeDashoffset={`${2 * Math.PI * 18 * (1 - pct / 100)}`}
                       strokeLinecap="round"
-                      style={{ filter: `drop-shadow(0 0 4px ${done ? "#4ade80" : s.glow})` }}
                     />
                   </svg>
-                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: done ? "#4ade80" : s.color }}>
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: done ? "var(--color-success-text)" : color }}>
                     {Math.round(pct)}%
                   </div>
                 </div>
                 {/* Info */}
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.25rem" }}>
-                    <div style={{ width: 20, height: 20, borderRadius: "50%", background: `${s.color}18`, border: `1.5px solid ${s.color}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color: s.color }}>{owner[0]}</div>
-                    <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: s.color }}>{owner}</span>
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", background: tint(color, 9), border: `1.5px solid ${tint(color, 27)}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, color }}>{owner[0]}</div>
+                    <span style={{ fontSize: "0.8125rem", fontWeight: 700, color }}>{owner}</span>
                     {done && <span style={{ fontSize: "0.75rem" }}>🎉</span>}
                   </div>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.03em", color: done ? "#4ade80" : "#fafafa", lineHeight: 1.1 }}>
-                    {count}<span style={{ fontSize: "0.875rem", color: "#3f3f46", fontWeight: 500 }}>/{dailyGoal}</span>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.03em", color: done ? "var(--color-success-text)" : "var(--text-primary)", lineHeight: 1.1 }}>
+                    {count}<span style={{ fontSize: "0.875rem", color: "var(--text-subtle)", fontWeight: 500 }}>/{dailyGoal}</span>
                   </div>
                   {/* Bar */}
-                  <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 99, height: 4, overflow: "hidden", marginTop: "0.375rem" }}>
-                    <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`, background: done ? "#4ade80" : s.gradient, transition: "width 0.4s ease", boxShadow: done ? "0 0 6px rgba(74,222,128,0.4)" : `0 0 6px ${s.glow}` }} />
+                  <div style={{ background: "var(--surface-200)", borderRadius: 99, height: 4, overflow: "hidden", marginTop: "0.375rem" }}>
+                    <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`, background: done ? "var(--color-success-text)" : color, transition: "width 0.4s ease" }} />
                   </div>
-                  <div style={{ fontSize: "0.6875rem", color: "#52525b", marginTop: "0.25rem" }}>
+                  <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginTop: "0.25rem" }}>
                     {done ? "Tagesziel erreicht!" : `Noch ${dailyGoal - count} DMs heute`}
                   </div>
                 </div>
@@ -241,31 +234,31 @@ export function OverallSection({
           { label: "Terminrate", num: pct(appts, total), suffix: "%", color: METRIC_COLORS.appointments, sub: `${appts} Termine` },
           { label: "Offene FUs", num: openFUs, suffix: "", color: openFUs > 0 ? METRIC_COLORS.followups : METRIC_COLORS.answers },
         ].map((card) => (
-          <div key={card.label} style={{ position: "relative", background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.25rem", overflow: "hidden" }}>
-            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#52525b", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.625rem" }}>{card.label}</div>
+          <div key={card.label} style={{ position: "relative", background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.25rem", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
+            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.625rem" }}>{card.label}</div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 2 }}>
               {card.suffix === "%" ? (
-                <span style={{ fontSize: "2rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.04em", lineHeight: 1 }}>{card.num}</span>
+                <span style={{ fontSize: "2rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.04em", lineHeight: 1 }}>{card.num}</span>
               ) : (
-                <NumberTicker value={card.num} style={{ fontSize: "2rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.04em", lineHeight: 1 }} />
+                <NumberTicker value={card.num} style={{ fontSize: "2rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.04em", lineHeight: 1 }} />
               )}
               {card.suffix && <span style={{ fontSize: "0.9375rem", fontWeight: 600, color: card.color }}>{card.suffix}</span>}
             </div>
-            {"sub" in card && card.sub && <div style={{ fontSize: "0.6875rem", color: "#52525b", marginTop: "0.25rem" }}>{card.sub}</div>}
+            {"sub" in card && card.sub && <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginTop: "0.25rem" }}>{card.sub}</div>}
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: card.color, opacity: 0.4, borderRadius: "0 0 var(--radius-lg) var(--radius-lg)" }} />
           </div>
         ))}
       </div>
 
       {/* Verlauf Chart */}
-      <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem" }}>
+      <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem", boxShadow: "var(--shadow-sm)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
-          <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Verlauf</div>
+          <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Verlauf</div>
           <div style={{ display: "flex", gap: "0.5rem", marginLeft: "auto" }}>
             {[{ label: "DMs", color: METRIC_COLORS.dms }, { label: "Antworten", color: METRIC_COLORS.answers }, { label: "Termine", color: METRIC_COLORS.appointments }].map((m) => (
               <div key={m.label} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: m.color }} />
-                <span style={{ fontSize: "0.6875rem", color: "#71717a" }}>{m.label}</span>
+                <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)" }}>{m.label}</span>
               </div>
             ))}
           </div>

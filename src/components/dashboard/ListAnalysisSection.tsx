@@ -5,7 +5,7 @@ import Link from "next/link";
 import { TrendingUp } from "lucide-react";
 import { useSectionFilter } from "./useSectionFilter";
 import { SectionFilterBar } from "./SectionFilterBar";
-import { ListComparisonChart, METRIC_COLORS } from "@/components/DashboardCharts";
+import { ListComparisonChart, METRIC_COLORS, ownerColor, tint } from "@/components/DashboardCharts";
 import type { ContactWithStage, PitchList } from "@/lib/types";
 
 type Props = {
@@ -14,24 +14,16 @@ type Props = {
   personalMode?: boolean;
 };
 
-const OWNER_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  Kevin: { bg: "rgba(99,102,241,0.12)", border: "rgba(99,102,241,0.25)", text: "#818cf8" },
-  Simon: { bg: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.25)", text: "#a78bfa" },
-  Daniel: { bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.25)", text: "#34d399" },
-  "Paul Bajorat": { bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.25)", text: "#f59e0b" },
-  "Samuel Kerber": { bg: "rgba(14,165,233,0.12)", border: "rgba(14,165,233,0.25)", text: "#38bdf8" },
-};
-
 function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1000) / 10; }
 
 function RankBadge({ rank }: { rank: number }) {
   const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
   return (
-    <div style={{ width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: rank === 1 ? "rgba(74,222,128,0.1)" : "rgba(255,255,255,0.04)", border: rank === 1 ? "1px solid rgba(74,222,128,0.2)" : "1px solid var(--border)", flexShrink: 0 }}>
+    <div style={{ width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: rank === 1 ? "rgb(4 184 0 / 0.08)" : "var(--surface-150)", border: rank === 1 ? "1px solid rgb(4 184 0 / 0.2)" : "1px solid var(--border)", flexShrink: 0 }}>
       {medal ? (
         <span style={{ fontSize: "0.875rem" }}>{medal}</span>
       ) : (
-        <span style={{ fontSize: "0.6875rem", fontWeight: 800, color: "#3f3f46" }}>#{rank}</span>
+        <span style={{ fontSize: "0.6875rem", fontWeight: 800, color: "var(--text-subtle)" }}>#{rank}</span>
       )}
     </div>
   );
@@ -39,6 +31,14 @@ function RankBadge({ rank }: { rank: number }) {
 
 export function ListAnalysisSection({ allContacts, lists, personalMode = false }: Props) {
   const f = useSectionFilter(allContacts, lists, "all");
+
+  // Dynamische Owner-Farben (gleiche Zuordnung wie im Wochenduell)
+  const ownerColors = useMemo(() => {
+    const names = [...new Set(lists.map((l) => l.owner_name).filter((n): n is string => Boolean(n)))].sort();
+    const map: Record<string, string> = {};
+    names.forEach((name, i) => { map[name] = ownerColor(name, i); });
+    return map;
+  }, [lists]);
 
   const listStats = useMemo(() => {
     return lists
@@ -73,10 +73,10 @@ export function ListAnalysisSection({ allContacts, lists, personalMode = false }
         <div className="section-header-mobile" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <TrendingUp size={13} color="#4ade80" />
+            <TrendingUp size={13} color="var(--color-success-text)" />
           </div>
-          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#fafafa" }}>Listen-Analyse</span>
-          <span style={{ fontSize: "0.75rem", color: "#52525b" }}>· {f.periodLabel} · {listStats.length} aktive Listen</span>
+          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Listen-Analyse</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>· {f.periodLabel} · {listStats.length} aktive Listen</span>
         </div>
         <SectionFilterBar
           lists={lists}
@@ -98,9 +98,9 @@ export function ListAnalysisSection({ allContacts, lists, personalMode = false }
 
       <div className="grid-2-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
         {/* Chart */}
-        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem" }}>
-          <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#fafafa", marginBottom: "0.25rem" }}>Antwort- & Terminrate je Liste</div>
-          <div style={{ fontSize: "0.6875rem", color: "#52525b", marginBottom: "0.875rem" }}>
+        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem", boxShadow: "var(--shadow-sm)" }}>
+          <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>Antwort- & Terminrate je Liste</div>
+          <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginBottom: "0.875rem" }}>
             {personalMode ? "Deine Listen im Vergleich" : "Präfix = Besitzer"}
           </div>
           <ListComparisonChart data={listBarData} />
@@ -108,48 +108,48 @@ export function ListAnalysisSection({ allContacts, lists, personalMode = false }
             {[{ label: "Antwortrate", color: METRIC_COLORS.answers }, { label: "Terminrate", color: METRIC_COLORS.appointments }].map((m) => (
               <div key={m.label} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: m.color }} />
-                <span style={{ fontSize: "0.6875rem", color: "#71717a" }}>{m.label}</span>
+                <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)" }}>{m.label}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Ranking table */}
-        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem" }}>
-          <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#fafafa", marginBottom: "0.875rem" }}>Ranking</div>
+        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem", boxShadow: "var(--shadow-sm)" }}>
+          <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.875rem" }}>Ranking</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
             {listStats.slice(0, 8).map((s, i) => {
-              const ownerStyle = s.list.owner_name ? OWNER_COLORS[s.list.owner_name] : null;
+              const oColor = s.list.owner_name ? ownerColors[s.list.owner_name] : null;
               return (
-                <Link key={s.list.id} href={`/lists/${s.list.id}`} style={{ display: "flex", alignItems: "center", gap: "0.625rem", textDecoration: "none", padding: "0.625rem 0.75rem", borderRadius: 10, background: i === 0 ? "rgba(74,222,128,0.05)" : "rgba(255,255,255,0.02)", border: i === 0 ? "1px solid rgba(74,222,128,0.15)" : "1px solid transparent", transition: "background 0.1s, border-color 0.1s" }}>
+                <Link key={s.list.id} href={`/lists/${s.list.id}`} style={{ display: "flex", alignItems: "center", gap: "0.625rem", textDecoration: "none", padding: "0.625rem 0.75rem", borderRadius: 10, background: i === 0 ? "rgb(4 184 0 / 0.04)" : "var(--surface-150)", border: i === 0 ? "1px solid rgb(4 184 0 / 0.15)" : "1px solid transparent", transition: "background 0.1s, border-color 0.1s" }}>
                   <RankBadge rank={i + 1} />
 
                   {/* Name + owner */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.8125rem", color: "#e4e4e7", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
+                    <div style={{ fontSize: "0.8125rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
                       {s.list.name}
                     </div>
-                    {s.list.owner_name && ownerStyle && (
-                      <div style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem", marginTop: 2, padding: "0px 5px", borderRadius: 4, background: ownerStyle.bg, border: `1px solid ${ownerStyle.border}` }}>
-                        <div style={{ width: 5, height: 5, borderRadius: "50%", background: ownerStyle.text }} />
-                        <span style={{ fontSize: "0.5625rem", fontWeight: 700, color: ownerStyle.text, letterSpacing: "0.04em" }}>{s.list.owner_name.toUpperCase()}</span>
+                    {s.list.owner_name && oColor && (
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem", marginTop: 2, padding: "0px 5px", borderRadius: 4, background: tint(oColor, 12), border: `1px solid ${tint(oColor, 25)}` }}>
+                        <div style={{ width: 5, height: 5, borderRadius: "50%", background: oColor }} />
+                        <span style={{ fontSize: "0.5625rem", fontWeight: 700, color: oColor, letterSpacing: "0.04em" }}>{s.list.owner_name.toUpperCase()}</span>
                       </div>
                     )}
                   </div>
 
                   {/* DMs count */}
                   <div style={{ flexShrink: 0, textAlign: "right" }}>
-                    <div style={{ fontSize: "0.6875rem", color: "#52525b" }}>{s.total} DMs</div>
+                    <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)" }}>{s.total} DMs</div>
                   </div>
 
                   {/* Rates */}
                   <div style={{ display: "flex", gap: "0.25rem", flexShrink: 0 }}>
-                    <div style={{ textAlign: "center", minWidth: 36, padding: "2px 6px", borderRadius: 5, background: `${METRIC_COLORS.answers}12`, border: `1px solid ${METRIC_COLORS.answers}22` }}>
-                      <div style={{ fontSize: "0.625rem", color: "#52525b" }}>Antw</div>
+                    <div style={{ textAlign: "center", minWidth: 36, padding: "2px 6px", borderRadius: 5, background: tint(METRIC_COLORS.answers, 7), border: `1px solid ${tint(METRIC_COLORS.answers, 13)}` }}>
+                      <div style={{ fontSize: "0.625rem", color: "var(--text-subtle)" }}>Antw</div>
                       <div style={{ fontSize: "0.75rem", fontWeight: 800, color: METRIC_COLORS.answers }}>{s.answerRate}%</div>
                     </div>
-                    <div style={{ textAlign: "center", minWidth: 36, padding: "2px 6px", borderRadius: 5, background: `${METRIC_COLORS.appointments}12`, border: `1px solid ${METRIC_COLORS.appointments}22` }}>
-                      <div style={{ fontSize: "0.625rem", color: "#52525b" }}>Term</div>
+                    <div style={{ textAlign: "center", minWidth: 36, padding: "2px 6px", borderRadius: 5, background: tint(METRIC_COLORS.appointments, 7), border: `1px solid ${tint(METRIC_COLORS.appointments, 13)}` }}>
+                      <div style={{ fontSize: "0.625rem", color: "var(--text-subtle)" }}>Term</div>
                       <div style={{ fontSize: "0.75rem", fontWeight: 800, color: METRIC_COLORS.appointments }}>{s.apptRate}%</div>
                     </div>
                   </div>

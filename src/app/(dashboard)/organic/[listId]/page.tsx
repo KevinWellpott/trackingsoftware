@@ -32,10 +32,10 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
 
 function InsightCard({ level, title, body }: { level: string; title: string; body: string }) {
   const cfg: Record<string, { icon: React.ReactNode; color: string; bg: string; border: string }> = {
-    success: { icon: <CheckCircle size={14} />, color: "#34d399", bg: "rgba(52,211,153,0.08)", border: "rgba(52,211,153,0.2)" },
-    warning: { icon: <AlertCircle size={14} />, color: "#f59e0b", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)" },
-    danger:  { icon: <AlertCircle size={14} />, color: "#f87171", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.2)" },
-    tip:     { icon: <Zap size={14} />,          color: "#818cf8", bg: "rgba(99,102,241,0.08)", border: "rgba(99,102,241,0.2)" },
+    success: { icon: <CheckCircle size={14} />, color: "var(--color-success-text)", bg: "rgb(4 184 0 / 0.08)", border: "rgb(4 184 0 / 0.2)" },
+    warning: { icon: <AlertCircle size={14} />, color: "var(--color-warning-text)", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)" },
+    danger:  { icon: <AlertCircle size={14} />, color: "var(--color-error-text)", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.2)" },
+    tip:     { icon: <Zap size={14} />,          color: "var(--brand-500)", bg: "rgb(24 98 184 / 0.08)", border: "rgb(24 98 184 / 0.2)" },
   };
   const c = cfg[level] ?? cfg.tip;
   return (
@@ -147,9 +147,9 @@ export default async function OrganicListDetailPage({
           { label: "Posts",        value: posts.length,              color: "#e879f9" },
           { label: "Ø Insta",      value: avgInsta.toLocaleString(), color: "#ec4899" },
           { label: "Ø TikTok",     value: avgTikTok.toLocaleString(),color: "#38bdf8" },
-          { label: "Imp. gesamt",  value: totalImp.toLocaleString(), color: "#a78bfa" },
-          { label: "CTA-Rate",     value: `${ctaRate}%`,             color: "#34d399" },
-          { label: "Stories",      value: `${storiesRate}%`,         color: "#f59e0b" },
+          { label: "Imp. gesamt",  value: totalImp.toLocaleString(), color: "var(--brand-400)" },
+          { label: "CTA-Rate",     value: `${ctaRate}%`,             color: "var(--color-success-text)" },
+          { label: "Stories",      value: `${storiesRate}%`,         color: "var(--color-warning-text)" },
         ].map((stat) => (
           <div key={stat.label} style={{ padding: "0.875rem 1rem", borderRight: "1px solid var(--border)" }}>
             <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-subtle)", marginBottom: "0.375rem" }}>{stat.label}</div>
@@ -171,8 +171,8 @@ export default async function OrganicListDetailPage({
             </div>
           )}
           {bestType && (
-            <div style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.15)", borderRadius: 10, padding: "0.875rem 1rem" }}>
-              <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#818cf8", marginBottom: "0.375rem" }}>📊 Bester Content-Typ</div>
+            <div style={{ background: "rgb(24 98 184 / 0.06)", border: "1px solid rgb(24 98 184 / 0.15)", borderRadius: 10, padding: "0.875rem 1rem" }}>
+              <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--brand-500)", marginBottom: "0.375rem" }}>📊 Bester Content-Typ</div>
               <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>{CONTENT_TYPE_LABELS[bestType.type] ?? bestType.type}</div>
               <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>Ø {bestType.avg.toLocaleString()} Impressionen</div>
             </div>
@@ -192,7 +192,7 @@ export default async function OrganicListDetailPage({
       {insights.length > 0 && (
         <div style={{ background: "var(--surface-50)", border: "1px solid var(--border)", borderRadius: 12, padding: "1.25rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
-            <Zap size={15} color="#818cf8" />
+            <Zap size={15} color="var(--brand-500)" />
             <span style={{ fontWeight: 700, fontSize: "0.9375rem" }}>Insights für diese Serie</span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>

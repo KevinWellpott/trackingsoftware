@@ -7,20 +7,49 @@ import {
 
 // ── Color tokens (consistent across charts) ─────────────────
 export const METRIC_COLORS = {
-  dms:         "#818cf8", // indigo
-  answers:     "#4ade80", // green
-  appointments:"#a78bfa", // violet
-  followups:   "#fbbf24", // amber
+  dms:         "var(--brand-500)",
+  answers:     "var(--color-success-text)",
+  appointments:"var(--accent-500)",
+  followups:   "var(--color-warning-text)",
 };
 
+/** Translucent variant of a (possibly var()-based) color. */
+export function tint(color: string, alphaPct: number): string {
+  return `color-mix(in srgb, ${color} ${alphaPct}%, transparent)`;
+}
+
+// ── Owner colors (dynamic roster) ────────────────────────────
+export const OWNER_BASE_COLORS: Record<string, string> = {
+  Kevin: "var(--brand-500)",
+  Simon: "var(--accent-500)",
+  Daniel: "var(--color-success-text)",
+  "Samuel Kerber": "#0ea5e9",
+};
+
+export const OWNER_FALLBACK_PALETTE = [
+  "var(--brand-400)",
+  "var(--color-warning-text)",
+  "#0d9488",
+  "var(--color-ember)",
+  "var(--brand-600)",
+  "#6d28d9",
+];
+
+export function ownerColor(name: string, index: number): string {
+  return OWNER_BASE_COLORS[name] ?? OWNER_FALLBACK_PALETTE[index % OWNER_FALLBACK_PALETTE.length];
+}
+
 const TOOLTIP_STYLE = {
-  background: "#18181b",
-  border: "1px solid #27272a",
+  background: "var(--surface-100)",
+  border: "1px solid var(--border)",
   borderRadius: "8px",
   fontSize: "0.8125rem",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-  color: "#fafafa",
+  boxShadow: "var(--shadow-md)",
+  color: "var(--text-primary)",
 };
+
+const AXIS_TICK = { fontSize: 10, fill: "var(--text-subtle)" };
+const CURSOR_FILL = { fill: "var(--surface-150)" };
 
 // ── Multi-metric grouped bar chart ──────────────────────────
 export type MultiMetricDay = {
@@ -37,10 +66,10 @@ export function MultiMetricBarChart({ data }: { data: MultiMetricDay[] }) {
   return (
     <ResponsiveContainer width="100%" height={200}>
       <BarChart data={data} barSize={8} barGap={2} margin={{ top: 8, right: 4, bottom: 0, left: -24 }}>
-        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
-        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "#71717a" }} />
+        <XAxis dataKey="date" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
+        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
         <Bar dataKey="dms" name="DMs" fill={METRIC_COLORS.dms} radius={[3, 3, 0, 0]} />
         <Bar dataKey="answers" name="Antworten" fill={METRIC_COLORS.answers} radius={[3, 3, 0, 0]} />
         <Bar dataKey="appointments" name="Termine" fill={METRIC_COLORS.appointments} radius={[3, 3, 0, 0]} />
@@ -57,9 +86,9 @@ export function PitchesBarChart({ data }: { data: DailyBar[] }) {
   return (
     <ResponsiveContainer width="100%" height={180}>
       <BarChart data={data} barSize={18} margin={{ top: 8, right: 4, bottom: 0, left: -24 }}>
-        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
-        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+        <XAxis dataKey="date" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
         <Bar dataKey="pitches" name="DMs" fill={METRIC_COLORS.dms} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
@@ -79,7 +108,7 @@ export function AnswerDonutChart({ data }: { data: AnswerDonut[] }) {
           {data.map((entry, i) => <Cell key={i} fill={entry.color} />)}
         </Pie>
         <Tooltip contentStyle={TOOLTIP_STYLE} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "#71717a" }} />
+        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
       </PieChart>
     </ResponsiveContainer>
   );
@@ -108,10 +137,10 @@ export function ListComparisonChart({ data }: { data: ListBar[] }) {
   return (
     <ResponsiveContainer width="100%" height={Math.max(120, data.length * 44)}>
       <BarChart data={data} layout="vertical" barSize={10} barGap={3} margin={{ top: 4, right: 40, bottom: 4, left: 4 }}>
-        <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
-        <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11, fill: "#a1a1aa" }} axisLine={false} tickLine={false} />
+        <XAxis type="number" domain={[0, 100]} tick={AXIS_TICK} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+        <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
         <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => `${v}%`} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "#71717a" }} />
+        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
         <Bar dataKey="answerRate" name="Antwortrate" fill={METRIC_COLORS.answers} radius={[0, 3, 3, 0]} />
         <Bar dataKey="apptRate" name="Terminrate" fill={METRIC_COLORS.appointments} radius={[0, 3, 3, 0]} />
       </BarChart>
@@ -119,23 +148,32 @@ export function ListComparisonChart({ data }: { data: ListBar[] }) {
   );
 }
 
-// ── Historical weekly duel chart ─────────────────────────────
-export type WeeklyDuelPoint = { week: string; Kevin: number; Simon: number; Daniel: number };
+// ── Historical weekly duel chart (dynamic roster) ────────────
+export type DuelSeries = { name: string; color: string };
+export type WeeklyDuelPoint = { week: string; values: Record<string, number> };
 
-export function WeeklyDuelChart({ data, goal }: { data: WeeklyDuelPoint[]; goal: number }) {
-  if (data.every((d) => d.Kevin === 0 && d.Simon === 0 && d.Daniel === 0)) return <EmptyState text="Noch keine Verlaufsdaten." />;
+export function WeeklyDuelChart({ data, series, goal }: { data: WeeklyDuelPoint[]; series: DuelSeries[]; goal: number }) {
+  if (series.length === 0 || data.every((d) => series.every((s) => (d.values[s.name] ?? 0) === 0))) {
+    return <EmptyState text="Noch keine Verlaufsdaten." />;
+  }
   return (
     <ResponsiveContainer width="100%" height={200}>
       <BarChart data={data} barSize={8} barGap={2} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
-        <XAxis dataKey="week" tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
-        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "#71717a" }} />
-        <Bar dataKey="Kevin" fill={METRIC_COLORS.dms} radius={[3, 3, 0, 0]} />
-        <Bar dataKey="Simon" fill={METRIC_COLORS.appointments} radius={[3, 3, 0, 0]} />
-        <Bar dataKey="Daniel" fill="#34d399" radius={[3, 3, 0, 0]} />
+        <XAxis dataKey="week" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
+        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
+        {series.map((s) => (
+          <Bar
+            key={s.name}
+            dataKey={(d: WeeklyDuelPoint) => d.values[s.name] ?? 0}
+            name={s.name}
+            fill={s.color}
+            radius={[3, 3, 0, 0]}
+          />
+        ))}
         {/* Goal reference rendered as a separate thin line */}
-        <Bar dataKey={() => goal} name={`Ziel (${goal})`} fill="transparent" stroke="#fbbf24" strokeWidth={1.5} radius={0} opacity={0} />
+        <Bar dataKey={() => goal} name={`Ziel (${goal})`} fill="transparent" stroke="var(--color-warning-text)" strokeWidth={1.5} radius={0} opacity={0} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -143,7 +181,7 @@ export function WeeklyDuelChart({ data, goal }: { data: WeeklyDuelPoint[]; goal:
 
 function EmptyState({ text = "Noch keine Daten.", height = 120 }: { text?: string; height?: number }) {
   return (
-    <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: "#52525b", fontSize: "0.8125rem" }}>
+    <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-subtle)", fontSize: "0.8125rem" }}>
       {text}
     </div>
   );

@@ -36,12 +36,12 @@ const OWNERS = ["Kevin", "Simon"] as const;
 type Owner = (typeof OWNERS)[number];
 const DAILY_VIDEO_GOAL = 1;
 const WEEKLY_VIDEO_GOAL = 7;
-const PERSONAL_COLOR = "#f59e0b";
+const PERSONAL_COLOR = "var(--color-warning-text)";
 type PersonalWeekPoint = { week: string; count: number };
 
-const OWNER_STYLE: Record<Owner, { color: string; bg: string; border: string; glow: string }> = {
-  Kevin: { color: "#818cf8", bg: "rgba(99,102,241,0.08)",  border: "rgba(99,102,241,0.25)", glow: "rgba(99,102,241,0.4)" },
-  Simon: { color: "#a78bfa", bg: "rgba(139,92,246,0.08)",  border: "rgba(139,92,246,0.25)", glow: "rgba(139,92,246,0.4)" },
+const OWNER_STYLE: Record<Owner, { color: string; bg: string; border: string }> = {
+  Kevin: { color: "#818cf8", bg: "rgba(99,102,241,0.08)",  border: "rgba(99,102,241,0.25)" },
+  Simon: { color: "#a78bfa", bg: "rgba(139,92,246,0.08)",  border: "rgba(139,92,246,0.25)" },
 };
 
 function avg(nums: number[]) {
@@ -61,10 +61,10 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
 
 function InsightCard({ level, title, body }: { level: string; title: string; body: string }) {
   const cfg: Record<string, { icon: React.ReactNode; color: string; bg: string; border: string }> = {
-    success: { icon: <CheckCircle size={14} />, color: "#34d399", bg: "rgba(52,211,153,0.08)", border: "rgba(52,211,153,0.2)" },
-    warning: { icon: <AlertCircle size={14} />,  color: "#f59e0b", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)" },
-    danger:  { icon: <AlertCircle size={14} />,  color: "#f87171", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.2)" },
-    tip:     { icon: <Zap size={14} />,           color: "#818cf8", bg: "rgba(99,102,241,0.08)", border: "rgba(99,102,241,0.2)" },
+    success: { icon: <CheckCircle size={14} />, color: "var(--color-success-text)", bg: "rgb(4 184 0 / 0.08)", border: "rgb(4 184 0 / 0.2)" },
+    warning: { icon: <AlertCircle size={14} />,  color: "var(--color-warning-text)", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)" },
+    danger:  { icon: <AlertCircle size={14} />,  color: "var(--color-error-text)", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.2)" },
+    tip:     { icon: <Zap size={14} />,           color: "var(--brand-500)", bg: "rgb(24 98 184 / 0.08)", border: "rgb(24 98 184 / 0.2)" },
   };
   const c = cfg[level] ?? cfg.tip;
   return (
@@ -97,14 +97,13 @@ function PersonalVideoWeekPanel({
 }) {
   const progress = Math.min((count / goal) * 100, 100);
   return (
-    <div style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(232,121,249,0.06) 100%)", border: "1px solid rgba(245,158,11,0.22)", borderRadius: 16, padding: "1.5rem", marginBottom: "1.5rem", position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "absolute", top: -60, right: -30, width: 220, height: 220, background: "radial-gradient(circle, rgba(245,158,11,0.14) 0%, transparent 70%)", pointerEvents: "none" }} />
+    <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)", padding: "1.5rem", marginBottom: "1.5rem", position: "relative", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem", position: "relative" }}>
-        <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#f59e0b,#fbbf24)", display: "flex", alignItems: "center", justifyContent: "center", color: "#09090b", fontWeight: 900, boxShadow: "0 0 14px rgba(245,158,11,0.35)" }}>
+        <div style={{ width: 38, height: 38, borderRadius: 10, background: "var(--color-warning-text)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--surface-0)", fontWeight: 900, boxShadow: "var(--shadow-sm)" }}>
           {name[0]?.toUpperCase() ?? "D"}
         </div>
         <div>
-          <div style={{ fontWeight: 800, fontSize: "0.9375rem", color: "#fafafa" }}>Deine Organic-Woche</div>
+          <div style={{ fontWeight: 800, fontSize: "0.9375rem", color: "var(--text-primary)" }}>Deine Organic-Woche</div>
           <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>{name} · {monday} → {sunday}</div>
         </div>
         <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--text-subtle)" }}>Ziel: {goal}/Woche</span>
@@ -112,20 +111,20 @@ function PersonalVideoWeekPanel({
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 240px) 1fr", gap: "1.5rem", alignItems: "center", position: "relative" }}>
         <div>
-          <div style={{ fontSize: "3.25rem", fontWeight: 900, letterSpacing: "-0.05em", color: PERSONAL_COLOR, lineHeight: 1, textShadow: "0 0 26px rgba(245,158,11,0.35)" }}>
-            {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "#52525b", marginLeft: 3 }}>/{goal}</span>
+          <div style={{ fontSize: "3.25rem", fontWeight: 900, letterSpacing: "-0.05em", color: PERSONAL_COLOR, lineHeight: 1 }}>
+            {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "var(--text-subtle)", marginLeft: 3 }}>/{goal}</span>
           </div>
-          <div style={{ fontSize: "0.75rem", color: "#71717a", marginTop: "0.5rem" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)", marginTop: "0.5rem" }}>
             {Math.round(progress)}% erreicht · noch {Math.max(0, goal - count)} Posts bis zum Wochenziel
           </div>
         </div>
         <div>
-          <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 99, height: 12, overflow: "hidden" }}>
-            <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: "linear-gradient(90deg,#f59e0b,#fbbf24)", boxShadow: "0 0 12px rgba(245,158,11,0.35)", transition: "width 0.4s ease" }} />
+          <div style={{ background: "var(--surface-200)", borderRadius: 99, height: 12, overflow: "hidden" }}>
+            <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: "var(--color-warning-text)", transition: "width 0.4s ease" }} />
           </div>
           <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
-            <span>Heute: <strong style={{ color: todayCount >= DAILY_VIDEO_GOAL ? "#34d399" : PERSONAL_COLOR }}>{todayCount}/{DAILY_VIDEO_GOAL}</strong></span>
-            <span>Stories: <strong style={{ color: storiesDone > 0 ? "#34d399" : "var(--text-subtle)" }}>{storiesDone > 0 ? "erledigt" : "offen"}</strong></span>
+            <span>Heute: <strong style={{ color: todayCount >= DAILY_VIDEO_GOAL ? "var(--color-success-text)" : PERSONAL_COLOR }}>{todayCount}/{DAILY_VIDEO_GOAL}</strong></span>
+            <span>Stories: <strong style={{ color: storiesDone > 0 ? "var(--color-success-text)" : "var(--text-subtle)" }}>{storiesDone > 0 ? "erledigt" : "offen"}</strong></span>
           </div>
         </div>
       </div>
@@ -232,10 +231,9 @@ export default async function OrganicPage() {
   const viewsReached = bestVideoImpressions >= VIEWS_GOAL;
 
   // Urgency colour
-  const urgencyColor  = isPast ? "#34d399" : daysLeft <= 7 ? "#f87171" : daysLeft <= 14 ? "#f59e0b" : "#e879f9";
-  const urgencyGlow   = isPast ? "rgba(52,211,153,0.35)" : daysLeft <= 7 ? "rgba(248,113,113,0.35)" : daysLeft <= 14 ? "rgba(245,158,11,0.35)" : "rgba(232,121,249,0.35)";
-  const urgencyBg     = isPast ? "rgba(52,211,153,0.06)" : daysLeft <= 7 ? "rgba(248,113,113,0.06)" : daysLeft <= 14 ? "rgba(245,158,11,0.06)" : "rgba(232,121,249,0.06)";
-  const urgencyBorder = isPast ? "rgba(52,211,153,0.2)"  : daysLeft <= 7 ? "rgba(248,113,113,0.2)"  : daysLeft <= 14 ? "rgba(245,158,11,0.2)"  : "rgba(232,121,249,0.2)";
+  const urgencyColor  = isPast ? "var(--color-success-text)" : daysLeft <= 7 ? "var(--color-error-text)" : daysLeft <= 14 ? "var(--color-warning-text)" : "#e879f9";
+  const urgencyBg     = isPast ? "rgb(4 184 0 / 0.06)" : daysLeft <= 7 ? "rgba(248,113,113,0.06)" : daysLeft <= 14 ? "rgba(245,158,11,0.06)" : "rgba(232,121,249,0.06)";
+  const urgencyBorder = isPast ? "rgb(4 184 0 / 0.2)"  : daysLeft <= 7 ? "rgba(248,113,113,0.2)"  : daysLeft <= 14 ? "rgba(245,158,11,0.2)"  : "rgba(232,121,249,0.2)";
 
   const motivText = isPast
     ? { emoji: "🎉", line1: "Deadline war gestern — wie war die Mission?", line2: "Checkt euren besten Hook und skaliert ihn weiter. Der Algorithmus belohnt Konsistenz." }
@@ -305,16 +303,13 @@ export default async function OrganicPage() {
       {/* ══════════════════════════════════════════════════════════
           ZIELSETZUNG 01.05
       ══════════════════════════════════════════════════════════ */}
-      <div style={{ position: "relative", background: urgencyBg, border: `1px solid ${urgencyBorder}`, borderRadius: 16, padding: "1.375rem 1.75rem", marginBottom: "1.5rem", overflow: "hidden" }}>
-        {/* Glow */}
-        <div style={{ position: "absolute", top: -60, right: -40, width: 220, height: 220, background: `radial-gradient(circle, ${urgencyGlow} 0%, transparent 70%)`, pointerEvents: "none" }} />
-
+      <div style={{ position: "relative", background: urgencyBg, border: `1px solid ${urgencyBorder}`, borderRadius: "var(--radius-lg)", padding: "1.375rem 1.75rem", marginBottom: "1.5rem", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: "1.5rem", flexWrap: "wrap" }}>
           {/* Countdown */}
           <div style={{ textAlign: "center", flexShrink: 0, minWidth: 80 }}>
             <div style={{ fontSize: "2.5rem", lineHeight: 1 }}>{motivText.emoji}</div>
             <div style={{ marginTop: "0.5rem" }}>
-              <div style={{ fontSize: "2.5rem", fontWeight: 900, color: urgencyColor, letterSpacing: "-0.05em", lineHeight: 1, textShadow: `0 0 20px ${urgencyGlow}` }}>
+              <div style={{ fontSize: "2.5rem", fontWeight: 900, color: urgencyColor, letterSpacing: "-0.05em", lineHeight: 1 }}>
                 {isPast ? "✓" : daysLeft}
               </div>
               <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: urgencyColor, opacity: 0.75, marginTop: "0.125rem" }}>
@@ -326,31 +321,30 @@ export default async function OrganicPage() {
 
           {/* Text + Goals */}
           <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: "1rem", fontWeight: 800, color: "#fafafa", letterSpacing: "-0.02em", marginBottom: "0.25rem", lineHeight: 1.3 }}>
+            <div style={{ fontSize: "1rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.02em", marginBottom: "0.25rem", lineHeight: 1.3 }}>
               {motivText.line1}
             </div>
-            <p style={{ fontSize: "0.8125rem", color: "#a1a1aa", margin: "0 0 1rem", lineHeight: 1.55 }}>
+            <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: "0 0 1rem", lineHeight: 1.55 }}>
               {motivText.line2}
             </p>
 
             {/* Goal 1: 10k Views */}
             <div style={{ marginBottom: "0.75rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "0.375rem" }}>
-                <span style={{ fontWeight: 700, color: viewsReached ? "#34d399" : "#fafafa" }}>
+                <span style={{ fontWeight: 700, color: viewsReached ? "var(--color-success-text)" : "var(--text-primary)" }}>
                   {viewsReached ? "✅" : "🎬"} Ein Video mit 10.000+ Views
                 </span>
-                <span style={{ color: viewsReached ? "#34d399" : urgencyColor, fontWeight: 700 }}>
+                <span style={{ color: viewsReached ? "var(--color-success-text)" : urgencyColor, fontWeight: 700 }}>
                   {bestVideoImpressions.toLocaleString()} / {VIEWS_GOAL.toLocaleString()}
                 </span>
               </div>
-              <div style={{ position: "relative", height: 8, borderRadius: 99, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+              <div style={{ position: "relative", height: 8, borderRadius: 99, background: "var(--surface-200)", overflow: "hidden" }}>
                 <div style={{
                   height: "100%", borderRadius: 99,
                   width: `${viewsPct}%`,
                   background: viewsReached
-                    ? "linear-gradient(90deg, #34d399, #4ade80)"
-                    : `linear-gradient(90deg, ${urgencyColor}88, ${urgencyColor})`,
-                  boxShadow: `0 0 6px ${urgencyGlow}`,
+                    ? "var(--color-success-text)"
+                    : urgencyColor,
                   transition: "width 0.6s ease",
                 }} />
               </div>
@@ -363,9 +357,9 @@ export default async function OrganicPage() {
             </div>
 
             {/* Goal 2: 100 Follower */}
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 8, padding: "0.5rem 0.75rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--surface-150)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.5rem 0.75rem" }}>
               <span style={{ fontSize: "0.875rem" }}>👥</span>
-              <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#fafafa" }}>100 neue Follower</span>
+              <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)" }}>100 neue Follower</span>
               <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", marginLeft: "auto" }}>manuell tracken — Einstellungen → Notizen</span>
             </div>
           </div>
@@ -383,7 +377,7 @@ export default async function OrganicPage() {
           sunday={sunday}
         />
       ) : (
-        <div style={{ background: "linear-gradient(135deg, rgba(232,121,249,0.06) 0%, rgba(99,102,241,0.06) 100%)", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 16, padding: "1.5rem", marginBottom: "1.5rem" }}>
+        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)", borderRadius: "var(--radius-lg)", padding: "1.5rem", marginBottom: "1.5rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem" }}>
             <Trophy size={16} color="#e879f9" />
             <span style={{ fontWeight: 800, fontSize: "0.9375rem", color: "#e879f9" }}>Wochenduell — Videos</span>
@@ -394,7 +388,7 @@ export default async function OrganicPage() {
             <DuelPanel owner="Kevin" count={kevinWeek} leader={leader} loser={loser} goal={WEEKLY_VIDEO_GOAL} todayCount={todayPosts.Kevin} storiesDone={todayStories.Kevin} />
             <div className="duel-vs" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem" }}>
               <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, rgba(232,121,249,0.35))" }} />
-              <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "#3f3f46", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 99, background: "rgba(232,121,249,0.05)" }}>VS</div>
+              <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "var(--text-subtle)", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 99, background: "rgba(232,121,249,0.05)" }}>VS</div>
               <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, rgba(232,121,249,0.35), transparent)" }} />
             </div>
             <DuelPanel owner="Simon" count={simonWeek} leader={leader} loser={loser} goal={WEEKLY_VIDEO_GOAL} todayCount={todayPosts.Simon} storiesDone={todayStories.Simon} />
@@ -415,7 +409,7 @@ export default async function OrganicPage() {
       ══════════════════════════════════════════════════════════ */}
       <div style={{ background: "var(--surface-50)", border: "1px solid var(--border)", borderRadius: 12, padding: "1.25rem", marginTop: "1.5rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
-          <Zap size={15} color="#818cf8" />
+          <Zap size={15} color="var(--brand-500)" />
           <span style={{ fontWeight: 700, fontSize: "0.9375rem" }}>Automatische Insights</span>
           <span style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)", background: "var(--surface-150)", border: "1px solid var(--border)", borderRadius: 99, padding: "0.1rem 0.5rem" }}>regelbasiert</span>
         </div>
@@ -498,23 +492,23 @@ function DuelPanel({
   return (
     <div style={{ textAlign: "center" }}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
-        <div style={{ width: 38, height: 38, borderRadius: "50%", background: `${s.color}22`, border: `2px solid ${isWinner ? s.color : s.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 800, color: s.color, boxShadow: isWinner ? `0 0 14px ${s.glow}` : "none" }}>
+        <div style={{ width: 38, height: 38, borderRadius: "50%", background: `${s.color}22`, border: `2px solid ${isWinner ? s.color : s.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 800, color: s.color }}>
           {owner[0]}
         </div>
         <div>
-          <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: isWinner ? s.color : "#e4e4e7" }}>{owner} {isWinner ? "👑" : ""}</div>
-          <div style={{ fontSize: "0.75rem", color: "#71717a" }}>{isLoser ? "zahlt das Essen 🍽️" : isWinner ? "führt diese Woche" : "im Rennen"}</div>
+          <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: isWinner ? s.color : "var(--text-secondary)" }}>{owner} {isWinner ? "👑" : ""}</div>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>{isLoser ? "zahlt das Essen 🍽️" : isWinner ? "führt diese Woche" : "im Rennen"}</div>
         </div>
       </div>
-      <div style={{ fontSize: "3.25rem", fontWeight: 800, letterSpacing: "-0.04em", color: isWinner ? s.color : "#71717a", lineHeight: 1, marginBottom: "0.5rem", textShadow: isWinner ? `0 0 28px ${s.glow}` : "none" }}>
-        {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "#3f3f46", marginLeft: 3 }}>/{goal}</span>
+      <div style={{ fontSize: "3.25rem", fontWeight: 800, letterSpacing: "-0.04em", color: isWinner ? s.color : "var(--text-subtle)", lineHeight: 1, marginBottom: "0.5rem" }}>
+        {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "var(--text-subtle)", marginLeft: 3 }}>/{goal}</span>
       </div>
-      <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 99, height: 6, overflow: "hidden", marginBottom: "0.625rem" }}>
-        <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: isWinner ? `linear-gradient(90deg, ${s.color}, ${s.color}bb)` : `${s.color}44`, boxShadow: isWinner ? `0 0 8px ${s.glow}` : "none" }} />
+      <div style={{ background: "var(--surface-200)", borderRadius: 99, height: 6, overflow: "hidden", marginBottom: "0.625rem" }}>
+        <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: isWinner ? s.color : `${s.color}44` }} />
       </div>
       <div style={{ display: "flex", justifyContent: "center", gap: "0.875rem", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
-        <span>🎬 Heute: <strong style={{ color: todayCount >= DAILY_VIDEO_GOAL ? "#34d399" : "var(--text-secondary)" }}>{todayCount}/{DAILY_VIDEO_GOAL}</strong></span>
-        <span>📱 Stories: <strong style={{ color: storiesDone > 0 ? "#34d399" : "var(--text-subtle)" }}>{storiesDone > 0 ? "✓" : "—"}</strong></span>
+        <span>🎬 Heute: <strong style={{ color: todayCount >= DAILY_VIDEO_GOAL ? "var(--color-success-text)" : "var(--text-secondary)" }}>{todayCount}/{DAILY_VIDEO_GOAL}</strong></span>
+        <span>📱 Stories: <strong style={{ color: storiesDone > 0 ? "var(--color-success-text)" : "var(--text-subtle)" }}>{storiesDone > 0 ? "✓" : "—"}</strong></span>
       </div>
     </div>
   );

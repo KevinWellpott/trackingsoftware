@@ -22,6 +22,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type SidebarList = { id: string; name: string; owner_name: string | null };
 type DataScope = "workspace" | "own";
@@ -386,7 +387,7 @@ export function SidebarContent({
           padding: "0 0.875rem",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
-          background: "linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.04) 100%)",
+          background: "rgb(24 98 184 / 0.05)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -600,7 +601,7 @@ export function SidebarContent({
           </form>
         )}
         {isOwnScope && (
-          <div style={{ margin: "0 0.75rem 0.5rem", border: "1px solid rgba(245,158,11,0.25)", background: "rgba(245,158,11,0.08)", color: "#f59e0b", borderRadius: 8, padding: "0.35rem 0.5rem", fontSize: "0.6875rem", fontWeight: 700 }}>
+          <div style={{ margin: "0 0.75rem 0.5rem", border: "1px solid var(--color-warning-border)", background: "var(--color-warning-bg)", color: "var(--color-warning-text)", borderRadius: 8, padding: "0.35rem 0.5rem", fontSize: "0.6875rem", fontWeight: 700 }}>
             Eigene Datensicht aktiv
           </div>
         )}
@@ -625,6 +626,9 @@ export function SidebarContent({
           <span style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {username}
           </span>
+        </div>
+        <div style={{ padding: "0 0.375rem", marginBottom: "0.375rem" }}>
+          <ThemeToggle />
         </div>
         <form action={signOut}>
           <button
@@ -658,7 +662,7 @@ export function MobileDrawer({
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 40 }} />
-      <div style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 50, boxShadow: "4px 0 32px rgba(0,0,0,0.8)" }}>
+      <div style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 50, boxShadow: "var(--shadow-lg)" }}>
         <SidebarContent
           workspaceName={workspaceName}
           username={username}
