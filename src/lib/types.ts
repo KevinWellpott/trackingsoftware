@@ -56,6 +56,66 @@ export type PhoneList = {
   created_at: string;
 };
 
+export type SettingCall = {
+  id: string;
+  workspace_id: string;
+  created_by_user_id: string | null;
+  source_type: "linkedin" | "telefon" | "inbound" | "website" | null;
+  source_contact_id: string | null;
+  source_phone_lead_id: string | null;
+  lead_name: string | null;
+  company: string | null;
+  call_at: string | null;
+  branche: "agentur" | "coach" | "consultant" | "sonstiges" | null;
+  offer_type: string | null;
+  show_status: "show" | "no_show" | null;
+  has_budget_8k: "ja" | "nein" | "unklar" | null;
+  sole_decider: boolean | null;
+  can_decide_now: boolean | null;
+  clear_need: boolean | null;
+  ist_pain: number | null;
+  soll_ziel: string | null;
+  warmth: number | null;
+  closing_scheduled: boolean;
+  closing_at: string | null;
+  recording_link: string | null;
+  objections_handled: string | null;
+  objections_open: string | null;
+  meet_link: string | null;
+  appointment_at: string | null;
+  script_answers: Record<string, string>;
+  status: "offen" | "qualifiziert" | "disqualifiziert" | "closing_gelegt" | "dead";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ClosingCall = {
+  id: string;
+  workspace_id: string;
+  created_by_user_id: string | null;
+  setting_call_id: string | null;
+  lead_name: string | null;
+  company: string | null;
+  call_at: string | null;
+  show_status: "show" | "no_show" | null;
+  closed: boolean | null;
+  deal_volume: number | null;
+  payment_type: string | null;
+  signature_received: boolean | null;
+  contract_start: string | null;
+  lost_reason: string | null;
+  follow_up_due: string | null;
+  recording_link: string | null;
+  objections_handled: string | null;
+  objections_open: string | null;
+  script_answers: Record<string, string>;
+  status: "offen" | "gewonnen" | "verloren" | "nachfassen";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type PhoneLeadStatus = "aktiv" | "rueckruf" | "nicht_erreicht" | "termin" | "dead";
 
 export type PhoneLead = {

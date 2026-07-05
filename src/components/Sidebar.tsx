@@ -8,6 +8,7 @@ import {
   Briefcase,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Clock,
   Download,
   Film,
@@ -585,6 +586,7 @@ export function SidebarContent({
         <NavLink href="/follow-up" icon={Clock} label="Follow-ups" onClick={onClose} />
         <NavLink href="/crm" icon={Briefcase} label="CRM" onClick={onClose} />
         <NavLink href="/telefon" icon={Phone} label="Telefon" onClick={onClose} />
+        <NavLink href="/setting" icon={ClipboardCheck} label="Setting" onClick={onClose} />
 
         {/* Pitch-Listen Header */}
         <div style={{ display: "flex", alignItems: "center", padding: "0.75rem 0.75rem 0.25rem", gap: "0.25rem" }}>
