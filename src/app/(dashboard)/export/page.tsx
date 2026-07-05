@@ -184,6 +184,27 @@ export default async function ExportPage({
           </div>
         </div>
       </div>
+
+      {/* ── Weitere Exporte (Funnel 2.0) ── */}
+      <div style={{ marginTop: "1.5rem", background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.375rem" }}>
+        <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem" }}>Weitere Exporte (vollständig)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
+          {[
+            { label: "Telefon-Leads", source: "telefon" },
+            { label: "Setting-Calls", source: "setting" },
+            { label: "Closing-Calls", source: "closing" },
+          ].map((x) => (
+            <a
+              key={x.source}
+              href={`/api/export?source=${x.source}`}
+              download
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", padding: "0.75rem 1rem", borderRadius: "var(--radius-md)", background: "var(--surface-50)", border: "1px solid var(--border)", color: "var(--text-primary)", fontWeight: 600, fontSize: "0.8125rem", textDecoration: "none" }}
+            >
+              <Download size={14} color="var(--brand-500)" /> {x.label}
+            </a>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

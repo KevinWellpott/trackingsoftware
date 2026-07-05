@@ -17,6 +17,92 @@ export async function GET(request: NextRequest) {
   const to       = sp.get("to")   ?? localDateISO();
   const owner    = sp.get("owner") ?? "";
   const listIds  = (sp.get("listIds") ?? "").split(",").filter(Boolean);
+  const source   = sp.get("source") ?? "contacts";
+
+  const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const toCsv = (headers: string[], rows: (string | number | null)[][]) =>
+    "﻿" +
+    [headers, ...rows].map((row) => row.map((v) => esc(String(v ?? ""))).join(",")).join("\r\n");
+  const csvResponse = (csv: string, filename: string) =>
+    new NextResponse(csv, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+    });
+
+  // ── Export 2.0: neue Funnel-Quellen (vollständig, workspace-/owner-gescoped) ──
+  if (source !== "contacts") {
+    const eff = access.effective_user_id;
+    const today = localDateISO();
+    try {
+      if (source === "telefon") {
+        const rows = (await fetchAllRows((f, t) => {
+          let q = supabase
+            .from("phone_leads")
+            .select("first_call_at, decider_name, company, phone, website, call_attempt, gatekeeper_reached, decider_reached, callback_at, answer_sentiment, status, notes, list_id, phone_lists!inner(name, owner_name, created_by_user_id)")
+            .eq("workspace_id", access.workspace_id);
+          if (eff) q = q.eq("phone_lists.created_by_user_id", eff);
+          return q.order("id", { ascending: true }).range(f, t);
+        })) as unknown as Array<Record<string, unknown> & { phone_lists: { name: string; owner_name: string | null } | null }>;
+        const csv = toCsv(
+          ["Erstkontakt", "Ansprechpartner", "Firma", "Telefon", "Website", "Versuch", "Gatekeeper", "Entscheider erreicht", "Rückruf am", "Stimmung", "Status", "Liste", "Owner", "Notizen"],
+          rows.map((r) => [
+            (r.first_call_at as string) ?? "", (r.decider_name as string) ?? "", (r.company as string) ?? "",
+            (r.phone as string) ?? "", (r.website as string) ?? "", (r.call_attempt as number) ?? "",
+            (r.gatekeeper_reached as string) ?? "", r.decider_reached === true ? "Ja" : "",
+            (r.callback_at as string) ?? "", (r.answer_sentiment as string) ?? "", (r.status as string) ?? "",
+            r.phone_lists?.name ?? "", r.phone_lists?.owner_name ?? "", (r.notes as string) ?? "",
+          ]),
+        );
+        return csvResponse(csv, `telefon-export-${today}.csv`);
+      }
+      if (source === "setting") {
+        const rows = (await fetchAllRows((f, t) => {
+          let q = supabase
+            .from("setting_calls")
+            .select("call_at, appointment_at, lead_name, company, source_type, show_status, has_budget_8k, sole_decider, ist_pain, warmth, closing_scheduled, status, notes")
+            .eq("workspace_id", access.workspace_id);
+          if (eff) q = q.eq("created_by_user_id", eff);
+          return q.order("id", { ascending: true }).range(f, t);
+        })) as unknown as Array<Record<string, unknown>>;
+        const csv = toCsv(
+          ["Call am", "Termin", "Lead", "Firma", "Quelle", "Show", "Budget 8k", "Allein-Entscheider", "Ist-Pain", "Wärme", "Closing gelegt", "Status", "Notizen"],
+          rows.map((r) => [
+            (r.call_at as string) ?? "", (r.appointment_at as string) ?? "", (r.lead_name as string) ?? "",
+            (r.company as string) ?? "", (r.source_type as string) ?? "", (r.show_status as string) ?? "",
+            (r.has_budget_8k as string) ?? "", r.sole_decider === true ? "Ja" : "", (r.ist_pain as number) ?? "",
+            (r.warmth as number) ?? "", r.closing_scheduled === true ? "Ja" : "", (r.status as string) ?? "",
+            (r.notes as string) ?? "",
+          ]),
+        );
+        return csvResponse(csv, `setting-export-${today}.csv`);
+      }
+      if (source === "closing") {
+        const rows = (await fetchAllRows((f, t) => {
+          let q = supabase
+            .from("closing_calls")
+            .select("call_at, lead_name, company, show_status, closed, deal_volume, payment_type, signature_received, contract_start, lost_reason, follow_up_due, status, notes")
+            .eq("workspace_id", access.workspace_id);
+          if (eff) q = q.eq("created_by_user_id", eff);
+          return q.order("id", { ascending: true }).range(f, t);
+        })) as unknown as Array<Record<string, unknown>>;
+        const csv = toCsv(
+          ["Call am", "Lead", "Firma", "Show", "Gewonnen", "Deal-Volumen", "Zahlung", "Unterschrift", "Vertragsstart", "Verlustgrund", "Wiedervorlage", "Status", "Notizen"],
+          rows.map((r) => [
+            (r.call_at as string) ?? "", (r.lead_name as string) ?? "", (r.company as string) ?? "",
+            (r.show_status as string) ?? "", r.closed === true ? "Ja" : "", (r.deal_volume as number) ?? "",
+            (r.payment_type as string) ?? "", r.signature_received === true ? "Ja" : "", (r.contract_start as string) ?? "",
+            (r.lost_reason as string) ?? "", (r.follow_up_due as string) ?? "", (r.status as string) ?? "",
+            (r.notes as string) ?? "",
+          ]),
+        );
+        return csvResponse(csv, `closing-export-${today}.csv`);
+      }
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Export fehlgeschlagen." }, { status: 500 });
+    }
+  }
 
   // Fetch contacts with list info joined
   type Row = {
@@ -98,7 +184,6 @@ export async function GET(request: NextRequest) {
     r.notes ?? "",
   ]);
 
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
   const csv =
     "\uFEFF" + // BOM for Excel UTF-8
     [headers, ...csvRows]

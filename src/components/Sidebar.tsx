@@ -584,11 +584,11 @@ export function SidebarContent({
         }}
       >
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
-        <NavLink href="/follow-up" icon={Clock} label="Follow-ups" onClick={onClose} />
         <NavLink href="/crm" icon={Briefcase} label="CRM" onClick={onClose} />
         <NavLink href="/telefon" icon={Phone} label="Telefon" onClick={onClose} />
         <NavLink href="/setting" icon={ClipboardCheck} label="Setting" onClick={onClose} />
         <NavLink href="/closing" icon={Handshake} label="Closing" onClick={onClose} />
+        <NavLink href="/nachfassen" icon={Clock} label="Nachfassen" onClick={onClose} />
 
         {/* Pitch-Listen Header */}
         <div style={{ display: "flex", alignItems: "center", padding: "0.75rem 0.75rem 0.25rem", gap: "0.25rem" }}>
