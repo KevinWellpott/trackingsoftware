@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { getAccessContext } from "@/lib/access";
 import type { ContactWithStage, PitchList } from "@/lib/types";
@@ -175,16 +176,18 @@ export default async function DashboardPage() {
   const { data: lists } = await listsQuery;
 
   const visibleListIds = (lists ?? []).map((l) => l.id);
-  let contactsQuery = supabase
-    .from("contacts")
-    .select("*, pipeline_stages (*)")
-    .eq("workspace_id", access.workspace_id);
-  if (access.effective_user_id) {
-    contactsQuery = visibleListIds.length > 0
-      ? contactsQuery.in("list_id", visibleListIds)
-      : contactsQuery.in("list_id", ["00000000-0000-0000-0000-000000000000"]);
-  }
-  const { data: rawContacts } = await contactsQuery;
+  const rawContacts = await fetchAllRows((from, to) => {
+    let contactsQuery = supabase
+      .from("contacts")
+      .select("*, pipeline_stages (*)")
+      .eq("workspace_id", access.workspace_id);
+    if (access.effective_user_id) {
+      contactsQuery = visibleListIds.length > 0
+        ? contactsQuery.in("list_id", visibleListIds)
+        : contactsQuery.in("list_id", ["00000000-0000-0000-0000-000000000000"]);
+    }
+    return contactsQuery.order("id", { ascending: true }).range(from, to);
+  });
 
   const allContacts = (rawContacts ?? []) as unknown as ContactWithStage[];
   const pitchLists  = (lists ?? []) as PitchList[];

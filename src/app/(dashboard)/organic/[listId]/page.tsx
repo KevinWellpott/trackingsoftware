@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -73,11 +74,15 @@ export default async function OrganicListDetailPage({
 
   const L = rawList as OrganicList;
 
-  const { data: rawPosts } = await supabase
-    .from("organic_posts")
-    .select("*")
-    .eq("list_id", listId)
-    .order("posted_at", { ascending: false });
+  const rawPosts = await fetchAllRows((from, to) =>
+    supabase
+      .from("organic_posts")
+      .select("*")
+      .eq("list_id", listId)
+      .order("posted_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
 
   const posts = (rawPosts ?? []) as OrganicPost[];
 

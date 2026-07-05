@@ -27,13 +27,14 @@ export function NumberTicker({
   const isInView = useInView(ref, { once: true, margin: "0px" });
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    if (isInView) {
-      timer = setTimeout(() => {
-        motionValue.set(direction === "down" ? startValue : value);
-      }, delay * 1000);
-    }
-    return () => { if (timer !== null) clearTimeout(timer); };
+    // In view: animate after the configured delay.
+    // Not (yet) in view: fallback shortly after mount so off-screen tickers
+    // still end up showing the target value instead of staying at 0.
+    const timeout = isInView ? delay * 1000 : delay * 1000 + 300;
+    const timer = setTimeout(() => {
+      motionValue.set(direction === "down" ? startValue : value);
+    }, timeout);
+    return () => clearTimeout(timer);
   }, [motionValue, isInView, delay, value, direction, startValue]);
 
   useEffect(

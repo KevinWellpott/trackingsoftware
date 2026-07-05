@@ -1,5 +1,6 @@
 import { CrmBoard, type CrmContact } from "@/components/CrmBoard";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import { ArrowLeft, Briefcase } from "lucide-react";
 import Link from "next/link";
@@ -31,12 +32,16 @@ export default async function CrmPage() {
 
   let contacts: CrmContact[] = [];
   if (listIds.length > 0) {
-    const { data: contactsRaw } = await supabase
-      .from("contacts")
-      .select("*, pipeline_stages (*), lists!inner (id, name, owner_name)")
-      .in("list_id", listIds)
-      .eq("appointment_set", true)
-      .order("updated_at", { ascending: false });
+    const contactsRaw = await fetchAllRows((from, to) =>
+      supabase
+        .from("contacts")
+        .select("*, pipeline_stages (*), lists!inner (id, name, owner_name)")
+        .in("list_id", listIds)
+        .eq("appointment_set", true)
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
 
     contacts = (contactsRaw ?? []) as unknown as CrmContact[];
   }

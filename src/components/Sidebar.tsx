@@ -162,7 +162,6 @@ const OWNER_COLORS: Record<string, string> = {
   Kevin: "#6366f1",
   Simon: "#8b5cf6",
   Daniel: "#10b981",
-  "Paul Bajorat": "#f59e0b",
   "Samuel Kerber": "#0ea5e9",
 };
 

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
 import type { PitchList } from "@/lib/types";
@@ -56,16 +57,17 @@ export default async function ExportPage({
   void rawCount;
 
   // Further filter by owner + category (client-side for preview since nested filters are limited)
-  let previewQuery = supabase
-    .from("contacts")
-    .select("id, list_id, answered, appointment_set, answer_category, lists!inner(owner_name)")
-    .gte("pitched_at", from || "2000-01-01")
-    .lte("pitched_at", to)
-    .limit(2000);
-  if (access.effective_user_id) {
-    previewQuery = previewQuery.in("list_id", allowedListIds.length ? allowedListIds : ["00000000-0000-0000-0000-000000000000"]);
-  }
-  const { data: previewRaw } = await previewQuery;
+  const previewRaw = await fetchAllRows((rangeFrom, rangeTo) => {
+    let previewQuery = supabase
+      .from("contacts")
+      .select("id, list_id, answered, appointment_set, answer_category, lists!inner(owner_name)")
+      .gte("pitched_at", from || "2000-01-01")
+      .lte("pitched_at", to);
+    if (access.effective_user_id) {
+      previewQuery = previewQuery.in("list_id", allowedListIds.length ? allowedListIds : ["00000000-0000-0000-0000-000000000000"]);
+    }
+    return previewQuery.order("id", { ascending: true }).range(rangeFrom, rangeTo);
+  });
 
   type PR = { id: string; list_id: string; answered: boolean | null; appointment_set: boolean | null; answer_category: string | null; lists: { owner_name: string | null } | null };
   let preview = (previewRaw ?? []) as unknown as PR[];

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import Link from "next/link";
 import {
@@ -153,17 +154,19 @@ export default async function OrganicPage() {
   const { data: rawLists } = await listsQuery;
 
   const visibleListIds = (rawLists ?? []).map((l) => l.id);
-  let postsQuery = supabase
-    .from("organic_posts")
-    .select("*")
-    .eq("workspace_id", access.workspace_id)
-    .order("posted_at", { ascending: false });
-  if (access.effective_user_id) {
-    postsQuery = visibleListIds.length > 0
-      ? postsQuery.in("list_id", visibleListIds)
-      : postsQuery.in("list_id", ["00000000-0000-0000-0000-000000000000"]);
-  }
-  const { data: rawPosts } = await postsQuery;
+  const rawPosts = await fetchAllRows((from, to) => {
+    let postsQuery = supabase
+      .from("organic_posts")
+      .select("*")
+      .eq("workspace_id", access.workspace_id)
+      .order("posted_at", { ascending: false });
+    if (access.effective_user_id) {
+      postsQuery = visibleListIds.length > 0
+        ? postsQuery.in("list_id", visibleListIds)
+        : postsQuery.in("list_id", ["00000000-0000-0000-0000-000000000000"]);
+    }
+    return postsQuery.order("id", { ascending: true }).range(from, to);
+  });
 
   const lists = (rawLists ?? []) as OrganicList[];
   const posts = (rawPosts ?? []) as OrganicPost[];

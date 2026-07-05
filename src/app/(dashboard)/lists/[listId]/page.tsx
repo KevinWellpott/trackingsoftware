@@ -2,6 +2,7 @@ import { ArchiveListButton } from "@/components/ArchiveListButton";
 import { DeleteListButton } from "@/components/DeleteListButton";
 import { ListBoard } from "@/components/ListBoard";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import { updateListPitchForm } from "@/app/actions/lists";
 import { MultiMetricBarChart, AnswerDonutChart, METRIC_COLORS, type MultiMetricDay } from "@/components/DashboardCharts";
@@ -32,7 +33,16 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   if (le || !list) notFound();
 
   const { data: stages } = await supabase.from("pipeline_stages").select("*").eq("list_id", listId).order("sort_order");
-  const { data: rawContacts } = await supabase.from("contacts").select("*, pipeline_stages (*)").eq("list_id", listId).order("pitched_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false });
+  const rawContacts = await fetchAllRows((from, to) =>
+    supabase
+      .from("contacts")
+      .select("*, pipeline_stages (*)")
+      .eq("list_id", listId)
+      .order("pitched_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
 
   const contacts = (rawContacts ?? []) as unknown as ContactWithStage[];
   const L = list as PitchList;

@@ -1,5 +1,6 @@
 import { FollowUpBoard, type FollowUpContact } from "@/components/FollowUpBoard";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import { ArrowLeft, Clock } from "lucide-react";
 import Link from "next/link";
@@ -31,13 +32,17 @@ export default async function FollowUpPage() {
 
   let contacts: FollowUpContact[] = [];
   if (listIds.length > 0) {
-    const { data: contactsRaw } = await supabase
-      .from("contacts")
-      .select("*, pipeline_stages (*), lists!inner (id, name, owner_name)")
-      .in("list_id", listIds)
-      .not("next_follow_up_at", "is", null)
-      .order("next_follow_up_at", { ascending: true })
-      .order("created_at", { ascending: false });
+    const contactsRaw = await fetchAllRows((from, to) =>
+      supabase
+        .from("contacts")
+        .select("*, pipeline_stages (*), lists!inner (id, name, owner_name)")
+        .in("list_id", listIds)
+        .not("next_follow_up_at", "is", null)
+        .order("next_follow_up_at", { ascending: true })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
 
     contacts = ((contactsRaw ?? []) as unknown as FollowUpContact[]).filter((contact) =>
       contact.appointment_set !== true &&

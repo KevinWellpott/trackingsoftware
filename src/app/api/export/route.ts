@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { localDateISO } from "@/lib/dates";
 import { getAccessContext } from "@/lib/access";
 
@@ -37,26 +38,30 @@ export async function GET(request: NextRequest) {
     allowedListIds = (lists ?? []).map((l) => l.id);
   }
 
-  let query = supabase
-    .from("contacts")
-    .select("id, name, pitched_at, follow_up_number, answered, appointment_set, answer_category, answer_text, notes, list_id, lists!inner(name, owner_name, pitch_text)")
-    .eq("workspace_id", access.workspace_id)
-    .gte("pitched_at", from)
-    .lte("pitched_at", to)
-    .order("pitched_at", { ascending: true });
+  let data;
+  try {
+    data = await fetchAllRows((rangeFrom, rangeTo) => {
+      let query = supabase
+        .from("contacts")
+        .select("id, name, pitched_at, follow_up_number, answered, appointment_set, answer_category, answer_text, notes, list_id, lists!inner(name, owner_name, pitch_text)")
+        .eq("workspace_id", access.workspace_id)
+        .gte("pitched_at", from)
+        .lte("pitched_at", to)
+        .order("pitched_at", { ascending: true });
 
-  if (listIds.length > 0) {
-    const scopedListIds = allowedListIds
-      ? listIds.filter((id) => allowedListIds.includes(id))
-      : listIds;
-    query = query.in("list_id", scopedListIds.length ? scopedListIds : ["00000000-0000-0000-0000-000000000000"]);
-  } else if (allowedListIds) {
-    query = query.in("list_id", allowedListIds.length ? allowedListIds : ["00000000-0000-0000-0000-000000000000"]);
-  }
+      if (listIds.length > 0) {
+        const scopedListIds = allowedListIds
+          ? listIds.filter((id) => allowedListIds.includes(id))
+          : listIds;
+        query = query.in("list_id", scopedListIds.length ? scopedListIds : ["00000000-0000-0000-0000-000000000000"]);
+      } else if (allowedListIds) {
+        query = query.in("list_id", allowedListIds.length ? allowedListIds : ["00000000-0000-0000-0000-000000000000"]);
+      }
 
-  const { data, error } = await query;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+      return query.order("id", { ascending: true }).range(rangeFrom, rangeTo);
+    });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Export fehlgeschlagen." }, { status: 500 });
   }
 
   const rows = (data ?? []) as unknown as Row[];
