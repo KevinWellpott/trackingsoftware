@@ -14,6 +14,7 @@ import {
   FolderOpen,
   FolderClosed,
   LogOut,
+  Phone,
   Plus,
   Settings,
   X,
@@ -25,6 +26,12 @@ import { useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 type SidebarList = { id: string; name: string; owner_name: string | null };
+type SidebarPhoneList = {
+  id: string;
+  name: string;
+  owner_name: string | null;
+  list_kind: "akquise" | "rueckruf" | "nicht_erreicht";
+};
 type DataScope = "workspace" | "own";
 type DataViewUser = { user_id: string; username: string; data_scope: DataScope };
 type DataViewState = {
@@ -40,6 +47,7 @@ type Props = {
   workspaceId: string;
   lists: SidebarList[];
   organicLists?: SidebarList[];
+  phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
   onClose?: () => void;
@@ -323,12 +331,141 @@ function OrganicOwnerFolder({
   );
 }
 
+const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht", { label: string; color: string; bg: string; border: string }> = {
+  rueckruf: { label: "RR", color: "var(--brand-500)", bg: "var(--brand-50)", border: "var(--brand-200)" },
+  nicht_erreicht: {
+    label: "NE",
+    color: "var(--color-warning-text)",
+    bg: "var(--color-warning-bg)",
+    border: "var(--color-warning-border)",
+  },
+};
+
+function PhoneListLink({
+  list,
+  onClick,
+}: {
+  list: SidebarPhoneList;
+  onClick?: () => void;
+}) {
+  const pathname = usePathname();
+  const href = `/telefon/${list.id}`;
+  const isActive = pathname === href;
+  const badge = list.list_kind !== "akquise" ? PHONE_KIND_BADGE[list.list_kind] : null;
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      className={`sidebar-link${isActive ? " active" : ""}`}
+      style={{ paddingLeft: "1.5rem" }}
+      title={list.list_kind === "rueckruf" ? `${list.name} (Rückruf-Liste)` : list.list_kind === "nicht_erreicht" ? `${list.name} (Nicht-erreicht-Liste)` : list.name}
+    >
+      <span
+        style={{
+          width: 5,
+          height: 5,
+          borderRadius: "50%",
+          flexShrink: 0,
+          background: isActive ? "var(--brand-500)" : "var(--text-subtle)",
+        }}
+      />
+      <span
+        style={{
+          flex: 1,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontSize: "0.8125rem",
+        }}
+      >
+        {list.name}
+      </span>
+      {badge && (
+        <span
+          style={{
+            fontSize: "0.5625rem",
+            fontWeight: 800,
+            letterSpacing: "0.04em",
+            color: badge.color,
+            background: badge.bg,
+            border: `1px solid ${badge.border}`,
+            borderRadius: 99,
+            padding: "0.05rem 0.3rem",
+            flexShrink: 0,
+          }}
+        >
+          {badge.label}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function PhoneOwnerFolder({
+  owner,
+  lists,
+  onClose,
+}: {
+  owner: string;
+  lists: SidebarPhoneList[];
+  onClose?: () => void;
+}) {
+  const pathname = usePathname();
+  const hasActive = lists.some((l) => pathname === `/telefon/${l.id}`);
+  const [open, setOpen] = useState<boolean>(hasActive || true);
+  const color = OWNER_COLORS[owner] ?? "var(--brand-500)";
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+          padding: "0.375rem 0.75rem",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          borderRadius: "var(--radius-md)",
+          color: "var(--text-secondary)",
+          fontSize: "0.8125rem",
+          fontWeight: 600,
+          transition: "background var(--transition-fast)",
+        }}
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--surface-100)")}
+        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "none")}
+      >
+        <div style={{ width: 22, height: 22, borderRadius: 6, background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          {open ? <FolderOpen size={13} color={color} /> : <FolderClosed size={13} color={color} />}
+        </div>
+        <span style={{ flex: 1, color, textAlign: "left" }}>{owner}</span>
+        <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", background: "var(--surface-100)", borderRadius: 99, padding: "0.1rem 0.4rem" }}>{lists.length}</span>
+        {open ? <ChevronDown size={13} style={{ color: "var(--text-subtle)" }} /> : <ChevronRight size={13} style={{ color: "var(--text-subtle)" }} />}
+      </button>
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 1 }}>
+          {lists.map((l) => (
+            <PhoneListLink key={l.id} list={l} onClick={onClose} />
+          ))}
+          {lists.length === 0 && (
+            <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>Noch keine Listen.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SidebarContent({
   workspaceName,
   username,
   workspaceId,
   lists,
   organicLists = [],
+  phoneLists = [],
   dataScope = "workspace",
   dataView,
   onClose,
@@ -355,6 +492,15 @@ export function SidebarContent({
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(l);
   }
+
+  // Telefonlisten: Gruppiere nach owner_name (nur vorhandene Owner)
+  const phoneGrouped: Record<string, SidebarPhoneList[]> = {};
+  for (const l of phoneLists) {
+    const key = l.owner_name ?? "Ohne Zuordnung";
+    if (!phoneGrouped[key]) phoneGrouped[key] = [];
+    phoneGrouped[key].push(l);
+  }
+  const phoneOwners = Object.keys(phoneGrouped).sort((a, b) => a.localeCompare(b, "de"));
 
   // Organic lists: Gruppiere nach owner_name
   const organicOwners = Array.from(
@@ -438,6 +584,7 @@ export function SidebarContent({
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
         <NavLink href="/follow-up" icon={Clock} label="Follow-ups" onClick={onClose} />
         <NavLink href="/crm" icon={Briefcase} label="CRM" onClick={onClose} />
+        <NavLink href="/telefon" icon={Phone} label="Telefon" onClick={onClose} />
 
         {/* Pitch-Listen Header */}
         <div style={{ display: "flex", alignItems: "center", padding: "0.75rem 0.75rem 0.25rem", gap: "0.25rem" }}>
@@ -501,6 +648,26 @@ export function SidebarContent({
             onClose={onClose}
           />
         ))}
+
+        {/* ── Telefon Section ── */}
+        {phoneOwners.length > 0 && (
+          <>
+            <div style={{ borderTop: "1px solid var(--border)", margin: "0.625rem 0 0" }} />
+            <div style={{ display: "flex", alignItems: "center", padding: "0.5rem 0.75rem 0.25rem", gap: "0.25rem" }}>
+              <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
+                Telefon
+              </span>
+            </div>
+            {phoneOwners.map((owner) => (
+              <PhoneOwnerFolder
+                key={`phone-${owner}`}
+                owner={owner}
+                lists={phoneGrouped[owner] ?? []}
+                onClose={onClose}
+              />
+            ))}
+          </>
+        )}
 
         {/* ── Organic Section ── */}
         <div style={{ borderTop: "1px solid var(--border)", margin: "0.625rem 0 0" }} />
@@ -646,7 +813,7 @@ export function SidebarContent({
 }
 
 export function MobileDrawer({
-  open, onClose, workspaceName, username, workspaceId, lists, organicLists, dataScope, dataView,
+  open, onClose, workspaceName, username, workspaceId, lists, organicLists, phoneLists, dataScope, dataView,
 }: {
   open: boolean;
   onClose: () => void;
@@ -655,6 +822,7 @@ export function MobileDrawer({
   workspaceId: string;
   lists: SidebarList[];
   organicLists?: SidebarList[];
+  phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
 }) {
@@ -669,6 +837,7 @@ export function MobileDrawer({
           workspaceId={workspaceId}
           lists={lists}
           organicLists={organicLists}
+          phoneLists={phoneLists}
           dataScope={dataScope}
           dataView={dataView}
           onClose={onClose}

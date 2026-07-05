@@ -40,6 +40,56 @@ export type PipelineStage = {
   created_at: string;
 };
 
+// ─── Telefonakquise (Tracking 2.0) ─────────────────────────────
+export type PhoneListKind = "akquise" | "rueckruf" | "nicht_erreicht";
+
+export type PhoneList = {
+  id: string;
+  workspace_id: string;
+  created_by_user_id: string | null;
+  owner_name: string | null;
+  name: string;
+  list_kind: PhoneListKind;
+  source_import_id: string | null;
+  sort_order: number;
+  archived_at: string | null;
+  created_at: string;
+};
+
+export type PhoneLeadStatus = "aktiv" | "rueckruf" | "nicht_erreicht" | "termin" | "dead";
+
+export type PhoneLead = {
+  id: string;
+  list_id: string;
+  workspace_id: string;
+  created_by_user_id: string | null;
+  first_call_at: string | null;
+  decider_name: string | null;
+  company: string | null;
+  phone: string | null;
+  website: string | null;
+  email: string | null;
+  decider_direct_dial: string | null;
+  call_attempt: number | null;
+  gatekeeper_reached: "ja" | "nein" | "direkt" | null;
+  gatekeeper_attempts: number | null;
+  script: string | null;
+  decider_reached: boolean | null;
+  callback_at: string | null;
+  answer_sentiment: "positiv" | "neutral" | "negativ" | null;
+  objection_notes: string | null;
+  status: PhoneLeadStatus;
+  mailbox: boolean | null;
+  appointment_set: boolean;
+  appointment_at: string | null;
+  meet_link: string | null;
+  yt_video_link: string | null;
+  target_group: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Contact = {
   id: string;
   list_id: string;

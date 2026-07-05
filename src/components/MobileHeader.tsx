@@ -11,6 +11,12 @@ type Props = {
   workspaceId: string;
   lists: { id: string; name: string; owner_name: string | null }[];
   organicLists?: { id: string; name: string; owner_name: string | null }[];
+  phoneLists?: {
+    id: string;
+    name: string;
+    owner_name: string | null;
+    list_kind: "akquise" | "rueckruf" | "nicht_erreicht";
+  }[];
   dataScope?: "workspace" | "own";
   dataView?: {
     canSwitch: boolean;
@@ -20,7 +26,7 @@ type Props = {
   };
 };
 
-export function MobileHeader({ workspaceName, username, workspaceId, lists, organicLists, dataScope, dataView }: Props) {
+export function MobileHeader({ workspaceName, username, workspaceId, lists, organicLists, phoneLists, dataScope, dataView }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
@@ -92,6 +98,7 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, orga
         workspaceId={workspaceId}
         lists={lists}
         organicLists={organicLists}
+        phoneLists={phoneLists}
         dataScope={dataScope}
         dataView={dataView}
       />

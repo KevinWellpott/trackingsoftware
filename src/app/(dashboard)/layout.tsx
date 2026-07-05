@@ -26,15 +26,24 @@ export default async function DashboardLayout({
     .eq("workspace_id", access.workspace_id)
     .is("archived_at", null)
     .order("created_at", { ascending: false });
+  let phoneListsQuery = supabase
+    .from("phone_lists")
+    .select("id, name, owner_name, list_kind, created_by_user_id")
+    .eq("workspace_id", access.workspace_id)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: false });
 
   if (access.effective_user_id) {
     listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
     organicListsQuery = organicListsQuery.eq("created_by_user_id", access.effective_user_id);
+    phoneListsQuery = phoneListsQuery.eq("created_by_user_id", access.effective_user_id);
   }
 
-  const [{ data: lists }, { data: organicListsData }, dataViewUsers] = await Promise.all([
+  const [{ data: lists }, { data: organicListsData }, { data: phoneListsData }, dataViewUsers] = await Promise.all([
     listsQuery,
     organicListsQuery,
+    phoneListsQuery,
     access.can_switch_view ? listDataViewUsers(access.workspace_id) : Promise.resolve([]),
   ]);
 
@@ -48,6 +57,13 @@ export default async function DashboardLayout({
     id: l.id,
     name: l.name,
     owner_name: (l as { owner_name?: string | null }).owner_name ?? null,
+  }));
+
+  const phoneLists = (phoneListsData ?? []).map((l) => ({
+    id: l.id as string,
+    name: l.name as string,
+    owner_name: (l as { owner_name?: string | null }).owner_name ?? null,
+    list_kind: (l as { list_kind?: "akquise" | "rueckruf" | "nicht_erreicht" }).list_kind ?? "akquise",
   }));
 
   return (
@@ -71,6 +87,7 @@ export default async function DashboardLayout({
           workspaceId={access.workspace_id}
           lists={sidebarLists}
           organicLists={organicLists}
+          phoneLists={phoneLists}
           dataScope={access.data_scope}
           dataView={{
             canSwitch: access.can_switch_view,
@@ -91,6 +108,7 @@ export default async function DashboardLayout({
             workspaceId={access.workspace_id}
             lists={sidebarLists}
             organicLists={organicLists}
+            phoneLists={phoneLists}
             dataScope={access.data_scope}
             dataView={{
               canSwitch: access.can_switch_view,
