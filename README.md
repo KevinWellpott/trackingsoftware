@@ -44,3 +44,24 @@ App: [http://localhost:3000](http://localhost:3000)
 - Zweite Person: nach Login unter `/onboarding` den **Einladungs-Code** eintragen (sichtbar unter **Einstellungen** für alle Mitglieder).
 
 Es gilt **ein Workspace pro Nutzerkonto** (MVP). Der Partner tritt einem bestehenden Workspace bei, statt einen zweiten anzulegen.
+
+## Supabase MCP (read-only)
+
+Für Datenanalysen direkt aus Claude Code ist ein **read-only** Supabase-MCP-Server konfiguriert (`.mcp.json`). Er kann nur lesen, keine Schreib-/DDL-Operationen ausführen.
+
+Einrichtung:
+
+1. In Supabase unter **Account → Access Tokens** ein **Personal Access Token** erstellen.
+2. Das Token als Umgebungsvariable setzen (nicht committen):
+   ```bash
+   export SUPABASE_ACCESS_TOKEN=sbp_…      # macOS/Linux
+   $env:SUPABASE_ACCESS_TOKEN = "sbp_…"     # PowerShell
+   ```
+3. Claude Code neu starten — der Server `supabase` erscheint mit `--read-only` und `--project-ref=sazybkgxveddbdaknacp`.
+
+Die `.mcp.json` enthält **kein** Secret (das Token wird zur Laufzeit aus `${SUPABASE_ACCESS_TOKEN}` gelesen).
+
+## Sicherheit
+
+- **`.env` ist nicht versioniert** (`.gitignore: .env*`) und war nie in der Git-Historie. Der `SUPABASE_SERVICE_ROLE_KEY` liegt nur lokal / in den Deploy-Env-Vars und wird ausschließlich serverseitig in `src/lib/supabase/admin.ts` aus `process.env` gelesen (nicht hartkodiert) → keine Rotation nötig, solange die lokale `.env` nicht geteilt wurde.
+- **Seed-Routen** (`/api/setup`, `/api/add-daniel`, `/api/add-samuel`) legen Nutzer über den Admin-Client an und sind einmalige Bootstrapping-Endpunkte. Da die Nutzer bereits existieren, sollten diese Routen vor dem Produktivbetrieb entfernt oder hinter ein Secret gestellt werden.
