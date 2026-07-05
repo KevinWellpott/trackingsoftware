@@ -267,6 +267,23 @@ body {
 }
 .person-list-link:hover { background: var(--surface-200); }
 
+/* ─── ListBoardV2 (virtualisierte Kontakt-Tabelle) ─────────── */
+.lbv2-row:hover { background: var(--surface-150); }
+.lbv2-editable {
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.lbv2-editable:hover { background: var(--surface-200); }
+.lbv2-del {
+  color: var(--text-subtle);
+  opacity: 0.6;
+  transition: color 0.1s, opacity 0.1s;
+}
+.lbv2-del:hover {
+  color: var(--color-error-text);
+  opacity: 1;
+}
+
 /* ─── Buttons ──────────────────────────────────────────────── */
 .btn-primary {
   display: inline-flex;

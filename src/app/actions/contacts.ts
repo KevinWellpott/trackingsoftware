@@ -26,6 +26,9 @@ export type ContactInput = {
   meeting_notes?: string | null;
   deal_closed?: boolean | null;
   deal_lost_reason?: string | null;
+  // Tracking 2.0
+  linkedin_url?: string | null;
+  target_group?: string | null;
 };
 
 /** Berechnet next_follow_up_at automatisch aus pitched_at und follow_up_number. */
@@ -97,6 +100,8 @@ export async function createContact(input: ContactInput) {
       meeting_notes: input.meeting_notes ?? null,
       deal_closed: input.deal_closed ?? false,
       deal_lost_reason: input.deal_lost_reason ?? null,
+      linkedin_url: input.linkedin_url ?? null,
+      target_group: input.target_group ?? null,
     })
     .select("id")
     .single();

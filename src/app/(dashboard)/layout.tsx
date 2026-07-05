@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { MobileHeader } from "@/components/MobileHeader";
+import { QuickAddLinkedIn } from "@/components/quicktrack/QuickAddLinkedIn";
 import { SidebarContent } from "@/components/Sidebar";
 import { redirect } from "next/navigation";
 
@@ -109,6 +110,7 @@ export default async function DashboardLayout({
           }}
         >
           {children}
+          <QuickAddLinkedIn lists={sidebarLists} />
         </main>
       </div>
     </div>

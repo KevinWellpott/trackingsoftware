@@ -64,6 +64,12 @@ export type Contact = {
   meeting_notes: string | null;
   deal_closed: boolean;
   deal_lost_reason: string | null;
+  // Tracking 2.0
+  linkedin_url: string | null;
+  appointment_at: string | null;
+  meet_link: string | null;
+  target_group: string | null;
+  setting_call_id: string | null;
   created_at: string;
   updated_at: string;
 };
