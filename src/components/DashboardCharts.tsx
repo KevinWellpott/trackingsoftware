@@ -26,7 +26,7 @@ export function ownerColor(name: string): string {
   return ownerColorShared(name).fg;
 }
 
-const TOOLTIP_STYLE = {
+export const TOOLTIP_STYLE = {
   background: "var(--surface-100)",
   border: "1px solid var(--border)",
   borderRadius: "8px",
@@ -35,8 +35,8 @@ const TOOLTIP_STYLE = {
   color: "var(--text-primary)",
 };
 
-const AXIS_TICK = { fontSize: 10, fill: "var(--text-subtle)" };
-const CURSOR_FILL = { fill: "var(--surface-150)" };
+export const AXIS_TICK = { fontSize: 10, fill: "var(--text-subtle)" };
+export const CURSOR_FILL = { fill: "var(--surface-150)" };
 
 // ── Multi-metric grouped bar chart ──────────────────────────
 export type MultiMetricDay = {

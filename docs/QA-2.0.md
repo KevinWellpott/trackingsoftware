@@ -14,6 +14,8 @@ Stand: Branch `tracking-software-2.0`. Durchführen mit `npm run dev`, auf **Des
 - [ ] **Einstellungen**: Follow-up-Vorlagen-Editor (FU1–3, {name}-Platzhalter, leer = Standard).
 - [ ] **Telefon-Import**: ohne Admin-Rechte kein Owner-Select („Import als: …"); als Admin Auswahl vorhanden.
 - [ ] **Setting/Closing**: kein Crash mehr; Assignee-Namen erscheinen (nach Migration 0011).
+- [ ] **Analyse (/analyse, nach Migration 0013)**: als Admin — Nutzer-Chips (z. B. Samuel vs. Kevin), freier Von-Bis-Zeitraum, alle 5 Tabs (LinkedIn/Telefon/Setting/Closing/Funnel), Vergleichstabelle mit Ø-Deltas, Verlaufs-Chart mit Metrik-Umschalter, LinkedIn-Funnel; als Member — gesperrter Selbst-Chip, nur eigene Daten; Telefon-Tab ohne Migration → Hinweis statt Crash.
+- [ ] **Antwort-Kategorien (nach Migration 0014)**: neu wählbar nur Positiv/Neutral/Negativ; alte Werte („Interessiert" …) bleiben in Bestandszeilen sichtbar (als „… (Alt)" im Select).
 
 ## 1. Datenintegrität (Bestandsdaten-Beweis)
 Im Supabase-SQL-Editor ausführen — die Werte müssen dem bekannten Stand entsprechen (Referenz: 2168 Kontakte beim 2.0-Start) und dürfen sich durch das Update **nicht** verändert haben:

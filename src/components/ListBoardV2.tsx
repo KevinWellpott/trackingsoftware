@@ -5,7 +5,7 @@ import { clearContactAppointment, convertContactToSetting } from "@/app/actions/
 import { AppointmentModal } from "@/components/appointment/AppointmentModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { ContactWithStage, PipelineStage } from "@/lib/types";
-import { ANSWER_CATEGORIES, CATEGORY_CONFIG, type AnswerCategory } from "@/lib/categories";
+import { CATEGORY_CONFIG, SELECTABLE_CATEGORIES, categoryStyle, type AnswerCategory, type SelectableCategory } from "@/lib/categories";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Calendar, CheckCircle, ExternalLink, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -204,8 +204,11 @@ function FUSelect({ value, onChange }: { value: 1 | 2 | 3 | null; onChange: (v: 
 }
 
 // ─── Category Select ──────────────────────────────────────────────────────────
+// Neu wählbar: nur Positiv/Neutral/Negativ. Legacy-Werte aus Bestandsdaten
+// werden weiterhin angezeigt (als zusätzliche Option, solange gesetzt).
 function CategorySelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
-  const cfg = value ? CATEGORY_CONFIG[value as AnswerCategory] : null;
+  const cfg = categoryStyle(value);
+  const isLegacy = Boolean(value) && !SELECTABLE_CATEGORIES.includes(value as SelectableCategory);
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       {cfg ? (
@@ -222,7 +225,8 @@ function CategorySelect({ value, onChange }: { value: string | null; onChange: (
         title="Kategorie"
       >
         <option value="">—</option>
-        {ANSWER_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+        {SELECTABLE_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+        {isLegacy && <option value={value as string}>{value} (Alt)</option>}
       </select>
       <span style={{ width: 126, height: 24, display: "block" }} />
     </div>
@@ -451,7 +455,7 @@ function NewRow({ listId }: { listId: string }) {
       <div style={cell}>
         <select name="answer_category" defaultValue="" style={{ ...editInput, fontSize: "0.75rem" }} tabIndex={4}>
           <option value="">—</option>
-          {ANSWER_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+          {SELECTABLE_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
         </select>
       </div>
       <div style={cell}>
@@ -799,14 +803,17 @@ const MobileContactCard = memo(function MobileContactCard({
             style={{
               ...mobileControl,
               color: vals.answer_category
-                ? (CATEGORY_CONFIG[vals.answer_category as AnswerCategory]?.color ?? "var(--text-primary)")
+                ? (categoryStyle(vals.answer_category)?.color ?? "var(--text-primary)")
                 : "var(--text-subtle)",
               fontWeight: vals.answer_category ? 700 : 400,
             }}
             title="Kategorie"
           >
             <option value="">—</option>
-            {ANSWER_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+            {SELECTABLE_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+            {vals.answer_category && !SELECTABLE_CATEGORIES.includes(vals.answer_category as SelectableCategory) && (
+              <option value={vals.answer_category}>{vals.answer_category} (Alt)</option>
+            )}
           </select>
         </label>
 

@@ -11,6 +11,7 @@ import {
   Clock,
   Download,
   Handshake,
+  LineChart,
   LogOut,
   Phone,
   Plus,
@@ -432,6 +433,7 @@ export function SidebarContent({
       >
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
         {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
+        <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} />
         <NavLink href="/setting" icon={ClipboardCheck} label="Setting" onClick={onClose} />
         <NavLink href="/closing" icon={Handshake} label="Closing" onClick={onClose} />
         <NavLink href="/nachfassen" icon={Clock} label="Nachfassen" onClick={onClose} />
