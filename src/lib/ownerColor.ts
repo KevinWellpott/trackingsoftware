@@ -16,6 +16,7 @@ const FIXED_SLOTS: Record<string, number> = {
   Kevin: 1,
   Simon: 2,
   Daniel: 3,
+  Shanice: 3,
   "Samuel Kerber": 4,
 };
 

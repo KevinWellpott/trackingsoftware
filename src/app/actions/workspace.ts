@@ -154,6 +154,67 @@ export async function setDataViewForm(formData: FormData) {
   redirect(next);
 }
 
+export async function renameUser(userId: string, newUsername: string) {
+  const m = await (await import("@/lib/workspace")).getMembership();
+  if (!m || m.role !== "owner") return { error: "Keine Berechtigung." };
+
+  const trimmed = newUsername.trim();
+  if (!trimmed) return { error: "Name darf nicht leer sein." };
+
+  const admin = createAdminClient();
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("username")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const oldUsername = (profile as { username?: string } | null)?.username;
+  if (!oldUsername) return { error: "Nutzer nicht gefunden." };
+  if (oldUsername === trimmed) return {};
+
+  // Login-E-Mail wird aus dem Benutzernamen abgeleitet (siehe LoginForm) —
+  // muss mit umbenannt werden, sonst kann sich der Nutzer nicht mehr einloggen.
+  const { error: authError } = await admin.auth.admin.updateUserById(userId, {
+    email: usernameToInternalEmail(trimmed),
+    email_confirm: true,
+  });
+  if (authError) return { error: authError.message };
+
+  const { error: profileError } = await admin
+    .from("profiles")
+    .update({ username: trimmed })
+    .eq("user_id", userId);
+  if (profileError) return { error: profileError.message };
+
+  // owner_name-Kopien auf Bestandslisten nachziehen — sonst greift der
+  // owner_name-Fallback (ownScopeFilter in access.ts) nach der Umbenennung
+  // nicht mehr und Listen 404en wie im "Neukundengewinnung A"-Fall.
+  await admin
+    .from("lists")
+    .update({ owner_name: trimmed })
+    .eq("workspace_id", m.workspace_id)
+    .eq("owner_name", oldUsername);
+  await admin
+    .from("phone_lists")
+    .update({ owner_name: trimmed })
+    .eq("workspace_id", m.workspace_id)
+    .eq("owner_name", oldUsername);
+
+  revalidatePath("/settings");
+  revalidatePath("/", "layout");
+  return {};
+}
+
+export async function renameUserForm(formData: FormData) {
+  const userId = String(formData.get("user_id") ?? "");
+  const username = String(formData.get("username") ?? "");
+  const res = await renameUser(userId, username);
+  if (res.error) {
+    redirect(`/settings?userErr=${encodeURIComponent(res.error)}`);
+  }
+  redirect("/settings?userOk=1");
+}
+
 export async function deleteUserForm(formData: FormData) {
   const userId = String(formData.get("user_id") ?? "");
   if (!userId) return;

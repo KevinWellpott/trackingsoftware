@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 import { parsePhoneCsv } from "@/lib/phone-csv";
 import type { PhoneListKind } from "@/lib/types";
@@ -23,11 +23,38 @@ async function canAccessPhoneList(listId: string): Promise<boolean> {
     .select("id")
     .eq("id", listId)
     .eq("workspace_id", access.workspace_id);
-  if (access.effective_user_id) {
-    query = query.eq("created_by_user_id", access.effective_user_id);
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    query = query.or(ownScope);
   }
   const { data } = await query.maybeSingle();
   return Boolean(data);
+}
+
+/** Telefonliste archivieren/wiederherstellen (Admin-Archiv-Ansicht). */
+export async function setPhoneListArchived(listId: string, archived: boolean): Promise<{ error?: string }> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
+  if (!(access.role === "owner" && access.data_scope === "workspace")) {
+    return { error: "Keine Berechtigung." };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("phone_lists")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq("id", listId)
+    .eq("workspace_id", access.workspace_id);
+  if (error) return { error: error.message };
+  revalidatePath("/telefon", "page");
+  revalidatePath("/team/archiv", "page");
+  revalidatePath("/", "layout");
+  return {};
+}
+
+export async function restorePhoneListForm(formData: FormData) {
+  const listId = String(formData.get("list_id") ?? "");
+  if (!listId) return;
+  await setPhoneListArchived(listId, false);
 }
 
 const ROUTING_LABEL: Record<Exclude<PhoneListKind, "akquise">, string> = {

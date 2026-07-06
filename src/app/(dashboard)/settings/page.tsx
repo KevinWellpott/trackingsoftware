@@ -12,6 +12,7 @@ import { getMembership } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { ownerColor } from "@/lib/ownerColor";
 import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
+import { RenameUserButton } from "@/components/settings/RenameUserButton";
 import { FollowupTemplatesEditor } from "@/components/settings/FollowupTemplatesEditor";
 import { MessageSquareText, Plus, Settings, Shield, Target, UserCheck, Users } from "lucide-react";
 
@@ -128,7 +129,8 @@ export default async function SettingsPage({
                       {u.role === "owner" ? "Owner" : "Mitglied"} · {u.data_scope === "own" ? "Nur eigene Daten" : "Alle Daten"}
                     </span>
                   </div>
-                  {/* Delete (not self) */}
+                  {/* Rename + Delete (not self) */}
+                  <RenameUserButton userId={u.user_id} username={u.username} />
                   {!isMe && <DeleteUserButton userId={u.user_id} username={u.username} />}
                 </div>
               );

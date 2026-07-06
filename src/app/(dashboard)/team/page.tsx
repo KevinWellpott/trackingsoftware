@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { Users } from "lucide-react";
+import Link from "next/link";
+import { Archive, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { getTargets } from "@/app/actions/targets";
@@ -175,13 +176,21 @@ export default async function TeamPage() {
     <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
 
       {/* ══ HEADER ══ */}
-      <div>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>
-          Team
-        </h1>
-        <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: "2px 0 0" }}>
-          Wochenduell · Vergleich · Funnel
-        </p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>
+            Team
+          </h1>
+          <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: "2px 0 0" }}>
+            Wochenduell · Vergleich · Funnel
+          </p>
+        </div>
+        <Link
+          href="/team/archiv"
+          style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-subtle)", textDecoration: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "0.4rem 0.75rem", background: "var(--surface-100)" }}
+        >
+          <Archive size={13} /> Archiv
+        </Link>
       </div>
 
       {/* ══ WOCHENDUELL + DUELL-VERLAUF ══ */}

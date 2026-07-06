@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
 import type { PitchList } from "@/lib/types";
 import Link from "next/link";
@@ -26,8 +26,9 @@ export default async function ExportPage({
     .select("id, name, owner_name, archived_at")
     .eq("workspace_id", access.workspace_id)
     .order("sort_order");
-  if (access.effective_user_id) {
-    listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    listsQuery = listsQuery.or(ownScope);
   }
   const { data: listsRaw } = await listsQuery;
 

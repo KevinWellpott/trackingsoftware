@@ -1,6 +1,6 @@
 import { CallModeRunner } from "@/components/telefon/CallModeRunner";
 import { DeletePhoneListButton } from "@/components/telefon/DeletePhoneListButton";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { ownerColor } from "@/lib/ownerColor";
@@ -48,8 +48,9 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
     .select("*")
     .eq("id", listId)
     .eq("workspace_id", access.workspace_id);
-  if (access.effective_user_id) {
-    listQuery = listQuery.eq("created_by_user_id", access.effective_user_id);
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    listQuery = listQuery.or(ownScope);
   }
   const { data: rawList } = await listQuery.maybeSingle();
   if (!rawList) notFound();

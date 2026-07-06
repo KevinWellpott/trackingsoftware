@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { localDateISO } from "@/lib/dates";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, ownScopeFilter } from "@/lib/access";
 
 export async function GET(request: NextRequest) {
   const access = await getAccessContext();
@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
   // ── Export 2.0: neue Funnel-Quellen (vollständig, workspace-/owner-gescoped) ──
   if (source !== "contacts") {
     const eff = access.effective_user_id;
+    const ownScope = ownScopeFilter(access);
     const today = localDateISO();
     try {
       if (source === "telefon") {
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
             .from("phone_leads")
             .select("first_call_at, decider_name, company, phone, website, call_attempt, gatekeeper_reached, decider_reached, callback_at, answer_sentiment, status, notes, list_id, phone_lists!inner(name, owner_name, created_by_user_id)")
             .eq("workspace_id", access.workspace_id);
-          if (eff) q = q.eq("phone_lists.created_by_user_id", eff);
+          if (ownScope) q = q.or(ownScope, { referencedTable: "phone_lists" });
           return q.order("id", { ascending: true }).range(f, t);
         })) as unknown as Array<Record<string, unknown> & { phone_lists: { name: string; owner_name: string | null } | null }>;
         const csv = toCsv(
@@ -115,12 +116,13 @@ export async function GET(request: NextRequest) {
   };
 
   let allowedListIds: string[] | null = null;
-  if (access.effective_user_id) {
+  const contactsOwnScope = ownScopeFilter(access);
+  if (contactsOwnScope) {
     const { data: lists } = await supabase
       .from("lists")
       .select("id")
       .eq("workspace_id", access.workspace_id)
-      .eq("created_by_user_id", access.effective_user_id);
+      .or(contactsOwnScope);
     allowedListIds = (lists ?? []).map((l) => l.id);
   }
 

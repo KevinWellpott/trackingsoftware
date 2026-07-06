@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext, listDataViewUsers } from "@/lib/access";
+import { getAccessContext, listDataViewUsers, buildOwnScope } from "@/lib/access";
 import { MobileHeader } from "@/components/MobileHeader";
 import { QuickAddLinkedIn } from "@/components/quicktrack/QuickAddLinkedIn";
 import { SidebarContent } from "@/components/Sidebar";
@@ -16,12 +16,9 @@ export default async function DashboardLayout({
   const supabase = await createClient();
   // Sidebar ist strikt persönlich: immer auf den effektiven Nutzer filtern
   // (Datensicht-Impersonation oder der eingeloggte Nutzer selbst).
-  // WICHTIG: Bestandslisten haben teils keine/fremde created_by_user_id, aber
-  // einen owner_name — deshalb Doppel-Filter (Ersteller ODER Owner-Name),
-  // sonst verschwinden alte Listen aus der Sidebar.
   const scopeUserId = access.effective_user_id ?? access.user.id;
-  const scopeUsername = (access.effective_username ?? access.username).replaceAll('"', "");
-  const ownScope = `created_by_user_id.eq.${scopeUserId},owner_name.eq."${scopeUsername}"`;
+  const scopeUsername = access.effective_username ?? access.username;
+  const ownScope = buildOwnScope(scopeUserId, scopeUsername);
   const listsQuery = supabase
     .from("lists")
     .select("id, name, archived_at, owner_name")

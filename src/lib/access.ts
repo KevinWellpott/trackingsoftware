@@ -143,3 +143,21 @@ export function isScopedToUser(access: AccessContext): access is AccessContext &
 } {
   return Boolean(access.effective_user_id);
 }
+
+// Bestandslisten haben teils keine/fremde created_by_user_id (z.B. nach
+// Löschen+Neuanlegen eines Nutzers, FK setzt created_by_user_id auf NULL),
+// aber ein korrektes owner_name-Feld — deshalb Doppel-Filter (Ersteller ODER
+// Owner-Name), sonst 404en Bestandsdaten für den betroffenen Nutzer.
+export function buildOwnScope(userId: string, username: string): string {
+  const safeUsername = username.replaceAll('"', "");
+  return `created_by_user_id.eq.${userId},owner_name.eq."${safeUsername}"`;
+}
+
+// Für Detail-/Action-Routen: nur scopen, wenn der Zugriff auf einen
+// bestimmten Nutzer eingeschränkt ist (Datensicht "own" oder aktive
+// Impersonation). Bei workspace-weitem Zugriff (z.B. Owner ohne aktive
+// Datensicht) wird nicht gefiltert — dort ist `null` das korrekte Ergebnis.
+export function ownScopeFilter(access: AccessContext): string | null {
+  if (!access.effective_user_id) return null;
+  return buildOwnScope(access.effective_user_id, access.effective_username ?? "");
+}

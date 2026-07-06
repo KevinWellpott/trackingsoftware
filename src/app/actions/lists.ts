@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -76,8 +76,9 @@ export async function updateList(
     .select("id")
     .eq("id", listId)
     .eq("workspace_id", access.workspace_id);
-  if (access.effective_user_id) {
-    accessQuery = accessQuery.eq("created_by_user_id", access.effective_user_id);
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    accessQuery = accessQuery.or(ownScope);
   }
   const { data: list } = await accessQuery.maybeSingle();
   if (!list) return { error: "Keine Berechtigung." };
@@ -98,8 +99,9 @@ export async function deleteList(listId: string) {
     .select("id")
     .eq("id", listId)
     .eq("workspace_id", access.workspace_id);
-  if (access.effective_user_id) {
-    accessQuery = accessQuery.eq("created_by_user_id", access.effective_user_id);
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    accessQuery = accessQuery.or(ownScope);
   }
   const { data: list } = await accessQuery.maybeSingle();
   if (!list) return { error: "Keine Berechtigung." };
@@ -131,4 +133,11 @@ export async function updateListPitchForm(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!listId) return;
   await updateList(listId, { pitch_text: pitchText, ...(name ? { name } : {}) });
+}
+
+export async function restoreListForm(formData: FormData) {
+  const listId = String(formData.get("list_id") ?? "");
+  if (!listId) return;
+  await updateList(listId, { archived_at: null });
+  revalidatePath("/team/archiv", "page");
 }

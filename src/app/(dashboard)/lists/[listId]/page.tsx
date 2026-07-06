@@ -3,7 +3,7 @@ import { DeleteListButton } from "@/components/DeleteListButton";
 import { ListBoardV2 } from "@/components/ListBoardV2";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { updateListPitchForm } from "@/app/actions/lists";
 import { MultiMetricBarChart, AnswerDonutChart, type MultiMetricDay } from "@/components/DashboardCharts";
 import { StatTile } from "@/components/dashboard/StatTile";
@@ -27,8 +27,9 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
     .select("*")
     .eq("id", listId)
     .eq("workspace_id", access.workspace_id);
-  if (access.effective_user_id) {
-    listQuery = listQuery.eq("created_by_user_id", access.effective_user_id);
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    listQuery = listQuery.or(ownScope);
   }
   const { data: list, error: le } = await listQuery.single();
   if (le || !list) notFound();

@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 
 // Termin=Ja → erzeugt automatisch einen Setting-Call-Eintrag und nimmt den Lead
@@ -17,8 +17,9 @@ async function canAccessPitchList(listId: string): Promise<boolean> {
     .select("id")
     .eq("id", listId)
     .eq("workspace_id", access.workspace_id);
-  if (access.effective_user_id) {
-    query = query.eq("created_by_user_id", access.effective_user_id);
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    query = query.or(ownScope);
   }
   const { data } = await query.maybeSingle();
   return Boolean(data);
@@ -109,8 +110,9 @@ async function canAccessPhoneList(listId: string): Promise<boolean> {
     .select("id")
     .eq("id", listId)
     .eq("workspace_id", access.workspace_id);
-  if (access.effective_user_id) {
-    query = query.eq("created_by_user_id", access.effective_user_id);
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    query = query.or(ownScope);
   }
   const { data } = await query.maybeSingle();
   return Boolean(data);
