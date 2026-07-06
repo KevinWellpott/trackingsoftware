@@ -15,9 +15,9 @@ import { useIsMobile } from "@/lib/useIsMobile";
 // ─── Layout-Konstanten ────────────────────────────────────────────────────────
 // Gemeinsames Grid für Header + Zeilen, damit die Spalten exakt fluchten.
 const GRID_COLS =
-  "112px minmax(150px, 1.4fr) 74px 74px 150px minmax(150px, 1.4fr) minmax(120px, 1fr) 40px";
+  "112px minmax(150px, 1.4fr) 66px 74px 74px 150px minmax(150px, 1.4fr) minmax(120px, 1fr) 40px";
 const ROW_HEIGHT = 40;
-const MIN_WIDTH = 914;
+const MIN_WIDTH = 980;
 
 const cell: React.CSSProperties = {
   padding: "0 12px",
@@ -166,6 +166,43 @@ function InlineToggle({ value, onChange }: { value: boolean; onChange: (v: boole
   );
 }
 
+// ─── FU Select ────────────────────────────────────────────────────────────────
+const FU_COLORS: Record<number, string> = {
+  1: "var(--brand-500)",
+  2: "var(--color-warning-text)",
+  3: "var(--color-error-text)",
+};
+
+function FUSelect({ value, onChange }: { value: 1 | 2 | 3 | null; onChange: (v: 1 | 2 | 3 | null) => void }) {
+  const color = value ? FU_COLORS[value] : "var(--text-subtle)";
+  return (
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+      {value ? (
+        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "0.6875rem", fontWeight: 800, color, zIndex: 1 }}>
+          FU{value}
+        </span>
+      ) : (
+        <span style={{ position: "absolute", left: 4, pointerEvents: "none", color: "var(--text-subtle)", fontSize: "0.6875rem" }}>—</span>
+      )}
+      <select
+        value={value ?? ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(v === "1" ? 1 : v === "2" ? 2 : v === "3" ? 3 : null);
+        }}
+        style={{ ...compactSelect, opacity: 0.01, position: "absolute", inset: 0, width: "100%" }}
+        title="Follow-Up Nummer"
+      >
+        <option value="">—</option>
+        <option value="1">FU1</option>
+        <option value="2">FU2</option>
+        <option value="3">FU3</option>
+      </select>
+      <span style={{ width: 42, height: 24, display: "block" }} />
+    </div>
+  );
+}
+
 // ─── Category Select ──────────────────────────────────────────────────────────
 function CategorySelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
   const cfg = value ? CATEGORY_CONFIG[value as AnswerCategory] : null;
@@ -197,6 +234,7 @@ function useContactEdit(c: ContactWithStage, listId: string) {
   const [vals, setVals] = useState({
     name: c.name,
     pitched_at: c.pitched_at ?? "",
+    follow_up_number: c.follow_up_number as 1 | 2 | 3 | null,
     answered: c.answered === true,
     answer_category: c.answer_category ?? (null as string | null),
     answer_text: c.answer_text ?? "",
@@ -211,6 +249,7 @@ function useContactEdit(c: ContactWithStage, listId: string) {
       await updateContact(c.id, listId, {
         name: next.name,
         pitched_at: next.pitched_at || null,
+        follow_up_number: next.follow_up_number,
         answered: next.answered || null,
         answer_category: next.answer_category,
         answer_text: next.answer_text || null,
@@ -282,6 +321,11 @@ const ContactRow = memo(function ContactRow({
             <ExternalLink size={12} />
           </a>
         )}
+      </div>
+
+      {/* FU */}
+      <div style={cell}>
+        <FUSelect value={vals.follow_up_number} onChange={(v) => save({ follow_up_number: v })} />
       </div>
 
       {/* Antwort */}
@@ -391,27 +435,35 @@ function NewRow({ listId }: { listId: string }) {
           onKeyDown={submitOnEnter}
         />
       </div>
+      <div style={cell}>
+        <select name="follow_up_number" defaultValue="" style={{ ...editInput, fontSize: "0.75rem", padding: "3px 2px" }} tabIndex={3}>
+          <option value="">—</option>
+          <option value="1">FU1</option>
+          <option value="2">FU2</option>
+          <option value="3">FU3</option>
+        </select>
+      </div>
       <div style={{ ...cell, gridColumn: "span 2" }}>
         <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           Antwort/Termin nach Anlegen
         </span>
       </div>
       <div style={cell}>
-        <select name="answer_category" defaultValue="" style={{ ...editInput, fontSize: "0.75rem" }} tabIndex={3}>
+        <select name="answer_category" defaultValue="" style={{ ...editInput, fontSize: "0.75rem" }} tabIndex={4}>
           <option value="">—</option>
           {ANSWER_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
         </select>
       </div>
       <div style={cell}>
-        <input name="answer_text" placeholder="Antwort…" style={editInput} tabIndex={4} onKeyDown={submitOnEnter} />
+        <input name="answer_text" placeholder="Antwort…" style={editInput} tabIndex={5} onKeyDown={submitOnEnter} />
       </div>
       <div style={cell}>
-        <input name="notes" placeholder="Notizen…" style={editInput} tabIndex={5} onKeyDown={submitOnEnter} />
+        <input name="notes" placeholder="Notizen…" style={editInput} tabIndex={6} onKeyDown={submitOnEnter} />
       </div>
       <div style={cell}>
         <button
           type="submit"
-          tabIndex={6}
+          tabIndex={7}
           title="Hinzufügen"
           style={{
             background: "var(--btn-primary-bg)",
@@ -470,13 +522,20 @@ function StatsRow({ contacts }: { contacts: ContactWithStage[] }) {
     >
       <div style={stat} />
       <div style={{ ...stat, color: "var(--text-muted)" }}>Gesamt: {total}</div>
+      <div style={stat}>
+        <span style={{ color: fu1 ? "var(--brand-500)" : "var(--text-subtle)" }}>{fu1}</span>
+        <span style={{ margin: "0 2px" }}>/</span>
+        <span style={{ color: fu2 ? "var(--color-warning-text)" : "var(--text-subtle)" }}>{fu2}</span>
+        <span style={{ margin: "0 2px" }}>/</span>
+        <span style={{ color: fu3 ? "var(--color-error-text)" : "var(--text-subtle)" }}>{fu3}</span>
+      </div>
       <div style={{ ...stat, color: answered > 0 ? "var(--color-success-text)" : "var(--text-subtle)" }}>{pct(answered)}</div>
       <div style={{ ...stat, color: appt > 0 ? "var(--brand-500)" : "var(--text-subtle)" }}>{pct(appt)}</div>
       <div style={{ ...stat, color: topCat ? (CATEGORY_CONFIG[topCat[0] as AnswerCategory]?.color ?? "var(--text-subtle)") : "var(--text-subtle)" }}>
         {topCat ? `${topCat[0]} (${topCat[1]}×)` : "—"}
       </div>
       <div style={{ ...stat, gridColumn: "span 3" }}>
-        {answered}/{total} Antworten · {appt}/{total} Termine · FU1/2/3: {fu1}/{fu2}/{fu3}
+        {answered}/{total} Antworten · {appt}/{total} Termine
       </div>
     </div>
   );
@@ -710,6 +769,25 @@ const MobileContactCard = memo(function MobileContactCard({
             onChange={(e) => save({ pitched_at: e.target.value })}
             style={mobileControl}
           />
+        </label>
+
+        {/* FU */}
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={cardLabel}>FU</span>
+          <select
+            value={vals.follow_up_number ?? ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              save({ follow_up_number: v === "1" ? 1 : v === "2" ? 2 : v === "3" ? 3 : null });
+            }}
+            style={{ ...mobileControl, color: vals.follow_up_number ? FU_COLORS[vals.follow_up_number] : "var(--text-subtle)", fontWeight: vals.follow_up_number ? 800 : 400 }}
+            title="Follow-Up Nummer"
+          >
+            <option value="">—</option>
+            <option value="1">FU1</option>
+            <option value="2">FU2</option>
+            <option value="3">FU3</option>
+          </select>
         </label>
 
         {/* Kategorie */}
@@ -1015,7 +1093,7 @@ export function ListBoardV2({ listId, contacts }: {
                   boxSizing: "border-box",
                 }}
               >
-                {["Datum", "Name", "Antwort", "Termin", "Kategorie", "Was war die Antwort?", "Notizen", ""].map((h, i) => (
+                {["Datum", "Name", "FU", "Antwort", "Termin", "Kategorie", "Was war die Antwort?", "Notizen", ""].map((h, i) => (
                   <div key={i} style={headerCell}>{h}</div>
                 ))}
               </div>
