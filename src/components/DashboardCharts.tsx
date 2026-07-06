@@ -2,7 +2,7 @@
 
 import { ownerColor as ownerColorShared } from "@/lib/ownerColor";
 import {
-  Bar, BarChart, Cell, Legend, Line, LineChart,
+  Bar, BarChart, Cell, ComposedChart, Legend, Line, LineChart,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 
@@ -116,21 +116,24 @@ export function SparkLineChart({ data, color }: { data: SparkPoint[]; color: str
   );
 }
 
-// ── Horizontal bar for list comparison ──────────────────────
-export type ListBar = { name: string; answerRate: number; apptRate: number };
+// ── Personal weekly trend (DMs als Balken, Termine als Linie) ─
+export type PersonalWeekPoint = { week: string; dms: number; appts: number };
 
-export function ListComparisonChart({ data }: { data: ListBar[] }) {
-  if (data.length === 0) return <EmptyState />;
+export function PersonalWeeklyChart({ data }: { data: PersonalWeekPoint[] }) {
+  if (data.every((d) => d.dms === 0 && d.appts === 0)) {
+    return <EmptyState text="Noch keine Verlaufsdaten." />;
+  }
   return (
-    <ResponsiveContainer width="100%" height={Math.max(120, data.length * 44)}>
-      <BarChart data={data} layout="vertical" barSize={10} barGap={3} margin={{ top: 4, right: 40, bottom: 4, left: 4 }}>
-        <XAxis type="number" domain={[0, 100]} tick={AXIS_TICK} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
-        <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => `${v}%`} />
+    <ResponsiveContainer width="100%" height={220}>
+      <ComposedChart data={data} barSize={18} margin={{ top: 8, right: -16, bottom: 0, left: -24 }}>
+        <XAxis dataKey="week" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <YAxis yAxisId="dms" allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <YAxis yAxisId="appts" orientation="right" allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
         <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
-        <Bar dataKey="answerRate" name="Antwortrate" fill={METRIC_COLORS.answers} radius={[0, 3, 3, 0]} />
-        <Bar dataKey="apptRate" name="Terminrate" fill={METRIC_COLORS.appointments} radius={[0, 3, 3, 0]} />
-      </BarChart>
+        <Bar yAxisId="dms" dataKey="dms" name="DMs" fill={METRIC_COLORS.dms} radius={[4, 4, 0, 0]} />
+        <Line yAxisId="appts" type="monotone" dataKey="appts" name="Termine" stroke={METRIC_COLORS.answers} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: METRIC_COLORS.answers }} />
+      </ComposedChart>
     </ResponsiveContainer>
   );
 }

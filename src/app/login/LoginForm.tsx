@@ -226,7 +226,7 @@ export function LoginForm() {
             textDecoration: "none",
           }}
         >
-          ⚡ Setup ausführen (Kevin + Simon anlegen)
+          Setup ausführen (Kevin + Simon anlegen)
         </a>
       </div>
     </div>

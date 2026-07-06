@@ -138,7 +138,7 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
             const active = category === cat;
             return (
               <button key={cat} type="button" onClick={() => setCategory(active ? "" : cat)} style={{ padding: "2px 8px", borderRadius: 99, border: `1px solid ${active ? cfg.border : "var(--border)"}`, background: active ? cfg.bg : "transparent", color: active ? cfg.color : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: active ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap" }}>
-                {active && "✓ "}{cat}
+                {cat}
               </button>
             );
           })}
@@ -164,7 +164,7 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
                 const oc = groupColor(ownerName);
                 return (
                   <button key={l.id} type="button" onClick={() => toggleList(l.id)} title={l.name} style={{ padding: "2px 8px", borderRadius: 99, border: `1px solid ${active ? `color-mix(in srgb, ${oc.fg} 33%, transparent)` : "var(--border)"}`, background: active ? oc.bg : "transparent", color: active ? oc.fg : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: active ? 700 : 400, cursor: "pointer", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {active && "✓ "}{l.name}{l.archived ? " (archiviert)" : ""}
+                    {l.name}{l.archived ? " (archiviert)" : ""}
                   </button>
                 );
               })}

@@ -194,7 +194,7 @@ function CategorySelect({ value, onChange }: { value: string | null; onChange: (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       {cfg ? (
         <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "0.6875rem", fontWeight: 700, color: cfg.color, whiteSpace: "nowrap", zIndex: 1 }}>
-          {cfg.emoji} {value}
+          {value}
         </span>
       ) : (
         <span style={{ position: "absolute", left: 4, pointerEvents: "none", color: "#3f3f46", fontSize: "0.6875rem" }}>—</span>

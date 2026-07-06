@@ -4,6 +4,16 @@ Stand: Branch `tracking-software-2.0`. Durchführen mit `npm run dev`, auf **Des
 
 ## 0. Voraussetzungen
 - [ ] Migration `supabase/migrations/20260404000010_tracking_2_perf.sql` im Supabase-SQL-Editor ausgeführt (Indizes, `rpc_phone_list_counts`, `closing_calls.meet_link` + `call_at→timestamptz`). Ohne sie zeigt die Telefon-Übersicht 0-Counts und Closing-Termine speichern keine Uhrzeit.
+- [ ] Migration `supabase/migrations/20260404000011_tracking_2_fixes.sql` ausgeführt (FKs → profiles, Simon = Owner, `followup_templates`, `rpc_owner_day_metrics`). Ohne sie: Setting/Closing ohne Assignee-Namen, Dashboard-KPIs = 0, kein /team für Simon.
+
+## 0b. Feedback-Umbau (neu zu prüfen)
+- [ ] **`/` = persönliches Dashboard**: nur eigene Zahlen (KPIs, Ziele, Trend, persönlicher Funnel, Telefon); Perioden-Umschalter Woche/Monat/Jahr; keine Emojis.
+- [ ] **`/team`** (nur Kevin + Simon): Wochenduell + Duell-Verlauf, Team-Vergleichskarten, „Dashboard ansehen" wechselt die Datensicht → persönliches Dashboard des Mitglieds; Banner „Zurück zu meinen Daten"; als Member → Redirect auf /.
+- [ ] **Sidebar**: nur eigene Listen (flach, keine Owner-Ordner); Admins sehen „Team-Ansicht"-Sektion; CRM + Organic weg (alte URLs leiten auf / um).
+- [ ] **Nachfassen**: nur eigene Leads, nur letzte 7 Tage (Hinweis „X ältere ausgeblendet" + „Ältere anzeigen"), FU1/FU2/FU3-Filter, Texte aus eigenen Vorlagen.
+- [ ] **Einstellungen**: Follow-up-Vorlagen-Editor (FU1–3, {name}-Platzhalter, leer = Standard).
+- [ ] **Telefon-Import**: ohne Admin-Rechte kein Owner-Select („Import als: …"); als Admin Auswahl vorhanden.
+- [ ] **Setting/Closing**: kein Crash mehr; Assignee-Namen erscheinen (nach Migration 0011).
 
 ## 1. Datenintegrität (Bestandsdaten-Beweis)
 Im Supabase-SQL-Editor ausführen — die Werte müssen dem bekannten Stand entsprechen (Referenz: 2168 Kontakte beim 2.0-Start) und dürfen sich durch das Update **nicht** verändert haben:

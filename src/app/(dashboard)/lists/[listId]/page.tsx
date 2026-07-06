@@ -8,7 +8,7 @@ import { updateListPitchForm } from "@/app/actions/lists";
 import { MultiMetricBarChart, AnswerDonutChart, METRIC_COLORS, type MultiMetricDay } from "@/components/DashboardCharts";
 import type { ContactWithStage, PipelineStage, PitchList } from "@/lib/types";
 import { addDaysISO, localDateISO } from "@/lib/dates";
-import { ArrowLeft, Calendar, CheckCircle, Clock, FileText, TrendingUp, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Calendar, CheckCircle, Clock, FileText, TrendingUp, Users } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -163,7 +163,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
             <div style={{ borderTop: "1px solid var(--border)", padding: "0.75rem 1.25rem", display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
               {listInsights.map((ins, i) => (
                 <div key={i} style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", padding: "0.25rem 0.75rem", borderRadius: 99, background: insightStyles[ins.level].bg, border: `1px solid ${insightStyles[ins.level].border}`, fontSize: "0.75rem", color: insightStyles[ins.level].color, fontWeight: 500 }}>
-                  {ins.level === "success" ? "✓" : ins.level === "warning" ? "⚠" : "→"} {ins.text}
+                  {ins.level === "success" ? <CheckCircle size={12} /> : ins.level === "warning" ? <AlertTriangle size={12} /> : <ArrowRight size={12} />} {ins.text}
                 </div>
               ))}
             </div>

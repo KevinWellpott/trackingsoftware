@@ -395,6 +395,7 @@ export function SidebarContent({
         }}
       >
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
+        {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
         <NavLink href="/telefon" icon={Phone} label="Telefon" onClick={onClose} />
         <NavLink href="/setting" icon={ClipboardCheck} label="Setting" onClick={onClose} />
         <NavLink href="/closing" icon={Handshake} label="Closing" onClick={onClose} />
