@@ -1,6 +1,6 @@
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
-import { parseAnalyseParams } from "@/lib/analyse";
+import { parseAnalyseParams, prevRange } from "@/lib/analyse";
 import { AnalyseFilterBar } from "@/components/analyse/AnalyseFilterBar";
 import { LinkedInTab } from "@/components/analyse/tabs/LinkedInTab";
 import { TelefonTab } from "@/components/analyse/tabs/TelefonTab";
@@ -52,6 +52,7 @@ export default async function AnalysePage({
 
   const memberProps: Member[] = selectedMembers.map((m) => ({ user_id: m.user_id, username: m.username }));
   const showQuelle = params.tab === "setting" || params.tab === "funnel";
+  const prev = prevRange(params.from, params.to);
 
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -74,6 +75,7 @@ export default async function AnalysePage({
         from={params.from}
         to={params.to}
         quelle={params.quelle}
+        granularity={params.g}
         selectedUserIds={selectedUserIds}
         users={members.map((m) => ({ user_id: m.user_id, username: m.username }))}
         canCompare={canCompare}
@@ -87,6 +89,9 @@ export default async function AnalysePage({
           access={access}
           from={params.from}
           to={params.to}
+          prevFrom={prev.from}
+          prevTo={prev.to}
+          granularity={params.g}
           selectedMembers={memberProps}
           canCompare={canCompare}
           allSelected={allSelected}
@@ -97,6 +102,9 @@ export default async function AnalysePage({
           access={access}
           from={params.from}
           to={params.to}
+          prevFrom={prev.from}
+          prevTo={prev.to}
+          granularity={params.g}
           selectedMembers={memberProps}
           canCompare={canCompare}
           allSelected={allSelected}
@@ -107,6 +115,9 @@ export default async function AnalysePage({
           access={access}
           from={params.from}
           to={params.to}
+          prevFrom={prev.from}
+          prevTo={prev.to}
+          granularity={params.g}
           selectedMembers={memberProps}
           canCompare={canCompare}
           quelle={params.quelle}
@@ -117,6 +128,9 @@ export default async function AnalysePage({
           access={access}
           from={params.from}
           to={params.to}
+          prevFrom={prev.from}
+          prevTo={prev.to}
+          granularity={params.g}
           selectedMembers={memberProps}
           canCompare={canCompare}
         />
@@ -126,6 +140,9 @@ export default async function AnalysePage({
           access={access}
           from={params.from}
           to={params.to}
+          prevFrom={prev.from}
+          prevTo={prev.to}
+          granularity={params.g}
           selectedMembers={memberProps}
           canCompare={canCompare}
           quelle={params.quelle}

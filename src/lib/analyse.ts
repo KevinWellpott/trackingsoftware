@@ -7,9 +7,12 @@ import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 export type AnalyseTab = "linkedin" | "telefon" | "setting" | "closing" | "funnel";
 export type RangeKey = "w" | "m" | "30" | "q" | "j" | "custom";
 export type QuelleKey = "alle" | "linkedin" | "telefon";
+/** Nutzer-wählbare Bucket-Granularität; "auto" = bisherige Spannen-Heuristik. */
+export type Granularity = "auto" | "tag" | "woche" | "monat";
 
 const TABS: readonly AnalyseTab[] = ["linkedin", "telefon", "setting", "closing", "funnel"];
 const QUELLEN: readonly QuelleKey[] = ["alle", "linkedin", "telefon"];
+const GRANULARITIES: readonly Granularity[] = ["auto", "tag", "woche", "monat"];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SPAN_DAYS = 730;
 
@@ -20,6 +23,7 @@ export type AnalyseParams = {
   to: string;
   userIds: string[];
   quelle: QuelleKey;
+  g: Granularity;
 };
 
 /** Erster Tag des Monats, in dem `today` (YYYY-MM-DD) liegt. */
@@ -112,7 +116,19 @@ export function parseAnalyseParams(
 
   const quelle: QuelleKey = QUELLEN.includes(sp.quelle as QuelleKey) ? (sp.quelle as QuelleKey) : "alle";
 
-  return { tab, rangeKey, from, to, userIds, quelle };
+  const g: Granularity = GRANULARITIES.includes(sp.g as Granularity) ? (sp.g as Granularity) : "auto";
+
+  return { tab, rangeKey, from, to, userIds, quelle, g };
+}
+
+/**
+ * Vorperioden-Fenster gleicher Länge, das am Tag vor `from` endet — Basis für
+ * Delta-Badges ("vs. Vorperiode") in den KPI-Kacheln.
+ */
+export function prevRange(from: string, to: string): { from: string; to: string } {
+  const span = spanDays(from, to);
+  const prevTo = addDaysISO(from, -1);
+  return { from: addDaysISO(prevTo, -(span - 1)), to: prevTo };
 }
 
 /** Number(v) mit 0 als NaN-/Falsy-Fallback. */
@@ -142,13 +158,21 @@ export function ownerKey(name: string | null | undefined): string {
   return (name ?? "").trim().toLowerCase();
 }
 
-type Granularity = "day" | "week" | "month";
+type BucketUnit = "day" | "week" | "month";
 
-function granularityOf(from: string, to: string): Granularity {
+function heuristicUnit(from: string, to: string): BucketUnit {
   const span = spanDays(from, to);
   if (span <= 35) return "day";
   if (span <= 200) return "week";
   return "month";
+}
+
+/** Löst eine (optionale) Nutzer-Granularität zur konkreten Bucket-Einheit auf. */
+function unitOf(from: string, to: string, g?: Granularity): BucketUnit {
+  if (g === "tag") return "day";
+  if (g === "woche") return "week";
+  if (g === "monat") return "month";
+  return heuristicUnit(from, to);
 }
 
 const MONTH_LABEL = new Intl.DateTimeFormat("de-DE", { month: "short", year: "2-digit" });
@@ -172,26 +196,27 @@ function dayKey(day: string): { key: string; label: string } {
   return { key: day, label: `${d}.${m}.` };
 }
 
-function bucketFor(day: string, g: Granularity): { key: string; label: string } {
-  if (g === "day") return dayKey(day);
-  if (g === "week") return weekKey(day);
+function bucketFor(day: string, unit: BucketUnit): { key: string; label: string } {
+  if (unit === "day") return dayKey(day);
+  if (unit === "week") return weekKey(day);
   return monthKey(day);
 }
 
 /**
  * Vollständige, lückenlose Bucket-Liste für [from, to] — damit Charts fehlende
- * Perioden mit 0 vorbefüllen. Granularität: ≤35 Tage täglich, ≤200 Tage
- * ISO-Wochen, sonst Monate.
+ * Perioden mit 0 vorbefüllen. Ohne `g` (bzw. mit "auto") greift die Heuristik:
+ * ≤35 Tage täglich, ≤200 Tage ISO-Wochen, sonst Monate; "tag"/"woche"/"monat"
+ * erzwingen die jeweilige Einheit.
  */
-export function buildBuckets(from: string, to: string): { key: string; label: string }[] {
+export function buildBuckets(from: string, to: string, g?: Granularity): { key: string; label: string }[] {
   if (from > to) return [];
-  const g = granularityOf(from, to);
+  const unit = unitOf(from, to, g);
   const out: { key: string; label: string }[] = [];
   const seen = new Set<string>();
   let cursor = from;
   // Sicherheits-Obergrenze gegen Endlosschleifen bei kaputten Eingaben.
   for (let i = 0; i <= MAX_SPAN_DAYS && cursor <= to; i++) {
-    const b = bucketFor(cursor, g);
+    const b = bucketFor(cursor, unit);
     if (!seen.has(b.key)) {
       seen.add(b.key);
       out.push(b);
@@ -201,9 +226,9 @@ export function buildBuckets(from: string, to: string): { key: string; label: st
   return out;
 }
 
-/** Bildet einen Tag im Bereich [from, to] auf seinen Bucket-Key ab. */
-export function bucketOf(day: string, from: string, to: string): string {
-  return bucketFor(day, granularityOf(from, to)).key;
+/** Bildet einen Tag im Bereich [from, to] auf seinen Bucket-Key ab (g wie buildBuckets). */
+export function bucketOf(day: string, from: string, to: string, g?: Granularity): string {
+  return bucketFor(day, unitOf(from, to, g)).key;
 }
 
 // Bewusste UTC-Kante: `slice(0,10)` schneidet den Datumsanteil eines ISO-

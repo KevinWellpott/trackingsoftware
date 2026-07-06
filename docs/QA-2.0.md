@@ -16,6 +16,7 @@ Stand: Branch `tracking-software-2.0`. Durchführen mit `npm run dev`, auf **Des
 - [ ] **Setting/Closing**: kein Crash mehr; Assignee-Namen erscheinen (nach Migration 0011).
 - [ ] **Analyse (/analyse, nach Migration 0013)**: als Admin — Nutzer-Chips (z. B. Samuel vs. Kevin), freier Von-Bis-Zeitraum, alle 5 Tabs (LinkedIn/Telefon/Setting/Closing/Funnel), Vergleichstabelle mit Ø-Deltas, Verlaufs-Chart mit Metrik-Umschalter, LinkedIn-Funnel; als Member — gesperrter Selbst-Chip, nur eigene Daten; Telefon-Tab ohne Migration → Hinweis statt Crash.
 - [ ] **Antwort-Kategorien (nach Migration 0014)**: neu wählbar nur Positiv/Neutral/Negativ; alte Werte („Interessiert" …) bleiben in Bestandszeilen sichtbar (als „… (Alt)" im Select).
+- [ ] **Analyse 2.0**: sticky Filterleiste (Blur), Granularität Auto/Tag/Woche/Monat, aktive Filter-Chips mit ×; KPI-Heroes mit Ticker, Sparkline + Delta „vs. Vorperiode" auf allen Tabs; LinkedIn: Kategorien-Donut, Wochentag-Analyse, kumulierter Verlauf, Top-Listen-Ranking; Telefon: Outcome-Donut + 3 „Warum…"-Gründe-Karten; Setting: Quellen-Split, Budget-Verteilung, Ø Pain/Wärme-Gauges; Closing: Umsatz-Verlauf, Win/Loss-Donut, Zahlungsarten, Verlustgründe; Funnel: großer Bar-Funnel + Wert-Kennzahlen (Umsatz pro DM/Termin/Closing). Einblend-Stagger, Mobile 360px, Hell+Dunkel.
 
 ## 1. Datenintegrität (Bestandsdaten-Beweis)
 Im Supabase-SQL-Editor ausführen — die Werte müssen dem bekannten Stand entsprechen (Referenz: 2168 Kontakte beim 2.0-Start) und dürfen sich durch das Update **nicht** verändert haben:

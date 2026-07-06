@@ -1,13 +1,16 @@
-import { Filter } from "lucide-react";
+import type { ReactNode } from "react";
+import { CalendarCheck, Euro, Filter, Handshake, Percent, Users } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { NUM, ownerKey, settingEffDate, closingEffDate, eur, type QuelleKey } from "@/lib/analyse";
+import { NUM, ownerKey, settingEffDate, closingEffDate, eur, pct, type Granularity, type QuelleKey } from "@/lib/analyse";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
 import { FunnelStrip, type FunnelStage } from "@/components/analyse/FunnelStrip";
+import { BarFunnel, KpiHero } from "@/components/analyse/AnalyseViz";
 
 // End-to-End-Funnel je Quelle: LinkedIn/Telefon-Erstkontakt → Setting-Shows →
 // Closings → Gewonnen → Umsatz. Verknüpft Setting- und Closing-Datensätze über
-// setting_call_id.
+// setting_call_id. Oben Wert-Kennzahlen (Umsatz je Stufe), darunter der
+// Gesamt-Funnel als BarFunnel und je Nutzer ein FunnelStrip.
 
 type Member = { user_id: string; username: string };
 
@@ -60,6 +63,9 @@ export async function FunnelTab({
   selectedMembers: Member[];
   canCompare: boolean;
   quelle: QuelleKey;
+  prevFrom?: string;
+  prevTo?: string;
+  granularity?: Granularity;
 }) {
   const supabase = await createClient();
   const eff = canCompare ? null : access.user.id;
@@ -223,6 +229,58 @@ export async function FunnelTab({
   }
   const totalRevenue = rows.reduce((acc, r) => acc + r.revenue, 0);
 
+  // ── Wert-Kennzahlen (Umsatz je Stufe, null-sicher) ───────────
+  const stageValue = (label: string): number =>
+    totalStages.find((s) => s.label === label)?.value ?? 0;
+  const firstTotal = totalStages[0]?.value ?? 0;
+  const termineTotal = stageValue("Termine");
+  const closingsTotal = stageValue("Closings");
+  const wonTotal = stageValue("Gewonnen");
+  const perValue = (basis: number): number => (basis === 0 ? 0 : Math.round(totalRevenue / basis));
+  const konversion = pct(wonTotal, firstTotal) ?? 0;
+
+  const firstLabel = quelle === "linkedin" ? "Umsatz pro DM" : "Umsatz pro Call";
+  const kpis: {
+    label: string;
+    value: number;
+    format: "int" | "pct" | "eur";
+    tone: "default" | "success";
+    icon: ReactNode;
+  }[] = [
+    // Bei quelle=alle ist die erste Stufe bereits "Termine" — die Erstkontakt-
+    // Kachel wäre ein Duplikat und entfällt.
+    ...(quelle === "alle"
+      ? []
+      : [{
+          label: firstLabel,
+          value: perValue(firstTotal),
+          format: "eur" as const,
+          tone: firstTotal > 0 ? ("success" as const) : ("default" as const),
+          icon: <Euro size={15} />,
+        }]),
+    {
+      label: "Umsatz pro Termin",
+      value: perValue(termineTotal),
+      format: "eur",
+      tone: termineTotal > 0 ? "success" : "default",
+      icon: <CalendarCheck size={15} />,
+    },
+    {
+      label: "Umsatz pro Closing",
+      value: perValue(closingsTotal),
+      format: "eur",
+      tone: closingsTotal > 0 ? "success" : "default",
+      icon: <Handshake size={15} />,
+    },
+    {
+      label: "Gesamt-Konversion",
+      value: konversion,
+      format: "pct",
+      tone: "default",
+      icon: <Percent size={15} />,
+    },
+  ];
+
   const sub =
     quelle === "linkedin"
       ? "LinkedIn → Setting → Closing → Umsatz"
@@ -231,23 +289,44 @@ export async function FunnelTab({
         : "Setting → Closing → Umsatz";
 
   return (
-    <AnalyseSection title="Funnel" icon={Filter} meta={sub}>
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        <FunnelStrip
-          label="Gesamt"
-          highlight
-          stages={totalStages}
-          trailing={{ label: "Umsatz", value: eur(totalRevenue) }}
-        />
-        {rows.map((r) => (
-          <FunnelStrip
-            key={r.name}
-            label={r.name}
-            stages={r.stages}
-            trailing={{ label: "Umsatz", value: eur(r.revenue) }}
+    <>
+      {/* ── Wert-Kennzahlen ────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
+        {kpis.map((k, i) => (
+          <KpiHero
+            key={k.label}
+            label={k.label}
+            value={k.value}
+            format={k.format}
+            tone={k.tone}
+            icon={k.icon}
+            index={i}
           />
         ))}
       </div>
-    </AnalyseSection>
+
+      {/* ── Funnel Gesamt ──────────────────────────────────────── */}
+      <div className="fade-up" style={{ animationDelay: "240ms" }}>
+        <AnalyseSection title="Funnel Gesamt" icon={Filter} meta={sub}>
+          <BarFunnel stages={totalStages} trailing={{ label: "Umsatz", value: eur(totalRevenue) }} />
+        </AnalyseSection>
+      </div>
+
+      {/* ── Je Nutzer ──────────────────────────────────────────── */}
+      <div className="fade-up" style={{ animationDelay: "300ms" }}>
+        <AnalyseSection title="Je Nutzer" icon={Users} meta={`${rows.length} Mitglieder`}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {rows.map((r) => (
+              <FunnelStrip
+                key={r.name}
+                label={r.name}
+                stages={r.stages}
+                trailing={{ label: "Umsatz", value: eur(r.revenue) }}
+              />
+            ))}
+          </div>
+        </AnalyseSection>
+      </div>
+    </>
   );
 }
