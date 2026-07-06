@@ -6,8 +6,14 @@ import Link from "next/link";
 // Nachfassen: Union-Tasklist aller fälligen Aufgaben (LinkedIn + Telefon + Closing)
 // mit vorbereitetem Kopier-Text — kein Auto-Versand.
 
-export default async function NachfassenPage() {
-  const tasks = await getNachfassenTasks();
+export default async function NachfassenPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ alle?: string }>;
+}) {
+  const sp = await searchParams;
+  const showingAll = sp.alle === "1";
+  const { tasks, hiddenOlder } = await getNachfassenTasks({ includeOlder: showingAll });
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
@@ -27,7 +33,7 @@ export default async function NachfassenPage() {
         </div>
       </div>
 
-      <NachfassenBoard tasks={tasks} />
+      <NachfassenBoard tasks={tasks} hiddenOlder={hiddenOlder} showingAll={showingAll} />
     </div>
   );
 }

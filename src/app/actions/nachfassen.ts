@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 import { localDateISO, addDaysISO } from "@/lib/dates";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 
 // Nachfassen-Union (LinkedIn-FU + Telefon-Rückruf + Closing-Nachfassen) über die
 // nachfassen_tasks-RPC + vorbereiteter Kopier-Text (KEIN Auto-Versand).
@@ -36,49 +37,103 @@ function linkedinFollowUpText(name: string | null, fu: number | null): string {
     case 2:
       return `${hi}ich weiß, es ist gerade viel los. Magst du mir kurz Bescheid geben, ob das Thema für dich grundsätzlich spannend ist?`;
     case 3:
-      return `${hi}letzter Versuch von meiner Seite 🙂 – wenn es aktuell nicht passt, ist das völlig okay, dann melde ich mich in ein paar Monaten nochmal.`;
+      return `${hi}letzter Versuch von meiner Seite – wenn es aktuell nicht passt, ist das völlig okay, dann melde ich mich in ein paar Monaten nochmal.`;
     default:
       return `${hi}ich melde mich nochmal kurz bei dir.`;
   }
 }
 
-export async function getNachfassenTasks(): Promise<NachfassenTask[]> {
+export type NachfassenResult = {
+  tasks: NachfassenTask[];
+  hiddenOlder: number; // ältere LinkedIn-Leads (Pitch > 7 Tage), ausgeblendet
+};
+
+export async function getNachfassenTasks(options?: {
+  includeOlder?: boolean;
+}): Promise<NachfassenResult> {
   const access = await getAccessContext();
-  if (!access) return [];
+  if (!access) return { tasks: [], hiddenOlder: 0 };
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("nachfassen_tasks", {
-    p_workspace_id: access.workspace_id,
-    p_today: localDateISO(),
-    p_now: new Date().toISOString(),
-    p_effective_user_id: access.effective_user_id ?? null,
-  });
-  if (error || !data) return [];
+  // IMMER personenbezogen: der eingeloggte Nutzer (bzw. die aktive Admin-Datensicht).
+  const scopeUserId = access.effective_user_id ?? access.user.id;
 
-  const rows = data as Array<Omit<NachfassenTask, "list_id" | "phone" | "prepared_text">>;
+  // RPC paginieren (PostgREST cappt auch Funktions-Ergebnisse bei 1000).
+  let rows: Array<Omit<NachfassenTask, "list_id" | "phone" | "prepared_text">> = [];
+  try {
+    rows = await fetchAllRows((from, to) =>
+      supabase
+        .rpc("nachfassen_tasks", {
+          p_workspace_id: access.workspace_id,
+          p_today: localDateISO(),
+          p_now: new Date().toISOString(),
+          p_effective_user_id: scopeUserId,
+        })
+        .range(from, to),
+    );
+  } catch (e) {
+    console.error("nachfassen_tasks:", e instanceof Error ? e.message : e);
+    return { tasks: [], hiddenOlder: 0 };
+  }
+  // Stabile Reihenfolge clientseitig (RPC hat kein ORDER BY)
+  rows.sort((a, b) => (a.due_at ?? "").localeCompare(b.due_at ?? "") || a.entity_id.localeCompare(b.entity_id));
 
-  // Anreichern: list_id (LinkedIn/Telefon) + Telefonnummer
+  // Anreichern: list_id (LinkedIn/Telefon) + Telefonnummer + pitched_at (Cutoff)
   const linkedinIds = rows.filter((r) => r.source === "linkedin").map((r) => r.entity_id);
   const telefonIds = rows.filter((r) => r.source === "telefon").map((r) => r.entity_id);
 
-  const contactList = new Map<string, string>();
+  const contactInfo = new Map<string, { list_id: string; pitched_at: string | null }>();
   if (linkedinIds.length > 0) {
-    const { data: cs } = await supabase.from("contacts").select("id, list_id").in("id", linkedinIds);
-    (cs ?? []).forEach((c) => contactList.set(c.id, c.list_id));
+    // .in()-Batches (URL-Länge) + fetchAllRows nicht nötig, da bereits ID-gebunden
+    for (let i = 0; i < linkedinIds.length; i += 200) {
+      const chunk = linkedinIds.slice(i, i + 200);
+      const { data: cs } = await supabase
+        .from("contacts")
+        .select("id, list_id, pitched_at")
+        .in("id", chunk);
+      (cs ?? []).forEach((c) =>
+        contactInfo.set(c.id, { list_id: c.list_id, pitched_at: (c as { pitched_at: string | null }).pitched_at }),
+      );
+    }
   }
   const leadInfo = new Map<string, { list_id: string; phone: string | null }>();
   if (telefonIds.length > 0) {
-    const { data: ls } = await supabase.from("phone_leads").select("id, list_id, phone").in("id", telefonIds);
-    (ls ?? []).forEach((l) => leadInfo.set(l.id, { list_id: l.list_id, phone: l.phone }));
+    for (let i = 0; i < telefonIds.length; i += 200) {
+      const chunk = telefonIds.slice(i, i + 200);
+      const { data: ls } = await supabase.from("phone_leads").select("id, list_id, phone").in("id", chunk);
+      (ls ?? []).forEach((l) => leadInfo.set(l.id, { list_id: l.list_id, phone: l.phone }));
+    }
   }
 
-  return rows.map((r) => {
+  // Eigene FU-Vorlagen des Scope-Nutzers laden (Fallback: Standardtexte)
+  const templates = new Map<number, string>();
+  {
+    const { data: tpl } = await supabase
+      .from("followup_templates")
+      .select("fu_number, body")
+      .eq("user_id", scopeUserId);
+    (tpl ?? []).forEach((t) => templates.set(t.fu_number, t.body));
+  }
+
+  // Cutoff: nur Leads der letzten 7 Tage nachfassen (Bestandsdaten bleiben unangetastet,
+  // ältere sind über includeOlder erreichbar).
+  const cutoff = addDaysISO(localDateISO(), -7);
+  let hiddenOlder = 0;
+
+  const tasks: NachfassenTask[] = [];
+  for (const r of rows) {
     let list_id: string | null = null;
     let phone: string | null = null;
     let prepared_text = "";
     if (r.source === "linkedin") {
-      list_id = contactList.get(r.entity_id) ?? null;
-      prepared_text = linkedinFollowUpText(r.lead_name, r.next_fu_number);
+      const info = contactInfo.get(r.entity_id);
+      list_id = info?.list_id ?? null;
+      const pitched = info?.pitched_at ?? null;
+      if (!options?.includeOlder && (!pitched || pitched < cutoff)) {
+        hiddenOlder++;
+        continue;
+      }
+      prepared_text = followUpTextFor(templates, r.lead_name, r.next_fu_number);
     } else if (r.source === "telefon") {
       const info = leadInfo.get(r.entity_id);
       list_id = info?.list_id ?? null;
@@ -87,8 +142,21 @@ export async function getNachfassenTasks(): Promise<NachfassenTask[]> {
     } else {
       prepared_text = `Closing nachfassen: ${r.lead_name ?? "—"}${r.company ? ` (${r.company})` : ""}`;
     }
-    return { ...r, list_id, phone, prepared_text };
-  });
+    tasks.push({ ...r, list_id, phone, prepared_text });
+  }
+
+  return { tasks, hiddenOlder };
+}
+
+// Vorlage des Nutzers ({name}-Platzhalter) oder Standardtext.
+function followUpTextFor(
+  templates: Map<number, string>,
+  leadName: string | null,
+  fu: number | null,
+): string {
+  const custom = fu != null ? templates.get(fu) : undefined;
+  if (custom) return custom.replaceAll("{name}", firstName(leadName) || "du");
+  return linkedinFollowUpText(leadName, fu);
 }
 
 /** LinkedIn-Lead als beantwortet markieren → raus aus dem Follow-up-Flow. */

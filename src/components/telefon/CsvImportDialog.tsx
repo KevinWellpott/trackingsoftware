@@ -7,8 +7,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-// CSV-Import (Google-Maps-Export) für Telefonlisten: Owner wählen, Datei
-// hochladen, optionaler Listenname. Nur Firma/Telefon/Website werden gemappt.
+// CSV-Import (Google-Maps-Export) für Telefonlisten: Datei hochladen,
+// optionaler Listenname. Nur Firma/Telefon/Website werden gemappt.
+// Import ist immer personenbezogen: Nicht-Admins importieren als sie selbst,
+// nur Admins mit mehreren Nutzern können den Inhaber wählen.
 
 type UserOption = { user_id: string; username: string };
 
@@ -41,10 +43,22 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
 };
 
-export function CsvImportDialog({ users }: { users: UserOption[] }) {
+export function CsvImportDialog({
+  users,
+  me,
+  isAdmin,
+}: {
+  users: UserOption[];
+  me: UserOption;
+  isAdmin: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [ownerUserId, setOwnerUserId] = useState(users[0]?.user_id ?? "");
+  // Owner-Auswahl nur für Admins mit mehreren Nutzern — sonst immer "ich selbst".
+  const showOwnerSelect = isAdmin && users.length > 1;
+  const [ownerUserId, setOwnerUserId] = useState(() =>
+    users.some((u) => u.user_id === me.user_id) || !showOwnerSelect ? me.user_id : users[0].user_id,
+  );
   const [listName, setListName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +74,7 @@ export function CsvImportDialog({ users }: { users: UserOption[] }) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const owner = users.find((u) => u.user_id === ownerUserId);
+    const owner = showOwnerSelect ? users.find((u) => u.user_id === ownerUserId) : me;
     if (!owner) {
       setError("Bitte einen Inhaber auswählen.");
       return;
@@ -180,23 +194,32 @@ export function CsvImportDialog({ users }: { users: UserOption[] }) {
           </div>
         ) : (
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div>
-              <label htmlFor="csv-owner" style={labelStyle}>
-                Inhaber
-              </label>
-              <select
-                id="csv-owner"
-                value={ownerUserId}
-                onChange={(e) => setOwnerUserId(e.target.value)}
-                style={inputStyle}
-              >
-                {users.map((u) => (
-                  <option key={u.user_id} value={u.user_id}>
-                    {u.username}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {showOwnerSelect ? (
+              <div>
+                <label htmlFor="csv-owner" style={labelStyle}>
+                  Inhaber
+                </label>
+                <select
+                  id="csv-owner"
+                  value={ownerUserId}
+                  onChange={(e) => setOwnerUserId(e.target.value)}
+                  style={inputStyle}
+                >
+                  {users.map((u) => (
+                    <option key={u.user_id} value={u.user_id}>
+                      {u.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <span style={labelStyle}>Inhaber</span>
+                <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Import als: {me.username}
+                </div>
+              </div>
+            )}
 
             <div>
               <label htmlFor="csv-file" style={labelStyle}>

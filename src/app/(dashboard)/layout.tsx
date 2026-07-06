@@ -14,46 +14,32 @@ export default async function DashboardLayout({
   if (!access) redirect("/onboarding");
 
   const supabase = await createClient();
-  let listsQuery = supabase
+  // Sidebar ist strikt persönlich: immer auf den effektiven Nutzer filtern
+  // (Datensicht-Impersonation oder der eingeloggte Nutzer selbst).
+  const scopeUserId = access.effective_user_id ?? access.user.id;
+  const listsQuery = supabase
     .from("lists")
     .select("id, name, archived_at, owner_name")
     .eq("workspace_id", access.workspace_id)
+    .eq("created_by_user_id", scopeUserId)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
-  let organicListsQuery = supabase
-    .from("organic_lists")
-    .select("id, name, owner_name")
-    .eq("workspace_id", access.workspace_id)
-    .is("archived_at", null)
-    .order("created_at", { ascending: false });
-  let phoneListsQuery = supabase
+  const phoneListsQuery = supabase
     .from("phone_lists")
     .select("id, name, owner_name, list_kind, created_by_user_id")
     .eq("workspace_id", access.workspace_id)
+    .eq("created_by_user_id", scopeUserId)
     .is("archived_at", null)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
 
-  if (access.effective_user_id) {
-    listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
-    organicListsQuery = organicListsQuery.eq("created_by_user_id", access.effective_user_id);
-    phoneListsQuery = phoneListsQuery.eq("created_by_user_id", access.effective_user_id);
-  }
-
-  const [{ data: lists }, { data: organicListsData }, { data: phoneListsData }, dataViewUsers] = await Promise.all([
+  const [{ data: lists }, { data: phoneListsData }, dataViewUsers] = await Promise.all([
     listsQuery,
-    organicListsQuery,
     phoneListsQuery,
     access.can_switch_view ? listDataViewUsers(access.workspace_id) : Promise.resolve([]),
   ]);
 
   const sidebarLists = (lists ?? []).map((l) => ({
-    id: l.id,
-    name: l.name,
-    owner_name: (l as { owner_name?: string | null }).owner_name ?? null,
-  }));
-
-  const organicLists = (organicListsData ?? []).map((l) => ({
     id: l.id,
     name: l.name,
     owner_name: (l as { owner_name?: string | null }).owner_name ?? null,
@@ -86,7 +72,6 @@ export default async function DashboardLayout({
           username={access.username}
           workspaceId={access.workspace_id}
           lists={sidebarLists}
-          organicLists={organicLists}
           phoneLists={phoneLists}
           dataScope={access.data_scope}
           dataView={{
@@ -107,7 +92,6 @@ export default async function DashboardLayout({
             username={access.username}
             workspaceId={access.workspace_id}
             lists={sidebarLists}
-            organicLists={organicLists}
             phoneLists={phoneLists}
             dataScope={access.data_scope}
             dataView={{

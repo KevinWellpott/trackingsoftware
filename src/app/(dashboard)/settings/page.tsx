@@ -1,16 +1,19 @@
 import { createUserForm, listUsers } from "@/app/actions/workspace";
 import { getTargets, setTargetForm } from "@/app/actions/targets";
+import { getFollowupTemplates } from "@/app/actions/templates";
 import {
   resolveTarget,
   type TargetChannel,
   type TargetMetric,
   type TargetPeriod,
 } from "@/lib/targets";
+import { getAccessContext } from "@/lib/access";
 import { getMembership } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { ownerColor } from "@/lib/ownerColor";
 import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
-import { Plus, Settings, Shield, Target, UserCheck, Users } from "lucide-react";
+import { FollowupTemplatesEditor } from "@/components/settings/FollowupTemplatesEditor";
+import { MessageSquareText, Plus, Settings, Shield, Target, UserCheck, Users } from "lucide-react";
 
 const TARGET_FIELDS: {
   label: string;
@@ -40,6 +43,12 @@ export default async function SettingsPage({
   const isOwner = m.role === "owner";
   const { users } = isOwner ? await listUsers(m.workspace_id) : { users: [] };
   const targets = isOwner ? await getTargets() : [];
+
+  // FU-Vorlagen des eingeloggten Nutzers (bzw. der aktiven Admin-Datensicht)
+  const access = await getAccessContext();
+  const templates = access
+    ? await getFollowupTemplates(access.effective_user_id ?? access.user.id)
+    : [];
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -239,6 +248,18 @@ export default async function SettingsPage({
           </div>
         </div>
       )}
+
+      {/* ── Follow-up-Vorlagen ── */}
+      <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
+        <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <MessageSquareText size={14} color="var(--brand-400)" />
+          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Follow-up-Vorlagen</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", fontWeight: 500 }}>Eigene LinkedIn-Nachfass-Texte (FU1–FU3)</span>
+        </div>
+        <div style={{ padding: "1.125rem 1.375rem" }}>
+          <FollowupTemplatesEditor initial={templates} />
+        </div>
+      </div>
 
       {/* ── Passwort-Info ── */}
       <div style={{ background: "var(--color-warning-bg)", border: "1px solid var(--color-warning-border)", borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>

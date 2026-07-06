@@ -2,23 +2,18 @@
 
 import { setDataViewForm, signOut } from "@/app/actions/workspace";
 import { createListForm } from "@/app/actions/lists";
-import { createOrganicListForm } from "@/app/actions/organic";
 import {
   BarChart2,
-  Briefcase,
-  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Clock,
   Download,
-  Film,
   Handshake,
-  FolderOpen,
-  FolderClosed,
   LogOut,
   Phone,
   Plus,
   Settings,
+  Users,
   X,
   Zap,
 } from "lucide-react";
@@ -26,7 +21,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { ownerColor } from "@/lib/ownerColor";
+import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 
 type SidebarList = { id: string; name: string; owner_name: string | null };
 type SidebarPhoneList = {
@@ -49,7 +44,6 @@ type Props = {
   username: string;
   workspaceId: string;
   lists: SidebarList[];
-  organicLists?: SidebarList[];
   phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
@@ -79,50 +73,6 @@ function NavLink({
       <Icon size={15} strokeWidth={isActive ? 2.5 : 2} />
       <span style={{ flex: 1 }}>{label}</span>
       {isActive && <ChevronRight size={13} style={{ opacity: 0.4 }} />}
-    </Link>
-  );
-}
-
-function OrganicListLink({
-  id,
-  name,
-  onClick,
-}: {
-  id: string;
-  name: string;
-  onClick?: () => void;
-}) {
-  const pathname = usePathname();
-  const href = `/organic/${id}`;
-  const isActive = pathname === href;
-  return (
-    <Link
-      href={href}
-      onClick={onClick}
-      className={`sidebar-link${isActive ? " active" : ""}`}
-      style={{ paddingLeft: "1.5rem" }}
-      title={name}
-    >
-      <span
-        style={{
-          width: 5,
-          height: 5,
-          borderRadius: "50%",
-          flexShrink: 0,
-          background: isActive ? "var(--organic-accent)" : "var(--text-subtle)",
-        }}
-      />
-      <span
-        style={{
-          flex: 1,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          fontSize: "0.8125rem",
-        }}
-      >
-        {name}
-      </span>
     </Link>
   );
 }
@@ -168,159 +118,6 @@ function ListLink({
         {name}
       </span>
     </Link>
-  );
-}
-
-function OwnerFolder({
-  owner,
-  lists,
-  onClose,
-}: {
-  owner: string;
-  lists: SidebarList[];
-  onClose?: () => void;
-}) {
-  const [open, setOpen] = useState<boolean>(true);
-  const { fg: color, bg: colorBg } = ownerColor(owner);
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          padding: "0.375rem 0.75rem",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          borderRadius: "var(--radius-md)",
-          color: "var(--text-secondary)",
-          fontSize: "0.8125rem",
-          fontWeight: 600,
-          transition: "background var(--transition-fast)",
-        }}
-        onMouseEnter={(e) =>
-          ((e.currentTarget as HTMLElement).style.background =
-            "var(--surface-100)")
-        }
-        onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLElement).style.background = "none")
-        }
-      >
-        <div
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: 6,
-            background: colorBg,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          {open ? (
-            <FolderOpen size={13} color={color} />
-          ) : (
-            <FolderClosed size={13} color={color} />
-          )}
-        </div>
-        <span style={{ flex: 1, color, textAlign: "left" }}>{owner}</span>
-        <span
-          style={{
-            fontSize: "0.6875rem",
-            color: "var(--text-subtle)",
-            background: "var(--surface-100)",
-            borderRadius: 99,
-            padding: "0.1rem 0.4rem",
-          }}
-        >
-          {lists.length}
-        </span>
-        {open ? (
-          <ChevronDown size={13} style={{ color: "var(--text-subtle)" }} />
-        ) : (
-          <ChevronRight size={13} style={{ color: "var(--text-subtle)" }} />
-        )}
-      </button>
-
-      {open && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 1 }}>
-          {lists.map((l) => (
-            <ListLink key={l.id} id={l.id} name={l.name} onClick={onClose} />
-          ))}
-          {lists.length === 0 && (
-            <p
-              style={{
-                fontSize: "0.75rem",
-                color: "var(--text-subtle)",
-                padding: "0.25rem 1.5rem",
-              }}
-            >
-              Noch keine Listen.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OrganicOwnerFolder({
-  owner,
-  lists,
-  onClose,
-}: {
-  owner: string;
-  lists: SidebarList[];
-  onClose?: () => void;
-}) {
-  const [open, setOpen] = useState<boolean>(true);
-  const { fg: color, bg: colorBg } = ownerColor(owner);
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          padding: "0.375rem 0.75rem",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          borderRadius: "var(--radius-md)",
-          color: "var(--text-secondary)",
-          fontSize: "0.8125rem",
-          fontWeight: 600,
-          transition: "background var(--transition-fast)",
-        }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--surface-100)")}
-        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "none")}
-      >
-        <div style={{ width: 22, height: 22, borderRadius: 6, background: colorBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          {open ? <FolderOpen size={13} color={color} /> : <FolderClosed size={13} color={color} />}
-        </div>
-        <span style={{ flex: 1, color, textAlign: "left" }}>{owner}</span>
-        <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", background: "var(--surface-100)", borderRadius: 99, padding: "0.1rem 0.4rem" }}>{lists.length}</span>
-        {open ? <ChevronDown size={13} style={{ color: "var(--text-subtle)" }} /> : <ChevronRight size={13} style={{ color: "var(--text-subtle)" }} />}
-      </button>
-      {open && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 1 }}>
-          {lists.map((l) => <OrganicListLink key={l.id} id={l.id} name={l.name} onClick={onClose} />)}
-          {lists.length === 0 && (
-            <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>Noch keine Serien.</p>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -394,59 +191,69 @@ function PhoneListLink({
   );
 }
 
-function PhoneOwnerFolder({
-  owner,
-  lists,
-  onClose,
+/** Eine Zeile der Team-Ansicht: Formular, das die Datensicht wechselt. */
+function TeamViewRow({
+  userId,
+  label,
+  pathname,
+  active,
+  isReset,
 }: {
-  owner: string;
-  lists: SidebarPhoneList[];
-  onClose?: () => void;
+  userId: string;
+  label: string;
+  pathname: string;
+  active: boolean;
+  isReset?: boolean;
 }) {
-  const [open, setOpen] = useState<boolean>(true);
-  const { fg: color, bg: colorBg } = ownerColor(owner);
-
+  const oc = ownerColor(isReset ? null : label);
   return (
-    <div>
+    <form action={setDataViewForm}>
+      <input type="hidden" name="next" value={pathname} />
+      <input type="hidden" name="view_user_id" value={userId} />
       <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
+        type="submit"
+        className="sidebar-link"
         style={{
           width: "100%",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          padding: "0.375rem 0.75rem",
-          background: "none",
           border: "none",
           cursor: "pointer",
-          borderRadius: "var(--radius-md)",
-          color: "var(--text-secondary)",
-          fontSize: "0.8125rem",
-          fontWeight: 600,
-          transition: "background var(--transition-fast)",
+          background: active ? "var(--brand-50)" : "none",
+          color: active ? "var(--brand-600)" : undefined,
+          fontWeight: active ? 700 : undefined,
         }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--surface-100)")}
-        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "none")}
+        title={isReset ? "Zur eigenen Datensicht zurückkehren" : `Datensicht von ${label} anzeigen`}
       >
-        <div style={{ width: 22, height: 22, borderRadius: 6, background: colorBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          {open ? <FolderOpen size={13} color={color} /> : <FolderClosed size={13} color={color} />}
-        </div>
-        <span style={{ flex: 1, color, textAlign: "left" }}>{owner}</span>
-        <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", background: "var(--surface-100)", borderRadius: 99, padding: "0.1rem 0.4rem" }}>{lists.length}</span>
-        {open ? <ChevronDown size={13} style={{ color: "var(--text-subtle)" }} /> : <ChevronRight size={13} style={{ color: "var(--text-subtle)" }} />}
+        <span
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: "50%",
+            background: isReset ? "var(--surface-200)" : oc.bg,
+            color: isReset ? "var(--text-secondary)" : oc.fg,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "0.625rem",
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          {isReset ? <Users size={12} /> : ownerInitials(label)}
+        </span>
+        <span
+          style={{
+            flex: 1,
+            textAlign: "left",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
+        {active && <ChevronRight size={13} style={{ opacity: 0.5 }} />}
       </button>
-      {open && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 1 }}>
-          {lists.map((l) => (
-            <PhoneListLink key={l.id} list={l} onClick={onClose} />
-          ))}
-          {lists.length === 0 && (
-            <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>Noch keine Listen.</p>
-          )}
-        </div>
-      )}
-    </div>
+    </form>
   );
 }
 
@@ -455,7 +262,6 @@ export function SidebarContent({
   username,
   workspaceId,
   lists,
-  organicLists = [],
   phoneLists = [],
   dataScope = "workspace",
   dataView,
@@ -463,47 +269,11 @@ export function SidebarContent({
 }: Props) {
   const pathname = usePathname();
   const isOwnScope = dataScope === "own";
-  const pitchOwnerOptions = isOwnScope ? [username] : ["Kevin", "Simon", "Daniel"];
-  const organicOwnerOptions = isOwnScope ? [username] : ["Kevin", "Simon"];
   const [showNewList, setShowNewList] = useState(false);
-  const [newListOwner, setNewListOwner] = useState(pitchOwnerOptions[0] ?? username);
-  const [showNewOrganic, setShowNewOrganic] = useState(false);
-  const [newOrganicOwner, setNewOrganicOwner] = useState(organicOwnerOptions[0] ?? username);
   const nameRef = useRef<HTMLInputElement>(null);
-  const organicNameRef = useRef<HTMLInputElement>(null);
 
-  // Pitch lists: Gruppiere nach owner_name
-  const owners = Array.from(
-    new Set([...pitchOwnerOptions, ...lists.map((l) => l.owner_name ?? "Ohne Zuordnung")]),
-  ).filter((o) => pitchOwnerOptions.includes(o) || lists.some((l) => (l.owner_name ?? "Ohne Zuordnung") === o));
-
-  const grouped: Record<string, SidebarList[]> = {};
-  for (const l of lists) {
-    const key = l.owner_name ?? "Ohne Zuordnung";
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(l);
-  }
-
-  // Telefonlisten: Gruppiere nach owner_name (nur vorhandene Owner)
-  const phoneGrouped: Record<string, SidebarPhoneList[]> = {};
-  for (const l of phoneLists) {
-    const key = l.owner_name ?? "Ohne Zuordnung";
-    if (!phoneGrouped[key]) phoneGrouped[key] = [];
-    phoneGrouped[key].push(l);
-  }
-  const phoneOwners = Object.keys(phoneGrouped).sort((a, b) => a.localeCompare(b, "de"));
-
-  // Organic lists: Gruppiere nach owner_name
-  const organicOwners = Array.from(
-    new Set([...organicOwnerOptions, ...organicLists.map((l) => l.owner_name ?? "Ohne Zuordnung")]),
-  ).filter((o) => organicOwnerOptions.includes(o) || organicLists.some((l) => (l.owner_name ?? "Ohne Zuordnung") === o));
-
-  const organicGrouped: Record<string, SidebarList[]> = {};
-  for (const l of organicLists) {
-    const key = l.owner_name ?? "Ohne Zuordnung";
-    if (!organicGrouped[key]) organicGrouped[key] = [];
-    organicGrouped[key].push(l);
-  }
+  const isImpersonating = Boolean(dataView?.activeUserId);
+  const teamUsers = (dataView?.users ?? []).filter((u) => u.username !== username);
 
   return (
     <div
@@ -561,6 +331,58 @@ export function SidebarContent({
         )}
       </div>
 
+      {/* Datensicht-Banner (Impersonation aktiv) */}
+      {dataView?.canSwitch && isImpersonating && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            margin: "0.5rem 0.5rem 0",
+            padding: "0.375rem 0.5rem 0.375rem 0.625rem",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-warning-border)",
+            background: "var(--color-warning-bg)",
+            color: "var(--color-warning-text)",
+            flexShrink: 0,
+          }}
+        >
+          <Users size={13} style={{ flexShrink: 0 }} />
+          <span
+            style={{
+              flex: 1,
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={`Datensicht: ${dataView.activeLabel}`}
+          >
+            Datensicht: {dataView.activeLabel}
+          </span>
+          <form action={setDataViewForm} style={{ display: "flex", flexShrink: 0 }}>
+            <input type="hidden" name="next" value={pathname} />
+            <input type="hidden" name="view_user_id" value="" />
+            <button
+              type="submit"
+              title="Datensicht zurücksetzen"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "var(--color-warning-text)",
+                padding: "0.125rem",
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <X size={13} strokeWidth={2.5} />
+            </button>
+          </form>
+        </div>
+      )}
+
       {/* Nav */}
       <nav
         style={{
@@ -573,16 +395,15 @@ export function SidebarContent({
         }}
       >
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
-        <NavLink href="/crm" icon={Briefcase} label="CRM" onClick={onClose} />
         <NavLink href="/telefon" icon={Phone} label="Telefon" onClick={onClose} />
         <NavLink href="/setting" icon={ClipboardCheck} label="Setting" onClick={onClose} />
         <NavLink href="/closing" icon={Handshake} label="Closing" onClick={onClose} />
         <NavLink href="/nachfassen" icon={Clock} label="Nachfassen" onClick={onClose} />
 
-        {/* Pitch-Listen Header */}
+        {/* Listen Header */}
         <div style={{ display: "flex", alignItems: "center", padding: "0.75rem 0.75rem 0.25rem", gap: "0.25rem" }}>
           <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
-            Pitch-Listen
+            Listen
           </span>
           <button
             type="button"
@@ -606,47 +427,30 @@ export function SidebarContent({
                 placeholder="Listenname…"
                 style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.3125rem 0.5rem", fontSize: "0.8125rem", color: "var(--text-primary)", outline: "none", marginBottom: "0.375rem" }}
               />
-              {!isOwnScope && (
-                <div style={{ display: "flex", gap: "0.375rem", marginBottom: "0.375rem" }}>
-                  {pitchOwnerOptions.map((o) => {
-                    const oc = ownerColor(o);
-                    return (
-                      <button
-                        key={o}
-                        type="button"
-                        onClick={() => setNewListOwner(o)}
-                        style={{ flex: 1, padding: "0.25rem", borderRadius: 6, border: "1px solid", borderColor: newListOwner === o ? oc.fg : "var(--border)", background: newListOwner === o ? oc.bg : "transparent", color: newListOwner === o ? oc.fg : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", transition: "all 0.1s" }}
-                      >
-                        {o}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <input type="hidden" name="owner_name" value={isOwnScope ? username : newListOwner} />
+              <input type="hidden" name="owner_name" value={username} />
               <div style={{ display: "flex", gap: "0.25rem" }}>
                 <button type="submit" style={{ flex: 1, background: "var(--brand-500)", color: "white", border: "none", borderRadius: 6, padding: "0.3rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}>
                   Anlegen
                 </button>
-                <button type="button" onClick={() => setShowNewList(false)} style={{ background: "var(--surface-200)", color: "var(--text-subtle)", border: "none", borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.75rem", cursor: "pointer" }}>
-                  ✕
+                <button type="button" onClick={() => setShowNewList(false)} style={{ background: "var(--surface-200)", color: "var(--text-subtle)", border: "none", borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.75rem", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                  <X size={12} />
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        {owners.map((owner) => (
-          <OwnerFolder
-            key={owner}
-            owner={owner}
-            lists={grouped[owner] ?? []}
-            onClose={onClose}
-          />
+        {lists.map((l) => (
+          <ListLink key={l.id} id={l.id} name={l.name} onClick={onClose} />
         ))}
+        {lists.length === 0 && (
+          <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>
+            Noch keine Listen.
+          </p>
+        )}
 
         {/* ── Telefon Section ── */}
-        {phoneOwners.length > 0 && (
+        {phoneLists.length > 0 && (
           <>
             <div style={{ borderTop: "1px solid var(--border)", margin: "0.625rem 0 0" }} />
             <div style={{ display: "flex", alignItems: "center", padding: "0.5rem 0.75rem 0.25rem", gap: "0.25rem" }}>
@@ -654,88 +458,45 @@ export function SidebarContent({
                 Telefon
               </span>
             </div>
-            {phoneOwners.map((owner) => (
-              <PhoneOwnerFolder
-                key={`phone-${owner}`}
-                owner={owner}
-                lists={phoneGrouped[owner] ?? []}
-                onClose={onClose}
+            {phoneLists.map((l) => (
+              <PhoneListLink key={l.id} list={l} onClick={onClose} />
+            ))}
+          </>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        {/* ── Team-Ansicht (nur Admin/Owner) ── */}
+        {dataView?.canSwitch && teamUsers.length > 0 && (
+          <>
+            <div style={{ borderTop: "1px solid var(--border)", marginTop: "0.5rem" }} />
+            <div style={{ display: "flex", alignItems: "center", padding: "0.5rem 0.75rem 0.25rem", gap: "0.375rem" }}>
+              <Users size={12} style={{ color: "var(--text-subtle)", flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
+                Team-Ansicht
+              </span>
+            </div>
+            {isImpersonating && (
+              <TeamViewRow
+                userId=""
+                label="Meine Daten"
+                pathname={pathname}
+                active={false}
+                isReset
+              />
+            )}
+            {teamUsers.map((u) => (
+              <TeamViewRow
+                key={u.user_id}
+                userId={u.user_id}
+                label={u.username}
+                pathname={pathname}
+                active={u.user_id === dataView.activeUserId}
               />
             ))}
           </>
         )}
 
-        {/* ── Organic Section ── */}
-        <div style={{ borderTop: "1px solid var(--border)", margin: "0.625rem 0 0" }} />
-        <NavLink href="/organic" icon={Film} label="Organic Dashboard" onClick={onClose} />
-
-        {/* Organic-Serien Header */}
-        <div style={{ display: "flex", alignItems: "center", padding: "0.5rem 0.75rem 0.25rem", gap: "0.25rem" }}>
-          <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
-            Content-Serien
-          </span>
-          <button
-            type="button"
-            onClick={() => { setShowNewOrganic((v) => !v); setTimeout(() => organicNameRef.current?.focus(), 50); }}
-            style={{ width: 22, height: 22, borderRadius: 6, background: showNewOrganic ? "var(--organic-accent)" : "var(--surface-200)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: showNewOrganic ? "white" : "var(--text-subtle)", transition: "all 0.15s", flexShrink: 0 }}
-            title="Neue Content-Serie"
-          >
-            <Plus size={12} strokeWidth={2.5} />
-          </button>
-        </div>
-
-        {/* Inline new organic list form */}
-        {showNewOrganic && (
-          <div style={{ margin: "0.25rem 0.5rem 0.5rem", background: "var(--surface-150)", border: "1px solid color-mix(in srgb, var(--organic-accent) 30%, transparent)", borderRadius: "var(--radius-md)", padding: "0.625rem 0.75rem" }}>
-            <form action={async (fd) => { await createOrganicListForm(fd); setShowNewOrganic(false); }}>
-              <input type="hidden" name="workspace_id" value={workspaceId} />
-              <input
-                ref={organicNameRef}
-                name="name"
-                required
-                placeholder="Serie / Kampagne…"
-                style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.3125rem 0.5rem", fontSize: "0.8125rem", color: "var(--text-primary)", outline: "none", marginBottom: "0.375rem" }}
-              />
-              {!isOwnScope && (
-                <div style={{ display: "flex", gap: "0.375rem", marginBottom: "0.375rem" }}>
-                  {organicOwnerOptions.map((o) => {
-                    const oc = ownerColor(o);
-                    return (
-                      <button
-                        key={o}
-                        type="button"
-                        onClick={() => setNewOrganicOwner(o)}
-                        style={{ flex: 1, padding: "0.25rem", borderRadius: 6, border: "1px solid", borderColor: newOrganicOwner === o ? oc.fg : "var(--border)", background: newOrganicOwner === o ? oc.bg : "transparent", color: newOrganicOwner === o ? oc.fg : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", transition: "all 0.1s" }}
-                      >
-                        {o}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <input type="hidden" name="owner_name" value={isOwnScope ? username : newOrganicOwner} />
-              <div style={{ display: "flex", gap: "0.25rem" }}>
-                <button type="submit" style={{ flex: 1, background: "var(--organic-accent)", color: "white", border: "none", borderRadius: 6, padding: "0.3rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}>
-                  Anlegen
-                </button>
-                <button type="button" onClick={() => setShowNewOrganic(false)} style={{ background: "var(--surface-200)", color: "var(--text-subtle)", border: "none", borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.75rem", cursor: "pointer" }}>
-                  ✕
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {organicOwners.map((owner) => (
-          <OrganicOwnerFolder
-            key={`organic-${owner}`}
-            owner={owner}
-            lists={organicGrouped[owner] ?? []}
-            onClose={onClose}
-          />
-        ))}
-
-        <div style={{ flex: 1 }} />
         <div style={{ borderTop: "1px solid var(--border)", marginTop: "0.5rem", paddingTop: "0.5rem" }}>
           <NavLink href="/export" icon={Download} label="Export (CSV)" onClick={onClose} />
           <NavLink href="/settings" icon={Settings} label="Einstellungen" onClick={onClose} />
@@ -744,28 +505,6 @@ export function SidebarContent({
 
       {/* Footer */}
       <div style={{ borderTop: "1px solid var(--border)", padding: "0.625rem 0.375rem", flexShrink: 0 }}>
-        {dataView?.canSwitch && (
-          <form action={setDataViewForm} style={{ padding: "0.375rem 0.75rem", marginBottom: "0.375rem" }}>
-            <input type="hidden" name="next" value={pathname} />
-            <label style={{ display: "block", fontSize: "0.625rem", color: "var(--text-subtle)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.25rem" }}>
-              Ansicht
-            </label>
-            <select
-              name="view_user_id"
-              defaultValue={dataView.activeUserId ?? ""}
-              onChange={(e) => e.currentTarget.form?.requestSubmit()}
-              title={`Aktive Ansicht: ${dataView.activeLabel}`}
-              style={{ width: "100%", background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.35rem 0.5rem", color: "var(--text-secondary)", fontSize: "0.75rem", outline: "none" }}
-            >
-              <option value="">Alle Daten</option>
-              {dataView.users.map((u) => (
-                <option key={u.user_id} value={u.user_id}>
-                  {u.username}
-                </option>
-              ))}
-            </select>
-          </form>
-        )}
         {isOwnScope && (
           <div style={{ margin: "0 0.75rem 0.5rem", border: "1px solid var(--color-warning-border)", background: "var(--color-warning-bg)", color: "var(--color-warning-text)", borderRadius: 8, padding: "0.35rem 0.5rem", fontSize: "0.6875rem", fontWeight: 700 }}>
             Eigene Datensicht aktiv
@@ -812,7 +551,7 @@ export function SidebarContent({
 }
 
 export function MobileDrawer({
-  open, onClose, workspaceName, username, workspaceId, lists, organicLists, phoneLists, dataScope, dataView,
+  open, onClose, workspaceName, username, workspaceId, lists, phoneLists, dataScope, dataView,
 }: {
   open: boolean;
   onClose: () => void;
@@ -820,7 +559,6 @@ export function MobileDrawer({
   username: string;
   workspaceId: string;
   lists: SidebarList[];
-  organicLists?: SidebarList[];
   phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
@@ -836,7 +574,6 @@ export function MobileDrawer({
           username={username}
           workspaceId={workspaceId}
           lists={lists}
-          organicLists={organicLists}
           phoneLists={phoneLists}
           dataScope={dataScope}
           dataView={dataView}

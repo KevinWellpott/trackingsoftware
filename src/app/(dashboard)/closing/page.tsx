@@ -27,7 +27,8 @@ export default async function ClosingPage() {
         .order("id", { ascending: true })
         .range(from, to);
     }),
-    // fetchAllRows: ohne order/range cappt PostgREST bei 1000 Zeilen → Assignees würden stillschweigend fehlen
+    // fetchAllRows: ohne order/range cappt PostgREST bei 1000 Zeilen → Assignees würden stillschweigend fehlen.
+    // try/catch: Ohne FK auf profiles darf die Seite trotzdem rendern (nur ohne Avatare).
     fetchAllRows((from, to) =>
       supabase
         .from("call_assignees")
@@ -36,14 +37,19 @@ export default async function ClosingPage() {
         .eq("workspace_id", access.workspace_id)
         .order("id", { ascending: true })
         .range(from, to),
-    ).then(
-      (rows) =>
-        rows as unknown as {
-          entity_id: string;
-          user_id: string;
-          profiles: { username: string } | null;
-        }[],
-    ),
+    )
+      .then(
+        (rows) =>
+          rows as unknown as {
+            entity_id: string;
+            user_id: string;
+            profiles: { username: string } | null;
+          }[],
+      )
+      .catch((e) => {
+        console.error("closing assignees:", e instanceof Error ? e.message : e);
+        return [] as { entity_id: string; user_id: string; profiles: { username: string } | null }[];
+      }),
   ]);
 
   // Assignees je Call gruppieren (eine Query für alle Calls)

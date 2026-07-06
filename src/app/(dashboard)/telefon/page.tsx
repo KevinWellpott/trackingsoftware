@@ -130,7 +130,11 @@ export default async function TelefonPage() {
           >
             {lists.length} Listen · {totalLeads.toLocaleString("de-DE")} Leads
           </span>
-          <CsvImportDialog users={users} />
+          <CsvImportDialog
+            users={users}
+            me={{ user_id: access.user.id, username: access.username }}
+            isAdmin={access.role === "owner"}
+          />
         </div>
       </div>
 

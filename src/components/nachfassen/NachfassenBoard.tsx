@@ -7,6 +7,7 @@ import {
   Bell,
   Check,
   CheckCheck,
+  CheckCircle2,
   Copy,
   Handshake,
   MessageCircle,
@@ -19,7 +20,13 @@ import { useMemo, useState, useTransition } from "react";
 // Nachfassen-Board (Client): Union-Tasklist aus LinkedIn-FUs, Telefon-Rückrufen
 // und Closing-Nachfassen. Kernwert: fertiger Text zum Kopieren — KEIN Auto-Versand.
 
-type Props = { tasks: NachfassenTask[] };
+type Props = {
+  tasks: NachfassenTask[];
+  /** Anzahl ausgeblendeter älterer LinkedIn-Leads (Pitch > 7 Tage). */
+  hiddenOlder: number;
+  /** true, wenn ?alle=1 aktiv ist und auch ältere Leads geladen wurden. */
+  showingAll: boolean;
+};
 
 type ChannelFilter = "alle" | NachfassenTask["source"];
 
@@ -296,7 +303,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         >
           {copied ? (
             <>
-              <Check size={11} /> Kopiert ✓
+              <Check size={11} /> Kopiert
             </>
           ) : (
             <>
@@ -385,8 +392,9 @@ function TaskCard({ task }: { task: NachfassenTask }) {
   );
 }
 
-export function NachfassenBoard({ tasks }: Props) {
+export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
   const [filter, setFilter] = useState<ChannelFilter>("alle");
+  const [fuFilter, setFuFilter] = useState<number | null>(null);
 
   // Überfällige zuerst, danach aufsteigend nach Fälligkeit
   const sorted = useMemo(() => [...tasks].sort((a, b) => dueSortKey(a) - dueSortKey(b)), [tasks]);
@@ -397,15 +405,31 @@ export function NachfassenBoard({ tasks }: Props) {
     return c;
   }, [tasks]);
 
-  const visible = useMemo(
-    () => (filter === "alle" ? sorted : sorted.filter((t) => t.source === filter)),
-    [sorted, filter],
-  );
+  // LinkedIn-Tasks je FU-Stufe (für die sekundären FU-Pills)
+  const fuCounts = useMemo(() => {
+    const c: Record<number, number> = { 1: 0, 2: 0, 3: 0 };
+    for (const t of tasks) {
+      if (t.source === "linkedin" && t.next_fu_number != null && c[t.next_fu_number] !== undefined) {
+        c[t.next_fu_number] += 1;
+      }
+    }
+    return c;
+  }, [tasks]);
+
+  const showFuPills = counts.linkedin > 0 && (filter === "alle" || filter === "linkedin");
+
+  const visible = useMemo(() => {
+    let v = filter === "alle" ? sorted : sorted.filter((t) => t.source === filter);
+    if (fuFilter != null && (filter === "alle" || filter === "linkedin")) {
+      v = v.filter((t) => t.source === "linkedin" && t.next_fu_number === fuFilter);
+    }
+    return v;
+  }, [sorted, filter, fuFilter]);
 
   return (
     <div>
       {/* ── Kanal-Filter ── */}
-      <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+      <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
         {FILTERS.map((f) => {
           const active = filter === f.value;
           const meta = f.value !== "alle" ? CHANNEL_META[f.value] : null;
@@ -413,7 +437,11 @@ export function NachfassenBoard({ tasks }: Props) {
             <button
               key={f.value}
               type="button"
-              onClick={() => setFilter(f.value)}
+              onClick={() => {
+                setFilter(f.value);
+                // FU-Subfilter nur für LinkedIn-Sichten relevant
+                if (f.value !== "alle" && f.value !== "linkedin") setFuFilter(null);
+              }}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -447,6 +475,91 @@ export function NachfassenBoard({ tasks }: Props) {
         })}
       </div>
 
+      {/* ── FU-Stufen-Subfilter (nur LinkedIn) ── */}
+      {showFuPills && (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: "0.25rem" }}>
+            FU-Stufe
+          </span>
+          <button
+            type="button"
+            onClick={() => setFuFilter(null)}
+            style={{
+              padding: "0.2rem 0.55rem",
+              borderRadius: 99,
+              border: `1px solid ${fuFilter == null ? "var(--border-bright)" : "var(--border)"}`,
+              background: fuFilter == null ? "var(--surface-150)" : "var(--surface-50)",
+              color: fuFilter == null ? "var(--text-primary)" : "var(--text-muted)",
+              fontSize: "0.6875rem",
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: "all 0.1s",
+            }}
+          >
+            Alle FU
+          </button>
+          {[1, 2, 3].map((fu) => {
+            const active = fuFilter === fu;
+            return (
+              <button
+                key={fu}
+                type="button"
+                onClick={() => setFuFilter(active ? null : fu)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.3rem",
+                  padding: "0.2rem 0.55rem",
+                  borderRadius: 99,
+                  border: `1px solid ${active ? "var(--color-info-border)" : "var(--border)"}`,
+                  background: active ? "var(--color-info-bg)" : "var(--surface-50)",
+                  color: active ? "var(--color-info-text)" : "var(--text-muted)",
+                  fontSize: "0.6875rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all 0.1s",
+                }}
+              >
+                FU{fu}
+                <span
+                  style={{
+                    fontSize: "0.625rem",
+                    fontWeight: 800,
+                    background: "var(--surface-200)",
+                    color: "var(--text-muted)",
+                    borderRadius: 99,
+                    padding: "0.05rem 0.3rem",
+                  }}
+                >
+                  {fuCounts[fu]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Hinweis: ältere Leads (Pitch > 7 Tage) ── */}
+      {showingAll ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
+          <span>Alle Leads werden angezeigt</span>
+          <Link href="?" style={{ color: "var(--brand-500)", fontWeight: 700, textDecoration: "none" }}>
+            Nur letzte 7 Tage
+          </Link>
+        </div>
+      ) : hiddenOlder > 0 ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
+          <span>
+            {hiddenOlder} {hiddenOlder === 1 ? "älterer Lead" : "ältere Leads"} (Pitch &gt; 7 Tage) ausgeblendet
+          </span>
+          <Link href="?alle=1" style={{ color: "var(--brand-500)", fontWeight: 700, textDecoration: "none" }}>
+            Ältere anzeigen
+          </Link>
+        </div>
+      ) : (
+        <div style={{ marginBottom: "1rem" }} />
+      )}
+
       {/* ── Karten / Leerzustand ── */}
       {visible.length === 0 ? (
         <div
@@ -458,9 +571,9 @@ export function NachfassenBoard({ tasks }: Props) {
             textAlign: "center",
           }}
         >
-          <Bell size={26} style={{ color: "var(--text-subtle)", marginBottom: "0.625rem" }} />
+          <CheckCircle2 size={26} style={{ color: "var(--color-success-text)", marginBottom: "0.625rem" }} />
           <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
-            Keine fälligen Nachfass-Aufgaben 🎉
+            Keine fälligen Nachfass-Aufgaben
           </div>
           <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: 0 }}>
             Sobald LinkedIn-Follow-ups, Telefon-Rückrufe oder Closing-Nachfassen fällig werden, erscheinen sie hier.

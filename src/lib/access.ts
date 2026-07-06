@@ -111,11 +111,18 @@ export async function getAccessContext(): Promise<AccessContext | null> {
 
 export async function listDataViewUsers(workspaceId: string): Promise<DataViewUser[]> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("workspace_members")
     .select("user_id, data_scope, profiles (username)")
     .eq("workspace_id", workspaceId)
     .order("role", { ascending: true });
+
+  // Nicht still verschlucken: ohne FK workspace_members→profiles schlägt der
+  // Embed mit PGRST200 fehl und alle Nutzer-Picker wären leer.
+  if (error) {
+    console.error("listDataViewUsers:", error.message);
+    return [];
+  }
 
   return ((data ?? []) as unknown as {
     user_id: string;
