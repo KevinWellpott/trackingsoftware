@@ -219,6 +219,7 @@ export async function PhoneDashboard() {
         style={{
           display: "flex",
           alignItems: "center",
+          flexWrap: "wrap",
           gap: "0.5rem",
           padding: "0.875rem 1.25rem",
           borderBottom: "1px solid var(--border)",
@@ -251,8 +252,8 @@ export async function PhoneDashboard() {
               { label: "Termine", value: totals.appointments, icon: <Calendar size={12} />, color: "var(--color-success-text)" },
               { label: "Rückrufe", value: totals.callbacks, icon: <PhoneMissed size={12} />, color: "var(--color-warning-text)" },
               { label: "Dead", value: totals.dead, icon: <PhoneOff size={12} />, color: "var(--color-error-text)" },
-            ].map((s, i) => (
-              <div key={s.label} style={{ padding: "0.875rem 1rem", borderRight: i < 5 ? "1px solid var(--border)" : "none" }}>
+            ].map((s) => (
+              <div key={s.label} className="stat-strip-cell" style={{ padding: "0.875rem 1rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", marginBottom: "0.25rem", color: "var(--text-subtle)" }}>
                   {s.icon}
                   <span style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>

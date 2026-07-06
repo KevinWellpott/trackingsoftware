@@ -120,7 +120,7 @@ function PersonalWeekPanel({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 240px) 1fr", gap: "1.5rem", alignItems: "center", position: "relative" }}>
+      <div className="personal-week-grid" style={{ display: "grid", gridTemplateColumns: "minmax(160px, 240px) 1fr", gap: "1.5rem", alignItems: "center", position: "relative" }}>
         <div>
           <div style={{ fontSize: "3.25rem", fontWeight: 900, letterSpacing: "-0.05em", color: PERSONAL_COLOR, lineHeight: 1 }}>
             {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "var(--text-subtle)", marginLeft: 3 }}>/{goal}</span>
@@ -152,18 +152,20 @@ function PersonalHistoryPanel({ weeks, goal }: { weeks: PersonalWeekPoint[]; goa
         <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Dein Verlauf letzte 10 Wochen</span>
         <span style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>Wochenziel {goal} DMs</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`, gap: "0.5rem", alignItems: "end", minHeight: 170 }}>
-        {weeks.map((week) => {
-          const height = Math.max(8, (week.count / max) * 130);
-          const reached = week.count >= goal;
-          return (
-            <div key={week.week} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.375rem" }}>
-              <div style={{ fontSize: "0.6875rem", color: reached ? "var(--color-success-text)" : PERSONAL_COLOR, fontWeight: 800 }}>{week.count}</div>
-              <div style={{ width: "100%", maxWidth: 28, height, borderRadius: "6px 6px 2px 2px", background: reached ? "var(--color-success-text)" : "var(--color-warning-text)" }} />
-              <div style={{ fontSize: "0.625rem", color: "var(--text-subtle)", whiteSpace: "nowrap" }}>{week.week}</div>
-            </div>
-          );
-        })}
+      <div className="history-scroll">
+        <div className="history-scroll-inner" style={{ display: "grid", gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`, gap: "0.5rem", alignItems: "end", minHeight: 170 }}>
+          {weeks.map((week) => {
+            const height = Math.max(8, (week.count / max) * 130);
+            const reached = week.count >= goal;
+            return (
+              <div key={week.week} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.375rem" }}>
+                <div style={{ fontSize: "0.6875rem", color: reached ? "var(--color-success-text)" : PERSONAL_COLOR, fontWeight: 800 }}>{week.count}</div>
+                <div style={{ width: "100%", maxWidth: 28, height, borderRadius: "6px 6px 2px 2px", background: reached ? "var(--color-success-text)" : "var(--color-warning-text)" }} />
+                <div style={{ fontSize: "0.625rem", color: "var(--text-subtle)", whiteSpace: "nowrap" }}>{week.week}</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -510,7 +512,7 @@ export default async function DashboardPage() {
 
       {/* ══ FOLLOW-UP ALERTS ══ */}
       {(followUpAlerts.length > 0 || overdueAlerts.length > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: followUpAlerts.length > 0 && overdueAlerts.length > 0 ? "1fr 1fr" : "1fr", gap: "0.875rem" }}>
+        <div className="alert-grid" style={{ display: "grid", gridTemplateColumns: followUpAlerts.length > 0 && overdueAlerts.length > 0 ? "1fr 1fr" : "1fr", gap: "0.875rem" }}>
           {followUpAlerts.length > 0 && (
             <div style={{ background: "rgb(180 83 9 / 0.04)", border: "1px solid rgb(180 83 9 / 0.18)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.375rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem" }}>

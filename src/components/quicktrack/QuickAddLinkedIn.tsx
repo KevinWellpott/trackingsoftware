@@ -128,7 +128,7 @@ export function QuickAddLinkedIn({
         style={{
           position: "fixed",
           right: "1.5rem",
-          bottom: "1.5rem",
+          bottom: "calc(1.5rem + env(safe-area-inset-bottom))",
           zIndex: 40,
           display: "inline-flex",
           alignItems: "center",

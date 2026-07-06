@@ -536,9 +536,14 @@ body {
 }
 .glow-pulse { animation: glow-pulse 2s ease-in-out infinite; }
 
+/* ─── PhoneDashboard Total-Strip (Desktop: Trenner rechts, letzter ohne) ── */
+.stat-strip-cell { border-right: 1px solid var(--border); }
+.stat-strip-cell:last-child { border-right: none; }
+
 /* ─── Mobile responsive utilities ─────────────────────────── */
 @media (max-width: 767px) {
-  .main-content { padding: 1rem !important; }
+  /* Extra Bottom-Padding, damit der fixe FAB die letzte Karte nie verdeckt */
+  .main-content { padding: 1rem !important; padding-bottom: 5.5rem !important; }
   .grid-4-stat { grid-template-columns: repeat(2, 1fr) !important; }
   .grid-2-col { grid-template-columns: 1fr !important; }
   .grid-6-stat { grid-template-columns: repeat(3, 1fr) !important; }
@@ -555,6 +560,21 @@ body {
   .filter-bar-row { gap: 0.25rem !important; }
   .duel-number { font-size: 2.25rem !important; }
   .hide-on-mobile { display: none !important; }
+
+  /* CRM: gewonnene Deals stapeln (EUR bleibt linksbündig) */
+  .won-deal-row { grid-template-columns: 1fr !important; gap: 0.25rem !important; }
+  .won-deal-row > div:last-child { text-align: left !important; }
+
+  /* Dashboard: FU-Alerts + persönliche Wochenkarte stapeln */
+  .alert-grid { grid-template-columns: 1fr !important; }
+  .personal-week-grid { grid-template-columns: 1fr !important; }
+
+  /* Dashboard: 10-Wochen-Balken horizontal scrollbar statt gequetscht */
+  .history-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .history-scroll-inner { min-width: 560px; }
+
+  /* PhoneDashboard: nach Kollaps auf 3 Spalten keine Streu-Trenner */
+  .stat-strip-cell { border-right: none !important; }
 }
 
 /* ─── Organic list card hover ─────────────────────────────── */

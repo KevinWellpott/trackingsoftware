@@ -221,7 +221,7 @@ export function CrmBoard({ contacts }: { contacts: CrmContact[] }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "0.75rem" }}>
+      <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "0.75rem" }}>
         {[
           { label: "CRM-Kontakte", value: contacts.length, color: "var(--text-primary)" },
           { label: "Offen", value: open, color: "var(--brand-500)" },

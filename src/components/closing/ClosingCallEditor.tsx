@@ -149,7 +149,7 @@ function Segmented<T extends string>({
   onChange: (v: T | null) => void;
 }) {
   return (
-    <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap" }}>
+    <div className="ui-segmented" style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap" }}>
       {options.map((o) => {
         const active = value === o.value;
         const color = o.color ?? "var(--brand-500)";
@@ -184,6 +184,7 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
   return (
     <button
       type="button"
+      className="ui-toggle"
       onClick={() => onChange(!value)}
       style={{
         display: "inline-flex",

@@ -828,8 +828,9 @@ export function MobileDrawer({
   if (!open) return null;
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 40 }} />
-      <div style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 50, boxShadow: "var(--shadow-lg)" }}>
+      {/* Backdrop über dem FAB (zIndex 40), Panel über dem Backdrop */}
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 60 }} />
+      <div style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 70, boxShadow: "var(--shadow-lg)" }}>
         <SidebarContent
           workspaceName={workspaceName}
           username={username}

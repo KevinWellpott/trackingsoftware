@@ -93,7 +93,7 @@ export default async function CrmPage() {
           </div>
           <div>
             {wonDeals.map((d, i) => (
-              <div key={d.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr auto", gap: "0.75rem", alignItems: "center", padding: "0.75rem 1.25rem", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+              <div key={d.id} className="won-deal-row" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr auto", gap: "0.75rem", alignItems: "center", padding: "0.75rem 1.25rem", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
                 <div>
                   <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)" }}>{d.lead_name ?? "—"}</div>
                   {d.company && <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>{d.company}</div>}
