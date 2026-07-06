@@ -1,15 +1,20 @@
 "use client";
 
 import { advanceLinkedInFollowUp, markLinkedInAnswered, type NachfassenTask } from "@/app/actions/nachfassen";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import {
+  AlertTriangle,
   ArrowUpRight,
   AtSign,
-  Bell,
+  CalendarClock,
   Check,
   CheckCheck,
   CheckCircle2,
+  ChevronDown,
+  Clock,
   Copy,
   Handshake,
+  History,
   Phone,
 } from "lucide-react";
 import Link from "next/link";
@@ -18,7 +23,8 @@ import { useMemo, useState, useTransition } from "react";
 
 // Nachfassen-Board (Client): Union-Tasklist aus LinkedIn-FUs, Telefon-Rückrufen
 // und Closing-Nachfassen. Kernwert: fertiger Text zum Kopieren — KEIN Auto-Versand.
-// Layout: kompakte Karten im Grid, gruppiert in Sektionen je FU-Stufe bzw. Kanal.
+// Layout: Summary-Chips → Kanal-Tabs → FU-Schnellauswahl → einklappbare Sektionen
+// mit kompaktem Karten-Grid.
 
 type Props = {
   tasks: NachfassenTask[];
@@ -85,6 +91,19 @@ function formatDue(iso: string): string {
   return `${datePart}, ${timePart} Uhr`;
 }
 
+/** Kurzformat (dd.MM.yyyy) für Sektions-Meta. */
+function formatDueShort(iso: string): string {
+  const dateOnly = !iso.includes("T");
+  const d = new Date(dateOnly ? `${iso}T00:00:00` : iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Europe/Berlin",
+  }).format(d);
+}
+
 function isOverdue(iso: string): boolean {
   const dateOnly = !iso.includes("T");
   if (dateOnly) {
@@ -117,6 +136,58 @@ const linkBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   transition: "all 0.1s",
 };
+
+/* ── Summary-Chip: kompakte Kennzahl-Pille oberhalb der Tabs ── */
+function StatChip({
+  icon,
+  label,
+  value,
+  danger = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  danger?: boolean;
+}) {
+  const hot = danger && value > 0;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.4rem",
+        padding: "0.3rem 0.65rem",
+        background: hot ? "var(--color-error-bg)" : "var(--surface-100)",
+        border: `1px solid ${hot ? "var(--color-error-border)" : "var(--border)"}`,
+        borderRadius: "var(--radius-md)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          color: hot ? "var(--color-error-text)" : "var(--text-subtle)",
+        }}
+      >
+        {icon}
+      </span>
+      <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: hot ? "var(--color-error-text)" : "var(--text-muted)" }}>
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: "0.8125rem",
+          fontWeight: 700,
+          fontVariantNumeric: "tabular-nums",
+          color: hot ? "var(--color-error-text)" : "var(--text-primary)",
+        }}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
 
 function TaskCard({ task }: { task: NachfassenTask }) {
   const router = useRouter();
@@ -158,7 +229,8 @@ function TaskCard({ task }: { task: NachfassenTask }) {
     <div
       style={{
         background: "var(--surface-100)",
-        border: `1px solid ${overdue ? "var(--color-error-border)" : "var(--border)"}`,
+        border: "1px solid var(--border)",
+        borderLeft: overdue ? "3px solid var(--color-error-text)" : "1px solid var(--border)",
         borderRadius: "var(--radius-md)",
         padding: "0.75rem",
         display: "flex",
@@ -175,7 +247,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           <div
             style={{
               fontSize: "0.875rem",
-              fontWeight: 600,
+              fontWeight: 650,
               letterSpacing: "-0.01em",
               color: "var(--text-primary)",
               overflow: "hidden",
@@ -248,17 +320,15 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             color: overdue ? "var(--color-error-text)" : "var(--text-secondary)",
           }}
         >
-          <Bell size={11} style={{ flexShrink: 0 }} />
+          {overdue ? <AlertTriangle size={11} style={{ flexShrink: 0 }} /> : <Clock size={11} style={{ flexShrink: 0 }} />}
           {overdue ? `überfällig seit ${formatDue(task.due_at)}` : `fällig ${formatDue(task.due_at)}`}
         </span>
       )}
 
-      {/* ── Vorbereiteter Text (auf 3 Zeilen gekürzt) + Kopieren ── */}
+      {/* ── Vorbereiteter Text (auf 3 Zeilen gekürzt), Kopieren als Ghost-Icon-Button ── */}
       <div
         style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "0.5rem",
+          position: "relative",
           background: "var(--surface-50)",
           border: "1px solid var(--border)",
           borderRadius: "var(--radius-sm)",
@@ -268,6 +338,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         <p
           style={{
             margin: 0,
+            paddingRight: "1.75rem",
             fontSize: "0.75rem",
             lineHeight: 1.5,
             color: "var(--text-secondary)",
@@ -285,32 +356,27 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         <button
           type="button"
           onClick={copyText}
+          aria-label={copied ? "Text kopiert" : "Text kopieren"}
+          title={copied ? "Kopiert" : "Text kopieren"}
           style={{
+            position: "absolute",
+            top: "0.3rem",
+            right: "0.3rem",
             display: "inline-flex",
             alignItems: "center",
-            gap: "0.3rem",
-            alignSelf: "flex-start",
-            padding: "0.25rem 0.55rem",
-            borderRadius: "var(--radius-sm)",
-            border: `1px solid ${copied ? "var(--color-success-border)" : "var(--border)"}`,
-            background: copied ? "var(--color-success-bg)" : "var(--surface-100)",
-            color: copied ? "var(--color-success-text)" : "var(--text-secondary)",
-            fontSize: "0.6875rem",
-            fontWeight: 700,
+            justifyContent: "center",
+            width: 24,
+            height: 24,
+            padding: 0,
+            borderRadius: "var(--radius-xs)",
+            border: `1px solid ${copied ? "var(--color-success-border)" : "transparent"}`,
+            background: copied ? "var(--color-success-bg)" : "transparent",
+            color: copied ? "var(--color-success-text)" : "var(--text-muted)",
             cursor: "pointer",
-            whiteSpace: "nowrap",
             transition: "all 0.1s",
           }}
         >
-          {copied ? (
-            <>
-              <Check size={11} /> Kopiert
-            </>
-          ) : (
-            <>
-              <Copy size={11} /> Text kopieren
-            </>
-          )}
+          {copied ? <Check size={13} /> : <Copy size={13} />}
         </button>
       </div>
 
@@ -412,8 +478,117 @@ function CardGrid({ tasks }: { tasks: NachfassenTask[] }) {
 
 type Section = { key: string; label: string; tasks: NachfassenTask[] };
 
+/* ── Optik je Sektion: getönte Icon-Kachel + Badge-Ton ── */
+const SECTION_META: Record<
+  string,
+  { icon: React.ReactNode; bg: string; color: string; tone: BadgeTone }
+> = {
+  "fu-1": { icon: <AtSign size={12} />, bg: "var(--brand-50)", color: "var(--brand-600)", tone: "brand" },
+  "fu-2": { icon: <AtSign size={12} />, bg: "var(--color-info-bg)", color: "var(--color-info-text)", tone: "info" },
+  "fu-3": { icon: <AtSign size={12} />, bg: "var(--color-warning-bg)", color: "var(--color-warning-text)", tone: "warning" },
+  "fu-weitere": { icon: <AtSign size={12} />, bg: "var(--surface-150)", color: "var(--text-muted)", tone: "neutral" },
+  telefon: { icon: <Phone size={12} />, bg: "var(--brand-50)", color: "var(--brand-600)", tone: "brand" },
+  closing: { icon: <Handshake size={12} />, bg: "var(--color-success-bg)", color: "var(--color-success-text)", tone: "success" },
+};
+
+/* ── Einklappbare Sektion: Header (Chevron + Kachel + Titel + Badge + Divider + Meta) ── */
+function CollapsibleSection({
+  section,
+  collapsed,
+  onToggle,
+}: {
+  section: Section;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const meta = SECTION_META[section.key] ?? SECTION_META["fu-weitere"];
+  const earliestDue = section.tasks.find((t) => t.due_at)?.due_at ?? null;
+  const gridId = `nf-sec-${section.key}`;
+
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-controls={gridId}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+          width: "100%",
+          margin: 0,
+          marginBottom: collapsed ? 0 : "0.625rem",
+          padding: "0.25rem 0",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <ChevronDown
+          size={14}
+          style={{
+            flexShrink: 0,
+            color: "var(--text-muted)",
+            transform: collapsed ? "rotate(-90deg)" : "none",
+            transition: "transform 0.15s ease",
+          }}
+        />
+        <span
+          aria-hidden
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 20,
+            height: 20,
+            flexShrink: 0,
+            borderRadius: "var(--radius-xs)",
+            background: meta.bg,
+            color: meta.color,
+          }}
+        >
+          {meta.icon}
+        </span>
+        <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
+          {section.label}
+        </span>
+        <Badge tone={meta.tone} style={{ fontSize: "0.6875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+          {section.tasks.length}
+        </Badge>
+        <span aria-hidden style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        {earliestDue && (
+          <span
+            style={{
+              fontSize: "0.6875rem",
+              fontWeight: 600,
+              color: "var(--text-subtle)",
+              whiteSpace: "nowrap",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            Früheste: {formatDueShort(earliestDue)}
+          </span>
+        )}
+      </button>
+      {!collapsed && (
+        <div id={gridId}>
+          <CardGrid tasks={section.tasks} />
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
   const [filter, setFilter] = useState<ChannelFilter>("alle");
+  // FU-Schnellauswahl: null = alle FU-Stufen, 1–3 = nur diese Sektion anzeigen
+  const [fuFilter, setFuFilter] = useState<number | null>(null);
+  // Eingeklappte Sektionen (Standard: alle offen)
+  const [collapsedMap, setCollapsedMap] = useState<Record<string, boolean>>({});
+
+  const toggleSection = (key: string) => setCollapsedMap((prev) => ({ ...prev, [key]: !prev[key] }));
 
   // Überfällige zuerst, danach aufsteigend nach Fälligkeit
   const sorted = useMemo(() => [...tasks].sort((a, b) => dueSortKey(a) - dueSortKey(b)), [tasks]);
@@ -424,32 +599,62 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
     return c;
   }, [tasks]);
 
+  const overdueCount = useMemo(
+    () => tasks.reduce((n, t) => (t.due_at && isOverdue(t.due_at) ? n + 1 : n), 0),
+    [tasks],
+  );
+
+  // Anzahl LinkedIn-Tasks je FU-Stufe (für die Schnellauswahl-Pills)
+  const fuCounts = useMemo(() => {
+    const c: Record<number, number> = { 1: 0, 2: 0, 3: 0 };
+    for (const t of tasks) {
+      if (t.source === "linkedin" && t.next_fu_number != null && c[t.next_fu_number] !== undefined) {
+        c[t.next_fu_number] += 1;
+      }
+    }
+    return c;
+  }, [tasks]);
+
   // Sektionen: LinkedIn nach FU-Stufe gruppiert, danach Rückrufe und Closing.
+  // Aktive FU-Schnellauswahl blendet alle anderen Sektionen komplett aus.
   // Leere Sektionen werden nicht gerendert.
   const sections = useMemo<Section[]>(() => {
     const s: Section[] = [];
     if (filter === "alle" || filter === "linkedin") {
       const linkedin = sorted.filter((t) => t.source === "linkedin");
       for (const fu of [1, 2, 3]) {
+        if (fuFilter != null && fuFilter !== fu) continue;
         const group = linkedin.filter((t) => t.next_fu_number === fu);
         if (group.length > 0) s.push({ key: `fu-${fu}`, label: `Follow-up ${fu}`, tasks: group });
       }
-      const rest = linkedin.filter((t) => t.next_fu_number == null || t.next_fu_number < 1 || t.next_fu_number > 3);
-      if (rest.length > 0) s.push({ key: "fu-weitere", label: "Weitere Follow-ups", tasks: rest });
+      if (fuFilter == null) {
+        const rest = linkedin.filter((t) => t.next_fu_number == null || t.next_fu_number < 1 || t.next_fu_number > 3);
+        if (rest.length > 0) s.push({ key: "fu-weitere", label: "Weitere Follow-ups", tasks: rest });
+      }
     }
-    if (filter === "alle" || filter === "telefon") {
+    if (fuFilter == null && (filter === "alle" || filter === "telefon")) {
       const group = sorted.filter((t) => t.source === "telefon");
       if (group.length > 0) s.push({ key: "telefon", label: "Rückrufe", tasks: group });
     }
-    if (filter === "alle" || filter === "closing") {
+    if (fuFilter == null && (filter === "alle" || filter === "closing")) {
       const group = sorted.filter((t) => t.source === "closing");
       if (group.length > 0) s.push({ key: "closing", label: "Closing", tasks: group });
     }
     return s;
-  }, [sorted, filter]);
+  }, [sorted, filter, fuFilter]);
+
+  const showFuPills = counts.linkedin > 0 && (filter === "alle" || filter === "linkedin");
 
   return (
     <div>
+      {/* ── Summary-Strip: kompakte Kennzahlen aus den Tasks ── */}
+      <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+        <StatChip icon={<CalendarClock size={12} />} label="Fällig gesamt" value={counts.alle} />
+        <StatChip icon={<AlertTriangle size={12} />} label="Überfällig" value={overdueCount} danger />
+        <StatChip icon={<AtSign size={12} />} label="Follow-ups" value={counts.linkedin} />
+        <StatChip icon={<Phone size={12} />} label="Rückrufe" value={counts.telefon} />
+      </div>
+
       {/* ── Kanal-Filter ── */}
       <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
         {FILTERS.map((f) => {
@@ -459,7 +664,10 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
             <button
               key={f.value}
               type="button"
-              onClick={() => setFilter(f.value)}
+              onClick={() => {
+                setFilter(f.value);
+                setFuFilter(null);
+              }}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -493,16 +701,53 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
         })}
       </div>
 
+      {/* ── FU-Schnellauswahl: nur die gewählte FU-Sektion anzeigen ── */}
+      {showFuPills && (
+        <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          {[null, 1, 2, 3]
+            .filter((fu) => fu === null || fuCounts[fu] > 0)
+            .map((fu) => {
+              const active = fuFilter === fu;
+              return (
+                <button
+                  key={fu ?? "alle-fu"}
+                  type="button"
+                  onClick={() => setFuFilter(fu)}
+                  aria-pressed={active}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "0.25rem 0.6rem",
+                    borderRadius: 99,
+                    border: `1px solid ${active ? "var(--btn-primary-bg)" : "var(--border)"}`,
+                    background: active ? "var(--btn-primary-bg)" : "var(--surface-50)",
+                    color: active ? "var(--btn-primary-fg)" : "var(--text-muted)",
+                    fontSize: "0.6875rem",
+                    fontWeight: 700,
+                    fontVariantNumeric: "tabular-nums",
+                    cursor: "pointer",
+                    transition: "all 0.1s",
+                  }}
+                >
+                  {fu === null ? "Alle FU" : `FU ${fu} (${fuCounts[fu]})`}
+                </button>
+              );
+            })}
+        </div>
+      )}
+
       {/* ── Hinweis: ältere Leads (Pitch > 7 Tage) ── */}
       {showingAll ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
+          <History size={12} style={{ flexShrink: 0 }} />
           <span>Alle Leads werden angezeigt</span>
           <Link href="?" style={{ color: "var(--brand-500)", fontWeight: 700, textDecoration: "none" }}>
             Nur letzte 7 Tage
           </Link>
         </div>
       ) : hiddenOlder > 0 ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
+          <History size={12} style={{ flexShrink: 0 }} />
           <span>
             {hiddenOlder} {hiddenOlder === 1 ? "älterer Lead" : "ältere Leads"} (Pitch &gt; 7 Tage) ausgeblendet
           </span>
@@ -517,15 +762,35 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
       {/* ── Sektionen / Leerzustand ── */}
       {sections.length === 0 ? (
         <div
+          className="fade-up"
           style={{
             background: "var(--surface-100)",
             border: "1px dashed var(--border-bright)",
             borderRadius: "var(--radius-lg)",
             padding: "3rem 1.5rem",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
             textAlign: "center",
           }}
         >
-          <CheckCircle2 size={26} style={{ color: "var(--color-success-text)", marginBottom: "0.625rem" }} />
+          <span
+            aria-hidden
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 40,
+              height: 40,
+              borderRadius: "var(--radius-md)",
+              background: "var(--color-success-bg)",
+              border: "1px solid var(--color-success-border)",
+              color: "var(--color-success-text)",
+              marginBottom: "0.75rem",
+            }}
+          >
+            <CheckCircle2 size={20} />
+          </span>
           <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
             Keine fälligen Nachfass-Aufgaben
           </div>
@@ -535,22 +800,14 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          {sections.map((section) => (
-            <section key={section.key}>
-              <h3
-                style={{
-                  margin: "0 0 0.5rem",
-                  fontSize: "0.6875rem",
-                  fontWeight: 800,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  color: "var(--text-subtle)",
-                }}
-              >
-                {section.label} ({section.tasks.length})
-              </h3>
-              <CardGrid tasks={section.tasks} />
-            </section>
+          {sections.map((section, i) => (
+            <div key={section.key} className="fade-up" style={{ animationDelay: `${i * 60}ms` }}>
+              <CollapsibleSection
+                section={section}
+                collapsed={!!collapsedMap[section.key]}
+                onToggle={() => toggleSection(section.key)}
+              />
+            </div>
           ))}
         </div>
       )}
