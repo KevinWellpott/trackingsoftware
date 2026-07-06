@@ -45,30 +45,8 @@ export function LoginForm() {
         padding: "2.5rem",
       }}
     >
-      {/* Logo / Brand */}
+      {/* Brand */}
       <div style={{ marginBottom: "2rem" }}>
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: "var(--radius-md)",
-            background: "var(--brand-500)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginBottom: "1.25rem",
-          }}
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"
-              fill="white"
-              stroke="white"
-              strokeWidth="1.5"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
         <h1
           style={{
             fontSize: "1.375rem",
@@ -205,30 +183,6 @@ export function LoginForm() {
         </button>
       </form>
 
-      {/* Ersteinrichtung */}
-      <div style={{ marginTop: "1.5rem", paddingTop: "1.25rem", borderTop: "1px solid var(--border)", textAlign: "center" }}>
-        <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "0.625rem" }}>
-          Erste Anmeldung? Accounts noch nicht angelegt?
-        </p>
-        <a
-          href="/api/setup"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.375rem",
-            fontSize: "0.8125rem",
-            fontWeight: 600,
-            color: "var(--brand-500)",
-            background: "var(--color-info-bg)",
-            border: "1px solid var(--color-info-border)",
-            borderRadius: 8,
-            padding: "0.4rem 0.875rem",
-            textDecoration: "none",
-          }}
-        >
-          Setup ausführen (Kevin + Simon anlegen)
-        </a>
-      </div>
     </div>
   );
 }

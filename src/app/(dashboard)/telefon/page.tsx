@@ -1,4 +1,5 @@
 import { CsvImportDialog } from "@/components/telefon/CsvImportDialog";
+import { DeletePhoneListButton } from "@/components/telefon/DeletePhoneListButton";
 import { PhoneDashboard } from "@/components/telefon/PhoneDashboard";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
@@ -195,7 +196,8 @@ export default async function TelefonPage() {
                   const c = countsByList[l.id] ?? EMPTY_COUNTS;
                   const badge = KIND_BADGE[l.list_kind];
                   return (
-                    <Link key={l.id} href={`/telefon/${l.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
+                    <div key={l.id} style={{ position: "relative" }}>
+                    <Link href={`/telefon/${l.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
                       <div
                         className="organic-list-card"
                         style={{
@@ -206,7 +208,7 @@ export default async function TelefonPage() {
                           transition: "border-color 0.15s, box-shadow 0.15s",
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem", paddingRight: "1.5rem" }}>
                           <KindIcon kind={l.list_kind} />
                           <span
                             style={{
@@ -252,6 +254,10 @@ export default async function TelefonPage() {
                         </div>
                       </div>
                     </Link>
+                    <div style={{ position: "absolute", top: "0.5rem", right: "0.5rem" }}>
+                      <DeletePhoneListButton iconOnly listId={l.id} listName={l.name} />
+                    </div>
+                    </div>
                   );
                 })}
               </div>

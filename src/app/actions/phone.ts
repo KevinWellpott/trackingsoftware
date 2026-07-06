@@ -110,6 +110,9 @@ export type PhoneLeadInput = {
   callback_at?: string | null;
   answer_sentiment?: "positiv" | "neutral" | "negativ" | null;
   objection_notes?: string | null;
+  no_transfer_reason?: string | null;
+  no_pitch_reason?: string | null;
+  no_appointment_reason?: string | null;
   mailbox?: boolean | null;
   yt_video_link?: string | null;
   target_group?: string | null;
@@ -189,6 +192,17 @@ export async function setPhoneLeadOutcome(input: {
   revalidatePath(`/telefon/${input.listId}`, "page");
   revalidatePath("/telefon", "page");
   revalidatePath("/nachfassen", "page");
+  revalidatePath("/", "layout");
+  return {};
+}
+
+/** Ganze Telefonliste löschen (Leads hängen per ON DELETE CASCADE dran). */
+export async function deletePhoneList(listId: string): Promise<{ error?: string }> {
+  if (!(await canAccessPhoneList(listId))) return { error: "Keine Berechtigung." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("phone_lists").delete().eq("id", listId);
+  if (error) return { error: error.message };
+  revalidatePath("/telefon", "page");
   revalidatePath("/", "layout");
   return {};
 }

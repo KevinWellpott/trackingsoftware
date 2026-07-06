@@ -1,9 +1,10 @@
 "use client";
 
-import { setPhoneLeadOutcome, updatePhoneLead, type PhoneLeadInput } from "@/app/actions/phone";
+import { deletePhoneLead, setPhoneLeadOutcome, updatePhoneLead, type PhoneLeadInput } from "@/app/actions/phone";
 import { convertPhoneLeadToSetting } from "@/app/actions/appointments";
 import { AppointmentModal } from "@/components/appointment/AppointmentModal";
 import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { PhoneLead, PhoneLeadStatus, PhoneList } from "@/lib/types";
 import {
@@ -16,6 +17,7 @@ import {
   PhoneMissed,
   PhoneOff,
   Search,
+  Trash2,
   Voicemail,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -66,6 +68,9 @@ type TextFieldName =
   | "target_group"
   | "script"
   | "objection_notes"
+  | "no_transfer_reason"
+  | "no_pitch_reason"
+  | "no_appointment_reason"
   | "notes";
 
 const fieldLabel: React.CSSProperties = {
@@ -76,6 +81,16 @@ const fieldLabel: React.CSSProperties = {
   letterSpacing: "0.06em",
   color: "var(--text-subtle)",
   marginBottom: "0.3rem",
+};
+
+/** Label der eingerückten "Warum …?"-Freitextfragen im Frage-Flow. */
+const reasonLabel: React.CSSProperties = {
+  ...fieldLabel,
+  fontWeight: 600,
+  textTransform: "none",
+  letterSpacing: 0,
+  fontSize: "0.75rem",
+  color: "var(--text-subtle)",
 };
 
 const fieldInput: React.CSSProperties = {
@@ -390,6 +405,29 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
     });
   }
 
+  /** Aktuellen Lead nach Bestätigung endgültig löschen, dann weiterspringen. */
+  async function handleDeleteLead() {
+    if (!current) return;
+    const ok = await confirm({
+      title: "Lead löschen?",
+      message: `"${current.company ?? current.phone ?? "Lead"}" endgültig löschen? Das kann nicht rückgängig gemacht werden.`,
+      confirmLabel: "Löschen",
+      destructive: true,
+    });
+    if (!ok) return;
+    const id = current.id;
+    startTransition(async () => {
+      const res = await deletePhoneLead(id, list.id);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      setError(null);
+      advance();
+      router.refresh();
+    });
+  }
+
   if (leads.length === 0) {
     return (
       <div
@@ -617,7 +655,19 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                     </a>
                   )}
                 </div>
-                <StatusPill status={current.status} />
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}>
+                  <StatusPill status={current.status} />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={isPending}
+                    onClick={handleDeleteLead}
+                    icon={<Trash2 size={13} />}
+                    style={{ color: "var(--color-error-text)", minHeight: 0, padding: "0.25rem 0.5rem", fontSize: "0.75rem" }}
+                  >
+                    Lead löschen
+                  </Button>
+                </div>
               </div>
 
               {/* Telefonnummer groß (click-to-call) */}
@@ -670,46 +720,149 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                 )}
               </div>
 
-              {/* Ansprechpartner + Tracking-Felder */}
-              <div className="call-fields-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem 1rem", marginBottom: "1rem" }}>
+              {/* ── Frage-Flow (vertikal, eine Frage pro Zeile) ── */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.875rem",
+                  marginBottom: "1rem",
+                  paddingBottom: "1rem",
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+                {/* 1. Gatekeeper */}
                 <div>
-                  <label style={fieldLabel}>Ansprechpartner (Entscheider)</label>
-                  <DraftField
-                    key={current.id}
-                    value={current.decider_name}
-                    onCommit={(raw) => commitText(current.id, "decider_name", raw)}
-                    placeholder="Name…"
+                  <label style={fieldLabel}>Gatekeeper erreicht?</label>
+                  <Segmented
+                    value={current.gatekeeper_reached}
+                    options={[
+                      { value: "ja", label: "Ja" },
+                      { value: "nein", label: "Nein" },
+                      { value: "direkt", label: "Direkt" },
+                    ]}
+                    onChange={(v) => {
+                      setAndSave(current.id, { gatekeeper_reached: v }, { gatekeeper_reached: v });
+                    }}
                   />
                 </div>
-                <div>
-                  <label style={fieldLabel}>Durchwahl Entscheider</label>
+                {/* 2. Warum nicht durchgestellt? */}
+                <div style={{ paddingLeft: "0.875rem", borderLeft: "2px solid var(--border)" }}>
+                  <label style={reasonLabel}>Warum nicht durchgestellt?</label>
                   <DraftField
                     key={current.id}
-                    value={current.decider_direct_dial}
-                    onCommit={(raw) => commitText(current.id, "decider_direct_dial", raw)}
-                    placeholder="+49…"
-                  />
-                </div>
-                <div>
-                  <label style={fieldLabel}>E-Mail</label>
-                  <DraftField
-                    key={current.id}
-                    type="email"
-                    value={current.email}
-                    onCommit={(raw) => commitText(current.id, "email", raw)}
-                    placeholder="mail@firma.de"
-                  />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Zielgruppe</label>
-                  <DraftField
-                    key={current.id}
-                    value={current.target_group}
-                    onCommit={(raw) => commitText(current.id, "target_group", raw)}
-                    placeholder="z. B. Handwerk"
+                    textarea
+                    rows={2}
+                    value={current.no_transfer_reason}
+                    onCommit={(raw) => commitText(current.id, "no_transfer_reason", raw)}
+                    placeholder="Grund, falls nicht durchgestellt…"
+                    style={{ ...fieldInput, resize: "vertical", minHeight: 44 }}
                   />
                 </div>
 
+                {/* 3. Entscheider gepitcht? */}
+                <div>
+                  <label style={fieldLabel}>Entscheider gepitcht?</label>
+                  <Toggle
+                    value={current.decider_reached === true}
+                    onChange={(v) => {
+                      setAndSave(current.id, { decider_reached: v }, { decider_reached: v });
+                    }}
+                    label={current.decider_reached === true ? "Ja" : "Nein"}
+                  />
+                </div>
+                {/* 4. Warum kein Pitch? */}
+                <div style={{ paddingLeft: "0.875rem", borderLeft: "2px solid var(--border)" }}>
+                  <label style={reasonLabel}>Warum kein Pitch?</label>
+                  <DraftField
+                    key={current.id}
+                    textarea
+                    rows={2}
+                    value={current.no_pitch_reason}
+                    onCommit={(raw) => commitText(current.id, "no_pitch_reason", raw)}
+                    placeholder="Grund, falls kein Pitch…"
+                    style={{ ...fieldInput, resize: "vertical", minHeight: 44 }}
+                  />
+                </div>
+
+                {/* 5. Termin? */}
+                <div>
+                  <label style={fieldLabel}>Termin?</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => setApptOpen(true)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                        padding: "0.3rem 0.875rem",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--color-success-border)",
+                        background: "var(--color-success-bg)",
+                        color: "var(--color-success-text)",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        cursor: isPending ? "default" : "pointer",
+                        opacity: isPending ? 0.6 : 1,
+                        transition: "all 0.1s",
+                      }}
+                    >
+                      <Calendar size={12} /> Ja
+                    </button>
+                    <span
+                      style={{
+                        padding: "0.3rem 0.875rem",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border)",
+                        background: "var(--surface-50)",
+                        color: "var(--text-muted)",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Nein
+                    </span>
+                    {(current.status === "termin" || current.appointment_set) && (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.3rem",
+                          fontSize: "0.6875rem",
+                          fontWeight: 700,
+                          color: "var(--color-success-text)",
+                          background: "var(--color-success-bg)",
+                          border: "1px solid var(--color-success-border)",
+                          borderRadius: 99,
+                          padding: "0.15rem 0.55rem",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <Calendar size={11} /> Termin gebucht
+                        {current.appointment_at ? ` · ${current.appointment_at.replace("T", " · ").slice(0, 18)}` : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* 6. Warum kein Termin? */}
+                <div style={{ paddingLeft: "0.875rem", borderLeft: "2px solid var(--border)" }}>
+                  <label style={reasonLabel}>Warum kein Termin?</label>
+                  <DraftField
+                    key={current.id}
+                    textarea
+                    rows={2}
+                    value={current.no_appointment_reason}
+                    onCommit={(raw) => commitText(current.id, "no_appointment_reason", raw)}
+                    placeholder="Grund, falls kein Termin…"
+                    style={{ ...fieldInput, resize: "vertical", minHeight: 44 }}
+                  />
+                </div>
+              </div>
+
+              {/* ── Weitere Tracking-Felder ── */}
+              <div className="call-fields-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem 1rem", marginBottom: "1rem" }}>
                 <div>
                   <label style={fieldLabel}>Anruf-Versuch</label>
                   <Segmented
@@ -722,20 +875,6 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                     onChange={(v) => {
                       const n = v ? Number(v) : null;
                       setAndSave(current.id, { call_attempt: n }, { call_attempt: n });
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Gatekeeper erreicht</label>
-                  <Segmented
-                    value={current.gatekeeper_reached}
-                    options={[
-                      { value: "ja", label: "Ja" },
-                      { value: "nein", label: "Nein" },
-                      { value: "direkt", label: "Direkt" },
-                    ]}
-                    onChange={(v) => {
-                      setAndSave(current.id, { gatekeeper_reached: v }, { gatekeeper_reached: v });
                     }}
                   />
                 </div>
@@ -754,25 +893,52 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                   />
                 </div>
                 <div>
-                  <label style={fieldLabel}>Status-Flags</label>
-                  <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap" }}>
-                    <Toggle
-                      value={current.decider_reached === true}
-                      onChange={(v) => {
-                        setAndSave(current.id, { decider_reached: v }, { decider_reached: v });
-                      }}
-                      label="Entscheider erreicht"
-                    />
-                    <Toggle
-                      value={current.mailbox === true}
-                      onChange={(v) => {
-                        setAndSave(current.id, { mailbox: v }, { mailbox: v });
-                      }}
-                      label="Mailbox"
-                    />
-                  </div>
+                  <label style={fieldLabel}>Mailbox</label>
+                  <Toggle
+                    value={current.mailbox === true}
+                    onChange={(v) => {
+                      setAndSave(current.id, { mailbox: v }, { mailbox: v });
+                    }}
+                    label="Mailbox"
+                  />
                 </div>
-
+                <div>
+                  <label style={fieldLabel}>Ansprechpartner (Entscheider)</label>
+                  <DraftField
+                    key={current.id}
+                    value={current.decider_name}
+                    onCommit={(raw) => commitText(current.id, "decider_name", raw)}
+                    placeholder="Name…"
+                  />
+                </div>
+                <div>
+                  <label style={fieldLabel}>E-Mail</label>
+                  <DraftField
+                    key={current.id}
+                    type="email"
+                    value={current.email}
+                    onCommit={(raw) => commitText(current.id, "email", raw)}
+                    placeholder="mail@firma.de"
+                  />
+                </div>
+                <div>
+                  <label style={fieldLabel}>Durchwahl Entscheider</label>
+                  <DraftField
+                    key={current.id}
+                    value={current.decider_direct_dial}
+                    onCommit={(raw) => commitText(current.id, "decider_direct_dial", raw)}
+                    placeholder="+49…"
+                  />
+                </div>
+                <div>
+                  <label style={fieldLabel}>Zielgruppe</label>
+                  <DraftField
+                    key={current.id}
+                    value={current.target_group}
+                    onCommit={(raw) => commitText(current.id, "target_group", raw)}
+                    placeholder="z. B. Handwerk"
+                  />
+                </div>
                 <div>
                   <label style={fieldLabel}>Skript</label>
                   <DraftField
@@ -1041,7 +1207,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
         </div>
       </Modal>
 
-      {/* ── Bestätigungsdialog (Toter Lead) ── */}
+      {/* ── Bestätigungsdialog (Toter Lead / Lead löschen) ── */}
       {dialog}
     </div>
   );

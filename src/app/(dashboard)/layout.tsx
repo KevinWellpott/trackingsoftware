@@ -16,19 +16,24 @@ export default async function DashboardLayout({
   const supabase = await createClient();
   // Sidebar ist strikt persönlich: immer auf den effektiven Nutzer filtern
   // (Datensicht-Impersonation oder der eingeloggte Nutzer selbst).
+  // WICHTIG: Bestandslisten haben teils keine/fremde created_by_user_id, aber
+  // einen owner_name — deshalb Doppel-Filter (Ersteller ODER Owner-Name),
+  // sonst verschwinden alte Listen aus der Sidebar.
   const scopeUserId = access.effective_user_id ?? access.user.id;
+  const scopeUsername = (access.effective_username ?? access.username).replaceAll('"', "");
+  const ownScope = `created_by_user_id.eq.${scopeUserId},owner_name.eq."${scopeUsername}"`;
   const listsQuery = supabase
     .from("lists")
     .select("id, name, archived_at, owner_name")
     .eq("workspace_id", access.workspace_id)
-    .eq("created_by_user_id", scopeUserId)
+    .or(ownScope)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
   const phoneListsQuery = supabase
     .from("phone_lists")
     .select("id, name, owner_name, list_kind, created_by_user_id")
     .eq("workspace_id", access.workspace_id)
-    .eq("created_by_user_id", scopeUserId)
+    .or(ownScope)
     .is("archived_at", null)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });

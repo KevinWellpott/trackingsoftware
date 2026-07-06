@@ -50,6 +50,15 @@ type Props = {
   onClose?: () => void;
 };
 
+// Echtes LinkedIn-Logo (lucide führt keine Brand-Icons mehr).
+function LinkedInIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="#0A66C2" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z" />
+    </svg>
+  );
+}
+
 function NavLink({
   href,
   icon: Icon,
@@ -401,10 +410,11 @@ export function SidebarContent({
         <NavLink href="/closing" icon={Handshake} label="Closing" onClick={onClose} />
         <NavLink href="/nachfassen" icon={Clock} label="Nachfassen" onClick={onClose} />
 
-        {/* Listen Header */}
-        <div style={{ display: "flex", alignItems: "center", padding: "0.75rem 0.75rem 0.25rem", gap: "0.25rem" }}>
+        {/* LinkedIn Header */}
+        <div style={{ display: "flex", alignItems: "center", padding: "0.75rem 0.75rem 0.25rem", gap: "0.375rem" }}>
+          <LinkedInIcon size={13} />
           <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
-            Listen
+            LinkedIn
           </span>
           <button
             type="button"
@@ -454,7 +464,8 @@ export function SidebarContent({
         {phoneLists.length > 0 && (
           <>
             <div style={{ borderTop: "1px solid var(--border)", margin: "0.625rem 0 0" }} />
-            <div style={{ display: "flex", alignItems: "center", padding: "0.5rem 0.75rem 0.25rem", gap: "0.25rem" }}>
+            <div style={{ display: "flex", alignItems: "center", padding: "0.5rem 0.75rem 0.25rem", gap: "0.375rem" }}>
+              <Phone size={13} style={{ color: "var(--text-subtle)" }} />
               <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
                 Telefon
               </span>

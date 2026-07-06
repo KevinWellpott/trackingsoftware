@@ -1,4 +1,5 @@
 import { CallModeRunner } from "@/components/telefon/CallModeRunner";
+import { DeletePhoneListButton } from "@/components/telefon/DeletePhoneListButton";
 import { getAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
@@ -124,6 +125,9 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
           </span>
           <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>
             {leads.length.toLocaleString("de-DE")} Leads
+          </span>
+          <span style={{ marginLeft: "auto" }}>
+            <DeletePhoneListButton listId={list.id} listName={list.name} redirectTo="/telefon" />
           </span>
         </div>
         <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>

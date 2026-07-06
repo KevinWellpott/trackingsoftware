@@ -139,6 +139,9 @@ export type PhoneLead = {
   callback_at: string | null;
   answer_sentiment: "positiv" | "neutral" | "negativ" | null;
   objection_notes: string | null;
+  no_transfer_reason: string | null;
+  no_pitch_reason: string | null;
+  no_appointment_reason: string | null;
   status: PhoneLeadStatus;
   mailbox: boolean | null;
   appointment_set: boolean;
