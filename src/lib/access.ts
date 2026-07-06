@@ -144,13 +144,17 @@ export function isScopedToUser(access: AccessContext): access is AccessContext &
   return Boolean(access.effective_user_id);
 }
 
-// Bestandslisten haben teils keine/fremde created_by_user_id (z.B. nach
-// Löschen+Neuanlegen eines Nutzers, FK setzt created_by_user_id auf NULL),
-// aber ein korrektes owner_name-Feld — deshalb Doppel-Filter (Ersteller ODER
-// Owner-Name), sonst 404en Bestandsdaten für den betroffenen Nutzer.
+// created_by_user_id ist "wer hat den DB-Eintrag angelegt" (z.B. ein Owner,
+// der über das Owner-Dropdown eine Liste FÜR ein anderes Teammitglied
+// anlegt) — NICHT zwingend "wem gehört die Liste". owner_name ist die
+// eigentliche Zuordnung und hat deshalb Vorrang. created_by_user_id wird
+// nur als Fallback genutzt, wenn owner_name NULL ist (echte Altbestände
+// ohne Namensfeld, z.B. nach Löschen+Neuanlegen eines Nutzers). Ohne diesen
+// Vorrang tauchen fälschlich fremde Listen beim Ersteller auf, sobald
+// jemand für ein anderes Teammitglied eine Liste anlegt.
 export function buildOwnScope(userId: string, username: string): string {
   const safeUsername = username.replaceAll('"', "");
-  return `created_by_user_id.eq.${userId},owner_name.eq."${safeUsername}"`;
+  return `owner_name.eq."${safeUsername}",and(owner_name.is.null,created_by_user_id.eq.${userId})`;
 }
 
 // Für Detail-/Action-Routen: nur scopen, wenn der Zugriff auf einen
