@@ -7,7 +7,21 @@ import {
   PieChart, Pie, Cell,
 } from "recharts";
 import type { OrganicPost, OrganicList } from "@/app/actions/organic";
+import { ownerColor } from "@/lib/ownerColor";
 import Link from "next/link";
+
+// Wiederkehrende Chart-/Akzentfarben (alles Theme-Tokens):
+const INSTA_COLOR  = "var(--organic-accent)";
+const TIKTOK_COLOR = "var(--owner-4)";
+const AXIS_TICK_FILL = "var(--text-subtle)";
+const TOOLTIP_STYLE = {
+  background: "var(--surface-100)",
+  border: "1px solid var(--border)",
+  borderRadius: 8,
+  fontSize: "0.75rem",
+  color: "var(--text-primary)",
+};
+const GRID_STROKE = "var(--border)";
 
 type Props = {
   posts: OrganicPost[];
@@ -36,11 +50,11 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
 };
 
 const CONTENT_TYPE_COLORS: Record<string, string> = {
-  educational:  "#6366f1",
-  motivational: "#f59e0b",
-  entertaining: "#ec4899",
-  bts:          "#10b981",
-  other:        "#71717a",
+  educational:  "var(--owner-1)",
+  motivational: "var(--owner-5)",
+  entertaining: "var(--organic-accent)",
+  bts:          "var(--owner-3)",
+  other:        "var(--text-subtle)",
 };
 
 function avg(nums: number[]) {
@@ -102,9 +116,9 @@ function FilterBar({
           style={{
             padding: "0.2rem 0.625rem",
             borderRadius: 99,
-            border: `1px solid ${period === b.value ? "#e879f9" : "var(--border)"}`,
-            background: period === b.value ? "rgba(232,121,249,0.1)" : "transparent",
-            color: period === b.value ? "#e879f9" : "var(--text-subtle)",
+            border: `1px solid ${period === b.value ? "var(--organic-accent)" : "var(--border)"}`,
+            background: period === b.value ? "var(--organic-accent-bg)" : "transparent",
+            color: period === b.value ? "var(--organic-accent)" : "var(--text-subtle)",
             fontSize: "0.75rem",
             fontWeight: 600,
             cursor: "pointer",
@@ -158,7 +172,7 @@ function OverallSection({ posts, today }: { posts: OrganicPost[]; today: string 
   const pieData = Object.entries(typeGroups).map(([type, count]) => ({
     name: CONTENT_TYPE_LABELS[type] ?? type,
     value: count,
-    color: CONTENT_TYPE_COLORS[type] ?? "#71717a",
+    color: CONTENT_TYPE_COLORS[type] ?? "var(--text-subtle)",
   }));
 
   // Daily chart (last 14 days)
@@ -179,25 +193,25 @@ function OverallSection({ posts, today }: { posts: OrganicPost[]; today: string 
     <div style={{ background: "var(--surface-50)", border: "1px solid var(--border)", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem" }}>
       <SectionHeader
         title="Gesamt-Performance"
-        icon={<span style={{ color: "#e879f9" }}>📊</span>}
+        icon={<span style={{ color: "var(--organic-accent)" }}>📊</span>}
         filter={<FilterBar period={period} setPeriod={setPeriod} from={from} setFrom={setFrom} to={to} setTo={setTo} />}
       />
       <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.875rem", marginBottom: "1.25rem" }}>
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 10, padding: "0.875rem 1rem" }}>
           <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-subtle)", marginBottom: "0.375rem" }}>Posts</div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#e879f9", letterSpacing: "-0.04em" }}>{filtered.length}</div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--organic-accent)", letterSpacing: "-0.04em" }}>{filtered.length}</div>
         </div>
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 10, padding: "0.875rem 1rem" }}>
           <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-subtle)", marginBottom: "0.375rem" }}>Ø Insta</div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#ec4899", letterSpacing: "-0.04em" }}>{avgI.toLocaleString()}</div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 800, color: INSTA_COLOR, letterSpacing: "-0.04em" }}>{avgI.toLocaleString()}</div>
         </div>
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 10, padding: "0.875rem 1rem" }}>
           <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-subtle)", marginBottom: "0.375rem" }}>Ø TikTok</div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#38bdf8", letterSpacing: "-0.04em" }}>{avgT.toLocaleString()}</div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 800, color: TIKTOK_COLOR, letterSpacing: "-0.04em" }}>{avgT.toLocaleString()}</div>
         </div>
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 10, padding: "0.875rem 1rem" }}>
           <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-subtle)", marginBottom: "0.375rem" }}>CTA-Rate</div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#34d399", letterSpacing: "-0.04em" }}>{ctaR}%</div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--color-success-text)", letterSpacing: "-0.04em" }}>{ctaR}%</div>
         </div>
       </div>
 
@@ -207,12 +221,12 @@ function OverallSection({ posts, today }: { posts: OrganicPost[]; today: string 
           <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-subtle)", marginBottom: "0.75rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>Impressionen letzte 14 Tage</div>
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={last14}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="date" tick={{ fill: "#52525b", fontSize: 10 }} />
-              <YAxis tick={{ fill: "#52525b", fontSize: 10 }} />
-              <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 8, fontSize: "0.75rem" }} />
-              <Line type="monotone" dataKey="insta"  stroke="#ec4899" strokeWidth={2} dot={false} name="Instagram" />
-              <Line type="monotone" dataKey="tiktok" stroke="#38bdf8" strokeWidth={2} dot={false} name="TikTok" />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+              <XAxis dataKey="date" tick={{ fill: AXIS_TICK_FILL, fontSize: 10 }} />
+              <YAxis tick={{ fill: AXIS_TICK_FILL, fontSize: 10 }} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <Line type="monotone" dataKey="insta"  stroke={INSTA_COLOR} strokeWidth={2} dot={false} name="Instagram" />
+              <Line type="monotone" dataKey="tiktok" stroke={TIKTOK_COLOR} strokeWidth={2} dot={false} name="TikTok" />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -225,7 +239,7 @@ function OverallSection({ posts, today }: { posts: OrganicPost[]; today: string 
                 <Pie data={pieData} cx="50%" cy="50%" innerRadius={30} outerRadius={55} dataKey="value">
                   {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                 </Pie>
-                <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 8, fontSize: "0.75rem" }} formatter={(v) => [`${v} Posts`]} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${v} Posts`]} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -233,7 +247,7 @@ function OverallSection({ posts, today }: { posts: OrganicPost[]; today: string 
           )}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", marginTop: "0.5rem" }}>
             {pieData.map((d) => (
-              <span key={d.name} style={{ fontSize: "0.6875rem", padding: "0.1rem 0.4rem", borderRadius: 99, background: d.color + "22", color: d.color, fontWeight: 600 }}>
+              <span key={d.name} style={{ fontSize: "0.6875rem", padding: "0.1rem 0.4rem", borderRadius: 99, background: `color-mix(in srgb, ${d.color} 13%, transparent)`, color: d.color, fontWeight: 600 }}>
                 {d.name} {d.value}
               </span>
             ))}
@@ -241,7 +255,7 @@ function OverallSection({ posts, today }: { posts: OrganicPost[]; today: string 
         </div>
       </div>
       <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-subtle)", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-        <span>Stories-Quote: <strong style={{ color: "#f59e0b" }}>{strR}%</strong></span>
+        <span>Stories-Quote: <strong style={{ color: "var(--color-warning-text)" }}>{strR}%</strong></span>
         <span>Impressionen gesamt: <strong style={{ color: "var(--text-secondary)" }}>{totalImp.toLocaleString()}</strong></span>
       </div>
     </div>
@@ -269,7 +283,7 @@ function PersonSection({ posts, lists, listOwner, today }: { posts: OrganicPost[
     };
   }
 
-  const COLORS: Record<Owner, string> = { Kevin: "#818cf8", Simon: "#a78bfa" };
+  const COLORS: Record<Owner, string> = { Kevin: ownerColor("Kevin").fg, Simon: ownerColor("Simon").fg };
 
   const chartData = owners.map((o) => {
     const s = personStats(o);
@@ -288,15 +302,15 @@ function PersonSection({ posts, lists, listOwner, today }: { posts: OrganicPost[
           const s = personStats(owner);
           const c = COLORS[owner];
           return (
-            <div key={owner} style={{ background: "var(--surface-100)", border: `1px solid ${c}33`, borderRadius: 10, padding: "1rem" }}>
+            <div key={owner} style={{ background: "var(--surface-100)", border: `1px solid color-mix(in srgb, ${c} 20%, transparent)`, borderRadius: 10, padding: "1rem" }}>
               <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: c, marginBottom: "0.75rem" }}>{owner}</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
                 {[
                   { label: "Posts", value: s.total, color: c },
-                  { label: "Ø Insta", value: s.avgInsta.toLocaleString(), color: "#ec4899" },
-                  { label: "Ø TikTok", value: s.avgTikTok.toLocaleString(), color: "#38bdf8" },
-                  { label: "CTA-Rate", value: `${s.ctaRate}%`, color: "#34d399" },
-                  { label: "Stories", value: `${s.storiesRate}%`, color: "#f59e0b" },
+                  { label: "Ø Insta", value: s.avgInsta.toLocaleString(), color: INSTA_COLOR },
+                  { label: "Ø TikTok", value: s.avgTikTok.toLocaleString(), color: TIKTOK_COLOR },
+                  { label: "CTA-Rate", value: `${s.ctaRate}%`, color: "var(--color-success-text)" },
+                  { label: "Stories", value: `${s.storiesRate}%`, color: "var(--color-warning-text)" },
                 ].map((stat) => (
                   <div key={stat.label} style={{ background: "var(--surface-0)", borderRadius: 8, padding: "0.5rem 0.625rem" }}>
                     <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginBottom: "0.125rem" }}>{stat.label}</div>
@@ -312,12 +326,12 @@ function PersonSection({ posts, lists, listOwner, today }: { posts: OrganicPost[
         <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-subtle)", marginBottom: "0.75rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>Ø Impressionen Vergleich</div>
         <ResponsiveContainer width="100%" height={140}>
           <BarChart data={chartData} barGap={4}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis dataKey="name" tick={{ fill: "#71717a", fontSize: 11 }} />
-            <YAxis tick={{ fill: "#71717a", fontSize: 11 }} />
-            <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 8, fontSize: "0.75rem" }} />
-            <Bar dataKey="insta"  fill="#ec4899" radius={[3,3,0,0]} name="Ø Instagram" />
-            <Bar dataKey="tiktok" fill="#38bdf8" radius={[3,3,0,0]} name="Ø TikTok" />
+            <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+            <XAxis dataKey="name" tick={{ fill: AXIS_TICK_FILL, fontSize: 11 }} />
+            <YAxis tick={{ fill: AXIS_TICK_FILL, fontSize: 11 }} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <Bar dataKey="insta"  fill={INSTA_COLOR} radius={[3,3,0,0]} name="Ø Instagram" />
+            <Bar dataKey="tiktok" fill={TIKTOK_COLOR} radius={[3,3,0,0]} name="Ø TikTok" />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -375,31 +389,33 @@ function ListAnalysisSection({
           <div style={{ marginBottom: "1rem" }}>
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={barData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="name" tick={{ fill: "#71717a", fontSize: 10 }} />
-                <YAxis tick={{ fill: "#71717a", fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 8, fontSize: "0.75rem" }} />
-                <Bar dataKey="insta"  fill="#ec4899" radius={[3,3,0,0]} name="Ø Insta" />
-                <Bar dataKey="tiktok" fill="#38bdf8" radius={[3,3,0,0]} name="Ø TikTok" />
+                <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+                <XAxis dataKey="name" tick={{ fill: AXIS_TICK_FILL, fontSize: 10 }} />
+                <YAxis tick={{ fill: AXIS_TICK_FILL, fontSize: 10 }} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="insta"  fill={INSTA_COLOR} radius={[3,3,0,0]} name="Ø Insta" />
+                <Bar dataKey="tiktok" fill={TIKTOK_COLOR} radius={[3,3,0,0]} name="Ø TikTok" />
               </BarChart>
             </ResponsiveContainer>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {listStats.map((s, i) => {
-              const ownerColor = s.list.owner_name === "Kevin" ? "#818cf8" : s.list.owner_name === "Simon" ? "#a78bfa" : "#f59e0b";
+              const oc = s.list.owner_name
+                ? ownerColor(s.list.owner_name)
+                : { fg: "var(--organic-accent)", bg: "var(--organic-accent-bg)" };
               return (
                 <Link key={s.list.id} href={`/organic/${s.list.id}`} style={{ textDecoration: "none" }}>
                   <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.625rem 0.875rem", display: "flex", alignItems: "center", gap: "0.75rem", transition: "border-color 0.15s" }}>
-                    <span style={{ fontSize: "0.75rem", fontWeight: 800, color: i === 0 ? "#f59e0b" : "var(--text-subtle)", width: 20 }}>#{i + 1}</span>
+                    <span style={{ fontSize: "0.75rem", fontWeight: 800, color: i === 0 ? "var(--color-warning-text)" : "var(--text-subtle)", width: 20 }}>#{i + 1}</span>
                     {!personalMode && (
-                      <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: ownerColor, background: ownerColor + "22", borderRadius: 99, padding: "0.1rem 0.4rem", flexShrink: 0 }}>{s.list.owner_name ?? "?"}</span>
+                      <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: oc.fg, background: oc.bg, borderRadius: 99, padding: "0.1rem 0.4rem", flexShrink: 0 }}>{s.list.owner_name ?? "?"}</span>
                     )}
                     <span style={{ flex: 1, fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.list.name}</span>
                     <div style={{ display: "flex", gap: "0.625rem", fontSize: "0.75rem", color: "var(--text-subtle)", flexShrink: 0 }}>
                       <span>{s.count} Posts</span>
-                      <span style={{ color: "#ec4899" }}>📸 Ø {s.avgInsta.toLocaleString()}</span>
-                      <span style={{ color: "#38bdf8" }}>🎵 Ø {s.avgTikTok.toLocaleString()}</span>
-                      {s.ctaRate > 0 && <span style={{ color: "#34d399" }}>CTA {s.ctaRate}%</span>}
+                      <span style={{ color: INSTA_COLOR }}>📸 Ø {s.avgInsta.toLocaleString()}</span>
+                      <span style={{ color: TIKTOK_COLOR }}>🎵 Ø {s.avgTikTok.toLocaleString()}</span>
+                      {s.ctaRate > 0 && <span style={{ color: "var(--color-success-text)" }}>CTA {s.ctaRate}%</span>}
                     </div>
                   </div>
                 </Link>
@@ -423,13 +439,13 @@ function WeeklyHistorySection({ weeklyHistory }: { weeklyHistory: Props["weeklyH
       </div>
       <ResponsiveContainer width="100%" height={180}>
         <BarChart data={weeklyHistory}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="week" tick={{ fill: "#52525b", fontSize: 10 }} />
-          <YAxis tick={{ fill: "#52525b", fontSize: 10 }} allowDecimals={false} />
-          <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 8, fontSize: "0.75rem" }} />
+          <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
+          <XAxis dataKey="week" tick={{ fill: AXIS_TICK_FILL, fontSize: 10 }} />
+          <YAxis tick={{ fill: AXIS_TICK_FILL, fontSize: 10 }} allowDecimals={false} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} />
           <Legend wrapperStyle={{ fontSize: "0.75rem" }} />
-          <Bar dataKey="Kevin" fill="#818cf8" radius={[3,3,0,0]} />
-          <Bar dataKey="Simon" fill="#a78bfa" radius={[3,3,0,0]} />
+          <Bar dataKey="Kevin" fill={ownerColor("Kevin").fg} radius={[3,3,0,0]} />
+          <Bar dataKey="Simon" fill={ownerColor("Simon").fg} radius={[3,3,0,0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -457,9 +473,9 @@ function PersonalWeeklyHistorySection({
           const reached = week.count >= 7;
           return (
             <div key={week.week} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.375rem" }}>
-              <div style={{ fontSize: "0.6875rem", color: reached ? "#34d399" : "#f59e0b", fontWeight: 800 }}>{week.count}</div>
-              <div style={{ width: "100%", maxWidth: 28, height, borderRadius: "6px 6px 2px 2px", background: reached ? "linear-gradient(180deg,#34d399,#10b981)" : "linear-gradient(180deg,#fbbf24,#f59e0b)", boxShadow: reached ? "0 0 10px rgba(52,211,153,0.25)" : "0 0 10px rgba(245,158,11,0.25)" }} />
-              <div style={{ fontSize: "0.625rem", color: "#52525b", whiteSpace: "nowrap" }}>{week.week}</div>
+              <div style={{ fontSize: "0.6875rem", color: reached ? "var(--color-success-text)" : "var(--color-warning-text)", fontWeight: 800 }}>{week.count}</div>
+              <div style={{ width: "100%", maxWidth: 28, height, borderRadius: "6px 6px 2px 2px", background: reached ? "var(--color-success-text)" : "var(--color-warning-text)", boxShadow: reached ? "0 0 10px color-mix(in srgb, var(--color-success-text) 25%, transparent)" : "0 0 10px color-mix(in srgb, var(--color-warning-text) 25%, transparent)" }} />
+              <div style={{ fontSize: "0.625rem", color: "var(--text-subtle)", whiteSpace: "nowrap" }}>{week.week}</div>
             </div>
           );
         })}

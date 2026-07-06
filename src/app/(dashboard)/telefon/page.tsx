@@ -2,20 +2,13 @@ import { CsvImportDialog } from "@/components/telefon/CsvImportDialog";
 import { PhoneDashboard } from "@/components/telefon/PhoneDashboard";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
+import { ownerColor } from "@/lib/ownerColor";
 import type { PhoneLeadStatus, PhoneList, PhoneListKind } from "@/lib/types";
 import { Phone, PhoneMissed, Voicemail } from "lucide-react";
 import Link from "next/link";
 
 // Telefon-Übersicht: Dashboard-Metriken + alle Telefonlisten gruppiert nach
 // Inhaber (Akquise-Listen + Rückruf-/Nicht-erreicht-Routing-Listen).
-
-const OWNER_COLORS: Record<string, string> = {
-  Kevin: "#6366f1",
-  Simon: "#8b5cf6",
-  Daniel: "#10b981",
-  "Samuel Kerber": "#0ea5e9",
-};
-const FALLBACK_PALETTE = ["#0ea5e9", "#f59e0b", "#ec4899", "#14b8a6"];
 
 type ListCounts = {
   total: number;
@@ -164,8 +157,8 @@ export default async function TelefonPage() {
           </p>
         </div>
       ) : (
-        ownerNames.map((owner, ownerIdx) => {
-          const color = OWNER_COLORS[owner] ?? FALLBACK_PALETTE[ownerIdx % FALLBACK_PALETTE.length];
+        ownerNames.map((owner) => {
+          const { fg: color, bg: colorBg } = ownerColor(owner);
           return (
             <div key={owner} style={{ marginBottom: "1.5rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
@@ -174,7 +167,7 @@ export default async function TelefonPage() {
                     width: 24,
                     height: 24,
                     borderRadius: "50%",
-                    background: `${color}22`,
+                    background: colorBg,
                     border: `1.5px solid ${color}`,
                     display: "flex",
                     alignItems: "center",

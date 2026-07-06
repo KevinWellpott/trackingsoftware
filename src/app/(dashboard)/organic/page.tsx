@@ -10,6 +10,7 @@ import {
   Zap,
 } from "lucide-react";
 import { generateOrganicInsights } from "@/lib/organic-insights";
+import { ownerColor } from "@/lib/ownerColor";
 import type { OrganicPost, OrganicList } from "@/app/actions/organic";
 import { OrganicDashboardClient } from "@/components/organic/OrganicDashboardClient";
 
@@ -39,10 +40,10 @@ const WEEKLY_VIDEO_GOAL = 7;
 const PERSONAL_COLOR = "var(--color-warning-text)";
 type PersonalWeekPoint = { week: string; count: number };
 
-const OWNER_STYLE: Record<Owner, { color: string; bg: string; border: string }> = {
-  Kevin: { color: "#818cf8", bg: "rgba(99,102,241,0.08)",  border: "rgba(99,102,241,0.25)" },
-  Simon: { color: "#a78bfa", bg: "rgba(139,92,246,0.08)",  border: "rgba(139,92,246,0.25)" },
-};
+function ownerStyle(owner: Owner): { color: string; bg: string; border: string } {
+  const oc = ownerColor(owner);
+  return { color: oc.fg, bg: oc.bg, border: `color-mix(in srgb, ${oc.fg} 25%, transparent)` };
+}
 
 function avg(nums: number[]) {
   if (!nums.length) return 0;
@@ -61,10 +62,10 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
 
 function InsightCard({ level, title, body }: { level: string; title: string; body: string }) {
   const cfg: Record<string, { icon: React.ReactNode; color: string; bg: string; border: string }> = {
-    success: { icon: <CheckCircle size={14} />, color: "var(--color-success-text)", bg: "rgb(4 184 0 / 0.08)", border: "rgb(4 184 0 / 0.2)" },
-    warning: { icon: <AlertCircle size={14} />,  color: "var(--color-warning-text)", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)" },
-    danger:  { icon: <AlertCircle size={14} />,  color: "var(--color-error-text)", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.2)" },
-    tip:     { icon: <Zap size={14} />,           color: "var(--brand-500)", bg: "rgb(24 98 184 / 0.08)", border: "rgb(24 98 184 / 0.2)" },
+    success: { icon: <CheckCircle size={14} />, color: "var(--color-success-text)", bg: "var(--color-success-bg)", border: "var(--color-success-border)" },
+    warning: { icon: <AlertCircle size={14} />,  color: "var(--color-warning-text)", bg: "var(--color-warning-bg)", border: "var(--color-warning-border)" },
+    danger:  { icon: <AlertCircle size={14} />,  color: "var(--color-error-text)", bg: "var(--color-error-bg)", border: "var(--color-error-border)" },
+    tip:     { icon: <Zap size={14} />,           color: "var(--brand-500)", bg: "var(--color-info-bg)", border: "var(--color-info-border)" },
   };
   const c = cfg[level] ?? cfg.tip;
   return (
@@ -231,9 +232,9 @@ export default async function OrganicPage() {
   const viewsReached = bestVideoImpressions >= VIEWS_GOAL;
 
   // Urgency colour
-  const urgencyColor  = isPast ? "var(--color-success-text)" : daysLeft <= 7 ? "var(--color-error-text)" : daysLeft <= 14 ? "var(--color-warning-text)" : "#e879f9";
-  const urgencyBg     = isPast ? "rgb(4 184 0 / 0.06)" : daysLeft <= 7 ? "rgba(248,113,113,0.06)" : daysLeft <= 14 ? "rgba(245,158,11,0.06)" : "rgba(232,121,249,0.06)";
-  const urgencyBorder = isPast ? "rgb(4 184 0 / 0.2)"  : daysLeft <= 7 ? "rgba(248,113,113,0.2)"  : daysLeft <= 14 ? "rgba(245,158,11,0.2)"  : "rgba(232,121,249,0.2)";
+  const urgencyColor  = isPast ? "var(--color-success-text)" : daysLeft <= 7 ? "var(--color-error-text)" : daysLeft <= 14 ? "var(--color-warning-text)" : "var(--organic-accent)";
+  const urgencyBg     = isPast ? "var(--color-success-bg)" : daysLeft <= 7 ? "var(--color-error-bg)" : daysLeft <= 14 ? "var(--color-warning-bg)" : "var(--organic-accent-bg)";
+  const urgencyBorder = isPast ? "var(--color-success-border)"  : daysLeft <= 7 ? "var(--color-error-border)"  : daysLeft <= 14 ? "var(--color-warning-border)"  : "color-mix(in srgb, var(--organic-accent) 20%, transparent)";
 
   const motivText = isPast
     ? { emoji: "🎉", line1: "Deadline war gestern — wie war die Mission?", line2: "Checkt euren besten Hook und skaliert ihn weiter. Der Algorithmus belohnt Konsistenz." }
@@ -284,7 +285,7 @@ export default async function OrganicPage() {
       <div style={{ marginBottom: "1.75rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-            <Film size={18} color="#e879f9" />
+            <Film size={18} color="var(--organic-accent)" />
             <h1 style={{ fontSize: "1.375rem", fontWeight: 800, margin: 0, letterSpacing: "-0.03em" }}>
               Organic Social Media
             </h1>
@@ -379,17 +380,17 @@ export default async function OrganicPage() {
       ) : (
         <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)", borderRadius: "var(--radius-lg)", padding: "1.5rem", marginBottom: "1.5rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem" }}>
-            <Trophy size={16} color="#e879f9" />
-            <span style={{ fontWeight: 800, fontSize: "0.9375rem", color: "#e879f9" }}>Wochenduell — Videos</span>
+            <Trophy size={16} color="var(--organic-accent)" />
+            <span style={{ fontWeight: 800, fontSize: "0.9375rem", color: "var(--organic-accent)" }}>Wochenduell — Videos</span>
             <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--text-subtle)" }}>Ziel: {WEEKLY_VIDEO_GOAL}/Woche · {monday} → {sunday} · Reset jeden Montag</span>
           </div>
 
           <div className="duel-grid" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "1.5rem", alignItems: "center" }}>
             <DuelPanel owner="Kevin" count={kevinWeek} leader={leader} loser={loser} goal={WEEKLY_VIDEO_GOAL} todayCount={todayPosts.Kevin} storiesDone={todayStories.Kevin} />
             <div className="duel-vs" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem" }}>
-              <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, rgba(232,121,249,0.35))" }} />
-              <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "var(--text-subtle)", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 99, background: "rgba(232,121,249,0.05)" }}>VS</div>
-              <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, rgba(232,121,249,0.35), transparent)" }} />
+              <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, color-mix(in srgb, var(--organic-accent) 35%, transparent))" }} />
+              <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "var(--text-subtle)", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid color-mix(in srgb, var(--organic-accent) 15%, transparent)", borderRadius: 99, background: "var(--organic-accent-bg)" }}>VS</div>
+              <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, color-mix(in srgb, var(--organic-accent) 35%, transparent), transparent)" }} />
             </div>
             <DuelPanel owner="Simon" count={simonWeek} leader={leader} loser={loser} goal={WEEKLY_VIDEO_GOAL} todayCount={todayPosts.Simon} storiesDone={todayStories.Simon} />
           </div>
@@ -438,14 +439,16 @@ export default async function OrganicPage() {
               const lPosts = posts.filter((p) => p.list_id === list.id);
               const lInsta  = avg(lPosts.filter((p) => p.insta_impressions  != null).map((p) => p.insta_impressions!));
               const lTikTok = avg(lPosts.filter((p) => p.tiktok_impressions != null).map((p) => p.tiktok_impressions!));
-              const ownerColor = list.owner_name === "Kevin" ? "#818cf8" : list.owner_name === "Simon" ? "#a78bfa" : "#f59e0b";
+              const oc = list.owner_name
+                ? ownerColor(list.owner_name)
+                : { fg: "var(--organic-accent)", bg: "var(--organic-accent-bg)" };
               return (
                 <Link key={list.id} href={`/organic/${list.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
                   <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 10, padding: "0.875rem", transition: "border-color 0.15s, background 0.15s" }}
                     className="organic-list-card"
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                      <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: ownerColor, background: ownerColor + "22", borderRadius: 99, padding: "0.1rem 0.4rem" }}>{list.owner_name ?? "?"}</span>
+                      <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: oc.fg, background: oc.bg, borderRadius: 99, padding: "0.1rem 0.4rem" }}>{list.owner_name ?? "?"}</span>
                       <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{list.name}</span>
                     </div>
                     {list.description && (
@@ -485,14 +488,14 @@ function DuelPanel({
   todayCount: number;
   storiesDone: number;
 }) {
-  const s = OWNER_STYLE[owner];
+  const s = ownerStyle(owner);
   const isWinner = leader === owner;
   const isLoser  = loser  === owner;
   const progress = Math.min((count / goal) * 100, 100);
   return (
     <div style={{ textAlign: "center" }}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
-        <div style={{ width: 38, height: 38, borderRadius: "50%", background: `${s.color}22`, border: `2px solid ${isWinner ? s.color : s.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 800, color: s.color }}>
+        <div style={{ width: 38, height: 38, borderRadius: "50%", background: s.bg, border: `2px solid ${isWinner ? s.color : s.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 800, color: s.color }}>
           {owner[0]}
         </div>
         <div>
@@ -504,7 +507,7 @@ function DuelPanel({
         {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "var(--text-subtle)", marginLeft: 3 }}>/{goal}</span>
       </div>
       <div style={{ background: "var(--surface-200)", borderRadius: 99, height: 6, overflow: "hidden", marginBottom: "0.625rem" }}>
-        <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: isWinner ? s.color : `${s.color}44` }} />
+        <div style={{ height: "100%", borderRadius: 99, width: `${progress}%`, background: isWinner ? s.color : `color-mix(in srgb, ${s.color} 27%, transparent)` }} />
       </div>
       <div style={{ display: "flex", justifyContent: "center", gap: "0.875rem", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
         <span>🎬 Heute: <strong style={{ color: todayCount >= DAILY_VIDEO_GOAL ? "var(--color-success-text)" : "var(--text-secondary)" }}>{todayCount}/{DAILY_VIDEO_GOAL}</strong></span>

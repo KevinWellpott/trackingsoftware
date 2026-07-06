@@ -24,8 +24,8 @@ const td: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  background: "rgb(24 98 184 / 0.06)",
-  border: "1px solid rgb(24 98 184 / 0.45)",
+  background: "var(--color-info-bg)",
+  border: "1px solid color-mix(in srgb, var(--brand-500) 45%, transparent)",
   borderRadius: "var(--radius-sm)",
   color: "var(--text-primary)",
   padding: "0.375rem 0.5rem",
@@ -100,14 +100,14 @@ function InlineTextarea({
 function StatusPill({ contact }: { contact: CrmContact }) {
   if (contact.deal_closed) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "var(--color-success-text)", background: "rgb(4 184 0 / 0.08)", border: "1px solid rgb(4 184 0 / 0.25)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "var(--color-success-text)", background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
         <CheckCircle size={12} /> Gewonnen
       </span>
     );
   }
   if (contact.deal_lost_reason) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "var(--color-error-text)", background: "rgb(184 19 0 / 0.06)", border: "1px solid rgb(184 19 0 / 0.25)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "var(--color-error-text)", background: "var(--color-error-bg)", border: "1px solid var(--color-error-border)", borderRadius: 999, padding: "0.25rem 0.55rem", fontSize: "0.75rem", fontWeight: 800 }}>
         <XCircle size={12} /> Verloren
       </span>
     );
@@ -170,8 +170,8 @@ function CrmRow({ contact }: { contact: CrmContact }) {
             alignItems: "center",
             gap: "0.375rem",
             borderRadius: 999,
-            border: `1px solid ${vals.deal_closed ? "rgb(4 184 0 / 0.30)" : "var(--border)"}`,
-            background: vals.deal_closed ? "rgb(4 184 0 / 0.08)" : "transparent",
+            border: `1px solid ${vals.deal_closed ? "var(--color-success-border)" : "var(--border)"}`,
+            background: vals.deal_closed ? "var(--color-success-bg)" : "transparent",
             color: vals.deal_closed ? "var(--color-success-text)" : "var(--text-subtle)",
             padding: "0.35rem 0.65rem",
             fontSize: "0.75rem",
@@ -258,7 +258,7 @@ export function CrmBoard({ contacts }: { contacts: CrmContact[] }) {
             onClick={() => setStatus(value as "all" | "open" | "won" | "lost")}
             style={{
               border: `1px solid ${status === value ? "var(--brand-500)" : "var(--border)"}`,
-              background: status === value ? "rgb(24 98 184 / 0.10)" : "transparent",
+              background: status === value ? "var(--color-info-bg)" : "transparent",
               color: status === value ? "var(--brand-500)" : "var(--text-subtle)",
               borderRadius: 999,
               padding: "0.4rem 0.75rem",

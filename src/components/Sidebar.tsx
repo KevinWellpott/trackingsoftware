@@ -26,6 +26,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ownerColor } from "@/lib/ownerColor";
 
 type SidebarList = { id: string; name: string; owner_name: string | null };
 type SidebarPhoneList = {
@@ -108,7 +109,7 @@ function OrganicListLink({
           height: 5,
           borderRadius: "50%",
           flexShrink: 0,
-          background: isActive ? "#e879f9" : "var(--text-subtle)",
+          background: isActive ? "var(--organic-accent)" : "var(--text-subtle)",
         }}
       />
       <span
@@ -170,13 +171,6 @@ function ListLink({
   );
 }
 
-const OWNER_COLORS: Record<string, string> = {
-  Kevin: "#6366f1",
-  Simon: "#8b5cf6",
-  Daniel: "#10b981",
-  "Samuel Kerber": "#0ea5e9",
-};
-
 function OwnerFolder({
   owner,
   lists,
@@ -187,7 +181,7 @@ function OwnerFolder({
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState<boolean>(true);
-  const color = OWNER_COLORS[owner] ?? "var(--brand-500)";
+  const { fg: color, bg: colorBg } = ownerColor(owner);
 
   return (
     <div>
@@ -222,7 +216,7 @@ function OwnerFolder({
             width: 22,
             height: 22,
             borderRadius: 6,
-            background: color + "22",
+            background: colorBg,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -286,7 +280,7 @@ function OrganicOwnerFolder({
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState<boolean>(true);
-  const color = OWNER_COLORS[owner] ?? "#e879f9";
+  const { fg: color, bg: colorBg } = ownerColor(owner);
 
   return (
     <div>
@@ -311,7 +305,7 @@ function OrganicOwnerFolder({
         onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--surface-100)")}
         onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "none")}
       >
-        <div style={{ width: 22, height: 22, borderRadius: 6, background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <div style={{ width: 22, height: 22, borderRadius: 6, background: colorBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           {open ? <FolderOpen size={13} color={color} /> : <FolderClosed size={13} color={color} />}
         </div>
         <span style={{ flex: 1, color, textAlign: "left" }}>{owner}</span>
@@ -410,7 +404,7 @@ function PhoneOwnerFolder({
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState<boolean>(true);
-  const color = OWNER_COLORS[owner] ?? "var(--brand-500)";
+  const { fg: color, bg: colorBg } = ownerColor(owner);
 
   return (
     <div>
@@ -435,7 +429,7 @@ function PhoneOwnerFolder({
         onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--surface-100)")}
         onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "none")}
       >
-        <div style={{ width: 22, height: 22, borderRadius: 6, background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <div style={{ width: 22, height: 22, borderRadius: 6, background: colorBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           {open ? <FolderOpen size={13} color={color} /> : <FolderClosed size={13} color={color} />}
         </div>
         <span style={{ flex: 1, color, textAlign: "left" }}>{owner}</span>
@@ -530,7 +524,7 @@ export function SidebarContent({
           padding: "0 0.875rem",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
-          background: "rgb(24 98 184 / 0.05)",
+          background: "var(--color-info-bg)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -614,16 +608,19 @@ export function SidebarContent({
               />
               {!isOwnScope && (
                 <div style={{ display: "flex", gap: "0.375rem", marginBottom: "0.375rem" }}>
-                  {pitchOwnerOptions.map((o) => (
-                    <button
-                      key={o}
-                      type="button"
-                      onClick={() => setNewListOwner(o)}
-                      style={{ flex: 1, padding: "0.25rem", borderRadius: 6, border: "1px solid", borderColor: newListOwner === o ? OWNER_COLORS[o] : "var(--border)", background: newListOwner === o ? OWNER_COLORS[o] + "22" : "transparent", color: newListOwner === o ? OWNER_COLORS[o] : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", transition: "all 0.1s" }}
-                    >
-                      {o}
-                    </button>
-                  ))}
+                  {pitchOwnerOptions.map((o) => {
+                    const oc = ownerColor(o);
+                    return (
+                      <button
+                        key={o}
+                        type="button"
+                        onClick={() => setNewListOwner(o)}
+                        style={{ flex: 1, padding: "0.25rem", borderRadius: 6, border: "1px solid", borderColor: newListOwner === o ? oc.fg : "var(--border)", background: newListOwner === o ? oc.bg : "transparent", color: newListOwner === o ? oc.fg : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", transition: "all 0.1s" }}
+                      >
+                        {o}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               <input type="hidden" name="owner_name" value={isOwnScope ? username : newListOwner} />
@@ -680,7 +677,7 @@ export function SidebarContent({
           <button
             type="button"
             onClick={() => { setShowNewOrganic((v) => !v); setTimeout(() => organicNameRef.current?.focus(), 50); }}
-            style={{ width: 22, height: 22, borderRadius: 6, background: showNewOrganic ? "#e879f9" : "var(--surface-200)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: showNewOrganic ? "white" : "var(--text-subtle)", transition: "all 0.15s", flexShrink: 0 }}
+            style={{ width: 22, height: 22, borderRadius: 6, background: showNewOrganic ? "var(--organic-accent)" : "var(--surface-200)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: showNewOrganic ? "white" : "var(--text-subtle)", transition: "all 0.15s", flexShrink: 0 }}
             title="Neue Content-Serie"
           >
             <Plus size={12} strokeWidth={2.5} />
@@ -689,7 +686,7 @@ export function SidebarContent({
 
         {/* Inline new organic list form */}
         {showNewOrganic && (
-          <div style={{ margin: "0.25rem 0.5rem 0.5rem", background: "var(--surface-150)", border: "1px solid rgba(232,121,249,0.3)", borderRadius: "var(--radius-md)", padding: "0.625rem 0.75rem" }}>
+          <div style={{ margin: "0.25rem 0.5rem 0.5rem", background: "var(--surface-150)", border: "1px solid color-mix(in srgb, var(--organic-accent) 30%, transparent)", borderRadius: "var(--radius-md)", padding: "0.625rem 0.75rem" }}>
             <form action={async (fd) => { await createOrganicListForm(fd); setShowNewOrganic(false); }}>
               <input type="hidden" name="workspace_id" value={workspaceId} />
               <input
@@ -701,21 +698,24 @@ export function SidebarContent({
               />
               {!isOwnScope && (
                 <div style={{ display: "flex", gap: "0.375rem", marginBottom: "0.375rem" }}>
-                  {organicOwnerOptions.map((o) => (
-                    <button
-                      key={o}
-                      type="button"
-                      onClick={() => setNewOrganicOwner(o)}
-                      style={{ flex: 1, padding: "0.25rem", borderRadius: 6, border: "1px solid", borderColor: newOrganicOwner === o ? OWNER_COLORS[o] : "var(--border)", background: newOrganicOwner === o ? OWNER_COLORS[o] + "22" : "transparent", color: newOrganicOwner === o ? OWNER_COLORS[o] : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", transition: "all 0.1s" }}
-                    >
-                      {o}
-                    </button>
-                  ))}
+                  {organicOwnerOptions.map((o) => {
+                    const oc = ownerColor(o);
+                    return (
+                      <button
+                        key={o}
+                        type="button"
+                        onClick={() => setNewOrganicOwner(o)}
+                        style={{ flex: 1, padding: "0.25rem", borderRadius: 6, border: "1px solid", borderColor: newOrganicOwner === o ? oc.fg : "var(--border)", background: newOrganicOwner === o ? oc.bg : "transparent", color: newOrganicOwner === o ? oc.fg : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", transition: "all 0.1s" }}
+                      >
+                        {o}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               <input type="hidden" name="owner_name" value={isOwnScope ? username : newOrganicOwner} />
               <div style={{ display: "flex", gap: "0.25rem" }}>
-                <button type="submit" style={{ flex: 1, background: "#e879f9", color: "white", border: "none", borderRadius: 6, padding: "0.3rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}>
+                <button type="submit" style={{ flex: 1, background: "var(--organic-accent)", color: "white", border: "none", borderRadius: 6, padding: "0.3rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}>
                   Anlegen
                 </button>
                 <button type="button" onClick={() => setShowNewOrganic(false)} style={{ background: "var(--surface-200)", color: "var(--text-subtle)", border: "none", borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.75rem", cursor: "pointer" }}>

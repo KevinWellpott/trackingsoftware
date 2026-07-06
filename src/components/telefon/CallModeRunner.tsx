@@ -4,6 +4,7 @@ import { setPhoneLeadOutcome, updatePhoneLead, type PhoneLeadInput } from "@/app
 import { convertPhoneLeadToSetting } from "@/app/actions/appointments";
 import { AppointmentModal } from "@/components/appointment/AppointmentModal";
 import { Modal } from "@/components/ui/Modal";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { PhoneLead, PhoneLeadStatus, PhoneList } from "@/lib/types";
 import {
   Calendar,
@@ -250,6 +251,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
   const [callbackOpen, setCallbackOpen] = useState(false);
   const [callbackAt, setCallbackAt] = useState("");
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog } = useConfirm();
 
   const merged = useMemo(
     () => leads.map((l) => ({ ...l, ...(overrides[l.id] ?? {}) })),
@@ -859,10 +861,14 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                 <button
                   type="button"
                   disabled={isPending}
-                  onClick={() => {
-                    if (window.confirm(`"${current.company ?? current.phone ?? "Lead"}" wirklich als toten Lead markieren?`)) {
-                      applyOutcome("dead");
-                    }
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: "Toter Lead?",
+                      message: `"${current.company ?? current.phone ?? "Lead"}" wirklich als toten Lead markieren?`,
+                      confirmLabel: "Als tot markieren",
+                      destructive: true,
+                    });
+                    if (ok) applyOutcome("dead");
                   }}
                   style={{
                     ...outcomeBtnBase,
@@ -1034,6 +1040,9 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
           </button>
         </div>
       </Modal>
+
+      {/* ── Bestätigungsdialog (Toter Lead) ── */}
+      {dialog}
     </div>
   );
 }

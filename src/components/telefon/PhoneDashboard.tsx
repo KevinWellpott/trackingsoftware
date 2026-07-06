@@ -3,6 +3,7 @@ import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
 import { resolveTarget } from "@/lib/targets";
+import { ownerColor } from "@/lib/ownerColor";
 import { Calendar, Headphones, Phone, PhoneMissed, PhoneOff, Shield, UserCheck } from "lucide-react";
 
 // Telefon-Dashboard (Server): Owner-Metriken der letzten 30 Tage aus
@@ -27,18 +28,6 @@ type RawRow = {
   callbacks: number | string | null;
   dead: number | string | null;
 };
-
-const OWNER_COLORS: Record<string, string> = {
-  Kevin: "#6366f1",
-  Simon: "#8b5cf6",
-  Daniel: "#10b981",
-  "Samuel Kerber": "#0ea5e9",
-};
-const FALLBACK_PALETTE = ["#0ea5e9", "#f59e0b", "#ec4899", "#14b8a6"];
-
-function ownerColor(name: string, index: number): string {
-  return OWNER_COLORS[name] ?? FALLBACK_PALETTE[index % FALLBACK_PALETTE.length];
-}
 
 function weekStart(today: string): string {
   const [y, m, d] = today.split("-").map(Number);
@@ -276,8 +265,8 @@ export async function PhoneDashboard() {
               padding: "1rem 1.25rem",
             }}
           >
-            {rows30.map((r, i) => {
-              const color = ownerColor(r.owner_name, i);
+            {rows30.map((r) => {
+              const { fg: color, bg: colorBg } = ownerColor(r.owner_name);
               const week = weekByOwner[r.owner_name];
               const userId = userIdByName[r.owner_name] ?? "";
               const callsTarget = resolveTarget(targets, userId, "telefon", "weekly", "calls");
@@ -298,7 +287,7 @@ export async function PhoneDashboard() {
                         width: 26,
                         height: 26,
                         borderRadius: "50%",
-                        background: `${color}22`,
+                        background: colorBg,
                         border: `1.5px solid ${color}`,
                         display: "flex",
                         alignItems: "center",
@@ -356,8 +345,8 @@ export async function PhoneDashboard() {
               <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
                 {[...rows30]
                   .sort((a, b) => b.calls - a.calls)
-                  .map((r, i) => {
-                    const color = ownerColor(r.owner_name, i);
+                  .map((r) => {
+                    const color = ownerColor(r.owner_name).fg;
                     return (
                       <div key={r.owner_name} style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
                         <span

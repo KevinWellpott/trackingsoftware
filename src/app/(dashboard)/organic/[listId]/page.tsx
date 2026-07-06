@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { OrganicBoard } from "@/components/organic/OrganicBoard";
 import { generateOrganicInsights } from "@/lib/organic-insights";
+import { ownerColor } from "@/lib/ownerColor";
 import type { OrganicPost, OrganicList } from "@/app/actions/organic";
 import { deleteOrganicList } from "@/app/actions/organic";
 import { DeleteOrganicListButton } from "@/components/organic/DeleteOrganicListButton";
@@ -32,10 +33,10 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
 
 function InsightCard({ level, title, body }: { level: string; title: string; body: string }) {
   const cfg: Record<string, { icon: React.ReactNode; color: string; bg: string; border: string }> = {
-    success: { icon: <CheckCircle size={14} />, color: "var(--color-success-text)", bg: "rgb(4 184 0 / 0.08)", border: "rgb(4 184 0 / 0.2)" },
-    warning: { icon: <AlertCircle size={14} />, color: "var(--color-warning-text)", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)" },
-    danger:  { icon: <AlertCircle size={14} />, color: "var(--color-error-text)", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.2)" },
-    tip:     { icon: <Zap size={14} />,          color: "var(--brand-500)", bg: "rgb(24 98 184 / 0.08)", border: "rgb(24 98 184 / 0.2)" },
+    success: { icon: <CheckCircle size={14} />, color: "var(--color-success-text)", bg: "var(--color-success-bg)", border: "var(--color-success-border)" },
+    warning: { icon: <AlertCircle size={14} />, color: "var(--color-warning-text)", bg: "var(--color-warning-bg)", border: "var(--color-warning-border)" },
+    danger:  { icon: <AlertCircle size={14} />, color: "var(--color-error-text)", bg: "var(--color-error-bg)", border: "var(--color-error-border)" },
+    tip:     { icon: <Zap size={14} />,          color: "var(--brand-500)", bg: "var(--color-info-bg)", border: "var(--color-info-border)" },
   };
   const c = cfg[level] ?? cfg.tip;
   return (
@@ -117,7 +118,9 @@ export default async function OrganicListDetailPage({
     .sort((a, b) => b.avg - a.avg)[0] ?? null;
 
   const insights = generateOrganicInsights(posts);
-  const ownerColor = L.owner_name === "Kevin" ? "#818cf8" : L.owner_name === "Simon" ? "#a78bfa" : "#f59e0b";
+  const oc = L.owner_name
+    ? ownerColor(L.owner_name)
+    : { fg: "var(--organic-accent)", bg: "var(--organic-accent-bg)" };
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>
@@ -128,10 +131,10 @@ export default async function OrganicListDetailPage({
             <ArrowLeft size={13} /> Zurück zum Organic Dashboard
           </Link>
           <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap" }}>
-            <Film size={18} color="#e879f9" />
+            <Film size={18} color="var(--organic-accent)" />
             <h1 style={{ fontSize: "1.375rem", fontWeight: 800, margin: 0, letterSpacing: "-0.03em" }}>{L.name}</h1>
             {L.owner_name && (
-              <span style={{ fontSize: "0.75rem", fontWeight: 700, color: ownerColor, background: ownerColor + "22", borderRadius: 99, padding: "0.15rem 0.5rem" }}>{L.owner_name}</span>
+              <span style={{ fontSize: "0.75rem", fontWeight: 700, color: oc.fg, background: oc.bg, borderRadius: 99, padding: "0.15rem 0.5rem" }}>{L.owner_name}</span>
             )}
           </div>
           {L.description && (
@@ -144,9 +147,9 @@ export default async function OrganicListDetailPage({
       {/* ── Analytics Strip */}
       <div className="grid-6-stat" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", borderBottom: "1px solid var(--border)", marginBottom: "1.5rem" }}>
         {[
-          { label: "Posts",        value: posts.length,              color: "#e879f9" },
-          { label: "Ø Insta",      value: avgInsta.toLocaleString(), color: "#ec4899" },
-          { label: "Ø TikTok",     value: avgTikTok.toLocaleString(),color: "#38bdf8" },
+          { label: "Posts",        value: posts.length,              color: "var(--organic-accent)" },
+          { label: "Ø Insta",      value: avgInsta.toLocaleString(), color: "var(--organic-accent)" },
+          { label: "Ø TikTok",     value: avgTikTok.toLocaleString(),color: "var(--owner-4)" },
           { label: "Imp. gesamt",  value: totalImp.toLocaleString(), color: "var(--brand-400)" },
           { label: "CTA-Rate",     value: `${ctaRate}%`,             color: "var(--color-success-text)" },
           { label: "Stories",      value: `${storiesRate}%`,         color: "var(--color-warning-text)" },
@@ -162,8 +165,8 @@ export default async function OrganicListDetailPage({
       {(bestPost || bestType) && (
         <div style={{ display: "grid", gridTemplateColumns: bestPost && bestType ? "1fr 1fr" : "1fr", gap: "0.875rem", marginBottom: "1.5rem" }}>
           {bestPost && (
-            <div style={{ background: "rgba(232,121,249,0.06)", border: "1px solid rgba(232,121,249,0.15)", borderRadius: 10, padding: "0.875rem 1rem" }}>
-              <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#e879f9", marginBottom: "0.375rem" }}>🏆 Bester Hook</div>
+            <div style={{ background: "var(--organic-accent-bg)", border: "1px solid color-mix(in srgb, var(--organic-accent) 15%, transparent)", borderRadius: 10, padding: "0.875rem 1rem" }}>
+              <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--organic-accent)", marginBottom: "0.375rem" }}>🏆 Bester Hook</div>
               <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>&quot;{bestPost.hook_text}&quot;</div>
               <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>
                 {((bestPost.insta_impressions ?? 0) + (bestPost.tiktok_impressions ?? 0)).toLocaleString()} Impressionen · {bestPost.posted_at}
@@ -171,7 +174,7 @@ export default async function OrganicListDetailPage({
             </div>
           )}
           {bestType && (
-            <div style={{ background: "rgb(24 98 184 / 0.06)", border: "1px solid rgb(24 98 184 / 0.15)", borderRadius: 10, padding: "0.875rem 1rem" }}>
+            <div style={{ background: "var(--color-info-bg)", border: "1px solid var(--color-info-border)", borderRadius: 10, padding: "0.875rem 1rem" }}>
               <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--brand-500)", marginBottom: "0.375rem" }}>📊 Bester Content-Typ</div>
               <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>{CONTENT_TYPE_LABELS[bestType.type] ?? bestType.type}</div>
               <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>Ø {bestType.avg.toLocaleString()} Impressionen</div>

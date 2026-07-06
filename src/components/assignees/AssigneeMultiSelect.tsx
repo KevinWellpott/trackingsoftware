@@ -1,12 +1,14 @@
 "use client";
 
 import { setAssignees, type AssigneeEntity } from "@/app/actions/assignees";
+import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import { Check, ChevronDown, Plus, X } from "lucide-react";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 // Kompakter Multi-Select für Call-Zuweisungen (Setter/Closer).
 // Auswahl als entfernbare Chips mit Initialen; Änderungen werden sofort
 // per setAssignees gespeichert. Wird von Setting UND Closing genutzt.
+// Tastatur: Pfeiltasten navigieren, Enter/Space toggelt, Escape schließt.
 
 type UserOption = { user_id: string; username: string };
 
@@ -17,20 +19,16 @@ type Props = {
   initial: UserOption[];
 };
 
-const CHIP_PALETTE = ["#6366f1", "#8b5cf6", "#10b981", "#0ea5e9", "#f59e0b", "#ec4899", "#14b8a6"];
-
-function chipColor(username: string): string {
-  let hash = 0;
-  for (let i = 0; i < username.length; i++) hash = (hash * 31 + username.charCodeAt(i)) >>> 0;
-  return CHIP_PALETTE[hash % CHIP_PALETTE.length];
-}
-
 export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>(() => initial.map((a) => a.user_id));
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
   const [isPending, startTransition] = useTransition();
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -40,6 +38,52 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
+
+  // Beim Öffnen: erste Option fokussieren (roving tabIndex).
+  useEffect(() => {
+    if (!open) return;
+    setActiveIndex(0);
+    const first = listRef.current?.querySelector<HTMLElement>('[role="option"]');
+    first?.focus();
+  }, [open]);
+
+  function closeAndRefocus() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  function onListKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeAndRefocus();
+      return;
+    }
+    if (e.key === "Tab") {
+      setOpen(false);
+      return;
+    }
+    const options = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []);
+    if (options.length === 0) return;
+    const current = options.findIndex((el) => el === document.activeElement);
+    let next = -1;
+    if (e.key === "ArrowDown") next = current < 0 ? 0 : (current + 1) % options.length;
+    else if (e.key === "ArrowUp") next = current < 0 ? options.length - 1 : (current - 1 + options.length) % options.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = options.length - 1;
+    if (next >= 0) {
+      e.preventDefault();
+      options[next].focus();
+      setActiveIndex(next);
+    }
+    // Enter/Space toggeln nativ über den Button-Click der fokussierten Option.
+  }
+
+  function onTriggerKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setOpen(true);
+    }
+  }
 
   function commit(nextIds: string[]) {
     setSelectedIds(nextIds);
@@ -65,7 +109,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
     <div ref={rootRef} style={{ position: "relative" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", alignItems: "center" }}>
         {selectedUsers.map((u) => {
-          const color = chipColor(u.username);
+          const oc = ownerColor(u.username);
           return (
             <span
               key={u.user_id}
@@ -73,8 +117,8 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "0.375rem",
-                background: `${color}18`,
-                border: `1px solid ${color}55`,
+                background: oc.bg,
+                border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`,
                 borderRadius: 99,
                 padding: "0.2rem 0.45rem 0.2rem 0.25rem",
                 fontSize: "0.75rem",
@@ -87,8 +131,8 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                   width: 18,
                   height: 18,
                   borderRadius: "50%",
-                  background: color,
-                  color: "#fff",
+                  background: oc.bg,
+                  color: oc.fg,
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -97,7 +141,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                   flexShrink: 0,
                 }}
               >
-                {u.username.charAt(0).toUpperCase()}
+                {ownerInitials(u.username)}
               </span>
               {u.username}
               <button
@@ -120,8 +164,13 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
         })}
 
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setOpen((v) => !v)}
+          onKeyDown={onTriggerKeyDown}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={open ? listboxId : undefined}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -152,6 +201,12 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
 
       {open && (
         <div
+          ref={listRef}
+          id={listboxId}
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label="Nutzer zuweisen"
+          onKeyDown={onListKeyDown}
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
@@ -172,14 +227,18 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
               Keine Nutzer verfügbar.
             </p>
           )}
-          {users.map((u) => {
+          {users.map((u, i) => {
             const active = selectedIds.includes(u.user_id);
-            const color = chipColor(u.username);
+            const oc = ownerColor(u.username);
             return (
               <button
                 key={u.user_id}
                 type="button"
+                role="option"
+                aria-selected={active}
+                tabIndex={i === activeIndex ? 0 : -1}
                 onClick={() => toggle(u.user_id)}
+                onFocus={() => setActiveIndex(i)}
                 style={{
                   width: "100%",
                   display: "flex",
@@ -203,9 +262,9 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                     width: 20,
                     height: 20,
                     borderRadius: "50%",
-                    background: `${color}22`,
-                    border: `1px solid ${color}66`,
-                    color,
+                    background: oc.bg,
+                    border: `1px solid color-mix(in srgb, ${oc.fg} 40%, transparent)`,
+                    color: oc.fg,
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -214,7 +273,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                     flexShrink: 0,
                   }}
                 >
-                  {u.username.charAt(0).toUpperCase()}
+                  {ownerInitials(u.username)}
                 </span>
                 <span
                   style={{

@@ -14,8 +14,8 @@ const PRESETS: { value: Period; label: string }[] = [
 ];
 
 const OWNER_COLORS: Record<string, string> = {
-  Kevin: "#818cf8",
-  Simon: "#a78bfa",
+  Kevin: "var(--owner-1)",
+  Simon: "var(--owner-2)",
 };
 
 type ListOption = { id: string; name: string; owner_name: string | null };
@@ -138,9 +138,9 @@ export function FilterPanel({ lists, currentPeriod, currentFrom, currentTo, curr
                   cursor: "pointer",
                   fontSize: "0.8125rem",
                   fontWeight: active ? 700 : 500,
-                  background: active ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "transparent",
-                  color: active ? "#fff" : "#71717a",
-                  boxShadow: active ? "0 2px 8px rgba(99,102,241,0.35)" : "none",
+                  background: active ? "linear-gradient(135deg, var(--brand-500), var(--accent-500))" : "transparent",
+                  color: active ? "#fff" : "var(--text-subtle)",
+                  boxShadow: active ? "0 2px 8px color-mix(in srgb, var(--brand-500) 35%, transparent)" : "none",
                   transition: "all 0.12s",
                   whiteSpace: "nowrap",
                 }}
@@ -161,9 +161,9 @@ export function FilterPanel({ lists, currentPeriod, currentFrom, currentTo, curr
             gap: "0.35rem",
             padding: "0.3rem 0.75rem",
             borderRadius: "var(--radius-md)",
-            border: `1px solid ${showDatePicker || isCustom ? "rgba(99,102,241,0.5)" : "var(--border)"}`,
-            background: showDatePicker || isCustom ? "rgba(99,102,241,0.1)" : "var(--surface-100)",
-            color: showDatePicker || isCustom ? "#818cf8" : "#71717a",
+            border: `1px solid ${showDatePicker || isCustom ? "var(--color-info-border)" : "var(--border)"}`,
+            background: showDatePicker || isCustom ? "var(--color-info-bg)" : "var(--surface-100)",
+            color: showDatePicker || isCustom ? "var(--brand-500)" : "var(--text-subtle)",
             fontSize: "0.8125rem",
             fontWeight: 600,
             cursor: "pointer",
@@ -193,8 +193,8 @@ export function FilterPanel({ lists, currentPeriod, currentFrom, currentTo, curr
             alignItems: "center",
             gap: "0.625rem",
             padding: "0.75rem 1rem",
-            background: "rgba(99,102,241,0.05)",
-            border: "1px solid rgba(99,102,241,0.18)",
+            background: "var(--color-info-bg)",
+            border: "1px solid var(--color-info-border)",
             borderRadius: "var(--radius-md)",
             flexWrap: "wrap",
           }}
@@ -230,10 +230,10 @@ export function FilterPanel({ lists, currentPeriod, currentFrom, currentTo, curr
               fontSize: "0.8125rem",
               fontWeight: 700,
               background: fromDate && toDate
-                ? "linear-gradient(135deg,#6366f1,#8b5cf6)"
-                : "#18181b",
-              color: fromDate && toDate ? "white" : "#52525b",
-              boxShadow: fromDate && toDate ? "0 2px 8px rgba(99,102,241,0.35)" : "none",
+                ? "linear-gradient(135deg, var(--brand-500), var(--accent-500))"
+                : "var(--surface-200)",
+              color: fromDate && toDate ? "white" : "var(--text-subtle)",
+              boxShadow: fromDate && toDate ? "0 2px 8px color-mix(in srgb, var(--brand-500) 35%, transparent)" : "none",
               transition: "all 0.12s",
             }}
           >
@@ -273,7 +273,7 @@ export function FilterPanel({ lists, currentPeriod, currentFrom, currentTo, curr
         <ListPill
           label="Alle"
           active={allSelected}
-          color="#818cf8"
+          color="var(--brand-500)"
           onClick={selectAllLists}
         />
 
@@ -283,7 +283,7 @@ export function FilterPanel({ lists, currentPeriod, currentFrom, currentTo, curr
             key={l.id}
             label={l.name}
             active={selectedIds.has(l.id)}
-            color={OWNER_COLORS[l.owner_name ?? ""] ?? "#71717a"}
+            color={OWNER_COLORS[l.owner_name ?? ""] ?? "var(--text-subtle)"}
             onClick={() => toggleList(l.id)}
             prefix={l.owner_name ? l.owner_name[0] : undefined}
           />
@@ -325,9 +325,9 @@ function ListPill({
         gap: "0.25rem",
         padding: "0.1875rem 0.625rem",
         borderRadius: 99,
-        border: `1px solid ${active ? color + "55" : "#27272a"}`,
-        background: active ? color + "18" : "transparent",
-        color: active ? color : "#52525b",
+        border: `1px solid ${active ? `color-mix(in srgb, ${color} 33%, transparent)` : "var(--border)"}`,
+        background: active ? `color-mix(in srgb, ${color} 9%, transparent)` : "transparent",
+        color: active ? color : "var(--text-subtle)",
         fontSize: "0.75rem",
         fontWeight: active ? 700 : 400,
         cursor: "pointer",

@@ -16,11 +16,11 @@ type Props = {
 };
 
 const CONTENT_TYPES = [
-  { value: "educational",  label: "Educational",       color: "#6366f1" },
-  { value: "motivational", label: "Motivational",      color: "#f59e0b" },
-  { value: "entertaining", label: "Entertaining",      color: "#ec4899" },
-  { value: "bts",          label: "Behind-the-Scenes", color: "#10b981" },
-  { value: "other",        label: "Sonstiges",         color: "#71717a" },
+  { value: "educational",  label: "Educational",       color: "var(--owner-1)" },
+  { value: "motivational", label: "Motivational",      color: "var(--owner-5)" },
+  { value: "entertaining", label: "Entertaining",      color: "var(--organic-accent)" },
+  { value: "bts",          label: "Behind-the-Scenes", color: "var(--owner-3)" },
+  { value: "other",        label: "Sonstiges",         color: "var(--text-subtle)" },
 ] as const;
 
 function localToday(): string {
@@ -37,8 +37,8 @@ function ContentTypeBadge({ value }: { value: OrganicPost["content_type"] }) {
       fontWeight: 600,
       padding: "0.1rem 0.45rem",
       borderRadius: 99,
-      background: (ct?.color ?? "#71717a") + "22",
-      color: ct?.color ?? "#71717a",
+      background: `color-mix(in srgb, ${ct?.color ?? "var(--text-subtle)"} 13%, transparent)`,
+      color: ct?.color ?? "var(--text-subtle)",
       whiteSpace: "nowrap",
     }}>
       {ct?.label ?? value}
@@ -217,7 +217,7 @@ function ContentTypeSelect({
   onSave: (v: OrganicPost["content_type"]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const color = CONTENT_TYPES.find((c) => c.value === value)?.color ?? "#71717a";
+  const color = CONTENT_TYPES.find((c) => c.value === value)?.color ?? "var(--text-subtle)";
 
   return (
     <div style={{ position: "relative" }}>
@@ -377,7 +377,7 @@ function NewRow({ listId, ownerName }: { listId: string; ownerName: string | nul
   };
 
   return (
-    <tr style={{ background: "rgba(99,102,241,0.04)", borderBottom: "1px solid var(--border)" }}>
+    <tr style={{ background: "var(--color-info-bg)", borderBottom: "1px solid var(--border)" }}>
       <td style={td}>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 120 }} />
       </td>
@@ -452,10 +452,10 @@ function StatsRow({ posts }: { posts: OrganicPost[] }) {
       <td colSpan={4} style={{ ...td, fontWeight: 700, color: "var(--text-secondary)", fontSize: "0.75rem" }}>
         {posts.length} Posts gesamt
       </td>
-      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: "#e879f9" }}>Ø {avgI.toLocaleString()}</td>
-      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: "#38bdf8" }}>Ø {avgT.toLocaleString()}</td>
-      <td style={{ ...td, textAlign: "center", fontWeight: 700, color: "#34d399" }}>{ctaCount} CTAs</td>
-      <td style={{ ...td, textAlign: "center", fontWeight: 700, color: "#f59e0b" }}>{storiesCount} Stories ✓</td>
+      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: "var(--organic-accent)" }}>Ø {avgI.toLocaleString()}</td>
+      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: "var(--owner-4)" }}>Ø {avgT.toLocaleString()}</td>
+      <td style={{ ...td, textAlign: "center", fontWeight: 700, color: "var(--color-success-text)" }}>{ctaCount} CTAs</td>
+      <td style={{ ...td, textAlign: "center", fontWeight: 700, color: "var(--color-warning-text)" }}>{storiesCount} Stories ✓</td>
       <td colSpan={2} />
     </tr>
   );

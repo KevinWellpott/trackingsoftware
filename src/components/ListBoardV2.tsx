@@ -3,6 +3,7 @@
 import { createContactForm, deleteContactForm, updateContact } from "@/app/actions/contacts";
 import { clearContactAppointment, convertContactToSetting } from "@/app/actions/appointments";
 import { AppointmentModal } from "@/components/appointment/AppointmentModal";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { ContactWithStage, PipelineStage } from "@/lib/types";
 import { ANSWER_CATEGORIES, CATEGORY_CONFIG, type AnswerCategory } from "@/lib/categories";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -41,7 +42,7 @@ const cellText: React.CSSProperties = {
 
 const editInput: React.CSSProperties = {
   width: "100%",
-  background: "rgb(24 98 184 / 0.06)",
+  background: "var(--color-info-bg)",
   border: "1px solid var(--brand-500)",
   borderRadius: 5,
   padding: "3px 7px",
@@ -262,13 +263,14 @@ function useContactEdit(c: ContactWithStage, listId: string) {
 
 // ─── Contact Row (memo, absolut positioniert im Virtual-Container) ───────────
 const ContactRow = memo(function ContactRow({
-  c, listId, start, onOpenAppointment, onClearAppointment,
+  c, listId, start, onOpenAppointment, onClearAppointment, onDeleteContact,
 }: {
   c: ContactWithStage;
   listId: string;
   start: number;
   onOpenAppointment: (c: ContactWithStage) => void;
   onClearAppointment: (c: ContactWithStage) => void;
+  onDeleteContact: (c: ContactWithStage) => void;
 }) {
   const { vals, save, isPending } = useContactEdit(c, listId);
 
@@ -377,19 +379,15 @@ const ContactRow = memo(function ContactRow({
 
       {/* Delete */}
       <div style={cell}>
-        <form action={deleteContactForm} style={{ display: "inline" }}>
-          <input type="hidden" name="contact_id" value={c.id} />
-          <input type="hidden" name="list_id" value={listId} />
-          <button
-            type="submit"
-            className="lbv2-del"
-            onClick={(e) => { if (!confirm(`"${c.name}" löschen?`)) e.preventDefault(); }}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: "3px 4px", borderRadius: 4, display: "flex", alignItems: "center" }}
-            title="Löschen"
-          >
-            <Trash2 size={12} />
-          </button>
-        </form>
+        <button
+          type="button"
+          className="lbv2-del"
+          onClick={() => onDeleteContact(c)}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: "3px 4px", borderRadius: 4, display: "flex", alignItems: "center" }}
+          title="Löschen"
+        >
+          <Trash2 size={12} />
+        </button>
       </div>
     </div>
   );
@@ -688,7 +686,7 @@ function CardEditArea({
 
 // Volle Kontakt-Karte (dynamisch gemessen via virtualizer.measureElement).
 const MobileContactCard = memo(function MobileContactCard({
-  c, listId, start, index, measureRef, onOpenAppointment, onClearAppointment,
+  c, listId, start, index, measureRef, onOpenAppointment, onClearAppointment, onDeleteContact,
 }: {
   c: ContactWithStage;
   listId: string;
@@ -697,6 +695,7 @@ const MobileContactCard = memo(function MobileContactCard({
   measureRef: (node: Element | null) => void;
   onOpenAppointment: (c: ContactWithStage) => void;
   onClearAppointment: (c: ContactWithStage) => void;
+  onDeleteContact: (c: ContactWithStage) => void;
 }) {
   const { vals, save, isPending } = useContactEdit(c, listId);
   const hasAppointment = c.appointment_set === true;
@@ -750,19 +749,15 @@ const MobileContactCard = memo(function MobileContactCard({
               <ExternalLink size={16} />
             </a>
           )}
-          <form action={deleteContactForm} style={{ display: "inline", flexShrink: 0 }}>
-            <input type="hidden" name="contact_id" value={c.id} />
-            <input type="hidden" name="list_id" value={listId} />
-            <button
-              type="submit"
-              className="lbv2-del"
-              onClick={(e) => { if (!confirm(`"${c.name}" löschen?`)) e.preventDefault(); }}
-              style={{ background: "none", border: "none", cursor: "pointer", minWidth: 40, minHeight: 40, borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", justifyContent: "center" }}
-              title="Löschen"
-            >
-              <Trash2 size={16} />
-            </button>
-          </form>
+          <button
+            type="button"
+            className="lbv2-del"
+            onClick={() => onDeleteContact(c)}
+            style={{ background: "none", border: "none", cursor: "pointer", minWidth: 40, minHeight: 40, borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            title="Löschen"
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
 
         {/* Datum */}
@@ -942,6 +937,7 @@ export function ListBoardV2({ listId, stages: _stages, contacts }: {
   const [search, setSearch] = useState("");
   const [apptContact, setApptContact] = useState<ContactWithStage | null>(null);
   const [, startTransition] = useTransition();
+  const { confirm, dialog } = useConfirm();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -978,13 +974,35 @@ export function ListBoardV2({ listId, stages: _stages, contacts }: {
   }, [isMobile]);
 
   const openAppointment = useCallback((c: ContactWithStage) => setApptContact(c), []);
-  const clearAppointment = useCallback((c: ContactWithStage) => {
-    if (!confirm("Termin entfernen?")) return;
+  const clearAppointment = useCallback(async (c: ContactWithStage) => {
+    const ok = await confirm({
+      title: "Termin entfernen?",
+      message: `Der eingebuchte Termin für "${c.name}" wird entfernt.`,
+      confirmLabel: "Entfernen",
+      destructive: true,
+    });
+    if (!ok) return;
     startTransition(async () => {
       await clearContactAppointment({ contactId: c.id, listId });
       router.refresh();
     });
-  }, [listId, router]);
+  }, [confirm, listId, router]);
+
+  const deleteContact = useCallback(async (c: ContactWithStage) => {
+    const ok = await confirm({
+      title: "Kontakt löschen?",
+      message: `"${c.name}" löschen?`,
+      confirmLabel: "Löschen",
+      destructive: true,
+    });
+    if (!ok) return;
+    const fd = new FormData();
+    fd.set("contact_id", c.id);
+    fd.set("list_id", listId);
+    startTransition(async () => {
+      await deleteContactForm(fd);
+    });
+  }, [confirm, listId]);
 
   const headerCell: React.CSSProperties = {
     ...cell,
@@ -1047,6 +1065,7 @@ export function ListBoardV2({ listId, stages: _stages, contacts }: {
                     measureRef={virtualizer.measureElement}
                     onOpenAppointment={openAppointment}
                     onClearAppointment={clearAppointment}
+                    onDeleteContact={deleteContact}
                   />
                 );
               })}
@@ -1094,6 +1113,7 @@ export function ListBoardV2({ listId, stages: _stages, contacts }: {
                       start={vi.start}
                       onOpenAppointment={openAppointment}
                       onClearAppointment={clearAppointment}
+                      onDeleteContact={deleteContact}
                     />
                   );
                 })}
@@ -1125,6 +1145,9 @@ export function ListBoardV2({ listId, stages: _stages, contacts }: {
         }}
         onSaved={() => router.refresh()}
       />
+
+      {/* Themen-konformer Bestätigungsdialog (Löschen / Termin entfernen) */}
+      {dialog}
     </div>
   );
 }

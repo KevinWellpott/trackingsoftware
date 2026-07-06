@@ -19,7 +19,7 @@ function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1
 function RankBadge({ rank }: { rank: number }) {
   const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
   return (
-    <div style={{ width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: rank === 1 ? "rgb(4 184 0 / 0.08)" : "var(--surface-150)", border: rank === 1 ? "1px solid rgb(4 184 0 / 0.2)" : "1px solid var(--border)", flexShrink: 0 }}>
+    <div style={{ width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: rank === 1 ? "var(--color-success-bg)" : "var(--surface-150)", border: rank === 1 ? "1px solid var(--color-success-border)" : "1px solid var(--border)", flexShrink: 0 }}>
       {medal ? (
         <span style={{ fontSize: "0.875rem" }}>{medal}</span>
       ) : (
@@ -36,7 +36,7 @@ export function ListAnalysisSection({ allContacts, lists, personalMode = false }
   const ownerColors = useMemo(() => {
     const names = [...new Set(lists.map((l) => l.owner_name).filter((n): n is string => Boolean(n)))].sort();
     const map: Record<string, string> = {};
-    names.forEach((name, i) => { map[name] = ownerColor(name, i); });
+    names.forEach((name) => { map[name] = ownerColor(name); });
     return map;
   }, [lists]);
 
@@ -121,7 +121,7 @@ export function ListAnalysisSection({ allContacts, lists, personalMode = false }
             {listStats.slice(0, 8).map((s, i) => {
               const oColor = s.list.owner_name ? ownerColors[s.list.owner_name] : null;
               return (
-                <Link key={s.list.id} href={`/lists/${s.list.id}`} style={{ display: "flex", alignItems: "center", gap: "0.625rem", textDecoration: "none", padding: "0.625rem 0.75rem", borderRadius: 10, background: i === 0 ? "rgb(4 184 0 / 0.04)" : "var(--surface-150)", border: i === 0 ? "1px solid rgb(4 184 0 / 0.15)" : "1px solid transparent", transition: "background 0.1s, border-color 0.1s" }}>
+                <Link key={s.list.id} href={`/lists/${s.list.id}`} style={{ display: "flex", alignItems: "center", gap: "0.625rem", textDecoration: "none", padding: "0.625rem 0.75rem", borderRadius: 10, background: i === 0 ? "var(--color-success-bg)" : "var(--surface-150)", border: i === 0 ? "1px solid var(--color-success-border)" : "1px solid transparent", transition: "background 0.1s, border-color 0.1s" }}>
                   <RankBadge rank={i + 1} />
 
                   {/* Name + owner */}

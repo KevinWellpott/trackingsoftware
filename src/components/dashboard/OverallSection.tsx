@@ -185,7 +185,7 @@ export function OverallSection({
           const color = member.color;
           const pct   = Math.min((count / dailyGoal) * 100, 100);
           return (
-            <div key={owner} style={{ background: done ? "rgb(4 184 0 / 0.05)" : tint(color, 4), border: `1px solid ${done ? "rgb(4 184 0 / 0.2)" : tint(color, 16)}`, borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>
+            <div key={owner} style={{ background: done ? "var(--color-success-bg)" : tint(color, 4), border: `1px solid ${done ? "var(--color-success-border)" : tint(color, 16)}`, borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
                 {/* Ring */}
                 <div style={{ position: "relative", width: 48, height: 48, flexShrink: 0 }}>

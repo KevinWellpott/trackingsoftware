@@ -40,10 +40,10 @@ export function PeriodFilter({ current }: { current: Period }) {
             cursor: "pointer",
             fontSize: "0.8125rem",
             fontWeight: current === o.value ? 700 : 500,
-            background: current === o.value ? "linear-gradient(135deg, #6366f1, #8b5cf6)" : "transparent",
+            background: current === o.value ? "linear-gradient(135deg, var(--brand-500), var(--accent-500))" : "transparent",
             color: current === o.value ? "#fff" : "var(--text-muted)",
             transition: "all 0.15s",
-            boxShadow: current === o.value ? "0 2px 8px rgba(99,102,241,0.35)" : "none",
+            boxShadow: current === o.value ? "0 2px 8px color-mix(in srgb, var(--brand-500) 35%, transparent)" : "none",
             whiteSpace: "nowrap",
           }}
         >

@@ -1,4 +1,4 @@
-import { createUserForm, deleteUserForm, listUsers } from "@/app/actions/workspace";
+import { createUserForm, listUsers } from "@/app/actions/workspace";
 import { getTargets, setTargetForm } from "@/app/actions/targets";
 import {
   resolveTarget,
@@ -8,7 +8,9 @@ import {
 } from "@/lib/targets";
 import { getMembership } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
-import { Plus, Settings, Shield, Target, Trash2, UserCheck, Users } from "lucide-react";
+import { ownerColor } from "@/lib/ownerColor";
+import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
+import { Plus, Settings, Shield, Target, UserCheck, Users } from "lucide-react";
 
 const TARGET_FIELDS: {
   label: string;
@@ -38,13 +40,6 @@ export default async function SettingsPage({
   const isOwner = m.role === "owner";
   const { users } = isOwner ? await listUsers(m.workspace_id) : { users: [] };
   const targets = isOwner ? await getTargets() : [];
-
-  const OWNER_COLORS: Record<string, string> = {
-    Kevin:  "#6366f1",
-    Simon:  "#8b5cf6",
-    Daniel: "#10b981",
-    "Samuel Kerber": "#0ea5e9",
-  };
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -87,9 +82,9 @@ export default async function SettingsPage({
           <span style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", fontWeight: 600 }}>Name</span>
           <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)" }}>{m.workspaces.name}</span>
           <span style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", fontWeight: 600 }}>Invite-Code</span>
-          <code style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--brand-500)", background: "rgb(24 98 184 / 0.10)", border: "1px solid rgb(24 98 184 / 0.20)", borderRadius: 6, padding: "2px 8px", letterSpacing: "0.08em" }}>{m.workspaces.invite_code}</code>
+          <code style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--brand-500)", background: "var(--color-info-bg)", border: "1px solid var(--color-info-border)", borderRadius: 6, padding: "2px 8px", letterSpacing: "0.08em" }}>{m.workspaces.invite_code}</code>
           <span style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", fontWeight: 600 }}>Deine Rolle</span>
-          <span style={{ display: "inline-flex", width: "fit-content", padding: "2px 10px", borderRadius: 99, background: isOwner ? "rgb(24 98 184 / 0.12)" : "var(--surface-150)", border: `1px solid ${isOwner ? "rgb(24 98 184 / 0.30)" : "var(--border-bright)"}`, color: isOwner ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700 }}>
+          <span style={{ display: "inline-flex", width: "fit-content", padding: "2px 10px", borderRadius: 99, background: isOwner ? "var(--color-info-bg)" : "var(--surface-150)", border: `1px solid ${isOwner ? "var(--color-info-border)" : "var(--border-bright)"}`, color: isOwner ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700 }}>
             {isOwner ? "Owner" : "Member"}
           </span>
         </div>
@@ -107,11 +102,11 @@ export default async function SettingsPage({
           <div>
             {users.map((u, i) => {
               const isMe = u.user_id === currentUser?.id;
-              const avatarColor = OWNER_COLORS[u.username] ?? "#71717a";
+              const avatar = ownerColor(u.username);
               return (
                 <div key={u.user_id} style={{ display: "flex", alignItems: "center", gap: "0.875rem", padding: "0.875rem 1.375rem", borderBottom: i < users.length - 1 ? "1px solid var(--border)" : "none" }}>
                   {/* Avatar */}
-                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: `${avatarColor}18`, border: `1.5px solid ${avatarColor}40`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: avatarColor, fontSize: "0.9375rem", flexShrink: 0 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatar.bg, border: `1.5px solid color-mix(in srgb, ${avatar.fg} 33%, transparent)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: avatar.fg, fontSize: "0.9375rem", flexShrink: 0 }}>
                     {u.username[0].toUpperCase()}
                   </div>
                   {/* Info */}
@@ -125,27 +120,14 @@ export default async function SettingsPage({
                     </span>
                   </div>
                   {/* Delete (not self) */}
-                  {!isMe && (
-                    <form action={deleteUserForm}>
-                      <input type="hidden" name="user_id" value={u.user_id} />
-                      <button
-                        type="submit"
-                        onClick={(e) => { if (!confirm(`"${u.username}" wirklich löschen? Alle Daten bleiben erhalten.`)) e.preventDefault(); }}
-                        title="Nutzer löschen"
-                        style={{ background: "var(--color-error-bg)", border: "1px solid var(--color-error-border)", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "var(--color-error-text)", display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.75rem", fontWeight: 600, transition: "all 0.12s" }}
-                      >
-                        <Trash2 size={13} />
-                        Löschen
-                      </button>
-                    </form>
-                  )}
+                  {!isMe && <DeleteUserButton userId={u.user_id} username={u.username} />}
                 </div>
               );
             })}
           </div>
 
           {/* Create user form */}
-          <div style={{ borderTop: "1px solid var(--border)", padding: "1.125rem 1.375rem", background: "rgb(24 98 184 / 0.02)" }}>
+          <div style={{ borderTop: "1px solid var(--border)", padding: "1.125rem 1.375rem", background: "color-mix(in srgb, var(--brand-500) 3%, transparent)" }}>
             <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem", display: "flex", alignItems: "center", gap: "0.375rem" }}>
               <Plus size={12} /> Neuen Nutzer anlegen
             </div>
@@ -208,7 +190,7 @@ export default async function SettingsPage({
           </div>
           <div>
             {users.map((u, i) => {
-              const accentColor = OWNER_COLORS[u.username] ?? "#71717a";
+              const accentColor = ownerColor(u.username).fg;
               return (
                 <div key={u.user_id} style={{ padding: "0.875rem 1.375rem", borderBottom: i < users.length - 1 ? "1px solid var(--border)" : "none" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem" }}>

@@ -11,29 +11,11 @@ import {
   WeeklyDuelChart, type DuelSeries, type WeeklyDuelPoint,
 } from "@/components/DashboardCharts";
 import { generateInsights } from "@/lib/insights";
+import { ownerColor } from "@/lib/ownerColor";
 import { OverallSection } from "@/components/dashboard/OverallSection";
 import { FunnelSection } from "@/components/dashboard/FunnelSection";
 import { PersonSection } from "@/components/dashboard/PersonSection";
 import { ListAnalysisSection } from "@/components/dashboard/ListAnalysisSection";
-
-// ── Owner colors (dynamic roster) — server-side copy of the client helper ──
-const OWNER_BASE_COLORS: Record<string, string> = {
-  Kevin: "var(--brand-500)",
-  Simon: "var(--accent-500)",
-  Daniel: "var(--color-success-text)",
-  "Samuel Kerber": "#0ea5e9",
-};
-const OWNER_FALLBACK_PALETTE = [
-  "var(--brand-400)",
-  "var(--color-warning-text)",
-  "#0d9488",
-  "var(--color-ember)",
-  "var(--brand-600)",
-  "#6d28d9",
-];
-function ownerColor(name: string, index: number): string {
-  return OWNER_BASE_COLORS[name] ?? OWNER_FALLBACK_PALETTE[index % OWNER_FALLBACK_PALETTE.length];
-}
 
 /** Translucent variant of a (possibly var()-based) color. */
 function tint(color: string, alphaPct: number): string {
@@ -87,9 +69,9 @@ function DuelPanel({ owner, color, count, isLeader, isLoser, goal }: { owner: st
 function VSSep() {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", flexShrink: 0 }}>
-      <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, rgb(24 98 184 / 0.35))" }} />
-      <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "var(--text-subtle)", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid rgb(24 98 184 / 0.15)", borderRadius: 99, background: "rgb(24 98 184 / 0.05)" }}>VS</div>
-      <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, rgb(24 98 184 / 0.35), transparent)" }} />
+      <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, var(--color-info-border))" }} />
+      <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "var(--text-subtle)", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid var(--color-info-border)", borderRadius: 99, background: "var(--color-info-bg)" }}>VS</div>
+      <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, var(--color-info-border), transparent)" }} />
     </div>
   );
 }
@@ -109,7 +91,7 @@ function PersonalWeekPanel({
 }) {
   const progress = Math.min((count / goal) * 100, 100);
   return (
-    <div style={{ position: "relative", borderRadius: "var(--radius-xl)", overflow: "hidden", background: "var(--surface-100)", border: "1px solid rgb(180 83 9 / 0.22)", padding: "1.75rem 2rem 1.5rem", boxShadow: "var(--shadow-sm)" }}>
+    <div style={{ position: "relative", borderRadius: "var(--radius-xl)", overflow: "hidden", background: "var(--surface-100)", border: "1px solid var(--color-warning-border)", padding: "1.75rem 2rem 1.5rem", boxShadow: "var(--shadow-sm)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem", position: "relative" }}>
         <div style={{ width: 38, height: 38, borderRadius: 10, background: "var(--color-warning-text)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--surface-0)", fontWeight: 900 }}>
           {name[0]?.toUpperCase() ?? "P"}
@@ -222,7 +204,7 @@ export default async function DashboardPage() {
 
   // ── Dynamische Duell-Roster: alle Owner, die tatsächlich pitchen
   const rosterNames = [...new Set(pitchLists.map((l) => l.owner_name).filter((n): n is string => Boolean(n)))].sort();
-  const roster: DuelSeries[] = rosterNames.map((name, i) => ({ name, color: ownerColor(name, i) }));
+  const roster: DuelSeries[] = rosterNames.map((name) => ({ name, color: ownerColor(name).fg }));
 
   // ── Wochenduell (Mo–So, damit Sa/So auch mitzählen)
   const weekCounts: Record<string, number> = {};
@@ -313,19 +295,19 @@ export default async function DashboardPage() {
       emoji: "🚀",
       headline: "Jeder DM zählt — die Quote kommt mit Volumen.",
       sub: "Die besten Closer der Welt brauchen 30–50 Nein's für jedes Ja. Ihr seid im Aufbau — weiter machen!",
-      color: "var(--brand-500)", bg: "rgb(24 98 184 / 0.06)", border: "rgb(24 98 184 / 0.18)",
+      color: "var(--brand-500)", bg: "var(--color-info-bg)", border: "var(--color-info-border)",
     },
     zone: {
       emoji: "🎯",
       headline: "Ihr seid genau im Ziel — dieser Pitch funktioniert!",
       sub: "3–7% Terminquote ist das, was Top-Closer im Cold Outreach erzielen. Skaliert diesen Ansatz jetzt!",
-      color: "var(--color-success-text)", bg: "rgb(4 184 0 / 0.06)", border: "rgb(4 184 0 / 0.2)",
+      color: "var(--color-success-text)", bg: "var(--color-success-bg)", border: "var(--color-success-border)",
     },
     above: {
       emoji: "🏆",
       headline: "Über Ziel! Ihr spielt in einer anderen Liga.",
       sub: "Über 7% Terminquote? Das ist Elite-Niveau. Dupliziert diesen Pitch sofort auf mehr Listen!",
-      color: "var(--color-warning-text)", bg: "rgb(180 83 9 / 0.06)", border: "rgb(180 83 9 / 0.2)",
+      color: "var(--color-warning-text)", bg: "var(--color-warning-bg)", border: "var(--color-warning-border)",
     },
   };
   const mot = MOTIVATION[apptStatus];
@@ -514,14 +496,14 @@ export default async function DashboardPage() {
       {(followUpAlerts.length > 0 || overdueAlerts.length > 0) && (
         <div className="alert-grid" style={{ display: "grid", gridTemplateColumns: followUpAlerts.length > 0 && overdueAlerts.length > 0 ? "1fr 1fr" : "1fr", gap: "0.875rem" }}>
           {followUpAlerts.length > 0 && (
-            <div style={{ background: "rgb(180 83 9 / 0.04)", border: "1px solid rgb(180 83 9 / 0.18)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.375rem" }}>
+            <div style={{ background: "var(--color-warning-bg)", border: "1px solid var(--color-warning-border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.375rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem" }}>
                 <Bell size={14} color="var(--color-warning-text)" />
                 <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--color-warning-text)" }}>FUs fällig ({followUpAlerts.length})</span>
               </div>
               {followUpAlerts.map(({ contact: c, nextFu }) => (
                 <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8125rem", marginBottom: "0.25rem" }}>
-                  <span style={{ padding: "1px 5px", borderRadius: 3, background: "rgb(180 83 9 / 0.12)", color: "var(--color-warning-text)", fontSize: "0.6875rem", fontWeight: 700, flexShrink: 0 }}>FU{nextFu}</span>
+                  <span style={{ padding: "1px 5px", borderRadius: 3, background: "var(--color-warning-bg)", color: "var(--color-warning-text)", fontSize: "0.6875rem", fontWeight: 700, flexShrink: 0 }}>FU{nextFu}</span>
                   <Link href={`/lists/${c.list_id}`} style={{ color: "var(--text-secondary)", textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</Link>
                   <span style={{ color: "var(--text-subtle)", fontSize: "0.6875rem", flexShrink: 0 }}>{c.next_follow_up_at}</span>
                 </div>
@@ -529,14 +511,14 @@ export default async function DashboardPage() {
             </div>
           )}
           {overdueAlerts.length > 0 && (
-            <div style={{ background: "rgb(184 19 0 / 0.04)", border: "1px solid rgb(184 19 0 / 0.18)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.375rem" }}>
+            <div style={{ background: "var(--color-error-bg)", border: "1px solid var(--color-error-border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.375rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem" }}>
                 <AlertCircle size={14} color="var(--color-error-text)" />
                 <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--color-error-text)" }}>Stark überfällig ({overdueAlerts.length})</span>
               </div>
               {overdueAlerts.map((c) => (
                 <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8125rem", marginBottom: "0.25rem" }}>
-                  <span style={{ padding: "1px 5px", borderRadius: 3, background: "rgb(184 19 0 / 0.12)", color: "var(--color-error-text)", fontSize: "0.6875rem", fontWeight: 700, flexShrink: 0 }}>FU{Math.min((c.follow_up_number ?? 0) + 1, 3)}</span>
+                  <span style={{ padding: "1px 5px", borderRadius: 3, background: "var(--color-error-bg)", color: "var(--color-error-text)", fontSize: "0.6875rem", fontWeight: 700, flexShrink: 0 }}>FU{Math.min((c.follow_up_number ?? 0) + 1, 3)}</span>
                   <Link href={`/lists/${c.list_id}`} style={{ color: "var(--text-secondary)", textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</Link>
                   <span style={{ color: "var(--color-error-text)", fontSize: "0.6875rem", flexShrink: 0 }}>{c.next_follow_up_at}</span>
                 </div>
@@ -581,10 +563,10 @@ export default async function DashboardPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "0.75rem" }}>
             {insights.map((ins, i) => {
               const cfg = {
-                success: { border: "rgb(4 184 0 / 0.2)",   bg: "rgb(4 184 0 / 0.04)",   icon: <CheckCircle size={14} color="var(--color-success-text)" />, color: "var(--color-success-text)" },
-                warning: { border: "rgb(180 83 9 / 0.2)",  bg: "rgb(180 83 9 / 0.04)",  icon: <Bell size={14} color="var(--color-warning-text)" />,        color: "var(--color-warning-text)" },
-                danger:  { border: "rgb(184 19 0 / 0.2)",  bg: "rgb(184 19 0 / 0.04)",  icon: <AlertCircle size={14} color="var(--color-error-text)" />,   color: "var(--color-error-text)" },
-                tip:     { border: "rgb(24 98 184 / 0.2)", bg: "rgb(24 98 184 / 0.04)", icon: <Zap size={14} color="var(--brand-500)" />,                   color: "var(--brand-500)" },
+                success: { border: "var(--color-success-border)", bg: "var(--color-success-bg)", icon: <CheckCircle size={14} color="var(--color-success-text)" />, color: "var(--color-success-text)" },
+                warning: { border: "var(--color-warning-border)", bg: "var(--color-warning-bg)", icon: <Bell size={14} color="var(--color-warning-text)" />,        color: "var(--color-warning-text)" },
+                danger:  { border: "var(--color-error-border)",   bg: "var(--color-error-bg)",   icon: <AlertCircle size={14} color="var(--color-error-text)" />,   color: "var(--color-error-text)" },
+                tip:     { border: "var(--color-info-border)",    bg: "var(--color-info-bg)",    icon: <Zap size={14} color="var(--brand-500)" />,                   color: "var(--brand-500)" },
               }[ins.level];
               return (
                 <div key={i} style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: "var(--radius-lg)", padding: "1rem 1.125rem" }}>

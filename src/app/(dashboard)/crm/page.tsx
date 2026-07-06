@@ -76,7 +76,7 @@ export default async function CrmPage() {
       </Link>
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
-        <div style={{ width: 38, height: 38, borderRadius: "var(--radius-md)", background: "rgb(24 98 184 / 0.10)", border: "1px solid rgb(24 98 184 / 0.25)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)" }}>
+        <div style={{ width: 38, height: 38, borderRadius: "var(--radius-md)", background: "var(--brand-50)", border: "1px solid var(--color-info-border)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)" }}>
           <Briefcase size={18} color="var(--brand-500)" />
         </div>
         <div>

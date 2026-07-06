@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { ANSWER_CATEGORIES, CATEGORY_CONFIG, type AnswerCategory } from "@/lib/categories";
+import { ownerColor, type OwnerColor } from "@/lib/ownerColor";
 
 type ListOption = { id: string; name: string; owner_name: string | null; archived: boolean };
 
@@ -15,13 +16,11 @@ type Props = {
   currentCategory: string;
 };
 
-const OWNER_COLORS: Record<string, string> = {
-  Kevin: "#818cf8",
-  Simon: "#a78bfa",
-  Daniel: "#34d399",
-  "Paul Bajorat": "#f59e0b",
-  "Samuel Kerber": "#38bdf8",
-};
+/** "Ohne Zuordnung" bleibt neutral, echte Namen laufen über die Owner-Slots. */
+function groupColor(name: string): OwnerColor {
+  if (name === "Ohne Zuordnung") return { fg: "var(--text-subtle)", bg: "var(--surface-150)" };
+  return ownerColor(name);
+}
 
 const labelStyle: React.CSSProperties = {
   display: "block",
@@ -107,7 +106,7 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
             { label: "Dieses Jahr", from: new Date().getFullYear() + "-01-01", to: new Date().toISOString().slice(0, 10) },
             { label: "Alles", from: "", to: "" },
           ].map((preset) => (
-            <button key={preset.label} type="button" onClick={() => { setFrom(preset.from); setTo(preset.to); }} style={{ padding: "2px 8px", borderRadius: 99, border: "1px solid var(--border)", background: from === preset.from && to === preset.to ? "rgb(24 98 184 / 0.15)" : "transparent", color: from === preset.from && to === preset.to ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            <button key={preset.label} type="button" onClick={() => { setFrom(preset.from); setTo(preset.to); }} style={{ padding: "2px 8px", borderRadius: 99, border: "1px solid var(--border)", background: from === preset.from && to === preset.to ? "var(--color-info-bg)" : "transparent", color: from === preset.from && to === preset.to ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
               {preset.label}
             </button>
           ))}
@@ -119,9 +118,9 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
         <label style={labelStyle}>Person</label>
         <div style={{ display: "flex", gap: "0.375rem" }}>
           {["", ...owners].map((o) => {
-            const color = o ? OWNER_COLORS[o] ?? "#71717a" : "var(--brand-500)";
+            const oc = o ? ownerColor(o) : { fg: "var(--brand-500)", bg: "var(--color-info-bg)" };
             return (
-              <button key={o || "all"} type="button" onClick={() => setOwner(o)} style={{ flex: 1, padding: "0.3rem", borderRadius: 8, border: `1px solid ${owner === o ? (o ? color + "55" : "rgb(24 98 184 / 0.4)") : "var(--border)"}`, background: owner === o ? (o ? color + "15" : "rgb(24 98 184 / 0.1)") : "transparent", color: owner === o ? color : "var(--text-subtle)", fontSize: "0.8125rem", fontWeight: owner === o ? 700 : 400, cursor: "pointer", transition: "all 0.12s" }}>
+              <button key={o || "all"} type="button" onClick={() => setOwner(o)} style={{ flex: 1, padding: "0.3rem", borderRadius: 8, border: `1px solid ${owner === o ? `color-mix(in srgb, ${oc.fg} 40%, transparent)` : "var(--border)"}`, background: owner === o ? oc.bg : "transparent", color: owner === o ? oc.fg : "var(--text-subtle)", fontSize: "0.8125rem", fontWeight: owner === o ? 700 : 400, cursor: "pointer", transition: "all 0.12s" }}>
                 {o || "Alle"}
               </button>
             );
@@ -133,7 +132,7 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
       <div>
         <label style={labelStyle}>Kategorie</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
-          <button type="button" onClick={() => setCategory("")} style={{ padding: "2px 8px", borderRadius: 99, border: `1px solid ${!category ? "rgb(24 98 184 / 0.4)" : "var(--border)"}`, background: !category ? "rgb(24 98 184 / 0.12)" : "transparent", color: !category ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: !category ? 700 : 400, cursor: "pointer" }}>Alle</button>
+          <button type="button" onClick={() => setCategory("")} style={{ padding: "2px 8px", borderRadius: 99, border: `1px solid ${!category ? "var(--color-info-border)" : "var(--border)"}`, background: !category ? "var(--color-info-bg)" : "transparent", color: !category ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: !category ? 700 : 400, cursor: "pointer" }}>Alle</button>
           {ANSWER_CATEGORIES.map((cat) => {
             const cfg = CATEGORY_CONFIG[cat as AnswerCategory];
             const active = category === cat;
@@ -150,7 +149,7 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
       <div>
         <label style={labelStyle}>Listen</label>
         <div style={{ display: "flex", gap: "0.375rem", marginBottom: "0.5rem" }}>
-          <button type="button" onClick={() => setSelectedListIds(new Set())} style={{ padding: "2px 8px", borderRadius: 99, border: `1px solid ${selectedListIds.size === 0 ? "rgb(24 98 184 / 0.4)" : "var(--border)"}`, background: selectedListIds.size === 0 ? "rgb(24 98 184 / 0.12)" : "transparent", color: selectedListIds.size === 0 ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: selectedListIds.size === 0 ? 700 : 400, cursor: "pointer" }}>Alle</button>
+          <button type="button" onClick={() => setSelectedListIds(new Set())} style={{ padding: "2px 8px", borderRadius: 99, border: `1px solid ${selectedListIds.size === 0 ? "var(--color-info-border)" : "var(--border)"}`, background: selectedListIds.size === 0 ? "var(--color-info-bg)" : "transparent", color: selectedListIds.size === 0 ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: selectedListIds.size === 0 ? 700 : 400, cursor: "pointer" }}>Alle</button>
           {selectedListIds.size > 0 && <button type="button" onClick={() => setSelectedListIds(new Set())} style={{ padding: "2px 8px", borderRadius: 99, border: "1px solid var(--border)", background: "transparent", color: "var(--text-subtle)", fontSize: "0.6875rem", cursor: "pointer" }}>✕ Auswahl löschen</button>}
         </div>
         {[
@@ -158,13 +157,13 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
           ...(unassignedLists.length > 0 ? [{ owner: "Ohne Zuordnung", lists: unassignedLists }] : []),
         ].map(({ owner: ownerName, lists: ownerLists }) => ownerLists.length === 0 ? null : (
           <div key={ownerName} style={{ marginBottom: "0.5rem" }}>
-            <div style={{ fontSize: "0.6875rem", color: OWNER_COLORS[ownerName] ?? "var(--text-subtle)", fontWeight: 700, marginBottom: "0.25rem" }}>{ownerName}</div>
+            <div style={{ fontSize: "0.6875rem", color: groupColor(ownerName).fg, fontWeight: 700, marginBottom: "0.25rem" }}>{ownerName}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
               {ownerLists.map((l) => {
                 const active = selectedListIds.has(l.id);
-                const color = OWNER_COLORS[ownerName] ?? "#71717a";
+                const oc = groupColor(ownerName);
                 return (
-                  <button key={l.id} type="button" onClick={() => toggleList(l.id)} title={l.name} style={{ padding: "2px 8px", borderRadius: 99, border: `1px solid ${active ? color + "55" : "var(--border)"}`, background: active ? color + "15" : "transparent", color: active ? color : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: active ? 700 : 400, cursor: "pointer", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <button key={l.id} type="button" onClick={() => toggleList(l.id)} title={l.name} style={{ padding: "2px 8px", borderRadius: 99, border: `1px solid ${active ? `color-mix(in srgb, ${oc.fg} 33%, transparent)` : "var(--border)"}`, background: active ? oc.bg : "transparent", color: active ? oc.fg : "var(--text-subtle)", fontSize: "0.6875rem", fontWeight: active ? 700 : 400, cursor: "pointer", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {active && "✓ "}{l.name}{l.archived ? " (archiviert)" : ""}
                   </button>
                 );

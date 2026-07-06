@@ -351,7 +351,7 @@ function NewRow({ listId }: { listId: string }) {
           name="name"
           placeholder="+ Neuen Pitch-Kontakt hinzufügen…"
           required
-          style={{ ...editInput, fontWeight: 600, color: "#818cf8", minWidth: 160 }}
+          style={{ ...editInput, fontWeight: 600, color: "var(--brand-500)", minWidth: 160 }}
           tabIndex={2}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); formRef.current?.requestSubmit(); } }}
         />
@@ -383,7 +383,7 @@ function NewRow({ listId }: { listId: string }) {
       </td>
       <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <button form="new-row-form" type="submit" tabIndex={7}
-          style={{ background: "#6366f1", color: "white", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, fontSize: "0.75rem", padding: "3px 8px", display: "flex", alignItems: "center" }}>
+          style={{ background: "var(--brand-500)", color: "white", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, fontSize: "0.75rem", padding: "3px 8px", display: "flex", alignItems: "center" }}>
           ✓
         </button>
       </td>
@@ -424,7 +424,7 @@ function StatsRow({ contacts }: { contacts: ContactWithStage[] }) {
         <span style={{ color: fu3 ? "#991b1b" : "#27272a" }}>{fu3}</span>
       </td>
       <td style={{ ...stat, color: answered > 0 ? "#4ade80" : "#27272a" }}>{pct(answered)}</td>
-      <td style={{ ...stat, color: appt > 0 ? "#a78bfa" : "#27272a" }}>{pct(appt)}</td>
+      <td style={{ ...stat, color: appt > 0 ? "var(--owner-2)" : "#27272a" }}>{pct(appt)}</td>
       <td style={{ ...stat, color: topCat ? (CATEGORY_CONFIG[topCat[0] as AnswerCategory]?.color ?? "#52525b") : "#27272a" }}>
         {topCat ? `${topCat[0]} (${topCat[1]}×)` : "—"}
       </td>

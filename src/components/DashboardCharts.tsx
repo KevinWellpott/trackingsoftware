@@ -1,5 +1,6 @@
 "use client";
 
+import { ownerColor as ownerColorShared } from "@/lib/ownerColor";
 import {
   Bar, BarChart, Cell, Legend, Line, LineChart,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -19,24 +20,10 @@ export function tint(color: string, alphaPct: number): string {
 }
 
 // ── Owner colors (dynamic roster) ────────────────────────────
-export const OWNER_BASE_COLORS: Record<string, string> = {
-  Kevin: "var(--brand-500)",
-  Simon: "var(--accent-500)",
-  Daniel: "var(--color-success-text)",
-  "Samuel Kerber": "#0ea5e9",
-};
-
-export const OWNER_FALLBACK_PALETTE = [
-  "var(--brand-400)",
-  "var(--color-warning-text)",
-  "#0d9488",
-  "var(--color-ember)",
-  "var(--brand-600)",
-  "#6d28d9",
-];
-
-export function ownerColor(name: string, index: number): string {
-  return OWNER_BASE_COLORS[name] ?? OWNER_FALLBACK_PALETTE[index % OWNER_FALLBACK_PALETTE.length];
+// Delegiert an die zentrale Slot-Zuordnung (src/lib/ownerColor.ts).
+// CSS-Variablen funktionieren auch in SVG-Fills (recharts).
+export function ownerColor(name: string): string {
+  return ownerColorShared(name).fg;
 }
 
 const TOOLTIP_STYLE = {

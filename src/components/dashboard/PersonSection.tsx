@@ -136,7 +136,7 @@ export function PersonSection({ allContacts, lists, today, roster, weekCounts, t
                       </div>
                     </div>
                     {/* Tagesziel mini-bar */}
-                    <div style={{ marginTop: "0.75rem", padding: "0.5rem 0.75rem", borderRadius: 8, background: todayDone ? "rgb(4 184 0 / 0.06)" : tint(color, 3), border: `1px solid ${todayDone ? "rgb(4 184 0 / 0.2)" : tint(color, 13)}` }}>
+                    <div style={{ marginTop: "0.75rem", padding: "0.5rem 0.75rem", borderRadius: 8, background: todayDone ? "var(--color-success-bg)" : tint(color, 3), border: `1px solid ${todayDone ? "var(--color-success-border)" : tint(color, 13)}` }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
                         <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: todayDone ? "var(--color-success-text)" : color, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           Tagesziel {todayDone ? "✓" : ""}

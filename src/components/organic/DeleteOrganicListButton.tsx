@@ -37,10 +37,10 @@ export function DeleteOrganicListButton({ listId, listName, postCount }: Props) 
           alignItems: "center",
           gap: "0.375rem",
           padding: "0.375rem 0.75rem",
-          background: "rgba(248,113,113,0.08)",
-          border: "1px solid rgba(248,113,113,0.2)",
+          background: "var(--color-error-bg)",
+          border: "1px solid var(--color-error-border)",
           borderRadius: 8,
-          color: "#f87171",
+          color: "var(--color-error-text)",
           fontSize: "0.8125rem",
           fontWeight: 600,
           cursor: "pointer",
@@ -55,18 +55,18 @@ export function DeleteOrganicListButton({ listId, listName, postCount }: Props) 
           style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
           onClick={(e) => { if (e.target === e.currentTarget) setStep("idle"); }}
         >
-          <div style={{ background: "var(--surface-100)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 14, padding: "1.75rem", maxWidth: 420, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.8)" }}>
+          <div style={{ background: "var(--surface-100)", border: "1px solid var(--color-error-border)", borderRadius: 14, padding: "1.75rem", maxWidth: 420, width: "100%", boxShadow: "var(--shadow-lg)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <AlertTriangle size={18} color="#f87171" />
-                <span style={{ fontWeight: 700, fontSize: "1rem", color: "#f87171" }}>Serie löschen</span>
+                <AlertTriangle size={18} color="var(--color-error-text)" />
+                <span style={{ fontWeight: 700, fontSize: "1rem", color: "var(--color-error-text)" }}>Serie löschen</span>
               </div>
               <button type="button" onClick={() => setStep("idle")} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-subtle)" }}>
                 <X size={16} />
               </button>
             </div>
             <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)", marginBottom: "1rem", lineHeight: 1.6 }}>
-              Diese Aktion löscht die Serie <strong style={{ color: "var(--text-primary)" }}>{listName}</strong> und alle <strong style={{ color: "#f87171" }}>{postCount} Posts</strong> darin unwiderruflich.
+              Diese Aktion löscht die Serie <strong style={{ color: "var(--text-primary)" }}>{listName}</strong> und alle <strong style={{ color: "var(--color-error-text)" }}>{postCount} Posts</strong> darin unwiderruflich.
             </p>
             <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", marginBottom: "0.5rem" }}>
               Tippe <strong style={{ color: "var(--text-primary)" }}>{listName}</strong> zum Bestätigen:
@@ -78,7 +78,7 @@ export function DeleteOrganicListButton({ listId, listName, postCount }: Props) 
               style={{
                 width: "100%",
                 background: "var(--surface-0)",
-                border: `1px solid ${confirmed ? "rgba(248,113,113,0.5)" : "var(--border)"}`,
+                border: `1px solid ${confirmed ? "var(--color-error-border)" : "var(--border)"}`,
                 borderRadius: 8,
                 padding: "0.5rem 0.75rem",
                 fontSize: "0.875rem",
@@ -101,7 +101,7 @@ export function DeleteOrganicListButton({ listId, listName, postCount }: Props) 
                 disabled={!confirmed || isPending}
                 style={{
                   flex: 1,
-                  background: confirmed ? "#f87171" : "var(--surface-200)",
+                  background: confirmed ? "var(--color-ember)" : "var(--surface-200)",
                   border: "none",
                   borderRadius: 8,
                   padding: "0.5rem",

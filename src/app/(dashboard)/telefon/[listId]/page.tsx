@@ -2,6 +2,7 @@ import { CallModeRunner } from "@/components/telefon/CallModeRunner";
 import { getAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
+import { ownerColor } from "@/lib/ownerColor";
 import type { PhoneLead, PhoneList, PhoneListKind } from "@/lib/types";
 import { ArrowLeft, Phone, PhoneMissed, Voicemail } from "lucide-react";
 import Link from "next/link";
@@ -9,13 +10,6 @@ import { notFound } from "next/navigation";
 
 // Telefonliste im Call-Mode: Liste + Leads laden, Guard über Workspace +
 // Personenscope, dann durchtelefonieren via CallModeRunner.
-
-const OWNER_COLORS: Record<string, string> = {
-  Kevin: "#6366f1",
-  Simon: "#8b5cf6",
-  Daniel: "#10b981",
-  "Samuel Kerber": "#0ea5e9",
-};
 
 const KIND_META: Record<PhoneListKind, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
   akquise: {
@@ -72,7 +66,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
   const leads = rawLeads as PhoneLead[];
 
   const kind = KIND_META[list.list_kind];
-  const ownerColor = list.owner_name ? (OWNER_COLORS[list.owner_name] ?? "var(--brand-500)") : null;
+  const oc = list.owner_name ? ownerColor(list.owner_name) : null;
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto" }}>
@@ -93,16 +87,16 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
           <ArrowLeft size={13} /> Telefon
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-          {list.owner_name && ownerColor && (
+          {list.owner_name && oc && (
             <span
               style={{
                 fontSize: "0.6875rem",
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.06em",
-                color: ownerColor,
-                background: `${ownerColor}22`,
-                border: `1px solid ${ownerColor}55`,
+                color: oc.fg,
+                background: oc.bg,
+                border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`,
                 padding: "2px 8px",
                 borderRadius: 99,
               }}
