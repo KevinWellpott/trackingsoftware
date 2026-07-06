@@ -3,7 +3,6 @@ import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
 import type { PitchList } from "@/lib/types";
-import { ANSWER_CATEGORIES, CATEGORY_CONFIG } from "@/lib/categories";
 import Link from "next/link";
 import { ArrowLeft, Download, FileText } from "lucide-react";
 import { ExportForm } from "./ExportForm";

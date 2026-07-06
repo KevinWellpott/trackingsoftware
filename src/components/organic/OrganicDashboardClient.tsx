@@ -263,7 +263,7 @@ function OverallSection({ posts, today }: { posts: OrganicPost[]; today: string 
 }
 
 // ── Kevin vs Simon section ─────────────────────────────────────────────────
-function PersonSection({ posts, lists, listOwner, today }: { posts: OrganicPost[]; lists: OrganicList[]; listOwner: Record<string, string>; today: string }) {
+function PersonSection({ posts, lists, today }: { posts: OrganicPost[]; lists: OrganicList[]; listOwner: Record<string, string>; today: string }) {
   const { filtered, period, setPeriod, from, setFrom, to, setTo } = usePeriodFilter(posts, today);
 
   type Owner = "Kevin" | "Simon";
@@ -343,7 +343,6 @@ function PersonSection({ posts, lists, listOwner, today }: { posts: OrganicPost[
 function ListAnalysisSection({
   posts,
   lists,
-  listOwner,
   today,
   personalMode = false,
 }: {

@@ -2,7 +2,7 @@
 
 import { Modal } from "@/components/ui/Modal";
 import { CalendarClock, Video } from "lucide-react";
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 
 // Generischer Termin-Dialog: erzwingt Meet-Link + Zeitpunkt und delegiert das
 // Speichern an den Aufrufer (LinkedIn-Listen heute, Phone-Tracking später).
@@ -28,14 +28,17 @@ export function AppointmentModal({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Beim Öffnen mit den Defaults des jeweiligen Leads neu initialisieren.
-  useEffect(() => {
+  // Beim Öffnen mit den Defaults des jeweiligen Leads neu initialisieren
+  // (Render-Phase-Update statt setState-im-Effect).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setMeetLink(defaultMeetLink ?? "");
       setAppointmentAt(defaultAppointmentAt ?? "");
       setError(null);
     }
-  }, [open, defaultMeetLink, defaultAppointmentAt]);
+  }
 
   const labelStyle: React.CSSProperties = {
     display: "flex",

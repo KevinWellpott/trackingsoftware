@@ -39,13 +39,18 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  // Beim Öffnen: erste Option fokussieren (roving tabIndex).
+  // Beim Öffnen: erste Option fokussieren (roving tabIndex). Der Index wird in
+  // den Öffnungs-Handlern zurückgesetzt; hier nur der Fokus-Side-Effect.
   useEffect(() => {
     if (!open) return;
-    setActiveIndex(0);
     const first = listRef.current?.querySelector<HTMLElement>('[role="option"]');
     first?.focus();
   }, [open]);
+
+  function openList() {
+    setActiveIndex(0);
+    setOpen(true);
+  }
 
   function closeAndRefocus() {
     setOpen(false);
@@ -81,7 +86,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
   function onTriggerKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      setOpen(true);
+      openList();
     }
   }
 
@@ -166,7 +171,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
         <button
           ref={triggerRef}
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => (open ? setOpen(false) : openList())}
           onKeyDown={onTriggerKeyDown}
           aria-haspopup="listbox"
           aria-expanded={open}

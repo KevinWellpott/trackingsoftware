@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
 
 type Theme = "light" | "dark";
@@ -11,14 +11,25 @@ function getInitialTheme(): Theme {
   return attr === "dark" ? "dark" : "light";
 }
 
+// Hydration-sicher ohne setState-im-Effect: Server/Hydration → false, danach true.
+const emptySubscribe = () => () => {};
+function useMounted(): boolean {
+  return useSyncExternalStore(emptySubscribe, () => true, () => false);
+}
+
 export function ThemeToggle({ compact = false }: { compact?: boolean }) {
   const [theme, setTheme] = useState<Theme>("light");
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
 
-  useEffect(() => {
-    setTheme(getInitialTheme());
-    setMounted(true);
-  }, []);
+  // Nach der Hydration einmalig mit dem echten data-theme synchronisieren
+  // (Render-Phase-Update statt setState-im-Effect; hydration-sicher, da der
+  // erste Client-Render identisch zum Server bleibt).
+  const [synced, setSynced] = useState(false);
+  if (mounted && !synced) {
+    setSynced(true);
+    const actual = getInitialTheme();
+    if (actual !== theme) setTheme(actual);
+  }
 
   function toggle() {
     const next: Theme = theme === "dark" ? "light" : "dark";

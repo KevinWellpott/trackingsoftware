@@ -217,7 +217,6 @@ function ContentTypeSelect({
   onSave: (v: OrganicPost["content_type"]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const color = CONTENT_TYPES.find((c) => c.value === value)?.color ?? "var(--text-subtle)";
 
   return (
     <div style={{ position: "relative" }}>

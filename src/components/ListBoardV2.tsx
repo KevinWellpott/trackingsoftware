@@ -929,7 +929,7 @@ function MobileStatsCard({ contacts }: { contacts: ContactWithStage[] }) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export function ListBoardV2({ listId, stages: _stages, contacts }: {
+export function ListBoardV2({ listId, contacts }: {
   listId: string; stages: PipelineStage[]; contacts: ContactWithStage[];
 }) {
   const router = useRouter();

@@ -8,14 +8,12 @@ import {
   ArrowLeft,
   CheckCircle,
   Film,
-  Trash2,
   Zap,
 } from "lucide-react";
 import { OrganicBoard } from "@/components/organic/OrganicBoard";
 import { generateOrganicInsights } from "@/lib/organic-insights";
 import { ownerColor } from "@/lib/ownerColor";
 import type { OrganicPost, OrganicList } from "@/app/actions/organic";
-import { deleteOrganicList } from "@/app/actions/organic";
 import { DeleteOrganicListButton } from "@/components/organic/DeleteOrganicListButton";
 
 function avg(nums: number[]) {

@@ -33,8 +33,7 @@ function addDays(dateStr: string, n: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
-const OWNERS = ["Kevin", "Simon"] as const;
-type Owner = (typeof OWNERS)[number];
+type Owner = "Kevin" | "Simon";
 const DAILY_VIDEO_GOAL = 1;
 const WEEKLY_VIDEO_GOAL = 7;
 const PERSONAL_COLOR = "var(--color-warning-text)";
@@ -48,16 +47,6 @@ function ownerStyle(owner: Owner): { color: string; bg: string; border: string }
 function avg(nums: number[]) {
   if (!nums.length) return 0;
   return Math.round(nums.reduce((a, b) => a + b, 0) / nums.length);
-}
-
-function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
-  return (
-    <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: 10, padding: "0.875rem 1rem" }}>
-      <div style={{ fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-subtle)", marginBottom: "0.375rem" }}>{label}</div>
-      <div style={{ fontSize: "1.75rem", fontWeight: 800, color: color ?? "var(--text-primary)", letterSpacing: "-0.04em", lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: "0.6875rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>{sub}</div>}
-    </div>
-  );
 }
 
 function InsightCard({ level, title, body }: { level: string; title: string; body: string }) {
@@ -212,7 +201,6 @@ export default async function OrganicPage() {
   // ── Zielsetzung 01.05
   const DEADLINE = "2026-05-01";
   const VIEWS_GOAL = 10000;
-  const FOLLOWER_GOAL = 100;
 
   const deadlineDate = new Date(DEADLINE + "T00:00:00");
   const todayDate    = new Date(today + "T00:00:00");

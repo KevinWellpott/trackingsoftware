@@ -32,28 +32,38 @@ export function QuickAddLinkedIn({
   const nameRef = useRef<HTMLInputElement>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Zuletzt genutzte Liste vorauswählen (localStorage), sonst erste Liste.
-  useEffect(() => {
-    if (!open) return;
-    const remembered = typeof window !== "undefined" ? localStorage.getItem(LAST_LIST_KEY) : null;
+  // Öffnen (FAB/Shortcut): zuletzt genutzte Liste vorauswählen (localStorage),
+  // sonst erste Liste — im Event-Handler statt setState-im-Effect.
+  function openModal() {
+    let remembered: string | null = null;
+    try {
+      remembered = localStorage.getItem(LAST_LIST_KEY);
+    } catch {
+      /* ignore */
+    }
     setListId((prev) => {
       if (prev && lists.some((l) => l.id === prev)) return prev;
       if (remembered && lists.some((l) => l.id === remembered)) return remembered;
       return lists[0]?.id ?? "";
     });
     setError(null);
-  }, [open, lists]);
+    setOpen(true);
+  }
 
   // Nur auf LinkedIn-relevanten Flächen anzeigen (Dashboard, Listen, Nachfassen).
   const visible = pathname === "/" || pathname.startsWith("/lists") || pathname === "/nachfassen";
 
   // Keyboard-Shortcut Ctrl/Cmd+K (nur auf sichtbaren Routen aktiv)
+  const openModalRef = useRef(openModal);
+  useEffect(() => {
+    openModalRef.current = openModal;
+  });
   useEffect(() => {
     if (!visible) return;
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen(true);
+        openModalRef.current();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -123,7 +133,7 @@ export function QuickAddLinkedIn({
       {/* Floating Action Button */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openModal}
         title="Schnell tracken (Strg/Cmd+K)"
         style={{
           position: "fixed",
