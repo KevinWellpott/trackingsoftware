@@ -3,7 +3,9 @@
 import { setDataViewForm, signOut } from "@/app/actions/workspace";
 import { createListForm } from "@/app/actions/lists";
 import {
+  ArrowRight,
   BarChart2,
+  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Clock,
@@ -15,7 +17,6 @@ import {
   Settings,
   Users,
   X,
-  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -266,8 +267,68 @@ function TeamViewRow({
   );
 }
 
+/** Einklappbarer Sidebar-Abschnitt: Kopfzeile (Chevron + Icon + Label + optionale Aktion), Inhalt per Klick ein-/ausblendbar. */
+function CollapsibleSection({
+  icon,
+  label,
+  action,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  /** Optionale Aktion rechts im Header; erhält Zugriff auf den Auf-/Zuklapp-Status. */
+  action?: (ctx: { open: boolean; setOpen: (open: boolean) => void }) => React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  const Chevron = open ? ChevronDown : ChevronRight;
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", padding: "0.5rem 0.5rem 0.25rem 0.375rem" }}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          title={open ? `${label} einklappen` : `${label} ausklappen`}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.375rem",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "0.125rem 0.25rem",
+            color: "var(--text-subtle)",
+          }}
+        >
+          <Chevron size={12} strokeWidth={2.5} style={{ flexShrink: 0, opacity: 0.7 }} />
+          {icon}
+          <span
+            style={{
+              flex: 1,
+              textAlign: "left",
+              fontSize: "0.6875rem",
+              fontWeight: 700,
+              letterSpacing: "0.07em",
+              textTransform: "uppercase",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {label}
+          </span>
+        </button>
+        {action?.({ open, setOpen })}
+      </div>
+      {open && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>{children}</div>}
+    </div>
+  );
+}
+
 export function SidebarContent({
-  workspaceName,
   username,
   workspaceId,
   lists,
@@ -293,53 +354,6 @@ export function SidebarContent({
         background: "var(--surface-50)",
       }}
     >
-      {/* Header */}
-      <div
-        style={{
-          height: 60,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 0.875rem",
-          borderBottom: "1px solid var(--border)",
-          flexShrink: 0,
-          background: "var(--color-info-bg)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 8,
-              background: "var(--brand-500)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <Zap size={14} color="white" fill="white" />
-          </div>
-          <div>
-            <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>
-              Pitch Tracker
-            </div>
-            <div style={{ fontSize: "0.6875rem", color: "var(--text-muted)", lineHeight: 1.2 }}>
-              {workspaceName}
-            </div>
-          </div>
-        </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.25rem" }}
-          >
-            <X size={17} />
-          </button>
-        )}
-      </div>
-
       {/* Datensicht-Banner (Impersonation aktiv) */}
       {dataView?.canSwitch && isImpersonating && (
         <div
@@ -392,6 +406,19 @@ export function SidebarContent({
         </div>
       )}
 
+      {/* Schließen-Button (nur im mobilen Drawer) */}
+      {onClose && (
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "0.375rem 0.5rem 0", flexShrink: 0 }}>
+          <button
+            onClick={onClose}
+            aria-label="Menü schließen"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.25rem", display: "flex", alignItems: "center" }}
+          >
+            <X size={17} />
+          </button>
+        </div>
+      )}
+
       {/* Nav */}
       <nav
         style={{
@@ -405,76 +432,94 @@ export function SidebarContent({
       >
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
         {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
-        <NavLink href="/telefon" icon={Phone} label="Telefon" onClick={onClose} />
         <NavLink href="/setting" icon={ClipboardCheck} label="Setting" onClick={onClose} />
         <NavLink href="/closing" icon={Handshake} label="Closing" onClick={onClose} />
         <NavLink href="/nachfassen" icon={Clock} label="Nachfassen" onClick={onClose} />
 
-        {/* LinkedIn Header */}
-        <div style={{ display: "flex", alignItems: "center", padding: "0.75rem 0.75rem 0.25rem", gap: "0.375rem" }}>
-          <LinkedInIcon size={13} />
-          <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
-            LinkedIn
-          </span>
-          <button
-            type="button"
-            onClick={() => { setShowNewList((v) => !v); setTimeout(() => nameRef.current?.focus(), 50); }}
-            style={{ width: 22, height: 22, borderRadius: 6, background: showNewList ? "var(--brand-500)" : "var(--surface-200)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: showNewList ? "white" : "var(--text-subtle)", transition: "all 0.15s", flexShrink: 0 }}
-            title="Neue Liste"
-          >
-            <Plus size={12} strokeWidth={2.5} />
-          </button>
-        </div>
+        {/* ── LinkedIn Section ── */}
+        <div style={{ marginTop: "0.375rem" }} />
+        <CollapsibleSection
+          icon={<LinkedInIcon size={13} />}
+          label="LinkedIn"
+          action={({ open, setOpen }) => (
+            <button
+              type="button"
+              onClick={() => {
+                if (!open) {
+                  setOpen(true);
+                  setShowNewList(true);
+                } else {
+                  setShowNewList((v) => !v);
+                }
+                setTimeout(() => nameRef.current?.focus(), 50);
+              }}
+              style={{ width: 22, height: 22, borderRadius: 6, background: showNewList && open ? "var(--brand-500)" : "var(--surface-200)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: showNewList && open ? "white" : "var(--text-subtle)", transition: "all 0.15s", flexShrink: 0 }}
+              title="Neue Liste"
+            >
+              <Plus size={12} strokeWidth={2.5} />
+            </button>
+          )}
+        >
+          {/* Inline new list form */}
+          {showNewList && (
+            <div style={{ margin: "0.25rem 0.5rem 0.5rem", background: "var(--surface-150)", border: "1px solid var(--border-bright)", borderRadius: "var(--radius-md)", padding: "0.625rem 0.75rem" }}>
+              <form action={async (fd) => { await createListForm(fd); setShowNewList(false); }}>
+                <input type="hidden" name="workspace_id" value={workspaceId} />
+                <input
+                  ref={nameRef}
+                  name="name"
+                  required
+                  placeholder="Listenname…"
+                  style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.3125rem 0.5rem", fontSize: "0.8125rem", color: "var(--text-primary)", outline: "none", marginBottom: "0.375rem" }}
+                />
+                <input type="hidden" name="owner_name" value={username} />
+                <div style={{ display: "flex", gap: "0.25rem" }}>
+                  <button type="submit" style={{ flex: 1, background: "var(--brand-500)", color: "white", border: "none", borderRadius: 6, padding: "0.3rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}>
+                    Anlegen
+                  </button>
+                  <button type="button" onClick={() => setShowNewList(false)} style={{ background: "var(--surface-200)", color: "var(--text-subtle)", border: "none", borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.75rem", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                    <X size={12} />
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
-        {/* Inline new list form */}
-        {showNewList && (
-          <div style={{ margin: "0.25rem 0.5rem 0.5rem", background: "var(--surface-150)", border: "1px solid var(--border-bright)", borderRadius: "var(--radius-md)", padding: "0.625rem 0.75rem" }}>
-            <form action={async (fd) => { await createListForm(fd); setShowNewList(false); }}>
-              <input type="hidden" name="workspace_id" value={workspaceId} />
-              <input
-                ref={nameRef}
-                name="name"
-                required
-                placeholder="Listenname…"
-                style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.3125rem 0.5rem", fontSize: "0.8125rem", color: "var(--text-primary)", outline: "none", marginBottom: "0.375rem" }}
-              />
-              <input type="hidden" name="owner_name" value={username} />
-              <div style={{ display: "flex", gap: "0.25rem" }}>
-                <button type="submit" style={{ flex: 1, background: "var(--brand-500)", color: "white", border: "none", borderRadius: 6, padding: "0.3rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}>
-                  Anlegen
-                </button>
-                <button type="button" onClick={() => setShowNewList(false)} style={{ background: "var(--surface-200)", color: "var(--text-subtle)", border: "none", borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.75rem", cursor: "pointer", display: "flex", alignItems: "center" }}>
-                  <X size={12} />
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {lists.map((l) => (
-          <ListLink key={l.id} id={l.id} name={l.name} onClick={onClose} />
-        ))}
-        {lists.length === 0 && (
-          <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>
-            Noch keine Listen.
-          </p>
-        )}
+          {lists.map((l) => (
+            <ListLink key={l.id} id={l.id} name={l.name} onClick={onClose} />
+          ))}
+          {lists.length === 0 && (
+            <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>
+              Noch keine Listen.
+            </p>
+          )}
+        </CollapsibleSection>
 
         {/* ── Telefon Section ── */}
-        {phoneLists.length > 0 && (
-          <>
-            <div style={{ borderTop: "1px solid var(--border)", margin: "0.625rem 0 0" }} />
-            <div style={{ display: "flex", alignItems: "center", padding: "0.5rem 0.75rem 0.25rem", gap: "0.375rem" }}>
-              <Phone size={13} style={{ color: "var(--text-subtle)" }} />
-              <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
-                Telefon
-              </span>
-            </div>
-            {phoneLists.map((l) => (
-              <PhoneListLink key={l.id} list={l} onClick={onClose} />
-            ))}
-          </>
-        )}
+        <div style={{ borderTop: "1px solid var(--border)", margin: "0.625rem 0 0" }} />
+        <CollapsibleSection
+          icon={<Phone size={13} style={{ color: "var(--text-subtle)", flexShrink: 0 }} />}
+          label="Telefon"
+          action={() => (
+            <Link
+              href="/telefon"
+              onClick={onClose}
+              title="Telefon-Übersicht öffnen"
+              style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-subtle)", flexShrink: 0 }}
+            >
+              <ArrowRight size={12} strokeWidth={2.5} />
+            </Link>
+          )}
+        >
+          {phoneLists.map((l) => (
+            <PhoneListLink key={l.id} list={l} onClick={onClose} />
+          ))}
+          {phoneLists.length === 0 && (
+            <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>
+              Noch keine Listen.
+            </p>
+          )}
+        </CollapsibleSection>
 
         <div style={{ flex: 1 }} />
 
@@ -482,30 +527,29 @@ export function SidebarContent({
         {dataView?.canSwitch && teamUsers.length > 0 && (
           <>
             <div style={{ borderTop: "1px solid var(--border)", marginTop: "0.5rem" }} />
-            <div style={{ display: "flex", alignItems: "center", padding: "0.5rem 0.75rem 0.25rem", gap: "0.375rem" }}>
-              <Users size={12} style={{ color: "var(--text-subtle)", flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-subtle)" }}>
-                Team-Ansicht
-              </span>
-            </div>
-            {isImpersonating && (
-              <TeamViewRow
-                userId=""
-                label="Meine Daten"
-                pathname={pathname}
-                active={false}
-                isReset
-              />
-            )}
-            {teamUsers.map((u) => (
-              <TeamViewRow
-                key={u.user_id}
-                userId={u.user_id}
-                label={u.username}
-                pathname={pathname}
-                active={u.user_id === dataView.activeUserId}
-              />
-            ))}
+            <CollapsibleSection
+              icon={<Users size={12} style={{ color: "var(--text-subtle)", flexShrink: 0 }} />}
+              label="Team-Ansicht"
+            >
+              {isImpersonating && (
+                <TeamViewRow
+                  userId=""
+                  label="Meine Daten"
+                  pathname={pathname}
+                  active={false}
+                  isReset
+                />
+              )}
+              {teamUsers.map((u) => (
+                <TeamViewRow
+                  key={u.user_id}
+                  userId={u.user_id}
+                  label={u.username}
+                  pathname={pathname}
+                  active={u.user_id === dataView.activeUserId}
+                />
+              ))}
+            </CollapsibleSection>
           </>
         )}
 

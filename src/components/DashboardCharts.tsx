@@ -87,14 +87,14 @@ type AnswerDonut = { name: string; value: number; color: string };
 
 export function AnswerDonutChart({ data }: { data: AnswerDonut[] }) {
   const total = data.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return <EmptyState text="Noch keine Antworten." />;
+  if (total === 0) return <EmptyState text="Noch keine Antworten." height={200} />;
   return (
-    <ResponsiveContainer width="100%" height={160}>
+    <ResponsiveContainer width="100%" height={200}>
       <PieChart>
-        <Pie data={data} cx="50%" cy="50%" innerRadius={42} outerRadius={64} paddingAngle={3} dataKey="value">
+        <Pie data={data} cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={3} dataKey="value" stroke="var(--surface-100)">
           {data.map((entry, i) => <Cell key={i} fill={entry.color} />)}
         </Pie>
-        <Tooltip contentStyle={TOOLTIP_STYLE} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ color: "var(--text-primary)" }} />
         <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
       </PieChart>
     </ResponsiveContainer>

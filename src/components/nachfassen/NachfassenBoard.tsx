@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   Copy,
   Handshake,
-  MessageCircle,
   Phone,
 } from "lucide-react";
 import Link from "next/link";
@@ -19,6 +18,7 @@ import { useMemo, useState, useTransition } from "react";
 
 // Nachfassen-Board (Client): Union-Tasklist aus LinkedIn-FUs, Telefon-Rückrufen
 // und Closing-Nachfassen. Kernwert: fertiger Text zum Kopieren — KEIN Auto-Versand.
+// Layout: kompakte Karten im Grid, gruppiert in Sektionen je FU-Stufe bzw. Kanal.
 
 type Props = {
   tasks: NachfassenTask[];
@@ -106,12 +106,12 @@ const linkBtnStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "0.3rem",
-  padding: "0.35rem 0.75rem",
+  padding: "0.3rem 0.625rem",
   borderRadius: "var(--radius-sm)",
   border: "1px solid var(--border)",
   background: "var(--surface-50)",
   color: "var(--text-secondary)",
-  fontSize: "0.75rem",
+  fontSize: "0.6875rem",
   fontWeight: 700,
   textDecoration: "none",
   cursor: "pointer",
@@ -132,6 +132,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
 
   const copyText = async () => {
     try {
+      // Immer den VOLLEN Text kopieren — unabhängig vom 3-Zeilen-Clamp der Anzeige
       await navigator.clipboard.writeText(task.prepared_text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -159,67 +160,30 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         background: "var(--surface-100)",
         border: `1px solid ${overdue ? "var(--color-error-border)" : "var(--border)"}`,
         borderRadius: "var(--radius-md)",
-        padding: "0.875rem 1.125rem",
+        padding: "0.75rem",
         display: "flex",
         flexDirection: "column",
-        gap: "0.75rem",
+        gap: "0.5rem",
+        minWidth: 0,
         opacity: isPending ? 0.55 : 1,
         transition: "opacity 0.15s, border-color 0.15s",
       }}
     >
-      {/* ── Kopfzeile: Lead + Badge + Owner + Fälligkeit ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: "0.875rem", flexWrap: "wrap" }}>
-        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.2rem" }}>
-            <span
-              style={{
-                fontSize: "0.9375rem",
-                fontWeight: 800,
-                letterSpacing: "-0.01em",
-                color: "var(--text-primary)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {task.lead_name ?? "Unbenannter Lead"}
-            </span>
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.25rem",
-                fontSize: "0.625rem",
-                fontWeight: 800,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                color: meta.color,
-                background: meta.bg,
-                border: `1px solid ${meta.border}`,
-                borderRadius: 99,
-                padding: "0.1rem 0.45rem",
-                flexShrink: 0,
-              }}
-            >
-              {meta.icon} {meta.label}
-              {task.source === "linkedin" && task.next_fu_number != null && ` · FU${task.next_fu_number}`}
-            </span>
-            {task.owner_name && (
-              <span
-                style={{
-                  fontSize: "0.625rem",
-                  fontWeight: 700,
-                  color: "var(--text-muted)",
-                  background: "var(--surface-150)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 99,
-                  padding: "0.1rem 0.45rem",
-                  flexShrink: 0,
-                }}
-              >
-                {task.owner_name}
-              </span>
-            )}
+      {/* ── Kopfzeile: Lead + Firma + Kanal-Badge ── */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              letterSpacing: "-0.01em",
+              color: "var(--text-primary)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {task.lead_name ?? "Unbenannter Lead"}
           </div>
           {task.company && (
             <div
@@ -235,48 +199,85 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             </div>
           )}
         </div>
-
-        {task.due_at && (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {task.owner_name && (
+            <span
+              style={{
+                fontSize: "0.625rem",
+                fontWeight: 700,
+                color: "var(--text-muted)",
+                background: "var(--surface-150)",
+                border: "1px solid var(--border)",
+                borderRadius: 99,
+                padding: "0.1rem 0.4rem",
+              }}
+            >
+              {task.owner_name}
+            </span>
+          )}
           <span
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: "0.35rem",
-              fontSize: "0.75rem",
-              fontWeight: 700,
-              color: overdue ? "var(--color-error-text)" : "var(--text-secondary)",
-              flexShrink: 0,
+              gap: "0.25rem",
+              fontSize: "0.625rem",
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              color: meta.color,
+              background: meta.bg,
+              border: `1px solid ${meta.border}`,
+              borderRadius: 99,
+              padding: "0.1rem 0.4rem",
             }}
           >
-            <Bell size={12} />
-            {overdue ? `überfällig seit ${formatDue(task.due_at)}` : `fällig ${formatDue(task.due_at)}`}
+            {meta.icon} {meta.label}
           </span>
-        )}
+        </div>
       </div>
 
-      {/* ── Vorbereiteter Text zum Kopieren ── */}
+      {/* ── Fälligkeit ── */}
+      {task.due_at && (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            fontSize: "0.6875rem",
+            fontWeight: 700,
+            color: overdue ? "var(--color-error-text)" : "var(--text-secondary)",
+          }}
+        >
+          <Bell size={11} style={{ flexShrink: 0 }} />
+          {overdue ? `überfällig seit ${formatDue(task.due_at)}` : `fällig ${formatDue(task.due_at)}`}
+        </span>
+      )}
+
+      {/* ── Vorbereiteter Text (auf 3 Zeilen gekürzt) + Kopieren ── */}
       <div
         style={{
           display: "flex",
-          alignItems: "flex-start",
-          gap: "0.625rem",
+          flexDirection: "column",
+          gap: "0.5rem",
           background: "var(--surface-50)",
           border: "1px solid var(--border)",
           borderRadius: "var(--radius-sm)",
-          padding: "0.625rem 0.75rem",
+          padding: "0.5rem 0.625rem",
         }}
       >
-        <MessageCircle size={13} style={{ color: "var(--text-subtle)", flexShrink: 0, marginTop: 2 }} />
         <p
           style={{
-            flex: 1,
             margin: 0,
-            fontSize: "0.8125rem",
+            fontSize: "0.75rem",
             lineHeight: 1.5,
             color: "var(--text-secondary)",
             userSelect: "text",
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
+            overflow: "hidden",
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
           }}
         >
           {task.prepared_text}
@@ -288,7 +289,8 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             display: "inline-flex",
             alignItems: "center",
             gap: "0.3rem",
-            padding: "0.3rem 0.625rem",
+            alignSelf: "flex-start",
+            padding: "0.25rem 0.55rem",
             borderRadius: "var(--radius-sm)",
             border: `1px solid ${copied ? "var(--color-success-border)" : "var(--border)"}`,
             background: copied ? "var(--color-success-bg)" : "var(--surface-100)",
@@ -296,7 +298,6 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             fontSize: "0.6875rem",
             fontWeight: 700,
             cursor: "pointer",
-            flexShrink: 0,
             whiteSpace: "nowrap",
             transition: "all 0.1s",
           }}
@@ -314,7 +315,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
       </div>
 
       {/* ── Aktionen je Kanal ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap", marginTop: "auto" }}>
         {task.source === "linkedin" && (
           <>
             <button
@@ -325,12 +326,12 @@ function TaskCard({ task }: { task: NachfassenTask }) {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "0.3rem",
-                padding: "0.35rem 0.75rem",
+                padding: "0.3rem 0.625rem",
                 borderRadius: "var(--radius-sm)",
                 border: "none",
                 background: "var(--btn-primary-bg)",
                 color: "var(--btn-primary-fg)",
-                fontSize: "0.75rem",
+                fontSize: "0.6875rem",
                 fontWeight: 700,
                 cursor: isPending ? "default" : "pointer",
                 transition: "all 0.1s",
@@ -385,16 +386,34 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         )}
 
         {error && (
-          <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--color-error-text)" }}>{error}</span>
+          <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-error-text)" }}>{error}</span>
         )}
       </div>
     </div>
   );
 }
 
+/** Kompaktes Karten-Grid: so viele 300px-Karten pro Zeile wie Platz ist. */
+function CardGrid({ tasks }: { tasks: NachfassenTask[] }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+        gap: "0.75rem",
+      }}
+    >
+      {tasks.map((t) => (
+        <TaskCard key={`${t.source}-${t.entity_id}`} task={t} />
+      ))}
+    </div>
+  );
+}
+
+type Section = { key: string; label: string; tasks: NachfassenTask[] };
+
 export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
   const [filter, setFilter] = useState<ChannelFilter>("alle");
-  const [fuFilter, setFuFilter] = useState<number | null>(null);
 
   // Überfällige zuerst, danach aufsteigend nach Fälligkeit
   const sorted = useMemo(() => [...tasks].sort((a, b) => dueSortKey(a) - dueSortKey(b)), [tasks]);
@@ -405,26 +424,29 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
     return c;
   }, [tasks]);
 
-  // LinkedIn-Tasks je FU-Stufe (für die sekundären FU-Pills)
-  const fuCounts = useMemo(() => {
-    const c: Record<number, number> = { 1: 0, 2: 0, 3: 0 };
-    for (const t of tasks) {
-      if (t.source === "linkedin" && t.next_fu_number != null && c[t.next_fu_number] !== undefined) {
-        c[t.next_fu_number] += 1;
+  // Sektionen: LinkedIn nach FU-Stufe gruppiert, danach Rückrufe und Closing.
+  // Leere Sektionen werden nicht gerendert.
+  const sections = useMemo<Section[]>(() => {
+    const s: Section[] = [];
+    if (filter === "alle" || filter === "linkedin") {
+      const linkedin = sorted.filter((t) => t.source === "linkedin");
+      for (const fu of [1, 2, 3]) {
+        const group = linkedin.filter((t) => t.next_fu_number === fu);
+        if (group.length > 0) s.push({ key: `fu-${fu}`, label: `Follow-up ${fu}`, tasks: group });
       }
+      const rest = linkedin.filter((t) => t.next_fu_number == null || t.next_fu_number < 1 || t.next_fu_number > 3);
+      if (rest.length > 0) s.push({ key: "fu-weitere", label: "Weitere Follow-ups", tasks: rest });
     }
-    return c;
-  }, [tasks]);
-
-  const showFuPills = counts.linkedin > 0 && (filter === "alle" || filter === "linkedin");
-
-  const visible = useMemo(() => {
-    let v = filter === "alle" ? sorted : sorted.filter((t) => t.source === filter);
-    if (fuFilter != null && (filter === "alle" || filter === "linkedin")) {
-      v = v.filter((t) => t.source === "linkedin" && t.next_fu_number === fuFilter);
+    if (filter === "alle" || filter === "telefon") {
+      const group = sorted.filter((t) => t.source === "telefon");
+      if (group.length > 0) s.push({ key: "telefon", label: "Rückrufe", tasks: group });
     }
-    return v;
-  }, [sorted, filter, fuFilter]);
+    if (filter === "alle" || filter === "closing") {
+      const group = sorted.filter((t) => t.source === "closing");
+      if (group.length > 0) s.push({ key: "closing", label: "Closing", tasks: group });
+    }
+    return s;
+  }, [sorted, filter]);
 
   return (
     <div>
@@ -437,11 +459,7 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
             <button
               key={f.value}
               type="button"
-              onClick={() => {
-                setFilter(f.value);
-                // FU-Subfilter nur für LinkedIn-Sichten relevant
-                if (f.value !== "alle" && f.value !== "linkedin") setFuFilter(null);
-              }}
+              onClick={() => setFilter(f.value)}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -475,70 +493,6 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
         })}
       </div>
 
-      {/* ── FU-Stufen-Subfilter (nur LinkedIn) ── */}
-      {showFuPills && (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-          <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: "0.25rem" }}>
-            FU-Stufe
-          </span>
-          <button
-            type="button"
-            onClick={() => setFuFilter(null)}
-            style={{
-              padding: "0.2rem 0.55rem",
-              borderRadius: 99,
-              border: `1px solid ${fuFilter == null ? "var(--border-bright)" : "var(--border)"}`,
-              background: fuFilter == null ? "var(--surface-150)" : "var(--surface-50)",
-              color: fuFilter == null ? "var(--text-primary)" : "var(--text-muted)",
-              fontSize: "0.6875rem",
-              fontWeight: 700,
-              cursor: "pointer",
-              transition: "all 0.1s",
-            }}
-          >
-            Alle FU
-          </button>
-          {[1, 2, 3].map((fu) => {
-            const active = fuFilter === fu;
-            return (
-              <button
-                key={fu}
-                type="button"
-                onClick={() => setFuFilter(active ? null : fu)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.3rem",
-                  padding: "0.2rem 0.55rem",
-                  borderRadius: 99,
-                  border: `1px solid ${active ? "var(--color-info-border)" : "var(--border)"}`,
-                  background: active ? "var(--color-info-bg)" : "var(--surface-50)",
-                  color: active ? "var(--color-info-text)" : "var(--text-muted)",
-                  fontSize: "0.6875rem",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  transition: "all 0.1s",
-                }}
-              >
-                FU{fu}
-                <span
-                  style={{
-                    fontSize: "0.625rem",
-                    fontWeight: 800,
-                    background: "var(--surface-200)",
-                    color: "var(--text-muted)",
-                    borderRadius: 99,
-                    padding: "0.05rem 0.3rem",
-                  }}
-                >
-                  {fuCounts[fu]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {/* ── Hinweis: ältere Leads (Pitch > 7 Tage) ── */}
       {showingAll ? (
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
@@ -560,8 +514,8 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
         <div style={{ marginBottom: "1rem" }} />
       )}
 
-      {/* ── Karten / Leerzustand ── */}
-      {visible.length === 0 ? (
+      {/* ── Sektionen / Leerzustand ── */}
+      {sections.length === 0 ? (
         <div
           style={{
             background: "var(--surface-100)",
@@ -580,9 +534,23 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
           </p>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
-          {visible.map((t) => (
-            <TaskCard key={`${t.source}-${t.entity_id}`} task={t} />
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {sections.map((section) => (
+            <section key={section.key}>
+              <h3
+                style={{
+                  margin: "0 0 0.5rem",
+                  fontSize: "0.6875rem",
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "var(--text-subtle)",
+                }}
+              >
+                {section.label} ({section.tasks.length})
+              </h3>
+              <CardGrid tasks={section.tasks} />
+            </section>
           ))}
         </div>
       )}

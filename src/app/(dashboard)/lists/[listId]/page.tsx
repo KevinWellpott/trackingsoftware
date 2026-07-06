@@ -5,10 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import { updateListPitchForm } from "@/app/actions/lists";
-import { MultiMetricBarChart, AnswerDonutChart, METRIC_COLORS, type MultiMetricDay } from "@/components/DashboardCharts";
+import { MultiMetricBarChart, AnswerDonutChart, type MultiMetricDay } from "@/components/DashboardCharts";
+import { StatTile } from "@/components/dashboard/StatTile";
 import type { ContactWithStage, PipelineStage, PitchList } from "@/lib/types";
 import { addDaysISO, localDateISO } from "@/lib/dates";
-import { AlertTriangle, ArrowLeft, ArrowRight, Calendar, CheckCircle, Clock, FileText, TrendingUp, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Bell, Calendar, CalendarCheck, CheckCircle, FileText, MessageCircle, MessageSquare, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -52,10 +53,9 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   const total = contacts.length;
   const answered = contacts.filter((c) => c.answered === true).length;
   const appts = contacts.filter((c) => c.appointment_set === true).length;
-  const fu1 = contacts.filter((c) => c.follow_up_number === 1).length;
-  const fu2 = contacts.filter((c) => c.follow_up_number === 2).length;
-  const fu3 = contacts.filter((c) => c.follow_up_number === 3).length;
-  const openFU = contacts.filter((c) => c.answered !== true && c.next_follow_up_at && c.next_follow_up_at <= today && c.follow_up_number !== 3).length;
+  const openFU = contacts.filter((c) =>
+    c.next_follow_up_at && c.answered !== true && c.appointment_set !== true && c.follow_up_number !== 3
+  ).length;
 
   const answerRate = pct(answered, total);
   const apptRate = pct(appts, total);
@@ -74,9 +74,11 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
     });
   }
 
+  const answeredOnly = contacts.filter((c) => c.answered === true && c.appointment_set !== true).length;
   const donutData = [
-    { name: "Antwort ✓", value: answered, color: METRIC_COLORS.answers },
-    { name: "Offen", value: total - answered, color: "#3f3f46" },
+    { name: "Termine", value: appts, color: "var(--brand-500)" },
+    { name: "Beantwortet", value: answeredOnly, color: "var(--color-success-text)" },
+    { name: "Offen", value: total - appts - answeredOnly, color: "var(--surface-300)" },
   ].filter((d) => d.value > 0);
 
   // ── Insights für diese Liste ────────────────────────────────
@@ -123,44 +125,76 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
         </div>
       </div>
 
-      {/* ── Analytics Strip ── */}
+      {/* ── Analytics ── */}
       {total > 0 && (
-        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", marginBottom: "1.25rem", overflow: "hidden" }}>
-          {/* Stat Pills */}
-          <div className="grid-6-stat" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", borderBottom: "1px solid var(--border)" }}>
-            {[
-              { label: "DMs", value: total, color: METRIC_COLORS.dms, icon: <Users size={12} /> },
-              { label: "Antwortrate", value: `${answerRate}%`, color: METRIC_COLORS.answers, icon: <TrendingUp size={12} /> },
-              { label: "Terminrate", value: `${apptRate}%`, color: METRIC_COLORS.appointments, icon: <Calendar size={12} /> },
-              { label: "→Termin", value: `${conversionRate}%`, color: METRIC_COLORS.appointments, icon: <CheckCircle size={12} />, sub: "Antwort→Termin" },
-              { label: "Offene FUs", value: openFU, color: openFU > 0 ? METRIC_COLORS.followups : METRIC_COLORS.answers, icon: <Clock size={12} /> },
-              { label: "FU1/2/3", value: `${fu1}/${fu2}/${fu3}`, color: "var(--text-muted)", icon: <Clock size={12} /> },
-            ].map((s, i) => (
-              <div key={s.label} style={{ padding: "0.875rem 1rem", borderRight: i < 5 ? "1px solid var(--border)" : "none" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", marginBottom: "0.25rem", color: "var(--text-subtle)" }}>
-                  {s.icon}
-                  <span style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</span>
-                </div>
-                <div style={{ fontSize: "1.25rem", fontWeight: 800, color: s.color, lineHeight: 1, letterSpacing: "-0.02em" }}>{s.value}</div>
-              </div>
-            ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem", marginBottom: "1.25rem" }}>
+          {/* KPI-Kacheln */}
+          <div className="grid-6-stat" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.75rem" }}>
+            <StatTile
+              label="DMs"
+              value={total.toLocaleString("de-DE")}
+              sub="Kontakte in dieser Liste"
+              icon={<MessageSquare size={14} />}
+            />
+            <StatTile
+              label="Antwortquote"
+              value={`${answerRate}%`}
+              sub={`${answered.toLocaleString("de-DE")} Antworten`}
+              icon={<TrendingUp size={14} />}
+            />
+            <StatTile
+              label="Terminquote"
+              value={`${apptRate}%`}
+              sub={`Antwort→Termin: ${conversionRate}%`}
+              icon={<CalendarCheck size={14} />}
+            />
+            <StatTile
+              label="Termine"
+              value={appts.toLocaleString("de-DE")}
+              sub="eingebucht"
+              tone={appts > 0 ? "success" : "neutral"}
+              icon={<Calendar size={14} />}
+            />
+            <StatTile
+              label="Offene Follow-ups"
+              value={openFU.toLocaleString("de-DE")}
+              sub="Nachfassen ausstehend"
+              tone={openFU > 0 ? "error" : "neutral"}
+              icon={<Bell size={14} />}
+            />
           </div>
 
-          {/* Charts row */}
-          <div className="chart-grid-2" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 0 }}>
-            <div style={{ padding: "1.125rem 1.375rem", borderRight: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.625rem" }}>Verlauf letzte 30 Tage</div>
+          {/* Charts */}
+          <div className="chart-grid-2" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "0.75rem" }}>
+            <div className="card" style={{ padding: "1.125rem 1.375rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                <span aria-hidden style={{ display: "inline-flex", color: "var(--text-subtle)", flexShrink: 0 }}>
+                  <TrendingUp size={14} />
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)" }}>Verlauf</div>
+                  <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)" }}>DMs, Antworten und Termine der letzten 30 Tage</div>
+                </div>
+              </div>
               <MultiMetricBarChart data={chartData} />
             </div>
-            <div style={{ padding: "1.125rem 1.375rem" }}>
-              <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.625rem" }}>Antworten</div>
+            <div className="card" style={{ padding: "1.125rem 1.375rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                <span aria-hidden style={{ display: "inline-flex", color: "var(--text-subtle)", flexShrink: 0 }}>
+                  <MessageCircle size={14} />
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)" }}>Antworten</div>
+                  <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)" }}>Verteilung aller Kontakte</div>
+                </div>
+              </div>
               <AnswerDonutChart data={donutData} />
             </div>
           </div>
 
           {/* Insights */}
           {listInsights.length > 0 && (
-            <div style={{ borderTop: "1px solid var(--border)", padding: "0.75rem 1.25rem", display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
               {listInsights.map((ins, i) => (
                 <div key={i} style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", padding: "0.25rem 0.75rem", borderRadius: 99, background: insightStyles[ins.level].bg, border: `1px solid ${insightStyles[ins.level].border}`, fontSize: "0.75rem", color: insightStyles[ins.level].color, fontWeight: 500 }}>
                   {ins.level === "success" ? <CheckCircle size={12} /> : ins.level === "warning" ? <AlertTriangle size={12} /> : <ArrowRight size={12} />} {ins.text}
