@@ -12,6 +12,7 @@ import {
 } from "@/components/DashboardCharts";
 import { generateInsights } from "@/lib/insights";
 import { OverallSection } from "@/components/dashboard/OverallSection";
+import { FunnelSection } from "@/components/dashboard/FunnelSection";
 import { PersonSection } from "@/components/dashboard/PersonSection";
 import { ListAnalysisSection } from "@/components/dashboard/ListAnalysisSection";
 
@@ -490,6 +491,9 @@ export default async function DashboardPage() {
           </div>
         </>
       )}
+
+      {/* ══ FUNNEL (Telefon → Setting → Closing → Umsatz) ══ */}
+      <FunnelSection access={access} />
 
       {/* ══ SEKTION 1: GESAMT (Client, eigener Filter) ══ */}
       <OverallSection

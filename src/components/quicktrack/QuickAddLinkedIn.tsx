@@ -3,7 +3,7 @@
 import { createContact } from "@/app/actions/contacts";
 import { Modal } from "@/components/ui/Modal";
 import { Check, Zap } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 const LAST_LIST_KEY = "qt_last_list";
@@ -21,6 +21,7 @@ export function QuickAddLinkedIn({
   lists: { id: string; name: string; owner_name: string | null }[];
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [listId, setListId] = useState("");
   const [name, setName] = useState("");
@@ -43,8 +44,12 @@ export function QuickAddLinkedIn({
     setError(null);
   }, [open, lists]);
 
-  // Keyboard-Shortcut Ctrl/Cmd+K
+  // Nur auf LinkedIn-relevanten Flächen anzeigen (Dashboard, Listen, Nachfassen).
+  const visible = pathname === "/" || pathname.startsWith("/lists") || pathname === "/nachfassen";
+
+  // Keyboard-Shortcut Ctrl/Cmd+K (nur auf sichtbaren Routen aktiv)
   useEffect(() => {
+    if (!visible) return;
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -53,7 +58,7 @@ export function QuickAddLinkedIn({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [visible]);
 
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
@@ -87,6 +92,9 @@ export function QuickAddLinkedIn({
       router.refresh();
     });
   }
+
+  // Nach allen Hooks: auf anderen Routen weder FAB noch Modal rendern.
+  if (!visible) return null;
 
   const labelStyle: React.CSSProperties = {
     display: "block",

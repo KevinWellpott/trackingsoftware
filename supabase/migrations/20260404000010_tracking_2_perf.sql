@@ -39,3 +39,14 @@ end;
 $$;
 
 grant execute on function public.rpc_phone_list_counts (uuid, uuid) to authenticated;
+
+-- ── Closing-Terminplanung: Meet-Link + Termin mit Uhrzeit ──────
+-- Closing-Calls hatten weder einen Meet-Link noch eine Uhrzeit am Termin
+-- (call_at war date), obwohl die UI Datum + Uhrzeit anzeigt. Beides hier
+-- nachgezogen — non-destruktiv: bestehende call_at-Werte werden Mitternacht.
+alter table public.closing_calls
+  add column if not exists meet_link text;
+
+alter table public.closing_calls
+  alter column call_at type timestamptz
+  using call_at::timestamptz;

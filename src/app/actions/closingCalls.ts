@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 
 export type ClosingCallPatch = {
   call_at?: string | null;
+  meet_link?: string | null;
   show_status?: "show" | "no_show" | null;
   closed?: boolean | null;
   deal_volume?: number | null;

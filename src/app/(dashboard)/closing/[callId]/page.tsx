@@ -3,7 +3,7 @@ import { ClosingCallEditor, type SettingContext } from "@/components/closing/Clo
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import type { ClosingCall } from "@/lib/types";
-import { ArrowLeft, CalendarClock } from "lucide-react";
+import { ArrowLeft, CalendarClock, Video } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -168,6 +168,30 @@ export default async function ClosingCallPage({ params }: { params: Promise<{ ca
               <p style={{ fontSize: "0.875rem", color: "var(--text-muted)", margin: "0.125rem 0 0" }}>{call.company}</p>
             )}
           </div>
+
+          {call.meet_link && (
+            <a
+              href={call.meet_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.5rem 0.875rem",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--brand-200)",
+                background: "var(--brand-50)",
+                color: "var(--brand-500)",
+                fontSize: "0.8125rem",
+                fontWeight: 700,
+                textDecoration: "none",
+                flexShrink: 0,
+              }}
+            >
+              <Video size={14} /> Meet öffnen
+            </a>
+          )}
         </div>
       </div>
 

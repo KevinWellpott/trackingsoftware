@@ -75,18 +75,28 @@ export async function createClosingFromSetting(
     return { closingId: existing.id };
   }
 
-  const { data: setting } = await supabase
+  const { data: rawSetting } = await supabase
     .from("setting_calls")
-    .select("lead_name, company")
+    .select("lead_name, company, closing_at, meet_link")
     .eq("id", settingId)
     .maybeSingle();
+  const setting = rawSetting as {
+    lead_name?: string | null;
+    company?: string | null;
+    closing_at?: string | null;
+    meet_link?: string | null;
+  } | null;
 
+  // Termin + Meet-Link aus dem Setting vorbefüllen (Closing-Termin, sonst
+  // sinnvoller Default: derselbe Meet-Raum wie beim Setting-Call).
   const { data: closing, error } = await supabase
     .from("closing_calls")
     .insert({
       setting_call_id: settingId,
-      lead_name: (setting as { lead_name?: string | null } | null)?.lead_name ?? null,
-      company: (setting as { company?: string | null } | null)?.company ?? null,
+      lead_name: setting?.lead_name ?? null,
+      company: setting?.company ?? null,
+      call_at: setting?.closing_at ?? null,
+      meet_link: setting?.meet_link ?? null,
       status: "offen",
     })
     .select("id")

@@ -98,6 +98,7 @@ export type ClosingCall = {
   lead_name: string | null;
   company: string | null;
   call_at: string | null;
+  meet_link: string | null;
   show_status: "show" | "no_show" | null;
   closed: boolean | null;
   deal_volume: number | null;

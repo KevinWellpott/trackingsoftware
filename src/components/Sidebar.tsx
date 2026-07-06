@@ -67,7 +67,8 @@ function NavLink({
   onClick?: () => void;
 }) {
   const pathname = usePathname();
-  const isActive = pathname === href;
+  // Aktiv auch auf Unterseiten (/setting/abc → "Setting"); "/" nur exakt.
+  const isActive = pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
   return (
     <Link
       href={href}
@@ -185,9 +186,7 @@ function OwnerFolder({
   lists: SidebarList[];
   onClose?: () => void;
 }) {
-  const pathname = usePathname();
-  const hasActive = lists.some((l) => pathname === `/lists/${l.id}`);
-  const [open, setOpen] = useState<boolean>(hasActive || true);
+  const [open, setOpen] = useState<boolean>(true);
   const color = OWNER_COLORS[owner] ?? "var(--brand-500)";
 
   return (
@@ -286,9 +285,7 @@ function OrganicOwnerFolder({
   lists: SidebarList[];
   onClose?: () => void;
 }) {
-  const pathname = usePathname();
-  const hasActive = lists.some((l) => pathname === `/organic/${l.id}`);
-  const [open, setOpen] = useState<boolean>(hasActive || true);
+  const [open, setOpen] = useState<boolean>(true);
   const color = OWNER_COLORS[owner] ?? "#e879f9";
 
   return (
@@ -412,9 +409,7 @@ function PhoneOwnerFolder({
   lists: SidebarPhoneList[];
   onClose?: () => void;
 }) {
-  const pathname = usePathname();
-  const hasActive = lists.some((l) => pathname === `/telefon/${l.id}`);
-  const [open, setOpen] = useState<boolean>(hasActive || true);
+  const [open, setOpen] = useState<boolean>(true);
   const color = OWNER_COLORS[owner] ?? "var(--brand-500)";
 
   return (

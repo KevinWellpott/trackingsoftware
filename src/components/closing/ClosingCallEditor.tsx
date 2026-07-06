@@ -122,6 +122,23 @@ function formatDateTime(iso: string | null): string | null {
   }).format(d)} Uhr`;
 }
 
+/** ISO-Timestamp → Wert für <input type="datetime-local"> (lokale Zeit). */
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** datetime-local-Wert → ISO-Timestamp (oder null bei leer/ungültig). */
+function localInputToIso(value: string): string | null {
+  if (!value.trim()) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 function Segmented<T extends string>({
   value,
   options,
@@ -234,6 +251,8 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
 
   // Autosave-Felder (lokaler State)
   const [status, setStatus] = useState<ClosingCall["status"]>(call.status);
+  const [callAt, setCallAt] = useState(isoToLocalInput(call.call_at));
+  const [meetLink, setMeetLink] = useState(call.meet_link ?? "");
   const [showStatus, setShowStatus] = useState<"show" | "no_show" | null>(call.show_status);
   const [recordingLink, setRecordingLink] = useState(call.recording_link ?? "");
   const [objectionsHandled, setObjectionsHandled] = useState(call.objections_handled ?? "");
@@ -608,6 +627,35 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
             }}
           >
             <span style={{ fontSize: "0.8125rem", fontWeight: 800, color: "var(--text-primary)" }}>Call-Details</span>
+
+            <div>
+              <span style={fieldLabel}>Termin</span>
+              <input
+                type="datetime-local"
+                value={callAt}
+                onChange={(e) => setCallAt(e.target.value)}
+                onBlur={() => {
+                  if (callAt === isoToLocalInput(call.call_at)) return;
+                  save({ call_at: localInputToIso(callAt) }, { refresh: true });
+                }}
+                style={fieldInput}
+              />
+            </div>
+
+            <div>
+              <span style={fieldLabel}>Google-Meet-Link</span>
+              <input
+                type="url"
+                value={meetLink}
+                onChange={(e) => setMeetLink(e.target.value)}
+                onBlur={() => {
+                  if (meetLink === (call.meet_link ?? "")) return;
+                  save({ meet_link: meetLink.trim() || null }, { refresh: true });
+                }}
+                placeholder="https://meet.google.com/…"
+                style={fieldInput}
+              />
+            </div>
 
             <div>
               <span style={fieldLabel}>Show-Status</span>

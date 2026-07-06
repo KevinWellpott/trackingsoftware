@@ -1,7 +1,9 @@
 "use client";
 
+import { Input } from "@/components/ui/Input";
+import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { ClosingCall } from "@/lib/types";
-import { CalendarClock, Euro, Handshake } from "lucide-react";
+import { CalendarClock, Euro, Handshake, Search, Video } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -49,14 +51,6 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "nachfassen", label: "Nachfassen" },
 ];
 
-const CHIP_PALETTE = ["#6366f1", "#8b5cf6", "#10b981", "#0ea5e9", "#f59e0b", "#ec4899", "#14b8a6"];
-
-function avatarColor(username: string): string {
-  let hash = 0;
-  for (let i = 0; i < username.length; i++) hash = (hash * 31 + username.charCodeAt(i)) >>> 0;
-  return CHIP_PALETTE[hash % CHIP_PALETTE.length];
-}
-
 function formatTermin(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -83,6 +77,7 @@ function formatEur(value: number): string {
 export function ClosingQueue({ calls, assigneesByCall, meId }: Props) {
   const [scope, setScope] = useState<ScopeFilter>("alle");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("alle");
+  const [search, setSearch] = useState("");
 
   const scoped = useMemo(() => {
     if (scope === "alle") return calls;
@@ -104,10 +99,16 @@ export function ClosingQueue({ calls, assigneesByCall, meId }: Props) {
     return counts;
   }, [scoped]);
 
-  const visible = useMemo(
+  const byStatus = useMemo(
     () => (statusFilter === "alle" ? scoped : scoped.filter((c) => c.status === statusFilter)),
     [scoped, statusFilter],
   );
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return byStatus;
+    return byStatus.filter((c) => [c.lead_name, c.company].filter(Boolean).join(" ").toLowerCase().includes(q));
+  }, [byStatus, search]);
 
   return (
     <div>
@@ -202,6 +203,34 @@ export function ClosingQueue({ calls, assigneesByCall, meId }: Props) {
               </button>
             );
           })}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: "1 1 200px", maxWidth: 300, marginLeft: "auto" }}>
+          <div style={{ position: "relative", flex: 1 }}>
+            <Search
+              size={13}
+              style={{
+                position: "absolute",
+                left: "0.625rem",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "var(--text-subtle)",
+                pointerEvents: "none",
+              }}
+            />
+            <Input
+              type="search"
+              placeholder="Lead oder Firma…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ minHeight: 32, padding: "0.35rem 0.75rem 0.35rem 2rem", fontSize: "0.8125rem" }}
+            />
+          </div>
+          {search.trim() && (
+            <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", whiteSpace: "nowrap", flexShrink: 0 }}>
+              {visible.length}/{byStatus.length}
+            </span>
+          )}
         </div>
       </div>
 
@@ -339,7 +368,7 @@ export function ClosingQueue({ calls, assigneesByCall, meId }: Props) {
                   {/* Assignees */}
                   <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                     {callAssignees.slice(0, 4).map((a, i) => {
-                      const color = avatarColor(a.username);
+                      const oc = ownerColor(a.username);
                       return (
                         <span
                           key={a.user_id}
@@ -348,8 +377,8 @@ export function ClosingQueue({ calls, assigneesByCall, meId }: Props) {
                             width: 24,
                             height: 24,
                             borderRadius: "50%",
-                            background: color,
-                            color: "#fff",
+                            background: oc.bg,
+                            color: oc.fg,
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -359,7 +388,7 @@ export function ClosingQueue({ calls, assigneesByCall, meId }: Props) {
                             marginLeft: i === 0 ? 0 : -7,
                           }}
                         >
-                          {a.username.charAt(0).toUpperCase()}
+                          {ownerInitials(a.username)}
                         </span>
                       );
                     })}
@@ -369,6 +398,36 @@ export function ClosingQueue({ calls, assigneesByCall, meId }: Props) {
                       </span>
                     )}
                   </div>
+
+                  {/* Meet-Link */}
+                  {c.meet_link && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.open(c.meet_link as string, "_blank", "noopener,noreferrer");
+                      }}
+                      title="Meet öffnen"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.3rem",
+                        padding: "0.3rem 0.625rem",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--brand-200)",
+                        background: "var(--brand-50)",
+                        color: "var(--brand-500)",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        flexShrink: 0,
+                        transition: "all 0.1s",
+                      }}
+                    >
+                      <Video size={12} /> Meet
+                    </button>
+                  )}
                 </div>
               </Link>
             );

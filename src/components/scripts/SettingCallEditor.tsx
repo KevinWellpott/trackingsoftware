@@ -200,6 +200,10 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
   const [recordingLink, setRecordingLink] = useState(call.recording_link ?? "");
   const [notes, setNotes] = useState(call.notes ?? "");
   const [closingDone, setClosingDone] = useState(call.status === "closing_gelegt");
+  // Id des angelegten Closings (nach createClosingFromSetting bekannt; bei
+  // bereits "closing_gelegt" auf Mount unbekannt → wird beim Klick idempotent
+  // über createClosingFromSetting aufgelöst).
+  const [closingId, setClosingId] = useState<string | null>(null);
   const lastSavedNotesRef = useRef(call.notes ?? "");
 
   useEffect(() => {
@@ -242,8 +246,32 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
       setError(null);
       setClosingDone(true);
       setStatus("closing_gelegt");
+      if (res.closingId) setClosingId(res.closingId);
       flashSaved();
       router.refresh();
+    });
+  }
+
+  // "Zum Closing →": Id bekannt → direkt navigieren; sonst idempotent über
+  // createClosingFromSetting auflösen (liefert die bestehende Closing-Id).
+  function handleGoToClosing() {
+    if (closingId) {
+      router.push(`/closing/${closingId}`);
+      return;
+    }
+    startTransition(async () => {
+      const res = await createClosingFromSetting(call.id);
+      if (res?.error) {
+        setError(res.error);
+        return;
+      }
+      setError(null);
+      setClosingDone(true);
+      setStatus("closing_gelegt");
+      if (res.closingId) {
+        setClosingId(res.closingId);
+        router.push(`/closing/${res.closingId}`);
+      }
     });
   }
 
@@ -353,37 +381,71 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
           Dead
         </button>
 
-        <button
-          type="button"
-          onClick={handleCreateClosing}
-          disabled={isPending || closingDone}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.375rem",
-            padding: "0.4rem 0.875rem",
-            borderRadius: "var(--radius-sm)",
-            border: "1px solid transparent",
-            background: closingDone ? "var(--color-success-bg)" : "var(--btn-primary-bg)",
-            color: closingDone ? "var(--color-success-text)" : "var(--btn-primary-fg)",
-            fontSize: "0.75rem",
-            fontWeight: 800,
-            cursor: closingDone ? "default" : "pointer",
-            opacity: isPending ? 0.7 : 1,
-            transition: "all 0.1s",
-            ...(closingDone ? { border: "1px solid var(--color-success-border)" } : {}),
-          }}
-        >
-          {closingDone ? (
-            <>
+        {closingDone ? (
+          <>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.375rem",
+                padding: "0.4rem 0.875rem",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-success-border)",
+                background: "var(--color-success-bg)",
+                color: "var(--color-success-text)",
+                fontSize: "0.75rem",
+                fontWeight: 800,
+              }}
+            >
               <Check size={13} strokeWidth={3} /> Closing angelegt
-            </>
-          ) : (
-            <>
-              Closing anlegen <ArrowRight size={13} strokeWidth={2.5} />
-            </>
-          )}
-        </button>
+            </span>
+            <button
+              type="button"
+              onClick={handleGoToClosing}
+              disabled={isPending}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.375rem",
+                padding: "0.4rem 0.875rem",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid transparent",
+                background: "var(--btn-primary-bg)",
+                color: "var(--btn-primary-fg)",
+                fontSize: "0.75rem",
+                fontWeight: 800,
+                cursor: "pointer",
+                opacity: isPending ? 0.7 : 1,
+                transition: "all 0.1s",
+              }}
+            >
+              Zum Closing <ArrowRight size={13} strokeWidth={2.5} />
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={handleCreateClosing}
+            disabled={isPending}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.375rem",
+              padding: "0.4rem 0.875rem",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid transparent",
+              background: "var(--btn-primary-bg)",
+              color: "var(--btn-primary-fg)",
+              fontSize: "0.75rem",
+              fontWeight: 800,
+              cursor: "pointer",
+              opacity: isPending ? 0.7 : 1,
+              transition: "all 0.1s",
+            }}
+          >
+            Closing anlegen <ArrowRight size={13} strokeWidth={2.5} />
+          </button>
+        )}
       </div>
 
       {error && (

@@ -1,7 +1,9 @@
 "use client";
 
+import { Input } from "@/components/ui/Input";
+import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { SettingCall } from "@/lib/types";
-import { AtSign, CalendarClock, ClipboardCheck, Phone, Video } from "lucide-react";
+import { AtSign, CalendarClock, ClipboardCheck, Phone, Search, Video } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -82,14 +84,6 @@ const SOURCE_META: Record<string, { label: string; icon: React.ReactNode; color:
   },
 };
 
-const CHIP_PALETTE = ["#6366f1", "#8b5cf6", "#10b981", "#0ea5e9", "#f59e0b", "#ec4899", "#14b8a6"];
-
-function avatarColor(username: string): string {
-  let hash = 0;
-  for (let i = 0; i < username.length; i++) hash = (hash * 31 + username.charCodeAt(i)) >>> 0;
-  return CHIP_PALETTE[hash % CHIP_PALETTE.length];
-}
-
 export function formatTermin(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -108,6 +102,7 @@ export function formatTermin(iso: string | null): string | null {
 export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
   const [scope, setScope] = useState<ScopeFilter>("alle");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("alle");
+  const [search, setSearch] = useState("");
 
   const scoped = useMemo(() => {
     if (scope === "alle") return calls;
@@ -130,10 +125,16 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
     return counts;
   }, [scoped]);
 
-  const visible = useMemo(
+  const byStatus = useMemo(
     () => (statusFilter === "alle" ? scoped : scoped.filter((c) => c.status === statusFilter)),
     [scoped, statusFilter],
   );
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return byStatus;
+    return byStatus.filter((c) => [c.lead_name, c.company].filter(Boolean).join(" ").toLowerCase().includes(q));
+  }, [byStatus, search]);
 
   return (
     <div>
@@ -228,6 +229,34 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
               </button>
             );
           })}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: "1 1 200px", maxWidth: 300, marginLeft: "auto" }}>
+          <div style={{ position: "relative", flex: 1 }}>
+            <Search
+              size={13}
+              style={{
+                position: "absolute",
+                left: "0.625rem",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "var(--text-subtle)",
+                pointerEvents: "none",
+              }}
+            />
+            <Input
+              type="search"
+              placeholder="Lead oder Firma…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ minHeight: 32, padding: "0.35rem 0.75rem 0.35rem 2rem", fontSize: "0.8125rem" }}
+            />
+          </div>
+          {search.trim() && (
+            <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", whiteSpace: "nowrap", flexShrink: 0 }}>
+              {visible.length}/{byStatus.length}
+            </span>
+          )}
         </div>
       </div>
 
@@ -364,7 +393,7 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
                   {/* Assignees */}
                   <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                     {callAssignees.slice(0, 4).map((a, i) => {
-                      const color = avatarColor(a.username);
+                      const oc = ownerColor(a.username);
                       return (
                         <span
                           key={a.user_id}
@@ -373,8 +402,8 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
                             width: 24,
                             height: 24,
                             borderRadius: "50%",
-                            background: color,
-                            color: "#fff",
+                            background: oc.bg,
+                            color: oc.fg,
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -384,7 +413,7 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
                             marginLeft: i === 0 ? 0 : -7,
                           }}
                         >
-                          {a.username.charAt(0).toUpperCase()}
+                          {ownerInitials(a.username)}
                         </span>
                       );
                     })}
