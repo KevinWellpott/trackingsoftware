@@ -27,16 +27,23 @@ export default async function SettingPage() {
         .order("id", { ascending: true })
         .range(from, to);
     }),
-    supabase
-      .from("call_assignees")
-      .select("entity_id, user_id, profiles ( username )")
-      .eq("entity_type", "setting_call")
-      .eq("workspace_id", access.workspace_id)
-      .then(({ data }) => (data ?? []) as unknown as {
-        entity_id: string;
-        user_id: string;
-        profiles: { username: string } | null;
-      }[]),
+    // fetchAllRows: ohne order/range cappt PostgREST bei 1000 Zeilen → Assignees würden stillschweigend fehlen
+    fetchAllRows((from, to) =>
+      supabase
+        .from("call_assignees")
+        .select("entity_id, user_id, profiles ( username )")
+        .eq("entity_type", "setting_call")
+        .eq("workspace_id", access.workspace_id)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ).then(
+      (rows) =>
+        rows as unknown as {
+          entity_id: string;
+          user_id: string;
+          profiles: { username: string } | null;
+        }[],
+    ),
   ]);
 
   // Assignees je Call gruppieren (eine Query für alle Calls)

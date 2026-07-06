@@ -41,20 +41,9 @@ export default async function ExportPage({
   const listIds  = q.listIds  ? q.listIds.split(",").filter(Boolean) : [];
   const category = q.category ?? "";
 
-  // Preview: count matching contacts
+  // Preview: die fetchAllRows-Query unten liefert count/answered/appts direkt —
+  // der frühere zusätzliche count-Roundtrip war totes Gewicht und wurde entfernt.
   const allowedListIds = allLists.map((l) => l.id);
-
-  let countQ = supabase
-    .from("contacts")
-    .select("id, list_id, pitched_at, answer_category, lists!inner(owner_name)", { count: "exact", head: false });
-
-  if (from) countQ = countQ.gte("pitched_at", from);
-  countQ = countQ.lte("pitched_at", to);
-  if (listIds.length > 0) countQ = countQ.in("list_id", listIds);
-  else if (access.effective_user_id) countQ = countQ.in("list_id", allowedListIds.length ? allowedListIds : ["00000000-0000-0000-0000-000000000000"]);
-
-  const { count: rawCount } = await countQ;
-  void rawCount;
 
   // Further filter by owner + category (client-side for preview since nested filters are limited)
   const previewRaw = await fetchAllRows((rangeFrom, rangeTo) => {

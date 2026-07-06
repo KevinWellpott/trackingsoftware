@@ -2,8 +2,7 @@ import { CsvImportDialog } from "@/components/telefon/CsvImportDialog";
 import { PhoneDashboard } from "@/components/telefon/PhoneDashboard";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import type { PhoneLead, PhoneLeadStatus, PhoneList, PhoneListKind } from "@/lib/types";
+import type { PhoneLeadStatus, PhoneList, PhoneListKind } from "@/lib/types";
 import { Phone, PhoneMissed, Voicemail } from "lucide-react";
 import Link from "next/link";
 
@@ -62,15 +61,12 @@ export default async function TelefonPage() {
     listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
   }
 
-  const [{ data: rawLists }, leadRows, allUsers] = await Promise.all([
+  const [{ data: rawLists }, { data: countRows }, allUsers] = await Promise.all([
     listsQuery,
-    fetchAllRows<Pick<PhoneLead, "id" | "list_id" | "status">>((from, to) => {
-      let q = supabase
-        .from("phone_leads")
-        .select("id, list_id, status")
-        .eq("workspace_id", access.workspace_id);
-      if (access.effective_user_id) q = q.eq("created_by_user_id", access.effective_user_id);
-      return q.order("id", { ascending: true }).range(from, to);
+    // Aggregat-RPC statt Full-Table-Read: nur (list_id, status, cnt) statt aller Leads
+    supabase.rpc("rpc_phone_list_counts", {
+      p_workspace_id: access.workspace_id,
+      p_effective_user_id: access.effective_user_id ?? null,
     }),
     listDataViewUsers(access.workspace_id),
   ]);
@@ -81,12 +77,15 @@ export default async function TelefonPage() {
     : allUsers
   ).map((u) => ({ user_id: u.user_id, username: u.username }));
 
-  // Status-Breakdown je Liste (client-seitig gruppiert)
+  // Status-Breakdown je Liste (aus der RPC gruppiert)
   const countsByList: Record<string, ListCounts> = {};
-  for (const lead of leadRows) {
-    const c = (countsByList[lead.list_id] ??= { ...EMPTY_COUNTS });
-    c.total += 1;
-    c[lead.status as PhoneLeadStatus] += 1;
+  let totalLeads = 0;
+  for (const row of (countRows ?? []) as { list_id: string; status: string; cnt: number }[]) {
+    const n = Number(row.cnt) || 0;
+    const c = (countsByList[row.list_id] ??= { ...EMPTY_COUNTS });
+    c.total += n;
+    if (row.status in c) c[row.status as PhoneLeadStatus] += n;
+    totalLeads += n;
   }
 
   // Nach Inhaber gruppieren; Akquise-Listen zuerst, Routing-Listen danach
@@ -100,8 +99,6 @@ export default async function TelefonPage() {
   for (const owner of ownerNames) {
     grouped[owner].sort((a, b) => KIND_ORDER[a.list_kind] - KIND_ORDER[b.list_kind] || (a.created_at < b.created_at ? 1 : -1));
   }
-
-  const totalLeads = leadRows.length;
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>

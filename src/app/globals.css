@@ -85,6 +85,20 @@
   --color-info-text:      #1862b8;
   --color-info-border:    rgb(24 98 184 / 0.25);
 
+  /* Owner-Farben (6 Team-Slots, gedämpft — Zuordnung in src/lib/ownerColor.ts) */
+  --owner-1:    #4f5aa8;                 /* Indigo */
+  --owner-2:    #7454a6;                 /* Violett */
+  --owner-3:    #2f7d4e;                 /* Grün */
+  --owner-4:    #2477a8;                 /* Sky */
+  --owner-5:    #a16207;                 /* Amber */
+  --owner-6:    #0f766e;                 /* Teal */
+  --owner-1-bg: rgb(79 90 168 / 0.10);
+  --owner-2-bg: rgb(116 84 166 / 0.10);
+  --owner-3-bg: rgb(47 125 78 / 0.10);
+  --owner-4-bg: rgb(36 119 168 / 0.10);
+  --owner-5-bg: rgb(161 98 7 / 0.10);
+  --owner-6-bg: rgb(15 118 110 / 0.10);
+
   /* Radius (DESIGN.md: Container groß, interaktiv mittel) */
   --radius-xs: 6px;
   --radius-sm: 8px;
@@ -167,6 +181,20 @@
   --color-info-bg:        rgb(24 98 184 / 0.16);
   --color-info-text:      #7fb3e6;
   --color-info-border:    rgb(44 85 133 / 0.55);
+
+  /* Owner-Farben (dunkel = heller & leuchtender, Tints kräftiger) */
+  --owner-1:    #99a2ec;                 /* Indigo */
+  --owner-2:    #bb9de2;                 /* Violett */
+  --owner-3:    #6fc492;                 /* Grün */
+  --owner-4:    #6cb8e0;                 /* Sky */
+  --owner-5:    #ddb15e;                 /* Amber */
+  --owner-6:    #57c2b7;                 /* Teal */
+  --owner-1-bg: rgb(153 162 236 / 0.15);
+  --owner-2-bg: rgb(187 157 226 / 0.15);
+  --owner-3-bg: rgb(111 196 146 / 0.15);
+  --owner-4-bg: rgb(108 184 224 / 0.15);
+  --owner-5-bg: rgb(221 177 94 / 0.15);
+  --owner-6-bg: rgb(87 194 183 / 0.15);
 
   --body-texture: none;
 }
@@ -354,6 +382,68 @@ body {
 }
 .input::placeholder { color: var(--text-subtle); }
 .input option { background: var(--surface-100); color: var(--text-primary); }
+
+/* ─── UI-Primitives (src/components/ui) ────────────────────── */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-family: inherit;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast), transform var(--transition-fast);
+}
+.ui-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.ui-btn:active:not(:disabled) { transform: scale(0.98); }
+.ui-btn[data-variant="primary"]:hover:not(:disabled)   { opacity: 0.88; }
+.ui-btn[data-variant="secondary"]:hover:not(:disabled) { background: var(--surface-150); border-color: var(--border-bright); }
+.ui-btn[data-variant="danger"]:hover:not(:disabled)    { background: var(--color-error-bg); }
+.ui-btn[data-variant="success"]:hover:not(:disabled)   { background: var(--color-success-bg); }
+.ui-btn[data-variant="ghost"]:hover:not(:disabled)     { background: var(--surface-150); color: var(--text-primary); }
+
+.ui-btn-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: ui-spin 0.7s linear infinite;
+}
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+
+.ui-input {
+  width: 100%;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  min-height: 38px;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.ui-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: var(--glow-sm);
+}
+.ui-input::placeholder { color: var(--text-subtle); }
+.ui-input:disabled { opacity: 0.55; cursor: not-allowed; }
+.ui-input option { background: var(--surface-100); color: var(--text-primary); }
+
+/* Touch-Geräte: Tap-Targets auf ≥44px anheben */
+@media (pointer: coarse) {
+  .ui-btn,
+  .ui-input,
+  .ui-segmented button,
+  .ui-toggle { min-height: 44px; }
+  .ui-scale10 button { min-height: 44px; min-width: 40px; }
+}
 
 /* ─── Badges ───────────────────────────────────────────────── */
 .badge {

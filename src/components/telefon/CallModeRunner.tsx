@@ -18,7 +18,8 @@ import {
   Voicemail,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 // Call-Mode: eine Liste Lead für Lead durchtelefonieren. Ein Lead groß im
 // Fokus, Tracking-Felder inline editierbar, Outcome-Buttons routen den Lead
@@ -52,6 +53,19 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "termin", label: "Termin" },
   { value: "dead", label: "Dead" },
 ];
+
+/** Feste Zeilenhöhe der Seitenliste (für die Virtualisierung). */
+const SIDE_ROW_HEIGHT = 52;
+
+/** Textfelder, die per Blur gespeichert werden (existieren auf PhoneLead + PhoneLeadInput). */
+type TextFieldName =
+  | "decider_name"
+  | "decider_direct_dial"
+  | "email"
+  | "target_group"
+  | "script"
+  | "objection_notes"
+  | "notes";
 
 const fieldLabel: React.CSSProperties = {
   display: "block",
@@ -171,6 +185,59 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
   );
 }
 
+/**
+ * Lokal kontrolliertes Textfeld: tippt in eigenem State (keine Recomputes der
+ * Lead-Liste pro Tastendruck) und committet erst on-Blur nach außen. Ändert
+ * sich der externe Wert (Lead-Wechsel via key, oder Rollback nach Save-Fehler),
+ * wird der Draft zurückgesetzt.
+ */
+function DraftField({
+  value,
+  onCommit,
+  placeholder,
+  type = "text",
+  textarea = false,
+  rows,
+  style,
+}: {
+  value: string | null;
+  onCommit: (raw: string) => void;
+  placeholder?: string;
+  type?: string;
+  textarea?: boolean;
+  rows?: number;
+  style?: React.CSSProperties;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [synced, setSynced] = useState(value);
+  if (value !== synced) {
+    setSynced(value);
+    setDraft(value ?? "");
+  }
+  if (textarea) {
+    return (
+      <textarea
+        value={draft}
+        rows={rows}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => onCommit(draft)}
+        placeholder={placeholder}
+        style={style ?? fieldInput}
+      />
+    );
+  }
+  return (
+    <input
+      type={type}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => onCommit(draft)}
+      placeholder={placeholder}
+      style={style ?? fieldInput}
+    />
+  );
+}
+
 export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneLead[] }) {
   const router = useRouter();
   const [overrides, setOverrides] = useState<Record<string, Partial<PhoneLead>>>({});
@@ -236,16 +303,59 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, filtered]);
 
+  // ── Virtualisierte Seitenliste ──
+  const sideListRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => sideListRef.current,
+    estimateSize: () => SIDE_ROW_HEIGHT,
+    overscan: 10,
+  });
+
+  // Aktiven Lead beim Weiter/Zurück-Navigieren in der Seitenliste sichtbar halten.
+  const activeId = current?.id ?? null;
+  useEffect(() => {
+    if (!activeId || filtered.length === 0) return;
+    rowVirtualizer.scrollToIndex(currentIndex, { align: "auto" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
   function setField(id: string, patch: Partial<PhoneLead>) {
     setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }
 
-  function saveField(id: string, patch: Partial<PhoneLeadInput>) {
+  /**
+   * Optimistisch in die Overrides schreiben + speichern. Schlägt der Save fehl,
+   * werden die betroffenen Felder auf den vorherigen Wert zurückgerollt, damit
+   * die UI nie Ungespeichertes als gespeichert anzeigt.
+   */
+  function setAndSave(id: string, uiPatch: Partial<PhoneLead>, savePatch: Partial<PhoneLeadInput>) {
+    const lead = merged.find((l) => l.id === id);
+    const prevPatch: Partial<PhoneLead> = {};
+    if (lead) {
+      for (const k of Object.keys(uiPatch) as (keyof PhoneLead)[]) {
+        (prevPatch as Record<string, unknown>)[k] = lead[k];
+      }
+    }
+    setField(id, uiPatch);
     startTransition(async () => {
-      const res = await updatePhoneLead(id, list.id, patch);
-      if (res.error) setError(res.error);
-      else setError(null);
+      const res = await updatePhoneLead(id, list.id, savePatch);
+      if (res.error) {
+        setError(res.error);
+        if (lead) setField(id, prevPatch);
+      } else {
+        setError(null);
+      }
     });
+  }
+
+  /** Blur-Commit eines Textfelds: Override setzen + getrimmt speichern. */
+  function commitText(id: string, field: TextFieldName, raw: string) {
+    setAndSave(
+      id,
+      { [field]: raw } as Partial<PhoneLead>,
+      { [field]: raw.trim() || null } as Partial<PhoneLeadInput>,
+    );
   }
 
   /** Nach einem Outcome zum nächsten Lead springen. */
@@ -561,46 +671,39 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
               <div className="call-fields-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem 1rem", marginBottom: "1rem" }}>
                 <div>
                   <label style={fieldLabel}>Ansprechpartner (Entscheider)</label>
-                  <input
-                    type="text"
-                    value={current.decider_name ?? ""}
-                    onChange={(e) => setField(current.id, { decider_name: e.target.value })}
-                    onBlur={(e) => saveField(current.id, { decider_name: e.target.value.trim() || null })}
+                  <DraftField
+                    key={current.id}
+                    value={current.decider_name}
+                    onCommit={(raw) => commitText(current.id, "decider_name", raw)}
                     placeholder="Name…"
-                    style={fieldInput}
                   />
                 </div>
                 <div>
                   <label style={fieldLabel}>Durchwahl Entscheider</label>
-                  <input
-                    type="text"
-                    value={current.decider_direct_dial ?? ""}
-                    onChange={(e) => setField(current.id, { decider_direct_dial: e.target.value })}
-                    onBlur={(e) => saveField(current.id, { decider_direct_dial: e.target.value.trim() || null })}
+                  <DraftField
+                    key={current.id}
+                    value={current.decider_direct_dial}
+                    onCommit={(raw) => commitText(current.id, "decider_direct_dial", raw)}
                     placeholder="+49…"
-                    style={fieldInput}
                   />
                 </div>
                 <div>
                   <label style={fieldLabel}>E-Mail</label>
-                  <input
+                  <DraftField
+                    key={current.id}
                     type="email"
-                    value={current.email ?? ""}
-                    onChange={(e) => setField(current.id, { email: e.target.value })}
-                    onBlur={(e) => saveField(current.id, { email: e.target.value.trim() || null })}
+                    value={current.email}
+                    onCommit={(raw) => commitText(current.id, "email", raw)}
                     placeholder="mail@firma.de"
-                    style={fieldInput}
                   />
                 </div>
                 <div>
                   <label style={fieldLabel}>Zielgruppe</label>
-                  <input
-                    type="text"
-                    value={current.target_group ?? ""}
-                    onChange={(e) => setField(current.id, { target_group: e.target.value })}
-                    onBlur={(e) => saveField(current.id, { target_group: e.target.value.trim() || null })}
+                  <DraftField
+                    key={current.id}
+                    value={current.target_group}
+                    onCommit={(raw) => commitText(current.id, "target_group", raw)}
                     placeholder="z. B. Handwerk"
-                    style={fieldInput}
                   />
                 </div>
 
@@ -615,8 +718,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                     ]}
                     onChange={(v) => {
                       const n = v ? Number(v) : null;
-                      setField(current.id, { call_attempt: n });
-                      saveField(current.id, { call_attempt: n });
+                      setAndSave(current.id, { call_attempt: n }, { call_attempt: n });
                     }}
                   />
                 </div>
@@ -630,8 +732,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                       { value: "direkt", label: "Direkt" },
                     ]}
                     onChange={(v) => {
-                      setField(current.id, { gatekeeper_reached: v });
-                      saveField(current.id, { gatekeeper_reached: v });
+                      setAndSave(current.id, { gatekeeper_reached: v }, { gatekeeper_reached: v });
                     }}
                   />
                 </div>
@@ -645,8 +746,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                       { value: "negativ", label: "Negativ" },
                     ]}
                     onChange={(v) => {
-                      setField(current.id, { answer_sentiment: v });
-                      saveField(current.id, { answer_sentiment: v });
+                      setAndSave(current.id, { answer_sentiment: v }, { answer_sentiment: v });
                     }}
                   />
                 </div>
@@ -656,16 +756,14 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                     <Toggle
                       value={current.decider_reached === true}
                       onChange={(v) => {
-                        setField(current.id, { decider_reached: v });
-                        saveField(current.id, { decider_reached: v });
+                        setAndSave(current.id, { decider_reached: v }, { decider_reached: v });
                       }}
                       label="Entscheider erreicht"
                     />
                     <Toggle
                       value={current.mailbox === true}
                       onChange={(v) => {
-                        setField(current.id, { mailbox: v });
-                        saveField(current.id, { mailbox: v });
+                        setAndSave(current.id, { mailbox: v }, { mailbox: v });
                       }}
                       label="Mailbox"
                     />
@@ -674,34 +772,31 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
 
                 <div>
                   <label style={fieldLabel}>Skript</label>
-                  <input
-                    type="text"
-                    value={current.script ?? ""}
-                    onChange={(e) => setField(current.id, { script: e.target.value })}
-                    onBlur={(e) => saveField(current.id, { script: e.target.value.trim() || null })}
+                  <DraftField
+                    key={current.id}
+                    value={current.script}
+                    onCommit={(raw) => commitText(current.id, "script", raw)}
                     placeholder="Verwendetes Skript…"
-                    style={fieldInput}
                   />
                 </div>
                 <div>
                   <label style={fieldLabel}>Einwände</label>
-                  <input
-                    type="text"
-                    value={current.objection_notes ?? ""}
-                    onChange={(e) => setField(current.id, { objection_notes: e.target.value })}
-                    onBlur={(e) => saveField(current.id, { objection_notes: e.target.value.trim() || null })}
+                  <DraftField
+                    key={current.id}
+                    value={current.objection_notes}
+                    onCommit={(raw) => commitText(current.id, "objection_notes", raw)}
                     placeholder="z. B. kein Budget…"
-                    style={fieldInput}
                   />
                 </div>
 
                 <div style={{ gridColumn: "1 / -1" }}>
                   <label style={fieldLabel}>Notizen</label>
-                  <textarea
-                    value={current.notes ?? ""}
+                  <DraftField
+                    key={current.id}
+                    textarea
                     rows={2}
-                    onChange={(e) => setField(current.id, { notes: e.target.value })}
-                    onBlur={(e) => saveField(current.id, { notes: e.target.value.trim() || null })}
+                    value={current.notes}
+                    onCommit={(raw) => commitText(current.id, "notes", raw)}
                     placeholder="Gesprächsnotizen…"
                     style={{ ...fieldInput, resize: "vertical", minHeight: 52 }}
                   />
@@ -804,58 +899,68 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
           >
             Leads ({filtered.length})
           </div>
-          <div style={{ maxHeight: 560, overflowY: "auto" }}>
-            {filtered.map((l, i) => {
-              const active = current?.id === l.id;
-              const s = STATUS_STYLE[l.status];
-              return (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => setCurrentId(l.id)}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                    padding: "0.5rem 0.875rem",
-                    background: active ? "var(--brand-50)" : "transparent",
-                    border: "none",
-                    borderBottom: "1px solid var(--border)",
-                    borderLeft: active ? "3px solid var(--brand-500)" : "3px solid transparent",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "background 0.1s",
-                  }}
-                >
-                  <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", width: 22, flexShrink: 0, fontWeight: 600 }}>
-                    {i + 1}
-                  </span>
-                  <span style={{ flex: 1, minWidth: 0 }}>
+          <div ref={sideListRef} style={{ maxHeight: 560, overflowY: "auto" }}>
+            <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
+              {rowVirtualizer.getVirtualItems().map((vi) => {
+                const l = filtered[vi.index];
+                if (!l) return null;
+                const active = current?.id === l.id;
+                const s = STATUS_STYLE[l.status];
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => setCurrentId(l.id)}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: vi.size,
+                      transform: `translateY(${vi.start}px)`,
+                      boxSizing: "border-box",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      padding: "0.5rem 0.875rem",
+                      background: active ? "var(--brand-50)" : "transparent",
+                      border: "none",
+                      borderBottom: "1px solid var(--border)",
+                      borderLeft: active ? "3px solid var(--brand-500)" : "3px solid transparent",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "background 0.1s",
+                    }}
+                  >
+                    <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", width: 22, flexShrink: 0, fontWeight: 600 }}>
+                      {vi.index + 1}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: "0.8125rem",
+                          fontWeight: active ? 800 : 600,
+                          color: "var(--text-primary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {l.company || l.phone || "—"}
+                      </span>
+                      <span style={{ display: "block", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>
+                        {l.phone ?? "keine Nummer"}
+                      </span>
+                    </span>
                     <span
-                      style={{
-                        display: "block",
-                        fontSize: "0.8125rem",
-                        fontWeight: active ? 800 : 600,
-                        color: "var(--text-primary)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {l.company || l.phone || "—"}
-                    </span>
-                    <span style={{ display: "block", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>
-                      {l.phone ?? "keine Nummer"}
-                    </span>
-                  </span>
-                  <span
-                    title={s.label}
-                    style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }}
-                  />
-                </button>
-              );
-            })}
+                      title={s.label}
+                      style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }}
+                    />
+                  </button>
+                );
+              })}
+            </div>
             {filtered.length === 0 && (
               <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", textAlign: "center", padding: "1.25rem 0.75rem" }}>
                 Keine Treffer.
