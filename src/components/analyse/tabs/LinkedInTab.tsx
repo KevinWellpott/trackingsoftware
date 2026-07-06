@@ -220,8 +220,6 @@ export async function LinkedInTab({
   const apptTone: Tone = apptRate === null ? "default" : apptRate < 3 ? "error" : apptRate <= 7 ? "success" : "default";
   const avgDmsPerDay = activeDays.size === 0 ? null : Math.round(sum.dms / activeDays.size);
 
-  const dmsSpark = buckets.map((b) => names.reduce((s, name) => s + (perUser[name]?.[b.key]?.dms ?? 0), 0));
-
   // Kumulierte Fläche: rohe DMs je Bucket, Komponente bildet laufende Summen.
   const dmsPerUser: Record<string, Record<string, number>> = {};
   for (const name of names) {
@@ -300,7 +298,6 @@ export async function LinkedInTab({
           label="DMs"
           value={sum.dms}
           delta={deltaPct(sum.dms, prevSum.dms)}
-          spark={dmsSpark}
           icon={<MessageSquare size={15} />}
           index={0}
         />

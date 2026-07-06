@@ -4,15 +4,24 @@ import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { NUM, ownerKey, settingEffDate, closingEffDate, eur, pct, type Granularity, type QuelleKey } from "@/lib/analyse";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
-import { FunnelStrip, type FunnelStage } from "@/components/analyse/FunnelStrip";
-import { BarFunnel, KpiHero } from "@/components/analyse/AnalyseViz";
+import { BarFunnel, FunnelMatrix, KpiHero } from "@/components/analyse/AnalyseViz";
 
 // End-to-End-Funnel je Quelle: LinkedIn/Telefon-Erstkontakt → Setting-Shows →
 // Closings → Gewonnen → Umsatz. Verknüpft Setting- und Closing-Datensätze über
 // setting_call_id. Oben Wert-Kennzahlen (Umsatz je Stufe), darunter der
-// Gesamt-Funnel als BarFunnel und je Nutzer ein FunnelStrip.
+// Gesamt-Funnel als BarFunnel und (ab 2 Mitgliedern) die Vergleichs-Matrix
+// FunnelMatrix je Nutzer.
 
 type Member = { user_id: string; username: string };
+
+type FunnelStage = { label: string; value: number };
+
+const RANGE_FMT = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+/** "2026-07-01" → "01.07.2026" (lokale Mitternacht, kein UTC-Tagessprung). */
+function fmtDay(iso: string): string {
+  return RANGE_FMT.format(new Date(`${iso}T00:00:00`));
+}
 
 type OwnerDayRow = {
   owner_name: string | null;
@@ -281,17 +290,13 @@ export async function FunnelTab({
     },
   ];
 
-  const sub =
-    quelle === "linkedin"
-      ? "LinkedIn → Setting → Closing → Umsatz"
-      : quelle === "telefon"
-        ? "Telefon → Setting → Closing → Umsatz"
-        : "Setting → Closing → Umsatz";
+  const quelleLabel = quelle === "linkedin" ? "LinkedIn" : quelle === "telefon" ? "Telefon" : "Alle Quellen";
+  const rangeMeta = `${fmtDay(from)} – ${fmtDay(to)} · ${quelleLabel}`;
 
   return (
     <>
       {/* ── Wert-Kennzahlen ────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "0.75rem" }}>
         {kpis.map((k, i) => (
           <KpiHero
             key={k.label}
@@ -307,26 +312,27 @@ export async function FunnelTab({
 
       {/* ── Funnel Gesamt ──────────────────────────────────────── */}
       <div className="fade-up" style={{ animationDelay: "240ms" }}>
-        <AnalyseSection title="Funnel Gesamt" icon={Filter} meta={sub}>
+        <AnalyseSection title="Funnel Gesamt" icon={Filter} meta={rangeMeta}>
           <BarFunnel stages={totalStages} trailing={{ label: "Umsatz", value: eur(totalRevenue) }} />
         </AnalyseSection>
       </div>
 
-      {/* ── Je Nutzer ──────────────────────────────────────────── */}
-      <div className="fade-up" style={{ animationDelay: "300ms" }}>
-        <AnalyseSection title="Je Nutzer" icon={Users} meta={`${rows.length} Mitglieder`}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {rows.map((r) => (
-              <FunnelStrip
-                key={r.name}
-                label={r.name}
-                stages={r.stages}
-                trailing={{ label: "Umsatz", value: eur(r.revenue) }}
-              />
-            ))}
-          </div>
-        </AnalyseSection>
-      </div>
+      {/* ── Je Nutzer (nur bei >1 Mitglied — sonst ist Gesamt bereits die
+             Einzelsicht) ──────────────────────────────────────── */}
+      {rows.length > 1 && (
+        <div className="fade-up" style={{ animationDelay: "300ms" }}>
+          <AnalyseSection title="Je Nutzer" icon={Users} meta={`${rows.length} Mitglieder`}>
+            <FunnelMatrix
+              stages={totalStages.map((s) => s.label)}
+              rows={rows.map((r) => ({
+                name: r.name,
+                values: r.stages.map((s) => s.value),
+                revenue: eur(r.revenue),
+              }))}
+            />
+          </AnalyseSection>
+        </div>
+      )}
     </>
   );
 }

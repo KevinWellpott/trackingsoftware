@@ -601,3 +601,13 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .fade-up { animation: none; }
 }
+
+/* ─── Funnel (Analyse): Balken-Entrance + Matrix-Hover ─────── */
+@keyframes funnelGrow {
+  from { transform: scaleX(0.6); opacity: 0; }
+}
+.funnel-bar { animation: funnelGrow 480ms ease both; transform-origin: center; }
+.funnel-matrix-row:hover { background: var(--surface-50); }
+@media (prefers-reduced-motion: reduce) {
+  .funnel-bar { animation: none; }
+}

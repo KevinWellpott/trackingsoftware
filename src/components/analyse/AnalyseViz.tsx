@@ -1,12 +1,12 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { ChevronDown, Minus, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowDown, Euro, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import {
   Area, AreaChart, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { AXIS_TICK, TOOLTIP_STYLE } from "@/components/DashboardCharts";
-import { ownerColor } from "@/lib/ownerColor";
+import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import { NumberTicker } from "@/components/magicui/number-ticker";
 
 // Token-basierte Visualisierungs-Bausteine des Analyse-Bereichs
@@ -419,13 +419,25 @@ export function WeekdayBars({
 }
 
 // ── 6 · BarFunnel ────────────────────────────────────────────
-const FUNNEL_COLORS = [
-  "var(--brand-500)",
-  "var(--color-info-text)",
-  "var(--accent-500)",
-  "var(--color-warning-text)",
-  "var(--color-success-text)",
-];
+// Tiefen-Rampe statt Regenbogen: eine Brand-Farbe, die pro Stufe in die
+// Fläche ausblasst — nur die letzte Stufe ("Gewonnen") kippt in den
+// Erfolgs-Ton. Layout je Stufe: [Label | Balken | Wert] als festes
+// 3-Spalten-Raster, damit Beschriftungen unabhängig von der Balkenbreite
+// in sauberen Spalten stehen.
+const FUNNEL_RAMP = [100, 80, 60, 45, 32];
+
+function funnelStageColor(index: number, isLast: boolean): string {
+  if (isLast) return "color-mix(in srgb, var(--color-success-text) 82%, var(--surface-150))";
+  const mix = FUNNEL_RAMP[Math.min(index, FUNNEL_RAMP.length - 1)];
+  return `color-mix(in srgb, var(--brand-500) ${mix}%, var(--surface-150))`;
+}
+
+const FUNNEL_GRID: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "120px minmax(0, 1fr) 120px",
+  columnGap: "0.75rem",
+  alignItems: "center",
+};
 
 export function BarFunnel({
   stages,
@@ -437,106 +449,134 @@ export function BarFunnel({
   if (stages.length === 0 || stages.every((s) => s.value === 0)) return <EmptyState height={160} />;
 
   const base = stages[0].value;
-
-  // Innen-Beschriftung auf eigenem Scrim-Pill — in beiden Themes lesbar,
-  // unabhängig von der Balkenfarbe (Text trägt Text-Tokens, nie Serienfarbe).
-  const pillStyle: CSSProperties = {
-    display: "inline-flex",
-    alignItems: "baseline",
-    gap: "0.375rem",
-    padding: "0.125rem 0.5rem",
-    borderRadius: 99,
-    background: "color-mix(in srgb, var(--surface-0) 82%, transparent)",
-    whiteSpace: "nowrap",
-  };
+  const widthOf = (value: number): number => (base === 0 ? 12 : Math.max((value / base) * 100, 12));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+    <div style={{ maxWidth: 560, width: "100%", margin: "0 auto", display: "flex", flexDirection: "column" }}>
       {stages.map((s, i) => {
-        const widthPct = base === 0 ? 8 : Math.max((s.value / base) * 100, 8);
-        const inside = widthPct >= 38;
+        const widthPct = widthOf(s.value);
+        const prevPct = i > 0 ? widthOf(stages[i - 1].value) : 0;
         const conv = i > 0 ? (stages[i - 1].value === 0 ? null : (s.value / stages[i - 1].value) * 100) : null;
-        const content = (
-          <span style={pillStyle}>
-            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-primary)" }}>{s.label}</span>
-            <span style={{ fontSize: "0.8125rem", fontWeight: 800, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>
-              {INT_FMT.format(s.value)}
-            </span>
-          </span>
-        );
+        const good = conv !== null && conv >= 50;
+        const share = base === 0 ? 0 : (s.value / base) * 100;
 
         return (
           <div key={s.label}>
+            {/* Verbindungszone: zulaufender Trichter-Keil + Konversions-Pill */}
             {i > 0 && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.375rem", padding: "0.25rem 0" }}>
-                <ChevronDown size={12} style={{ color: "var(--text-subtle)" }} aria-hidden />
-                <span
-                  style={{
-                    fontSize: "0.6875rem",
-                    fontWeight: 600,
-                    color: "var(--text-muted)",
-                    background: "var(--surface-150)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 99,
-                    padding: "0.0625rem 0.5rem",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {conv === null ? "—" : `${DEC1_FMT.format(conv)} %`}
-                </span>
+              <div style={FUNNEL_GRID}>
+                <span aria-hidden />
+                <div style={{ position: "relative", height: 22, display: "flex", justifyContent: "center" }}>
+                  <div
+                    aria-hidden
+                    style={{
+                      width: `${prevPct}%`,
+                      height: "100%",
+                      background: "var(--surface-150)",
+                      clipPath: "polygon(0 0, 100% 0, 62% 100%, 38% 100%)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: `calc(50% + ${prevPct / 2}% + 0.5rem)`,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.1875rem",
+                      padding: "0.0625rem 0.4375rem",
+                      borderRadius: 99,
+                      fontSize: "0.625rem",
+                      fontWeight: 700,
+                      fontVariantNumeric: "tabular-nums",
+                      whiteSpace: "nowrap",
+                      color: good ? "var(--color-success-text)" : "var(--text-muted)",
+                      background: good ? "var(--color-success-bg)" : "var(--surface-150)",
+                      border: `1px solid ${good ? "var(--color-success-border)" : "var(--border)"}`,
+                    }}
+                  >
+                    <ArrowDown size={10} aria-hidden />
+                    {conv === null ? "—" : `${DEC1_FMT.format(conv)} %`}
+                  </span>
+                </div>
+                <span aria-hidden />
               </div>
             )}
-            <div style={{ position: "relative", height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div
+
+            {/* Stufe: Label rechtsbündig · Balken zentriert · Wert + Anteil links */}
+            <div style={FUNNEL_GRID}>
+              <span
                 style={{
-                  width: `${widthPct}%`,
-                  height: 44,
-                  borderRadius: "var(--radius-md)",
-                  background: FUNNEL_COLORS[i % FUNNEL_COLORS.length],
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
+                  textAlign: "right",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
                   overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
-                {inside && content}
-              </div>
-              {!inside && (
+                {s.label}
+              </span>
+              <div style={{ display: "flex", justifyContent: "center" }}>
                 <div
+                  className="funnel-bar"
+                  aria-hidden
                   style={{
-                    position: "absolute",
-                    left: `calc(50% + ${widthPct / 2}% + 0.5rem)`,
-                    top: "50%",
-                    transform: "translateY(-50%)",
+                    width: `${widthPct}%`,
+                    height: 52,
+                    borderRadius: "var(--radius-md)",
+                    background: funnelStageColor(i, i === stages.length - 1),
+                    animationDelay: `${i * 70}ms`,
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                <span
+                  style={{
+                    fontSize: "1rem",
+                    fontWeight: 700,
+                    color: "var(--text-primary)",
+                    fontVariantNumeric: "tabular-nums",
+                    lineHeight: 1.1,
                   }}
                 >
-                  {content}
-                </div>
-              )}
+                  {INT_FMT.format(s.value)}
+                </span>
+                <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", fontVariantNumeric: "tabular-nums" }}>
+                  {i === 0 ? "Basis" : `${INT_FMT.format(Math.round(share))} % von Stufe 1`}
+                </span>
+              </div>
             </div>
           </div>
         );
       })}
 
+      {/* Terminal-Karte: Umsatz als Abschluss des Trichters */}
       {trailing && (
         <div
           style={{
-            marginTop: "0.375rem",
+            marginTop: "0.875rem",
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            gap: "0.75rem",
-            padding: "0.625rem 0.875rem",
+            gap: "0.625rem",
+            padding: "0.75rem 1rem",
             borderRadius: "var(--radius-md)",
             background: "var(--color-success-bg)",
             border: "1px solid var(--color-success-border)",
           }}
         >
+          <span style={{ display: "inline-flex", color: "var(--color-success-text)", flexShrink: 0 }} aria-hidden>
+            <Euro size={16} />
+          </span>
           <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--color-success-text)" }}>{trailing.label}</span>
           <span
             style={{
-              fontSize: "0.9375rem",
+              marginLeft: "auto",
+              fontSize: "1.375rem",
               fontWeight: 800,
+              letterSpacing: "-0.02em",
               color: "var(--color-success-text)",
               fontVariantNumeric: "tabular-nums",
             }}
@@ -545,6 +585,160 @@ export function BarFunnel({
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── 6b · FunnelMatrix ────────────────────────────────────────
+// Vergleichs-Matrix je Nutzer: gemeinsames Spaltenraster, damit Stufenwerte
+// über alle Zeilen vertikal fluchten. Je Zelle Wert + Mikro-Balken (relativ
+// zur ersten Stufe der Zeile) + Konversion zur Vorstufe.
+const MATRIX_HEAD: CSSProperties = {
+  fontSize: "0.625rem",
+  fontWeight: 600,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "var(--text-subtle)",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+export function FunnelMatrix({
+  stages,
+  rows,
+}: {
+  stages: string[];
+  rows: { name: string; values: number[]; revenue?: string }[];
+}) {
+  if (stages.length === 0 || rows.length === 0) return <EmptyState height={120} />;
+
+  const cols = `minmax(140px, 1.2fr) repeat(${stages.length}, 1fr) 110px`;
+
+  return (
+    <div className="table-scroll" style={{ overflowX: "auto" }}>
+      <div style={{ minWidth: 680 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: cols,
+            columnGap: "0.75rem",
+            padding: "0 0.625rem 0.5rem",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <span style={MATRIX_HEAD}>Mitglied</span>
+          {stages.map((s) => (
+            <span key={s} style={MATRIX_HEAD}>
+              {s}
+            </span>
+          ))}
+          <span style={{ ...MATRIX_HEAD, textAlign: "right" }}>Umsatz</span>
+        </div>
+
+        {rows.map((r) => {
+          const oc = ownerColor(r.name);
+          const rowFirst = r.values[0] ?? 0;
+          return (
+            <div
+              key={r.name}
+              className="funnel-matrix-row"
+              style={{
+                display: "grid",
+                gridTemplateColumns: cols,
+                columnGap: "0.75rem",
+                alignItems: "center",
+                padding: "0.625rem",
+                borderRadius: "var(--radius-md)",
+                transition: "background 120ms ease",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                <span
+                  aria-hidden
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 99,
+                    background: oc.bg,
+                    color: oc.fg,
+                    fontSize: "0.625rem",
+                    fontWeight: 700,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  {ownerInitials(r.name)}
+                </span>
+                <span
+                  style={{
+                    fontSize: "0.8125rem",
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {r.name}
+                </span>
+              </div>
+
+              {r.values.map((v, i) => {
+                const prev = i > 0 ? r.values[i - 1] : null;
+                const conv = prev === null ? null : prev === 0 ? null : (v / prev) * 100;
+                const barPct = rowFirst === 0 ? 4 : Math.max((v / rowFirst) * 100, 4);
+                return (
+                  <div key={stages[i]} style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: "0.375rem" }}>
+                      <span
+                        style={{
+                          fontSize: "0.875rem",
+                          fontWeight: 700,
+                          color: "var(--text-primary)",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {INT_FMT.format(v)}
+                      </span>
+                      {i > 0 && (
+                        <span style={{ fontSize: "0.625rem", color: "var(--text-subtle)", fontVariantNumeric: "tabular-nums" }}>
+                          {conv === null ? "—" : `${INT_FMT.format(Math.round(conv))} %`}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 4,
+                        height: 4,
+                        borderRadius: 99,
+                        background: "var(--surface-150)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div style={{ height: "100%", width: `${barPct}%`, borderRadius: 99, background: oc.fg }} aria-hidden />
+                    </div>
+                  </div>
+                );
+              })}
+
+              <span
+                style={{
+                  textAlign: "right",
+                  fontSize: "0.8125rem",
+                  fontWeight: 700,
+                  color: "var(--color-success-text)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {r.revenue ?? "—"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
