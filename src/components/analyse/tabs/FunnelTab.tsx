@@ -290,7 +290,8 @@ export async function FunnelTab({
     },
   ];
 
-  const quelleLabel = quelle === "linkedin" ? "LinkedIn" : quelle === "telefon" ? "Telefon" : "Alle Quellen";
+  const quelleLabel =
+    quelle === "linkedin" ? "LinkedIn" : quelle === "telefon" ? "Telefon" : quelle === "manuell" ? "Manuell" : "Alle Quellen";
   const rangeMeta = `${fmtDay(from)} – ${fmtDay(to)} · ${quelleLabel}`;
 
   return (

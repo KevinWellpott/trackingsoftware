@@ -40,12 +40,14 @@ const QUELLE_OPTIONS: { value: QuelleKey; label: string }[] = [
   { value: "alle", label: "Alle" },
   { value: "linkedin", label: "LinkedIn" },
   { value: "telefon", label: "Telefon" },
+  { value: "manuell", label: "Manuell" },
 ];
 
 const QUELLE_LABEL: Record<QuelleKey, string> = {
   alle: "Alle",
   linkedin: "LinkedIn",
   telefon: "Telefon",
+  manuell: "Manuell",
 };
 
 const DATE_INPUT_STYLE = {

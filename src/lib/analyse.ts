@@ -6,12 +6,12 @@ import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 
 export type AnalyseTab = "linkedin" | "telefon" | "setting" | "closing" | "funnel";
 export type RangeKey = "w" | "m" | "30" | "q" | "j" | "custom";
-export type QuelleKey = "alle" | "linkedin" | "telefon";
+export type QuelleKey = "alle" | "linkedin" | "telefon" | "manuell";
 /** Nutzer-wählbare Bucket-Granularität; "auto" = bisherige Spannen-Heuristik. */
 export type Granularity = "auto" | "tag" | "woche" | "monat";
 
 const TABS: readonly AnalyseTab[] = ["linkedin", "telefon", "setting", "closing", "funnel"];
-const QUELLEN: readonly QuelleKey[] = ["alle", "linkedin", "telefon"];
+const QUELLEN: readonly QuelleKey[] = ["alle", "linkedin", "telefon", "manuell"];
 const GRANULARITIES: readonly Granularity[] = ["auto", "tag", "woche", "monat"];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SPAN_DAYS = 730;

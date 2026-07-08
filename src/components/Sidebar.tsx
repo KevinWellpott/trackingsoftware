@@ -5,6 +5,7 @@ import { createListForm } from "@/app/actions/lists";
 import {
   ArrowRight,
   BarChart2,
+  CalendarPlus,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
@@ -20,8 +21,9 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 
@@ -339,8 +341,10 @@ export function SidebarContent({
   onClose,
 }: Props) {
   const pathname = usePathname();
+  const router = useRouter();
   const isOwnScope = dataScope === "own";
   const [showNewList, setShowNewList] = useState(false);
+  const [showManualAppt, setShowManualAppt] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const isImpersonating = Boolean(dataView?.activeUserId);
@@ -437,6 +441,34 @@ export function SidebarContent({
         <NavLink href="/setting" icon={ClipboardCheck} label="Setting" onClick={onClose} />
         <NavLink href="/closing" icon={Handshake} label="Closing" onClick={onClose} />
         <NavLink href="/nachfassen" icon={Clock} label="Nachfassen" onClick={onClose} />
+
+        {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt) */}
+        <button
+          type="button"
+          onClick={() => setShowManualAppt(true)}
+          className="sidebar-link"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.625rem",
+            width: "100%",
+            border: "none",
+            background: "none",
+            cursor: "pointer",
+            color: "var(--brand-600)",
+            fontWeight: 600,
+            textAlign: "left",
+          }}
+          title="Termin ohne Liste manuell buchen"
+        >
+          <CalendarPlus size={16} style={{ flexShrink: 0 }} />
+          <span>Termin buchen</span>
+        </button>
+        <ManualAppointmentModal
+          open={showManualAppt}
+          onClose={() => setShowManualAppt(false)}
+          onSaved={() => router.refresh()}
+        />
 
         {/* ── LinkedIn Section ── */}
         <div style={{ marginTop: "0.375rem" }} />

@@ -120,7 +120,7 @@ export async function SettingTab({
   // Sparkline: Termine gesamt je Bucket
   const termineByBucket: Record<string, number> = {};
   // Quellen-Split (aktuelles Fenster)
-  const sourceCounts = { linkedin: 0, telefon: 0, sonstige: 0 };
+  const sourceCounts = { linkedin: 0, telefon: 0, manuell: 0, sonstige: 0 };
   // Qualität (aktuelles Fenster)
   const budget = { ja: 0, nein: 0, unklar: 0 };
   let painSum = 0, painN = 0, warmthSum = 0, warmthN = 0;
@@ -160,6 +160,7 @@ export async function SettingTab({
 
     if (r.source_type === "linkedin") sourceCounts.linkedin += 1;
     else if (r.source_type === "telefon") sourceCounts.telefon += 1;
+    else if (r.source_type === "manuell") sourceCounts.manuell += 1;
     else sourceCounts.sonstige += 1;
 
     if (r.has_budget_8k === "ja") budget.ja += 1;
@@ -224,6 +225,7 @@ export async function SettingTab({
   const quellenData = [
     { name: "LinkedIn", value: sourceCounts.linkedin, color: "var(--brand-500)" },
     { name: "Telefon", value: sourceCounts.telefon, color: "var(--color-warning-text)" },
+    { name: "Manuell", value: sourceCounts.manuell, color: "var(--color-success-text)" },
     { name: "Sonstige", value: sourceCounts.sonstige, color: "var(--surface-300)" },
   ].filter((d) => d.value > 0);
 

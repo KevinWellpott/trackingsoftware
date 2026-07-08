@@ -1,10 +1,12 @@
 "use client";
 
+import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { Input } from "@/components/ui/Input";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { SettingCall } from "@/lib/types";
-import { AtSign, CalendarClock, ClipboardCheck, Phone, Search, Video } from "lucide-react";
+import { AtSign, CalendarClock, ClipboardCheck, Phone, Plus, Search, Video } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 // Setting-Queue (Client): Filter "Meine/Alle" + Status-Filter, Karten pro Call.
@@ -82,6 +84,13 @@ const SOURCE_META: Record<string, { label: string; icon: React.ReactNode; color:
     bg: "var(--surface-150)",
     border: "var(--border)",
   },
+  manuell: {
+    label: "Manuell",
+    icon: <Plus size={10} />,
+    color: "var(--color-success-text)",
+    bg: "var(--color-success-bg)",
+    border: "var(--color-success-border)",
+  },
 };
 
 export function formatTermin(iso: string | null): string | null {
@@ -100,9 +109,11 @@ export function formatTermin(iso: string | null): string | null {
 }
 
 export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
+  const router = useRouter();
   const [scope, setScope] = useState<ScopeFilter>("alle");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("alle");
   const [search, setSearch] = useState("");
+  const [showManual, setShowManual] = useState(false);
 
   const scoped = useMemo(() => {
     if (scope === "alle") return calls;
@@ -138,6 +149,32 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
 
   return (
     <div>
+      {/* ── Aktions-Zeile: Termin ohne Liste manuell buchen ── */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }}>
+        <button
+          type="button"
+          onClick={() => setShowManual(true)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            padding: "0.45rem 0.875rem",
+            borderRadius: "var(--radius-sm)",
+            border: "none",
+            background: "var(--btn-primary-bg)",
+            color: "var(--btn-primary-fg)",
+            fontSize: "0.8125rem",
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "opacity 0.1s",
+          }}
+        >
+          <Plus size={15} /> Termin manuell
+        </button>
+      </div>
+
+      <ManualAppointmentModal open={showManual} onClose={() => setShowManual(false)} onSaved={() => router.refresh()} />
+
       {/* ── Scope-Tabs + Status-Filter ── */}
       <div
         style={{
@@ -276,7 +313,7 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
             Keine Setting-Calls
           </div>
           <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: 0 }}>
-            Setting-Calls entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt.
+            Setting-Calls entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder über „Termin manuell“.
           </p>
         </div>
       ) : (

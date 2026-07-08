@@ -31,17 +31,31 @@ export type ContactInput = {
   target_group?: string | null;
 };
 
-/** Berechnet next_follow_up_at automatisch aus pitched_at und follow_up_number. */
+/**
+ * Berechnet next_follow_up_at automatisch aus follow_up_number.
+ * anchor="pitch": Anker = pitched_at (Erst-Terminierung / pitch-Korrektur).
+ * anchor="today": Anker = heute — wenn ein FU gerade als erledigt eingetragen
+ * wird, muss die nächste Stufe von HEUTE aus zählen (sonst landet sie bei
+ * älteren Leads sofort in der Vergangenheit und bleibt in der Nachfassen-
+ * Übersicht überfällig hängen). Deckungsgleich mit advanceLinkedInFollowUp.
+ */
 function calcNextFollowUp(
   pitchedAt: string | null | undefined,
   fuNumber: 1 | 2 | 3 | null | undefined,
   answered: boolean | null | undefined,
+  anchor: "pitch" | "today" = "pitch",
 ): string | null {
   // Wenn geantwortet oder letztes FU erledigt → kein weiteres Follow-up
   if (answered === true || fuNumber === 3) return null;
-  if (!pitchedAt) return null;
-  const [y, m, d] = pitchedAt.split("-").map(Number);
-  const base = new Date(y, m - 1, d);
+  let base: Date;
+  if (anchor === "today") {
+    const [y, m, d] = todayLocal().split("-").map(Number);
+    base = new Date(y, m - 1, d);
+  } else {
+    if (!pitchedAt) return null;
+    const [y, m, d] = pitchedAt.split("-").map(Number);
+    base = new Date(y, m - 1, d);
+  }
   const daysMap: Record<number, number> = { 0: 3, 1: 5, 2: 7 };
   const days = daysMap[fuNumber ?? 0] ?? 3;
   base.setDate(base.getDate() + days);
@@ -136,37 +150,40 @@ export async function updateContact(
   if (name !== undefined) payload.name = name.trim();
   if (patch.deal_closed === null) payload.deal_closed = false;
 
-  // Immer next_follow_up_at auto-berechnen wenn pitch-relevante Felder geändert werden
+  // next_follow_up_at auto-berechnen, wenn sich pitch-relevante Felder ändern.
   if (
     patch.pitched_at !== undefined ||
     patch.follow_up_number !== undefined ||
     patch.answered !== undefined
   ) {
-    // Aktuelle Werte aus DB holen falls nicht im patch
-    if (
-      patch.pitched_at === undefined ||
-      patch.follow_up_number === undefined ||
-      patch.answered === undefined
-    ) {
-      const { data: current } = await (await createClient())
-        .from("contacts")
-        .select("pitched_at, follow_up_number, answered")
-        .eq("id", contactId)
-        .single();
-      if (current) {
-        payload.next_follow_up_at = calcNextFollowUp(
-          patch.pitched_at !== undefined ? patch.pitched_at : current.pitched_at,
-          patch.follow_up_number !== undefined ? patch.follow_up_number : current.follow_up_number,
-          patch.answered !== undefined ? patch.answered : current.answered,
-        );
-      }
-    } else {
-      payload.next_follow_up_at = calcNextFollowUp(
-        patch.pitched_at,
-        patch.follow_up_number,
-        patch.answered,
-      );
-    }
+    // Vorherige Werte laden — nötig, um eine ECHTE FU-Änderung zu erkennen und
+    // fehlende Patch-Felder aufzufüllen. (ListBoardV2 sendet immer alle Felder,
+    // daher reicht "ist im Patch enthalten" nicht als Änderungs-Signal.)
+    const { data: current } = await supabase
+      .from("contacts")
+      .select("pitched_at, follow_up_number, answered")
+      .eq("id", contactId)
+      .single();
+
+    const effPitched = patch.pitched_at !== undefined ? patch.pitched_at : current?.pitched_at ?? null;
+    const effFU = patch.follow_up_number !== undefined ? patch.follow_up_number : current?.follow_up_number;
+    const effAnswered = patch.answered !== undefined ? patch.answered : current?.answered;
+
+    // Nur wenn ein FU NEU auf eine positive Stufe gesetzt wird ("erledigt"),
+    // zählt die nächste Fälligkeit ab HEUTE (analog advanceLinkedInFollowUp) —
+    // sonst ab pitched_at. So verschiebt ein unabhängiger Feld-Edit (z. B. Notiz)
+    // den Nachfass-Termin NICHT.
+    const fuAdvanced =
+      patch.follow_up_number != null &&
+      patch.follow_up_number > 0 &&
+      patch.follow_up_number !== (current?.follow_up_number ?? null);
+
+    payload.next_follow_up_at = calcNextFollowUp(
+      effPitched,
+      effFU,
+      effAnswered,
+      fuAdvanced ? "today" : "pitch",
+    );
   }
 
   const { error } = await supabase
@@ -176,6 +193,7 @@ export async function updateContact(
   if (error) return { error: error.message };
   revalidatePath(`/lists/${listId}`, "page");
   revalidatePath("/follow-up", "page");
+  revalidatePath("/nachfassen", "page");
   revalidatePath("/crm", "page");
   revalidatePath("/", "layout");
   return {};

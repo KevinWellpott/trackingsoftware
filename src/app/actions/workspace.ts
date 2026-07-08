@@ -132,6 +132,18 @@ export async function createUserForm(formData: FormData) {
   redirect("/settings?userOk=1");
 }
 
+// Detail-Routen sind an einen konkreten – ggf. fremden – Datensatz gebunden.
+// Nach einem Datensicht-Wechsel liegt dieser Datensatz evtl. nicht mehr im
+// Scope der neu gewählten Person → die Detailseite würde notFound() (404).
+// Deshalb solche Ziele auf ihre Sektions-Übersicht ausweichen lassen.
+function safeRedirectAfterViewSwitch(next: string): string {
+  if (/^\/lists\/[^/]+/.test(next)) return "/";
+  if (/^\/telefon\/[^/]+/.test(next)) return "/telefon";
+  if (/^\/setting\/[^/]+/.test(next)) return "/setting";
+  if (/^\/closing\/[^/]+/.test(next)) return "/closing";
+  return next;
+}
+
 export async function setDataViewForm(formData: FormData) {
   const access = await getAccessContext();
   if (!access?.can_switch_view) return;
@@ -151,7 +163,7 @@ export async function setDataViewForm(formData: FormData) {
   }
 
   revalidatePath("/", "layout");
-  redirect(next);
+  redirect(safeRedirectAfterViewSwitch(next));
 }
 
 export async function renameUser(userId: string, newUsername: string) {

@@ -101,6 +101,56 @@ export async function convertContactToSetting(input: {
   return { settingCallId: settingCallId ?? undefined };
 }
 
+/**
+ * Termin manuell buchen — ohne LinkedIn-Kontakt/Liste und ohne Telefon-Lead
+ * (z. B. Social Selling / alter Kontakt / WhatsApp-Nachfass). Legt direkt einen
+ * setting_calls-Eintrag mit source_type 'manuell' an, damit der Termin in der
+ * Setting-Queue, im Closing-Flow und im Analyse-Dashboard erscheint.
+ */
+export async function createManualSetting(input: {
+  leadName: string;
+  company?: string | null;
+  meetLink: string;
+  appointmentAt: string;
+}): Promise<{ error?: string; settingCallId?: string }> {
+  const leadName = input.leadName.trim();
+  const company = input.company?.trim() || null;
+  const meetLink = input.meetLink.trim();
+  const appointmentAt = input.appointmentAt.trim();
+  if (!leadName) return { error: "Name ist erforderlich." };
+  if (!meetLink) return { error: "Google-Meet-Link ist erforderlich." };
+  if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
+
+  const access = await getAccessContext();
+  if (!access) return { error: "Keine Berechtigung." };
+
+  const supabase = await createClient();
+  const { data: sc, error: scErr } = await supabase
+    .from("setting_calls")
+    .insert({
+      // Bei aktiver Team-Datensicht dem effektiven Nutzer zuordnen, damit der
+      // Termin im personen-gescopten Dashboard bei der richtigen Person zählt.
+      workspace_id: access.workspace_id,
+      created_by_user_id: access.effective_user_id ?? access.user.id,
+      source_type: "manuell",
+      source_contact_id: null,
+      source_phone_lead_id: null,
+      lead_name: leadName,
+      company,
+      meet_link: meetLink,
+      appointment_at: appointmentAt,
+      status: "offen",
+    })
+    .select("id")
+    .single();
+  if (scErr || !sc) return { error: scErr?.message ?? "Termin konnte nicht angelegt werden." };
+
+  revalidatePath("/setting", "page");
+  revalidatePath("/analyse", "page");
+  revalidatePath("/", "layout");
+  return { settingCallId: sc.id };
+}
+
 async function canAccessPhoneList(listId: string): Promise<boolean> {
   const access = await getAccessContext();
   if (!access) return false;
