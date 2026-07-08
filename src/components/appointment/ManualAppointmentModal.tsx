@@ -2,7 +2,7 @@
 
 import { createManualSetting } from "@/app/actions/appointments";
 import { Modal } from "@/components/ui/Modal";
-import { Building2, CalendarClock, User, Video } from "lucide-react";
+import { Building2, CalendarClock, Tag, User, Video } from "lucide-react";
 import { useState, useTransition } from "react";
 
 // Termin manuell buchen — für Leads, die NICHT in einer LinkedIn-DM- oder
@@ -19,6 +19,7 @@ export function ManualAppointmentModal({
 }) {
   const [leadName, setLeadName] = useState("");
   const [company, setCompany] = useState("");
+  const [sourceDetail, setSourceDetail] = useState("");
   const [meetLink, setMeetLink] = useState("");
   const [appointmentAt, setAppointmentAt] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +32,7 @@ export function ManualAppointmentModal({
     if (open) {
       setLeadName("");
       setCompany("");
+      setSourceDetail("");
       setMeetLink("");
       setAppointmentAt("");
       setError(null);
@@ -75,6 +77,7 @@ export function ManualAppointmentModal({
       const res = await createManualSetting({
         leadName: name,
         company: company.trim() || null,
+        sourceDetail: sourceDetail.trim() || null,
         meetLink: link,
         appointmentAt: at,
       });
@@ -115,6 +118,20 @@ export function ManualAppointmentModal({
             placeholder="Firmenname"
             value={company}
             onChange={(e) => setCompany(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="man-source" style={labelStyle}>
+            <Tag size={13} /> Quelle <span style={{ textTransform: "none", fontWeight: 600, color: "var(--text-subtle)" }}>(optional)</span>
+          </label>
+          <input
+            id="man-source"
+            type="text"
+            placeholder="z. B. Social Selling, alter Kontakt, WhatsApp, Empfehlung…"
+            value={sourceDetail}
+            onChange={(e) => setSourceDetail(e.target.value)}
             style={inputStyle}
           />
         </div>

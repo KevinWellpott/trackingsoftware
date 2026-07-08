@@ -61,6 +61,7 @@ export type SettingCall = {
   workspace_id: string;
   created_by_user_id: string | null;
   source_type: "linkedin" | "telefon" | "inbound" | "website" | "manuell" | null;
+  source_detail: string | null;
   source_contact_id: string | null;
   source_phone_lead_id: string | null;
   lead_name: string | null;

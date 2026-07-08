@@ -390,6 +390,20 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
                         {c.company}
                       </div>
                     )}
+                    {c.source_detail && (
+                      <div
+                        style={{
+                          fontSize: "0.6875rem",
+                          color: "var(--text-subtle)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={`Quelle: ${c.source_detail}`}
+                      >
+                        Quelle: {c.source_detail}
+                      </div>
+                    )}
                   </div>
 
                   {/* Termin */}

@@ -110,11 +110,13 @@ export async function convertContactToSetting(input: {
 export async function createManualSetting(input: {
   leadName: string;
   company?: string | null;
+  sourceDetail?: string | null;
   meetLink: string;
   appointmentAt: string;
 }): Promise<{ error?: string; settingCallId?: string }> {
   const leadName = input.leadName.trim();
   const company = input.company?.trim() || null;
+  const sourceDetail = input.sourceDetail?.trim() || null;
   const meetLink = input.meetLink.trim();
   const appointmentAt = input.appointmentAt.trim();
   if (!leadName) return { error: "Name ist erforderlich." };
@@ -133,6 +135,7 @@ export async function createManualSetting(input: {
       workspace_id: access.workspace_id,
       created_by_user_id: access.effective_user_id ?? access.user.id,
       source_type: "manuell",
+      source_detail: sourceDetail,
       source_contact_id: null,
       source_phone_lead_id: null,
       lead_name: leadName,
