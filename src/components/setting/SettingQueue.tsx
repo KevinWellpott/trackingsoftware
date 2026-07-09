@@ -25,6 +25,12 @@ type ScopeFilter = "meine" | "alle";
 
 const STATUS_META: Record<SettingCall["status"], { label: string; color: string; bg: string; border: string }> = {
   offen: { label: "Offen", color: "var(--text-muted)", bg: "var(--surface-150)", border: "var(--border)" },
+  no_show: {
+    label: "No-Show",
+    color: "var(--color-error-text)",
+    bg: "var(--color-error-bg)",
+    border: "var(--color-error-border)",
+  },
   qualifiziert: {
     label: "Qualifiziert",
     color: "var(--color-success-text)",
@@ -37,8 +43,8 @@ const STATUS_META: Record<SettingCall["status"], { label: string; color: string;
     bg: "var(--color-info-bg)",
     border: "var(--color-info-border)",
   },
-  disqualifiziert: {
-    label: "Disqualifiziert",
+  unqualifiziert: {
+    label: "Unqualifiziert",
     color: "var(--color-warning-text)",
     bg: "var(--color-warning-bg)",
     border: "var(--color-warning-border)",
@@ -46,12 +52,15 @@ const STATUS_META: Record<SettingCall["status"], { label: string; color: string;
   dead: { label: "Dead", color: "var(--color-error-text)", bg: "var(--color-error-bg)", border: "var(--color-error-border)" },
 };
 
-const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+// "Qualifiziert" entsteht nicht mehr neu (ein Klick legt direkt das Closing an),
+// bleibt aber für Bestandsdaten erreichbar — der Tab wird nur bei Treffern gezeigt.
+const STATUS_FILTERS: { value: StatusFilter; label: string; legacy?: boolean }[] = [
   { value: "alle", label: "Alle" },
   { value: "offen", label: "Offen" },
-  { value: "qualifiziert", label: "Qualifiziert" },
+  { value: "no_show", label: "No-Show" },
+  { value: "qualifiziert", label: "Qualifiziert", legacy: true },
   { value: "closing_gelegt", label: "Closing gelegt" },
-  { value: "disqualifiziert", label: "Disqualifiziert" },
+  { value: "unqualifiziert", label: "Unqualifiziert" },
   { value: "dead", label: "Dead" },
 ];
 
@@ -127,9 +136,10 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
     const counts: Record<StatusFilter, number> = {
       alle: scoped.length,
       offen: 0,
+      no_show: 0,
       qualifiziert: 0,
       closing_gelegt: 0,
-      disqualifiziert: 0,
+      unqualifiziert: 0,
       dead: 0,
     };
     for (const c of scoped) counts[c.status] += 1;
@@ -227,7 +237,7 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
         </div>
 
         <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap" }}>
-          {STATUS_FILTERS.map((f) => {
+          {STATUS_FILTERS.filter((f) => !f.legacy || statusCounts[f.value] > 0).map((f) => {
             const active = statusFilter === f.value;
             const meta = f.value !== "alle" ? STATUS_META[f.value] : null;
             return (

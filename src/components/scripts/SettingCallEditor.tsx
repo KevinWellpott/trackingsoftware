@@ -1,17 +1,29 @@
 "use client";
 
-import { createClosingFromSetting, updateSettingCall, type SettingCallPatch } from "@/app/actions/settingCalls";
+import {
+  createClosingFromSetting,
+  rescheduleSetting,
+  setSettingOutcome,
+  updateSettingCall,
+  type SettingCallPatch,
+} from "@/app/actions/settingCalls";
 import { AssigneeMultiSelect } from "@/components/assignees/AssigneeMultiSelect";
 import { ScriptRunner } from "@/components/scripts/ScriptRunner";
+import { Modal } from "@/components/ui/Modal";
+import { addDaysISO, localDateISO } from "@/lib/dates";
 import { SETTING_BLOCKS } from "@/lib/scripts";
-import type { SettingCall } from "@/lib/types";
-import { ArrowRight, Check, FileText, MessageSquareQuote, Users } from "lucide-react";
+import type { SettingCall, SettingStatus } from "@/lib/types";
+import { ArrowRight, CalendarClock, Check, FileText, MessageSquareQuote, UserX, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 // Setting-Call-Editor: Script-Runner + Zusatznotizen links, strukturierte
 // Qualifikationsfelder + Zuweisungen rechts (sticky). Alles speichert
 // automatisch (Blur bzw. Klick) via updateSettingCall.
+//
+// Das Ergebnis (Nicht erschienen / Qualifiziert / Unqualifiziert / Dead) läuft
+// dagegen über setSettingOutcome — es leitet den Show-Status ab und setzt die
+// Wiedervorlage, statt beides getrennt pflegen zu lassen.
 
 type UserOption = { user_id: string; username: string };
 
@@ -22,8 +34,33 @@ type Props = {
   sourceNotes?: { label: string; text: string }[];
 };
 
-const STATUS_META: Record<SettingCall["status"], { label: string; color: string; bg: string; border: string }> = {
+/** Ergebnisse mit Wiedervorlage — beide öffnen denselben Nachfass-Dialog. */
+type FollowUpOutcome = "no_show" | "unqualifiziert";
+
+/** Default-Wiedervorlage: No-Show morgen erneut anfassen, Unqualifizierte in einer Woche. */
+const FOLLOW_UP_DEFAULT_DAYS: Record<FollowUpOutcome, number> = { no_show: 1, unqualifiziert: 7 };
+
+const FOLLOW_UP_COPY: Record<FollowUpOutcome, { title: string; subtitle: string; submit: string }> = {
+  no_show: {
+    title: "Nicht erschienen",
+    subtitle: "Wann soll der Lead erneut angefasst werden?",
+    submit: "Als No-Show speichern",
+  },
+  unqualifiziert: {
+    title: "Unqualifiziert",
+    subtitle: "Wann soll nachgefasst werden — oder gar nicht?",
+    submit: "Als unqualifiziert speichern",
+  },
+};
+
+const STATUS_META: Record<SettingStatus, { label: string; color: string; bg: string; border: string }> = {
   offen: { label: "Offen", color: "var(--text-muted)", bg: "var(--surface-150)", border: "var(--border)" },
+  no_show: {
+    label: "Nicht erschienen",
+    color: "var(--color-error-text)",
+    bg: "var(--color-error-bg)",
+    border: "var(--color-error-border)",
+  },
   qualifiziert: {
     label: "Qualifiziert",
     color: "var(--color-success-text)",
@@ -36,14 +73,73 @@ const STATUS_META: Record<SettingCall["status"], { label: string; color: string;
     bg: "var(--color-info-bg)",
     border: "var(--color-info-border)",
   },
-  disqualifiziert: {
-    label: "Disqualifiziert",
+  unqualifiziert: {
+    label: "Unqualifiziert",
     color: "var(--color-warning-text)",
     bg: "var(--color-warning-bg)",
     border: "var(--color-warning-border)",
   },
   dead: { label: "Dead", color: "var(--color-error-text)", bg: "var(--color-error-bg)", border: "var(--color-error-border)" },
 };
+
+/** Ergebnis-Button in der Aktionsleiste; aktiv = getönt in der Statusfarbe. */
+function outcomeButton(active: boolean, meta: { color: string; bg: string; border: string }): React.CSSProperties {
+  return {
+    padding: "0.4rem 0.75rem",
+    borderRadius: "var(--radius-sm)",
+    border: `1px solid ${active ? meta.border : "var(--border)"}`,
+    background: active ? meta.bg : "var(--surface-50)",
+    color: active ? meta.color : "var(--text-muted)",
+    fontSize: "0.75rem",
+    fontWeight: 700,
+    cursor: "pointer",
+    transition: "all 0.1s",
+  };
+}
+
+function modalButton(kind: "primary" | "ghost", accent?: { bg: string; fg: string; border: string }): React.CSSProperties {
+  if (kind === "primary") {
+    return {
+      flex: 1,
+      padding: "0.5rem 0.875rem",
+      borderRadius: "var(--radius-sm)",
+      border: `1px solid ${accent?.border ?? "transparent"}`,
+      background: accent?.bg ?? "var(--btn-primary-bg)",
+      color: accent?.fg ?? "var(--btn-primary-fg)",
+      fontSize: "0.8125rem",
+      fontWeight: 800,
+      cursor: "pointer",
+      transition: "all 0.1s",
+    };
+  }
+  return {
+    padding: "0.5rem 0.875rem",
+    borderRadius: "var(--radius-sm)",
+    border: "1px solid var(--border)",
+    background: "var(--surface-50)",
+    color: "var(--text-muted)",
+    fontSize: "0.8125rem",
+    fontWeight: 700,
+    cursor: "pointer",
+  };
+}
+
+/** "2026-07-14" → "14.07.2026" */
+function formatDueDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}.${m}.${y}`;
+}
+
+/** ISO-Timestamp → Wert für <input type="datetime-local"> (lokale Zeit, ohne Zone). */
+function toDatetimeLocal(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 const fieldLabel: React.CSSProperties = {
   display: "block",
@@ -185,8 +281,8 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Strukturierte Felder (lokaler State, Autosave)
-  const [status, setStatus] = useState<SettingCall["status"]>(call.status);
-  const [showStatus, setShowStatus] = useState<"show" | "no_show" | null>(call.show_status);
+  const [status, setStatus] = useState<SettingStatus>(call.status);
+  const [followUpDue, setFollowUpDue] = useState<string | null>(call.follow_up_due);
   const [budget, setBudget] = useState<"ja" | "nein" | "unklar" | null>(call.has_budget_8k);
   const [soleDecider, setSoleDecider] = useState<boolean>(Boolean(call.sole_decider));
   const [canDecideNow, setCanDecideNow] = useState<boolean>(Boolean(call.can_decide_now));
@@ -206,6 +302,14 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
   // über createClosingFromSetting aufgelöst).
   const [closingId, setClosingId] = useState<string | null>(null);
   const lastSavedNotesRef = useRef(call.notes ?? "");
+
+  // Nachfass-Dialog (No-Show / Unqualifiziert) + Neuterminierung nach No-Show
+  const [followUpModal, setFollowUpModal] = useState<FollowUpOutcome | null>(null);
+  const [followUpDate, setFollowUpDate] = useState("");
+  const [skipFollowUp, setSkipFollowUp] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleAt, setRescheduleAt] = useState(toDatetimeLocal(call.appointment_at));
+  const [modalError, setModalError] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -232,9 +336,69 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
     });
   }
 
-  function setStatusAndSave(next: SettingCall["status"]) {
-    setStatus(next);
-    save({ status: next }, { refresh: true });
+  function openFollowUpModal(outcome: FollowUpOutcome) {
+    setModalError(null);
+    setSkipFollowUp(false);
+    setFollowUpDate(followUpDue ?? addDaysISO(localDateISO(), FOLLOW_UP_DEFAULT_DAYS[outcome]));
+    setFollowUpModal(outcome);
+  }
+
+  function submitFollowUpOutcome(outcome: FollowUpOutcome) {
+    if (!skipFollowUp && !followUpDate) {
+      setModalError("Bitte ein Datum wählen oder „Kein Nachfassen“ ankreuzen.");
+      return;
+    }
+    const due = skipFollowUp ? null : followUpDate;
+    startTransition(async () => {
+      const res = await setSettingOutcome({ settingId: call.id, outcome, followUpDue: due });
+      if (res?.error) {
+        setModalError(res.error);
+        return;
+      }
+      setStatus(outcome);
+      setFollowUpDue(due);
+      setFollowUpModal(null);
+      setError(null);
+      flashSaved();
+      router.refresh();
+    });
+  }
+
+  function handleDead() {
+    startTransition(async () => {
+      const res = await setSettingOutcome({ settingId: call.id, outcome: "dead" });
+      if (res?.error) {
+        setError(res.error);
+        return;
+      }
+      setStatus("dead");
+      setFollowUpDue(null);
+      setError(null);
+      flashSaved();
+      router.refresh();
+    });
+  }
+
+  // Neuer Termin nach No-Show: derselbe Datensatz, Status zurück auf "offen".
+  // no_show_count bleibt serverseitig stehen, damit die Show-Quote ehrlich bleibt.
+  function handleReschedule() {
+    if (!rescheduleAt) {
+      setModalError("Bitte einen neuen Termin angeben.");
+      return;
+    }
+    startTransition(async () => {
+      const res = await rescheduleSetting(call.id, rescheduleAt);
+      if (res?.error) {
+        setModalError(res.error);
+        return;
+      }
+      setStatus("offen");
+      setFollowUpDue(null);
+      setRescheduleOpen(false);
+      setError(null);
+      flashSaved();
+      router.refresh();
+    });
   }
 
   function handleCreateClosing() {
@@ -247,6 +411,7 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
       setError(null);
       setClosingDone(true);
       setStatus("closing_gelegt");
+      setFollowUpDue(null);
       if (res.closingId) setClosingId(res.closingId);
       flashSaved();
       router.refresh();
@@ -329,55 +494,25 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
 
         <button
           type="button"
-          onClick={() => setStatusAndSave("qualifiziert")}
+          onClick={() => openFollowUpModal("no_show")}
           disabled={isPending}
-          style={{
-            padding: "0.4rem 0.75rem",
-            borderRadius: "var(--radius-sm)",
-            border: `1px solid ${status === "qualifiziert" ? "var(--color-success-border)" : "var(--border)"}`,
-            background: status === "qualifiziert" ? "var(--color-success-bg)" : "var(--surface-50)",
-            color: status === "qualifiziert" ? "var(--color-success-text)" : "var(--text-muted)",
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            cursor: "pointer",
-            transition: "all 0.1s",
-          }}
+          style={outcomeButton(status === "no_show", STATUS_META.no_show)}
         >
-          Qualifiziert
+          Nicht erschienen
         </button>
         <button
           type="button"
-          onClick={() => setStatusAndSave("disqualifiziert")}
+          onClick={() => openFollowUpModal("unqualifiziert")}
           disabled={isPending}
-          style={{
-            padding: "0.4rem 0.75rem",
-            borderRadius: "var(--radius-sm)",
-            border: `1px solid ${status === "disqualifiziert" ? "var(--color-warning-border)" : "var(--border)"}`,
-            background: status === "disqualifiziert" ? "var(--color-warning-bg)" : "var(--surface-50)",
-            color: status === "disqualifiziert" ? "var(--color-warning-text)" : "var(--text-muted)",
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            cursor: "pointer",
-            transition: "all 0.1s",
-          }}
+          style={outcomeButton(status === "unqualifiziert", STATUS_META.unqualifiziert)}
         >
-          Disqualifiziert
+          Unqualifiziert
         </button>
         <button
           type="button"
-          onClick={() => setStatusAndSave("dead")}
+          onClick={handleDead}
           disabled={isPending}
-          style={{
-            padding: "0.4rem 0.75rem",
-            borderRadius: "var(--radius-sm)",
-            border: `1px solid ${status === "dead" ? "var(--color-error-border)" : "var(--border)"}`,
-            background: status === "dead" ? "var(--color-error-bg)" : "var(--surface-50)",
-            color: status === "dead" ? "var(--color-error-text)" : "var(--text-muted)",
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            cursor: "pointer",
-            transition: "all 0.1s",
-          }}
+          style={outcomeButton(status === "dead", STATUS_META.dead)}
         >
           Dead
         </button>
@@ -444,10 +579,84 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
               transition: "all 0.1s",
             }}
           >
-            Closing anlegen <ArrowRight size={13} strokeWidth={2.5} />
+            Qualifiziert <ArrowRight size={13} strokeWidth={2.5} /> Closing
           </button>
         )}
       </div>
+
+      {/* ── No-Show: Wiedervorlage + Neuterminierung ── */}
+      {status === "no_show" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
+            flexWrap: "wrap",
+            background: "var(--color-error-bg)",
+            border: "1px solid var(--color-error-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "0.75rem 1rem",
+          }}
+        >
+          <UserX size={16} style={{ color: "var(--color-error-text)", flexShrink: 0 }} />
+          <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+            <div style={{ fontSize: "0.8125rem", fontWeight: 800, color: "var(--color-error-text)" }}>
+              Lead ist nicht erschienen
+              {call.no_show_count > 1 && ` · ${call.no_show_count}× No-Show`}
+            </div>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              {followUpDue
+                ? `Nachfassen am ${formatDueDate(followUpDue)} — steht im Nachfassen-Board.`
+                : "Kein Nachfassen gesetzt."}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setModalError(null);
+              setRescheduleOpen(true);
+            }}
+            disabled={isPending}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.375rem",
+              padding: "0.4rem 0.875rem",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid transparent",
+              background: "var(--btn-primary-bg)",
+              color: "var(--btn-primary-fg)",
+              fontSize: "0.75rem",
+              fontWeight: 800,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <CalendarClock size={13} /> Neuen Termin setzen
+          </button>
+        </div>
+      )}
+
+      {/* ── Unqualifiziert mit Wiedervorlage ── */}
+      {status === "unqualifiziert" && followUpDue && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            background: "var(--color-warning-bg)",
+            border: "1px solid var(--color-warning-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "0.625rem 1rem",
+            fontSize: "0.8125rem",
+            fontWeight: 600,
+            color: "var(--color-warning-text)",
+          }}
+        >
+          <CalendarClock size={14} style={{ flexShrink: 0 }} />
+          Nachfassen am {formatDueDate(followUpDue)} — steht im Nachfassen-Board.
+        </div>
+      )}
 
       {error && (
         <div
@@ -578,32 +787,7 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
           >
             <span style={{ fontSize: "0.8125rem", fontWeight: 800, color: "var(--text-primary)" }}>Qualifikation</span>
 
-            <div>
-              <span style={fieldLabel}>Show-Status</span>
-              <Segmented
-                value={showStatus}
-                options={[
-                  {
-                    value: "show",
-                    label: "Show",
-                    color: "var(--color-success-text)",
-                    bg: "var(--color-success-bg)",
-                    border: "var(--color-success-border)",
-                  },
-                  {
-                    value: "no_show",
-                    label: "No-Show",
-                    color: "var(--color-error-text)",
-                    bg: "var(--color-error-bg)",
-                    border: "var(--color-error-border)",
-                  },
-                ]}
-                onChange={(v) => {
-                  setShowStatus(v);
-                  save({ show_status: v });
-                }}
-              />
-            </div>
+            {/* Show-Status wird aus dem Ergebnis abgeleitet, nicht mehr hier gepflegt. */}
 
             <div>
               <span style={fieldLabel}>Budget (8k+)</span>
@@ -808,6 +992,136 @@ export function SettingCallEditor({ call, assignees, users, sourceNotes }: Props
           )}
         </div>
       </div>
+
+      {/* ── Modal: Ergebnis mit Wiedervorlage (No-Show / Unqualifiziert) ── */}
+      <Modal
+        open={followUpModal != null}
+        onClose={() => setFollowUpModal(null)}
+        title={followUpModal ? FOLLOW_UP_COPY[followUpModal].title : ""}
+        subtitle={followUpModal ? FOLLOW_UP_COPY[followUpModal].subtitle : undefined}
+      >
+        {followUpModal && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+            <div>
+              <span style={fieldLabel}>Nachfassen am</span>
+              <input
+                type="date"
+                value={followUpDate}
+                disabled={skipFollowUp}
+                onChange={(e) => setFollowUpDate(e.target.value)}
+                style={{ ...fieldInput, opacity: skipFollowUp ? 0.5 : 1 }}
+              />
+            </div>
+
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                fontSize: "0.8125rem",
+                fontWeight: 600,
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={skipFollowUp}
+                onChange={(e) => setSkipFollowUp(e.target.checked)}
+                style={{ cursor: "pointer" }}
+              />
+              Kein Nachfassen
+            </label>
+
+            {modalError && (
+              <div
+                style={{
+                  background: "var(--color-error-bg)",
+                  border: "1px solid var(--color-error-border)",
+                  color: "var(--color-error-text)",
+                  borderRadius: "var(--radius-sm)",
+                  padding: "0.5rem 0.75rem",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                }}
+              >
+                {modalError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => submitFollowUpOutcome(followUpModal)}
+                style={{
+                  ...modalButton("primary", {
+                    bg: STATUS_META[followUpModal].bg,
+                    fg: STATUS_META[followUpModal].color,
+                    border: STATUS_META[followUpModal].border,
+                  }),
+                  opacity: isPending ? 0.6 : 1,
+                }}
+              >
+                {FOLLOW_UP_COPY[followUpModal].submit}
+              </button>
+              <button type="button" onClick={() => setFollowUpModal(null)} style={modalButton("ghost")}>
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Modal: Neuen Termin nach No-Show setzen ── */}
+      <Modal
+        open={rescheduleOpen}
+        onClose={() => setRescheduleOpen(false)}
+        title="Neuen Termin setzen"
+        subtitle="Der Call geht zurück auf „Offen“. Der No-Show bleibt in der Auswertung erhalten."
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+          <div>
+            <span style={fieldLabel}>Neuer Termin *</span>
+            <input
+              type="datetime-local"
+              value={rescheduleAt}
+              onChange={(e) => setRescheduleAt(e.target.value)}
+              style={fieldInput}
+            />
+          </div>
+
+          {modalError && (
+            <div
+              style={{
+                background: "var(--color-error-bg)",
+                border: "1px solid var(--color-error-border)",
+                color: "var(--color-error-text)",
+                borderRadius: "var(--radius-sm)",
+                padding: "0.5rem 0.75rem",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+              }}
+            >
+              {modalError}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+            <button
+              type="button"
+              disabled={isPending || !rescheduleAt}
+              onClick={handleReschedule}
+              style={{ ...modalButton("primary"), opacity: isPending || !rescheduleAt ? 0.6 : 1 }}
+            >
+              Termin speichern
+            </button>
+            <button type="button" onClick={() => setRescheduleOpen(false)} style={modalButton("ghost")}>
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { ComparisonTable, type ComparisonRow } from "@/components/analyse/Compar
 import { BucketBarChart } from "@/components/analyse/AnalyseCharts";
 import { DistBars, DonutChart, GaugeBar, KpiHero } from "@/components/analyse/AnalyseViz";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import type { SettingStatus } from "@/lib/types";
 
 // Setting-Flow: Termine → Shows → Qualifikation → Closing gelegt, aus
 // setting_calls (JS-Filter nach Effektiv-Datum und optionaler Quelle).
@@ -27,19 +28,20 @@ type SettingRow = {
   call_at: string | null;
   created_at: string;
   show_status: "show" | "no_show" | null;
-  status: "offen" | "qualifiziert" | "disqualifiziert" | "closing_gelegt" | "dead";
+  status: SettingStatus;
+  /** Zählt No-Shows über Neuterminierungen hinweg — show_status kennt nur den letzten Stand. */
+  no_show_count: number | null;
   has_budget_8k: "ja" | "nein" | "unklar" | null;
   ist_pain: number | null;
   warmth: number | null;
 };
 
-type SettingStatus = SettingRow["status"];
-
 const STATUS_META: { key: SettingStatus; label: string; tone: BadgeTone }[] = [
   { key: "offen", label: "Offen", tone: "info" },
+  { key: "no_show", label: "No-Show", tone: "error" },
   { key: "qualifiziert", label: "Qualifiziert", tone: "success" },
   { key: "closing_gelegt", label: "Closing gelegt", tone: "brand" },
-  { key: "disqualifiziert", label: "Disqualifiziert", tone: "neutral" },
+  { key: "unqualifiziert", label: "Unqualifiziert", tone: "warning" },
   { key: "dead", label: "Dead", tone: "error" },
 ];
 
@@ -94,7 +96,7 @@ export async function SettingTab({
 
   let query = supabase
     .from("setting_calls")
-    .select("id, created_by_user_id, source_type, appointment_at, call_at, created_at, show_status, status, has_budget_8k, ist_pain, warmth")
+    .select("id, created_by_user_id, source_type, appointment_at, call_at, created_at, show_status, no_show_count, status, has_budget_8k, ist_pain, warmth")
     .eq("workspace_id", access.workspace_id);
   if (!canCompare) query = query.eq("created_by_user_id", access.user.id);
 
@@ -112,7 +114,7 @@ export async function SettingTab({
     perUser[m.username] = {};
   }
   const statusCounts: Record<SettingStatus, number> = {
-    offen: 0, qualifiziert: 0, closing_gelegt: 0, disqualifiziert: 0, dead: 0,
+    offen: 0, no_show: 0, qualifiziert: 0, closing_gelegt: 0, unqualifiziert: 0, dead: 0,
   };
 
   // Vorperioden-Summen (nur Gesamtwerte für die Delta-Badges)
@@ -135,7 +137,7 @@ export async function SettingTab({
     if (hasPrev && day >= prevFrom! && day <= prevTo!) {
       prev.termine += 1;
       if (r.show_status === "show") prev.shows += 1;
-      if (r.show_status === "no_show") prev.noShows += 1;
+      prev.noShows += r.no_show_count ?? 0;
       if (r.show_status === "show" && (r.status === "qualifiziert" || r.status === "closing_gelegt")) prev.quali += 1;
       if (r.show_status === "show" && r.status === "closing_gelegt") prev.closing += 1;
       continue;
@@ -148,7 +150,9 @@ export async function SettingTab({
     const t = totals.get(name)!;
     t.termine += 1;
     if (r.show_status === "show") t.shows += 1;
-    if (r.show_status === "no_show") t.noShows += 1;
+    // Über no_show_count statt show_status: ein neuterminierter No-Show steht auf
+    // "offen"/"show", sein Nichterscheinen zählt trotzdem gegen die Show-Quote.
+    t.noShows += r.no_show_count ?? 0;
     if (r.show_status === "show" && (r.status === "qualifiziert" || r.status === "closing_gelegt")) t.quali += 1;
     if (r.show_status === "show" && r.status === "closing_gelegt") t.closing += 1;
     if (r.status === "dead") t.dead += 1;

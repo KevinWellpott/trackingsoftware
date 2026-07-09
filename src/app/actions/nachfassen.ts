@@ -6,11 +6,12 @@ import { revalidatePath } from "next/cache";
 import { localDateISO, addDaysISO } from "@/lib/dates";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 
-// Nachfassen-Union (LinkedIn-FU + Telefon-Rückruf + Closing-Nachfassen) über die
-// nachfassen_tasks-RPC + vorbereiteter Kopier-Text (KEIN Auto-Versand).
+// Nachfassen-Union (LinkedIn-FU + Telefon-Rückruf + Closing-Nachfassen +
+// Setting-Wiedervorlage) über die nachfassen_tasks-RPC + vorbereiteter
+// Kopier-Text (KEIN Auto-Versand).
 
 export type NachfassenTask = {
-  source: "linkedin" | "telefon" | "closing";
+  source: "linkedin" | "telefon" | "closing" | "setting";
   entity_id: string;
   owner_name: string | null;
   lead_name: string | null;
@@ -139,6 +140,8 @@ export async function getNachfassenTasks(options?: {
       list_id = info?.list_id ?? null;
       phone = info?.phone ?? null;
       prepared_text = `Rückruf fällig: ${r.lead_name ?? "—"}${r.company ? ` (${r.company})` : ""}${phone ? ` · ${phone}` : ""}`;
+    } else if (r.source === "setting") {
+      prepared_text = `Setting nachfassen: ${r.lead_name ?? "—"}${r.company ? ` (${r.company})` : ""}`;
     } else {
       prepared_text = `Closing nachfassen: ${r.lead_name ?? "—"}${r.company ? ` (${r.company})` : ""}`;
     }

@@ -23,14 +23,15 @@ type PhoneOwnerRow = {
 
 type PhoneOwner = { owner_name: string; calls: number; appointments: number };
 
-const SETTING_STATUSES = ["offen", "qualifiziert", "closing_gelegt", "disqualifiziert", "dead"] as const;
+const SETTING_STATUSES = ["offen", "no_show", "qualifiziert", "closing_gelegt", "unqualifiziert", "dead"] as const;
 const CLOSING_STATUSES = ["offen", "gewonnen", "verloren", "nachfassen"] as const;
 
 const SETTING_LABELS: Record<(typeof SETTING_STATUSES)[number], { label: string; tone: BadgeTone }> = {
   offen: { label: "Offen", tone: "info" },
+  no_show: { label: "No-Show", tone: "error" },
   qualifiziert: { label: "Qualifiziert", tone: "success" },
   closing_gelegt: { label: "Closing gelegt", tone: "brand" },
-  disqualifiziert: { label: "Disqualifiziert", tone: "error" },
+  unqualifiziert: { label: "Unqualifiziert", tone: "warning" },
   dead: { label: "Dead", tone: "error" },
 };
 
@@ -136,7 +137,7 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
       }));
 
   const settingCounts: Record<(typeof SETTING_STATUSES)[number], number> = {
-    offen: 0, qualifiziert: 0, closing_gelegt: 0, disqualifiziert: 0, dead: 0,
+    offen: 0, no_show: 0, qualifiziert: 0, closing_gelegt: 0, unqualifiziert: 0, dead: 0,
   };
   SETTING_STATUSES.forEach((s, i) => { settingCounts[s] = settingRes[i].count ?? 0; });
 

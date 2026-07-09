@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
+import type { SettingOutcome, SettingStatus } from "@/lib/types";
 import { revalidatePath } from "next/cache";
 
 // Setting-Call bearbeiten (Script-Antworten + strukturierte Felder + Status)
@@ -27,7 +28,9 @@ export type SettingCallPatch = {
   meet_link?: string | null;
   appointment_at?: string | null;
   script_answers?: Record<string, string>;
-  status?: "offen" | "qualifiziert" | "disqualifiziert" | "closing_gelegt" | "dead";
+  status?: SettingStatus;
+  follow_up_due?: string | null;
+  no_show_count?: number;
   notes?: string | null;
   lead_name?: string | null;
   company?: string | null;
@@ -49,6 +52,85 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
   return {};
 }
 
+/**
+ * Terminales Ergebnis eines Setting-Calls. Der Show-Status wird daraus abgeleitet,
+ * statt ihn separat pflegen zu müssen:
+ *   no_show → 'no_show', qualifiziert/unqualifiziert → 'show', dead → unverändert.
+ *
+ * no_show/unqualifiziert nehmen optional eine Wiedervorlage (YYYY-MM-DD) auf, die
+ * den Call ins Nachfassen-Board hebt. qualifiziert legt direkt das Closing an.
+ */
+export async function setSettingOutcome(input: {
+  settingId: string;
+  outcome: SettingOutcome;
+  followUpDue?: string | null;
+}): Promise<{ error?: string; closingId?: string }> {
+  if (!(await canAccessSettingCall(input.settingId))) return { error: "Keine Berechtigung." };
+
+  // Qualifiziert = Closing. Ein Schritt, kein Zwischenstatus.
+  if (input.outcome === "qualifiziert") return createClosingFromSetting(input.settingId);
+
+  const supabase = await createClient();
+  const patch: SettingCallPatch = { status: input.outcome };
+
+  if (input.outcome === "no_show") {
+    patch.show_status = "no_show";
+    patch.follow_up_due = input.followUpDue ?? null;
+    // Zähler trägt die No-Show-Historie über spätere Neuterminierungen hinweg.
+    const { data } = await supabase
+      .from("setting_calls")
+      .select("no_show_count")
+      .eq("id", input.settingId)
+      .maybeSingle();
+    patch.no_show_count = ((data as { no_show_count: number } | null)?.no_show_count ?? 0) + 1;
+  } else if (input.outcome === "unqualifiziert") {
+    patch.show_status = "show";
+    patch.follow_up_due = input.followUpDue ?? null;
+  } else {
+    // dead: show_status bewusst nicht anfassen — der Lead kann vorher erschienen sein.
+    patch.follow_up_due = null;
+  }
+
+  const { error } = await supabase.from("setting_calls").update(patch).eq("id", input.settingId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/setting/${input.settingId}`, "page");
+  revalidatePath("/setting", "page");
+  revalidatePath("/nachfassen", "page");
+  revalidatePath("/", "layout");
+  return {};
+}
+
+/**
+ * Neuen Termin für einen No-Show setzen: derselbe Datensatz wird wiederverwendet,
+ * `no_show_count` bleibt stehen — sonst verschwände der No-Show aus der Show-Quote.
+ */
+export async function rescheduleSetting(
+  settingId: string,
+  appointmentAt: string,
+): Promise<{ error?: string }> {
+  if (!appointmentAt) return { error: "Bitte einen neuen Termin angeben." };
+  if (!(await canAccessSettingCall(settingId))) return { error: "Keine Berechtigung." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("setting_calls")
+    .update({
+      appointment_at: new Date(appointmentAt).toISOString(),
+      status: "offen",
+      show_status: null,
+      follow_up_due: null,
+    })
+    .eq("id", settingId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/setting/${settingId}`, "page");
+  revalidatePath("/setting", "page");
+  revalidatePath("/nachfassen", "page");
+  revalidatePath("/", "layout");
+  return {};
+}
+
 /** Aus einem qualifizierten Setting einen Closing-Call anlegen (idempotent). */
 export async function createClosingFromSetting(
   settingId: string,
@@ -59,6 +141,15 @@ export async function createClosingFromSetting(
 
   const supabase = await createClient();
 
+  // Qualifiziert heißt: er war da. Wiedervorlage aus einem früheren No-Show/
+  // Unqualifiziert entfällt, sonst bliebe der Call im Nachfassen-Board hängen.
+  const qualifiedPatch: SettingCallPatch = {
+    status: "closing_gelegt",
+    closing_scheduled: true,
+    show_status: "show",
+    follow_up_due: null,
+  };
+
   // Bereits vorhandenen Closing-Call wiederverwenden
   const { data: existing } = await supabase
     .from("closing_calls")
@@ -66,12 +157,10 @@ export async function createClosingFromSetting(
     .eq("setting_call_id", settingId)
     .maybeSingle();
   if (existing) {
-    await supabase
-      .from("setting_calls")
-      .update({ status: "closing_gelegt", closing_scheduled: true })
-      .eq("id", settingId);
+    await supabase.from("setting_calls").update(qualifiedPatch).eq("id", settingId);
     revalidatePath("/setting", "page");
     revalidatePath("/closing", "page");
+    revalidatePath("/nachfassen", "page");
     return { closingId: existing.id };
   }
 
@@ -103,13 +192,11 @@ export async function createClosingFromSetting(
     .single();
   if (error || !closing) return { error: error?.message ?? "Closing anlegen fehlgeschlagen." };
 
-  await supabase
-    .from("setting_calls")
-    .update({ status: "closing_gelegt", closing_scheduled: true })
-    .eq("id", settingId);
+  await supabase.from("setting_calls").update(qualifiedPatch).eq("id", settingId);
 
   revalidatePath("/setting", "page");
   revalidatePath("/closing", "page");
+  revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
   return { closingId: closing.id };
 }

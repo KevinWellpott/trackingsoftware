@@ -62,19 +62,20 @@ export async function GET(request: NextRequest) {
         const rows = (await fetchAllRows((f, t) => {
           let q = supabase
             .from("setting_calls")
-            .select("call_at, appointment_at, lead_name, company, source_type, show_status, has_budget_8k, sole_decider, ist_pain, warmth, closing_scheduled, status, notes")
+            .select("call_at, appointment_at, lead_name, company, source_type, show_status, no_show_count, has_budget_8k, sole_decider, ist_pain, warmth, closing_scheduled, status, follow_up_due, notes")
             .eq("workspace_id", access.workspace_id);
           if (eff) q = q.eq("created_by_user_id", eff);
           return q.order("id", { ascending: true }).range(f, t);
         })) as unknown as Array<Record<string, unknown>>;
         const csv = toCsv(
-          ["Call am", "Termin", "Lead", "Firma", "Quelle", "Show", "Budget 8k", "Allein-Entscheider", "Ist-Pain", "Wärme", "Closing gelegt", "Status", "Notizen"],
+          ["Call am", "Termin", "Lead", "Firma", "Quelle", "Show", "No-Shows", "Budget 8k", "Allein-Entscheider", "Ist-Pain", "Wärme", "Closing gelegt", "Status", "Wiedervorlage", "Notizen"],
           rows.map((r) => [
             (r.call_at as string) ?? "", (r.appointment_at as string) ?? "", (r.lead_name as string) ?? "",
             (r.company as string) ?? "", (r.source_type as string) ?? "", (r.show_status as string) ?? "",
+            (r.no_show_count as number) ?? 0,
             (r.has_budget_8k as string) ?? "", r.sole_decider === true ? "Ja" : "", (r.ist_pain as number) ?? "",
             (r.warmth as number) ?? "", r.closing_scheduled === true ? "Ja" : "", (r.status as string) ?? "",
-            (r.notes as string) ?? "",
+            (r.follow_up_due as string) ?? "", (r.notes as string) ?? "",
           ]),
         );
         return csvResponse(csv, `setting-export-${today}.csv`);

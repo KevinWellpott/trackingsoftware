@@ -11,6 +11,7 @@ import {
   CheckCheck,
   CheckCircle2,
   ChevronDown,
+  ClipboardCheck,
   Clock,
   Copy,
   Handshake,
@@ -54,6 +55,13 @@ const CHANNEL_META: Record<
     bg: "var(--color-warning-bg)",
     border: "var(--color-warning-border)",
   },
+  setting: {
+    label: "Setting",
+    icon: <ClipboardCheck size={10} />,
+    color: "var(--brand-500)",
+    bg: "var(--brand-50)",
+    border: "var(--brand-200)",
+  },
   closing: {
     label: "Closing",
     icon: <Handshake size={10} />,
@@ -67,6 +75,7 @@ const FILTERS: { value: ChannelFilter; label: string }[] = [
   { value: "alle", label: "Alle" },
   { value: "linkedin", label: "LinkedIn" },
   { value: "telefon", label: "Telefon" },
+  { value: "setting", label: "Setting" },
   { value: "closing", label: "Closing" },
 ];
 
@@ -445,6 +454,12 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           </>
         )}
 
+        {task.source === "setting" && (
+          <Link href={`/setting/${task.entity_id}`} style={linkBtnStyle}>
+            <ClipboardCheck size={12} /> Zum Setting
+          </Link>
+        )}
+
         {task.source === "closing" && (
           <Link href={`/closing/${task.entity_id}`} style={linkBtnStyle}>
             <Handshake size={12} /> Zum Closing
@@ -488,6 +503,7 @@ const SECTION_META: Record<
   "fu-3": { icon: <AtSign size={12} />, bg: "var(--color-warning-bg)", color: "var(--color-warning-text)", tone: "warning" },
   "fu-weitere": { icon: <AtSign size={12} />, bg: "var(--surface-150)", color: "var(--text-muted)", tone: "neutral" },
   telefon: { icon: <Phone size={12} />, bg: "var(--brand-50)", color: "var(--brand-600)", tone: "brand" },
+  setting: { icon: <ClipboardCheck size={12} />, bg: "var(--brand-50)", color: "var(--brand-600)", tone: "brand" },
   closing: { icon: <Handshake size={12} />, bg: "var(--color-success-bg)", color: "var(--color-success-text)", tone: "success" },
 };
 
@@ -594,7 +610,7 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
   const sorted = useMemo(() => [...tasks].sort((a, b) => dueSortKey(a) - dueSortKey(b)), [tasks]);
 
   const counts = useMemo(() => {
-    const c: Record<ChannelFilter, number> = { alle: tasks.length, linkedin: 0, telefon: 0, closing: 0 };
+    const c: Record<ChannelFilter, number> = { alle: tasks.length, linkedin: 0, telefon: 0, setting: 0, closing: 0 };
     for (const t of tasks) c[t.source] += 1;
     return c;
   }, [tasks]);
@@ -636,6 +652,10 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
       const group = sorted.filter((t) => t.source === "telefon");
       if (group.length > 0) s.push({ key: "telefon", label: "Rückrufe", tasks: group });
     }
+    if (fuFilter == null && (filter === "alle" || filter === "setting")) {
+      const group = sorted.filter((t) => t.source === "setting");
+      if (group.length > 0) s.push({ key: "setting", label: "Setting (No-Show & Unqualifiziert)", tasks: group });
+    }
     if (fuFilter == null && (filter === "alle" || filter === "closing")) {
       const group = sorted.filter((t) => t.source === "closing");
       if (group.length > 0) s.push({ key: "closing", label: "Closing", tasks: group });
@@ -653,6 +673,7 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
         <StatChip icon={<AlertTriangle size={12} />} label="Überfällig" value={overdueCount} danger />
         <StatChip icon={<AtSign size={12} />} label="Follow-ups" value={counts.linkedin} />
         <StatChip icon={<Phone size={12} />} label="Rückrufe" value={counts.telefon} />
+        <StatChip icon={<ClipboardCheck size={12} />} label="Setting" value={counts.setting} />
       </div>
 
       {/* ── Kanal-Filter ── */}

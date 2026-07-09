@@ -56,6 +56,19 @@ export type PhoneList = {
   created_at: string;
 };
 
+/** `qualifiziert` wird vom UI nicht mehr vergeben (Klick legt direkt das Closing an),
+ *  bleibt aber für Bestandsdaten gültig. */
+export type SettingStatus =
+  | "offen"
+  | "no_show"
+  | "qualifiziert"
+  | "closing_gelegt"
+  | "unqualifiziert"
+  | "dead";
+
+/** Terminale Ergebnisse, die der Nutzer im Setting-Call setzen kann. */
+export type SettingOutcome = "no_show" | "qualifiziert" | "unqualifiziert" | "dead";
+
 export type SettingCall = {
   id: string;
   workspace_id: string;
@@ -85,7 +98,11 @@ export type SettingCall = {
   meet_link: string | null;
   appointment_at: string | null;
   script_answers: Record<string, string>;
-  status: "offen" | "qualifiziert" | "disqualifiziert" | "closing_gelegt" | "dead";
+  status: SettingStatus;
+  /** Wiedervorlage für No-Show / Unqualifiziert (YYYY-MM-DD). */
+  follow_up_due: string | null;
+  /** Zählt No-Shows über Neuterminierungen hinweg — Basis der Show-Quote. */
+  no_show_count: number;
   notes: string | null;
   created_at: string;
   updated_at: string;
