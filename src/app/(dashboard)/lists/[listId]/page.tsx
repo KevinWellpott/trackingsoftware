@@ -54,8 +54,13 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   const total = contacts.length;
   const answered = contacts.filter((c) => c.answered === true).length;
   const appts = contacts.filter((c) => c.appointment_set === true).length;
+  // Offen = fällig. Ein Follow-up, dessen Wiedervorlage noch in der Zukunft liegt,
+  // ist erledigt, nicht offen. Gleiche Bedingung wie im nachfassen_tasks-RPC,
+  // sonst widersprechen sich Listen-Kachel und Nachfassen-Board.
   const openFU = contacts.filter((c) =>
-    c.next_follow_up_at && c.answered !== true && c.appointment_set !== true && c.follow_up_number !== 3
+    c.next_follow_up_at != null &&
+    c.next_follow_up_at <= today &&
+    c.answered !== true && c.appointment_set !== true && c.follow_up_number !== 3
   ).length;
 
   const answerRate = pct(answered, total);
