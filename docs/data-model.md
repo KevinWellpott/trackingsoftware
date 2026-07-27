@@ -2,7 +2,7 @@
 
 Kontext für KI-gestützte Datenauswertung über den read-only Supabase-MCP.
 Quellen: `supabase/migrations/` (maßgeblich für Schema) + tatsächliche Nutzung in `src/`.
-Stand: Juli 2026 (nach Migration `20260404000018_setting_outcome_model.sql`).
+Stand: Juli 2026 (nach Migration `20260404000019_linkedin_board_v2.sql`).
 
 ## 1. Was die App trackt (Lifecycle)
 
@@ -44,7 +44,7 @@ Begriffe:
 | Tabelle | Zweck / Schlüsselspalten |
 |---|---|
 | `lists` | LinkedIn-Pitch-Listen. `name`, `owner_name` (Besitzer, matcht `profiles.username`), `created_by_user_id`, `pitch_text` (Vorlage), `archived_at`. |
-| `contacts` | 1 Zeile = 1 gepitchter LinkedIn-Kontakt. `list_id` → `lists` (Trigger setzt `workspace_id`). Kernfelder: `name`, `company`, `pitched_at` (date), `answered` (bool), `answer_category` (§4), `answer_text`, `follow_up_number` (0–3), `next_follow_up_at` (date), `appointment_set` (bool), `appointment_at` (timestamptz), `meet_link`, `linkedin_url`, `setting_call_id` → `setting_calls`. Legacy-CRM: `stage_id` → `pipeline_stages`, `deal_value`, `deal_closed`, `deal_lost_reason`, `meeting_notes`, `custom_fields` (jsonb). |
+| `contacts` | 1 Zeile = 1 gepitchter LinkedIn-Kontakt. `list_id` → `lists` (Trigger setzt `workspace_id`). Kernfelder: `name`, `company`, `pitched_at` (date), `answered` (bool), `answer_category` (§4), `answer_text`, `follow_up_number` (0–3), `next_follow_up_at` (date), `appointment_set` (bool), `appointment_at` (timestamptz), `meet_link`, `linkedin_url`, `setting_call_id` → `setting_calls`, `blocked_at` (timestamptz — Lead hat uns auf LinkedIn blockiert; App nullt `next_follow_up_at`, RPCs schließen blockierte zusätzlich aus). Legacy-CRM: `stage_id` → `pipeline_stages`, `deal_value`, `deal_closed`, `deal_lost_reason`, `meeting_notes`, `custom_fields` (jsonb). |
 | `pipeline_stages` | Legacy-CRM-Stufen je Liste mit `probability_pct` (0–100) und `exclude_from_followup`. Defaults beim Anlegen: Neu 10 %, Gespräch 30 %, Angebot 60 %, Verhandlung 80 %, Gewonnen 100 %, Verloren 0 %. In der aktiven Tracking-UI kaum genutzt — **nicht** die „Termin-Wahrscheinlichkeit" des Setting-Flows (die gibt es nicht als Prozentwert). |
 
 ### Telefon-Funnel
@@ -59,7 +59,7 @@ Begriffe:
 
 | Tabelle | Zweck / Schlüsselspalten |
 |---|---|
-| `setting_calls` | Termin + Qualifizierungsgespräch. Herkunft: `source_type` (§4), `source_detail` (Freitext, v. a. bei manuell), `source_contact_id` → `contacts`, `source_phone_lead_id` → `phone_leads`. Termin: `appointment_at` (timestamptz), `meet_link`, `call_at` (date, Gesprächstag). Qualifizierung: `show_status` (`show`/`no_show`), `has_budget_8k`, `branche`, `sole_decider`/`can_decide_now`/`clear_need` (bool), `ist_pain` (1–10), `warmth` (1–10), `soll_ziel`, `script_answers` (jsonb, Setting-Skript-Blöcke). Ergebnis: `status` (§4), `follow_up_due` (date, Wiedervorlage), `no_show_count` (zählt No-Shows über Neuterminierungen), `closing_scheduled`/`closing_at`. |
+| `setting_calls` | Termin + Qualifizierungsgespräch. Herkunft: `source_type` (§4), `source_detail` (Freitext, v. a. bei manuell), `source_contact_id` → `contacts`, `source_phone_lead_id` → `phone_leads`. Termin: `appointment_at` (timestamptz), `meet_link` (optional), `meeting_kind` (`link` \| `telefon` \| NULL = ohne Angabe), `call_at` (date, Gesprächstag). Qualifizierung: `show_status` (`show`/`no_show`), `has_budget_8k`, `branche`, `sole_decider`/`can_decide_now`/`clear_need` (bool), `ist_pain` (1–10), `warmth` (1–10), `soll_ziel`, `script_answers` (jsonb, Setting-Skript-Blöcke). Ergebnis: `status` (§4), `follow_up_due` (date, Wiedervorlage), `no_show_count` (zählt No-Shows über Neuterminierungen), `closing_scheduled`/`closing_at`. |
 | `closing_calls` | Abschlussgespräch. `setting_call_id` → `setting_calls`. `call_at` (timestamptz, Termin inkl. Uhrzeit), `meet_link`, `show_status`, `status` (§4), Deal: `closed` (bool), `deal_volume` (numeric, €), `payment_type` (Freitext, UI: „Einmal"/„Raten"), `signature_received`, `contract_start` (date), `lost_reason`, `follow_up_due` (date). |
 | `call_assignees` | Multi-Zuweisung von Nutzern an Setting-/Closing-Calls: `entity_type` (`setting_call`\|`closing_call`), `entity_id`, `user_id`. |
 
@@ -90,7 +90,7 @@ Historie: Alt-Wert `disqualifiziert` wurde per Migration 0018 zu `unqualifiziert
 - Aktuell wählbar: `Positiv` · `Neutral` · `Negativ`
 - Legacy in Bestandsdaten: `Interessiert`, `Kein Interesse`, `Zu teuer`, `Falsches Timing`, `Bereits Lösung`, `Kein Budget`, `Falsche Zielgruppe` (Definition: `src/lib/categories.ts`)
 
-**`contacts.follow_up_number`** (FU-Stufe): NULL/0 = noch kein Follow-up, 1–3 = FU1–FU3. Fälligkeits-Intervalle: nach Pitch +3 Tage → FU1, danach +5 → FU2, danach +7 → FU3, danach Ende (`src/app/actions/contacts.ts`, `calcNextFollowUp`). Ausschluss aus dem FU-Flow: `answered=true` oder `appointment_set=true` oder FU3 erreicht.
+**`contacts.follow_up_number`** (FU-Stufe): NULL/0 = noch kein Follow-up, 1–3 = FU1–FU3. Fälligkeits-Intervalle: nach Pitch +3 Tage → FU1, danach +5 → FU2, danach +7 → FU3, danach Ende (`src/app/actions/contacts.ts`, `calcNextFollowUp`). Ausschluss aus dem FU-Flow: `answered=true` oder `appointment_set=true` oder FU3 erreicht oder `blocked_at` gesetzt (Lead hat uns blockiert).
 
 ## 5. RPCs = maßgebliche Metrik-Definitionen
 
@@ -101,7 +101,7 @@ Die Dashboards rechnen nicht frei, sondern über diese SECURITY-DEFINER-RPCs —
 | `rpc_owner_day_metrics(ws, from, to, user?)` | je `owner_name`+Tag: `dms`, `answers`, `appts` | Tag = `coalesce(pitched_at, created_at::date)`; Owner über `lists.owner_name` (Vorrang) |
 | `rpc_owner_week_counts(ws, from, to, user?)` | je Owner+Tag: `cnt` Pitches | Basis des Wochenduells |
 | `rpc_appt_rate(ws, user?)` | `total_dms`, `total_appts` | **all-time**, ohne Zeitraum |
-| `rpc_followup_alerts(ws, today, user?)` | `due_soon` (heute…+3 Tage), `overdue` | nur offene FU-Kandidaten (Ausschlüsse s. §4) |
+| `rpc_followup_alerts(ws, today, user?)` | `due_soon` (heute…+3 Tage), `overdue` | nur offene FU-Kandidaten (Ausschlüsse s. §4, inkl. `blocked_at is null`) |
 | `rpc_phone_owner_metrics(ws, from, to, user?)` | je Owner: `calls`, `gatekeeper_reached`, `decider_reached`, `appointments`, `callbacks`, `dead` | **Achtung: nur `calls` ist zeitraumgefiltert** (`first_call_at between`), die übrigen Spalten sind all-time-Zählungen |
 | `rpc_phone_day_metrics(ws, from, to, user?)` | wie oben, aber je Owner+**Tag** | Tag = `coalesce(first_call_at, created_at::date)`; `calls` zählt nur Leads mit `first_call_at is not null`; für Zeitraum-Analysen diese RPC nutzen |
 | `rpc_phone_list_counts(ws, user?)` | Status-Counts je Telefonliste | |
