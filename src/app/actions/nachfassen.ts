@@ -116,6 +116,23 @@ export async function getNachfassenTasks(options?: {
     (tpl ?? []).forEach((t) => templates.set(t.fu_number, t.body));
   }
 
+  // Listen-eigene Nachfass-Sequenz (hat Vorrang vor der Nutzer-Vorlage) —
+  // nur für die Listen, aus denen tatsächlich Aufgaben stammen.
+  const listTexts = new Map<string, (string | null)[]>();
+  {
+    const listIds = [...new Set([...contactInfo.values()].map((i) => i.list_id))];
+    for (let i = 0; i < listIds.length; i += 200) {
+      const { data: ls } = await supabase
+        .from("lists")
+        .select("id, fu1_text, fu2_text, fu3_text")
+        .in("id", listIds.slice(i, i + 200));
+      (ls ?? []).forEach((l) => {
+        const row = l as { id: string; fu1_text: string | null; fu2_text: string | null; fu3_text: string | null };
+        listTexts.set(row.id, [row.fu1_text, row.fu2_text, row.fu3_text]);
+      });
+    }
+  }
+
   // Cutoff: nur Leads der letzten 7 Tage nachfassen (Bestandsdaten bleiben unangetastet,
   // ältere sind über includeOlder erreichbar).
   const cutoff = addDaysISO(localDateISO(), -7);
@@ -134,7 +151,11 @@ export async function getNachfassenTasks(options?: {
         hiddenOlder++;
         continue;
       }
-      prepared_text = followUpTextFor(templates, r.lead_name, r.next_fu_number);
+      const listFu =
+        list_id && r.next_fu_number != null
+          ? listTexts.get(list_id)?.[r.next_fu_number - 1] ?? null
+          : null;
+      prepared_text = followUpTextFor(templates, r.lead_name, r.next_fu_number, listFu);
     } else if (r.source === "telefon") {
       const info = leadInfo.get(r.entity_id);
       list_id = info?.list_id ?? null;
@@ -151,14 +172,19 @@ export async function getNachfassenTasks(options?: {
   return { tasks, hiddenOlder };
 }
 
-// Vorlage des Nutzers ({name}-Platzhalter) oder Standardtext.
+// Reihenfolge: Text der Pitch-Liste > Vorlage des Nutzers > Standardtext.
+// Die Listen-Sequenz gewinnt, weil sie fachlich zum Pitch-Text derselben Liste
+// gehört ({name}-Platzhalter überall gleich).
 function followUpTextFor(
   templates: Map<number, string>,
   leadName: string | null,
   fu: number | null,
+  listText?: string | null,
 ): string {
+  const fill = (t: string) => t.replaceAll("{name}", firstName(leadName) || "du");
+  if (listText && listText.trim()) return fill(listText);
   const custom = fu != null ? templates.get(fu) : undefined;
-  if (custom) return custom.replaceAll("{name}", firstName(leadName) || "du");
+  if (custom) return fill(custom);
   return linkedinFollowUpText(leadName, fu);
 }
 

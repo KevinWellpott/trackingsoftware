@@ -23,6 +23,10 @@ export type PitchList = {
   workspace_id: string;
   name: string;
   pitch_text: string | null;
+  /** Nachfass-Sequenz dieser Liste; leer = Nutzer-Vorlage bzw. Standardtext. */
+  fu1_text: string | null;
+  fu2_text: string | null;
+  fu3_text: string | null;
   owner_name: string | null;
   created_by_user_id: string | null;
   sort_order: number;

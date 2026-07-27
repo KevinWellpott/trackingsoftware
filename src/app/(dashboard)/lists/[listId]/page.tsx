@@ -9,7 +9,7 @@ import { MultiMetricBarChart, AnswerDonutChart, type MultiMetricDay } from "@/co
 import { StatTile } from "@/components/dashboard/StatTile";
 import { LIST_CONTACT_COLUMNS, type ListContact, type PitchList } from "@/lib/types";
 import { addDaysISO, localDateISO } from "@/lib/dates";
-import { ArrowLeft, Bell, Calendar, CalendarCheck, FileText, MessageCircle, MessageSquare, TrendingUp } from "lucide-react";
+import { ArrowLeft, Bell, Calendar, CalendarCheck, ChevronRight, FileText, MessageCircle, MessageSquare, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -88,6 +88,21 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
     { name: "Beantwortet", value: answeredOnly, color: "var(--color-success-text)" },
     { name: "Offen", value: total - appts - answeredOnly, color: "var(--surface-300)" },
   ].filter((d) => d.value > 0);
+
+  // Pitch-Sequenz: standardmäßig zu, solange etwas hinterlegt ist — sonst offen,
+  // damit ein leerer Pitch-Text nicht unsichtbar bleibt.
+  const fuFilled = [L.fu1_text, L.fu2_text, L.fu3_text].filter((t) => (t ?? "").trim() !== "").length;
+  const sequenceEmpty = !(L.pitch_text ?? "").trim() && fuFilled === 0;
+
+  const fieldLabel: React.CSSProperties = {
+    display: "block",
+    fontSize: "0.6875rem",
+    fontWeight: 700,
+    color: "var(--text-muted)",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    marginBottom: "0.375rem",
+  };
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
@@ -184,25 +199,65 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
         </div>
       )}
 
-      {/* ── Pitch-Text ── */}
-      <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.375rem", marginBottom: "1.25rem" }}>
-        <form action={updateListPitchForm}>
+      {/* ── Pitch-Sequenz (Pitch + FU1–3), komplett einklappbar ── */}
+      <details
+        open={sequenceEmpty}
+        style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", marginBottom: "1.25rem" }}
+      >
+        <summary className="collapse-summary" style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.875rem 1.375rem", cursor: "pointer", userSelect: "none" }}>
+          <ChevronRight size={14} className="collapse-chevron" style={{ color: "var(--text-subtle)", flexShrink: 0 }} />
+          <FileText size={13} style={{ color: "var(--brand-500)", flexShrink: 0 }} />
+          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--brand-500)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Pitch-Text &amp; Follow-ups
+          </span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", marginLeft: "auto", whiteSpace: "nowrap" }}>
+            {sequenceEmpty ? "noch nicht hinterlegt" : `Pitch + ${fuFilled}/3 Follow-ups`}
+          </span>
+        </summary>
+
+        <form action={updateListPitchForm} style={{ padding: "0 1.375rem 1.125rem" }}>
           <input type="hidden" name="list_id" value={listId} />
           <input type="hidden" name="name" value={L.name} />
-          <label style={{ display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.75rem", fontWeight: 700, color: "var(--brand-500)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.5rem" }}>
-            <FileText size={13} /> Pitch-Text
-          </label>
+
+          <label htmlFor="pitch_text" style={fieldLabel}>Pitch-Text</label>
           <textarea
+            id="pitch_text"
             name="pitch_text"
             defaultValue={L.pitch_text ?? ""}
             rows={3}
             className="input"
-            style={{ resize: "vertical", fontSize: "0.875rem", marginBottom: "0.5rem" }}
+            style={{ resize: "vertical", fontSize: "0.875rem", marginBottom: "0.875rem" }}
             placeholder="Füge hier die LinkedIn-Nachricht ein, damit du Performance je Pitch-Text tracken kannst."
           />
-          <button type="submit" className="btn-secondary" style={{ fontSize: "0.8125rem" }}>Speichern</button>
+
+          {([1, 2, 3] as const).map((n) => (
+            <div key={n}>
+              <label htmlFor={`fu${n}_text`} style={fieldLabel}>
+                Follow-up {n}
+                <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "var(--text-subtle)", marginLeft: "0.375rem" }}>
+                  {n === 1 ? "+3 Tage nach Pitch" : n === 2 ? "+5 Tage nach FU1" : "+7 Tage nach FU2"}
+                </span>
+              </label>
+              <textarea
+                id={`fu${n}_text`}
+                name={`fu${n}_text`}
+                defaultValue={(n === 1 ? L.fu1_text : n === 2 ? L.fu2_text : L.fu3_text) ?? ""}
+                rows={2}
+                className="input"
+                style={{ resize: "vertical", fontSize: "0.875rem", marginBottom: "0.875rem" }}
+                placeholder={`Nachfass-Nachricht ${n} — {name} wird durch den Vornamen ersetzt.`}
+              />
+            </div>
+          ))}
+
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+            <button type="submit" className="btn-secondary" style={{ fontSize: "0.8125rem" }}>Speichern</button>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>
+              Diese Texte werden im Nachfassen-Board für Kontakte aus dieser Liste vorgeschlagen.
+            </span>
+          </div>
         </form>
-      </div>
+      </details>
 
       {/* ── Kontakt-Tabelle ── */}
       <ListBoardV2 listId={listId} contacts={contacts} />

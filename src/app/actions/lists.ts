@@ -66,7 +66,14 @@ export async function createList(
 
 export async function updateList(
   listId: string,
-  patch: { name?: string; pitch_text?: string | null; archived_at?: string | null },
+  patch: {
+    name?: string;
+    pitch_text?: string | null;
+    fu1_text?: string | null;
+    fu2_text?: string | null;
+    fu3_text?: string | null;
+    archived_at?: string | null;
+  },
 ) {
   const access = await getAccessContext();
   if (!access) return { error: "Keine Berechtigung." };
@@ -132,7 +139,13 @@ export async function updateListPitchForm(formData: FormData) {
   const pitchText = String(formData.get("pitch_text") ?? "").trim() || null;
   const name = String(formData.get("name") ?? "").trim();
   if (!listId) return;
-  await updateList(listId, { pitch_text: pitchText, ...(name ? { name } : {}) });
+  await updateList(listId, {
+    pitch_text: pitchText,
+    fu1_text: String(formData.get("fu1_text") ?? "").trim() || null,
+    fu2_text: String(formData.get("fu2_text") ?? "").trim() || null,
+    fu3_text: String(formData.get("fu3_text") ?? "").trim() || null,
+    ...(name ? { name } : {}),
+  });
 }
 
 export async function restoreListForm(formData: FormData) {

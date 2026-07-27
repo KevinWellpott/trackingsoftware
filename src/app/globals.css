@@ -332,6 +332,19 @@ body {
 /* ─── DatePicker (Kalender-Popover) ────────────────────────── */
 .dp-day:hover { background: var(--surface-200); }
 
+/* ─── Einklappbare Karte (<details>/<summary>) ─────────────── */
+.collapse-summary { list-style: none; }
+.collapse-summary::-webkit-details-marker { display: none; }
+.collapse-summary:hover { background: var(--surface-150); }
+.collapse-summary { border-radius: var(--radius-lg); }
+.collapse-chevron { transition: transform var(--transition-fast); }
+details[open] > .collapse-summary > .collapse-chevron { transform: rotate(90deg); }
+details[open] > .collapse-summary {
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  margin-bottom: 1rem;
+}
+
 /* ─── Buttons ──────────────────────────────────────────────── */
 .btn-primary {
   display: inline-flex;
