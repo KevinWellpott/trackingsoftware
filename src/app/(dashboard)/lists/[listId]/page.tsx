@@ -9,7 +9,7 @@ import { MultiMetricBarChart, AnswerDonutChart, type MultiMetricDay } from "@/co
 import { StatTile } from "@/components/dashboard/StatTile";
 import { LIST_CONTACT_COLUMNS, type ListContact, type PitchList } from "@/lib/types";
 import { addDaysISO, localDateISO } from "@/lib/dates";
-import { AlertTriangle, ArrowLeft, ArrowRight, Bell, Calendar, CalendarCheck, CheckCircle, FileText, MessageCircle, MessageSquare, TrendingUp } from "lucide-react";
+import { ArrowLeft, Bell, Calendar, CalendarCheck, FileText, MessageCircle, MessageSquare, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -88,24 +88,6 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
     { name: "Beantwortet", value: answeredOnly, color: "var(--color-success-text)" },
     { name: "Offen", value: total - appts - answeredOnly, color: "var(--surface-300)" },
   ].filter((d) => d.value > 0);
-
-  // ── Insights für diese Liste ────────────────────────────────
-  const listInsights: { level: "success" | "warning" | "tip"; text: string }[] = [];
-  if (total >= 10) {
-    if (answerRate >= 20) listInsights.push({ level: "success", text: `Starke Antwortrate ${answerRate}% — skaliere diesen Pitch` });
-    else if (answerRate < 8) listInsights.push({ level: "warning", text: `Antwortrate ${answerRate}% ist zu niedrig — Pitch-Text oder Zielgruppe überarbeiten` });
-    if (answered > 0 && apptRate === 0) listInsights.push({ level: "warning", text: `${answered} Antworten, aber 0 Termine — Bridge-Nachricht optimieren` });
-    if (openFU > 3) listInsights.push({ level: "tip", text: `${openFU} offene Follow-ups — jetzt abarbeiten` });
-    if (conversionRate >= 20 && appts > 0) listInsights.push({ level: "success", text: `${conversionRate}% Antwort→Termin-Conversion — exzellenter Nachfassprozess` });
-  } else if (total > 0) {
-    listInsights.push({ level: "tip", text: `Noch ${10 - total} DMs bis zu auswertbaren Daten` });
-  }
-
-  const insightStyles: Record<"success" | "warning" | "tip", { color: string; bg: string; border: string }> = {
-    success: { color: "var(--color-success-text)", bg: "var(--color-success-bg)", border: "var(--color-success-border)" },
-    warning: { color: "var(--color-warning-text)", bg: "var(--color-warning-bg)", border: "var(--color-warning-border)" },
-    tip: { color: "var(--brand-500)", bg: "var(--brand-50)", border: "var(--brand-200)" },
-  };
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
@@ -199,17 +181,6 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
               <AnswerDonutChart data={donutData} />
             </div>
           </div>
-
-          {/* Insights */}
-          {listInsights.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-              {listInsights.map((ins, i) => (
-                <div key={i} style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", padding: "0.25rem 0.75rem", borderRadius: 99, background: insightStyles[ins.level].bg, border: `1px solid ${insightStyles[ins.level].border}`, fontSize: "0.75rem", color: insightStyles[ins.level].color, fontWeight: 500 }}>
-                  {ins.level === "success" ? <CheckCircle size={12} /> : ins.level === "warning" ? <AlertTriangle size={12} /> : <ArrowRight size={12} />} {ins.text}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
