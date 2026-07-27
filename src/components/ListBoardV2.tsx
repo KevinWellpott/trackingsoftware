@@ -10,7 +10,7 @@ import {
 import { clearContactAppointment, convertContactToSetting } from "@/app/actions/appointments";
 import { AppointmentModal } from "@/components/appointment/AppointmentModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { DatePicker } from "@/components/ui/DatePicker";
+import { DatePicker, formatDateDe } from "@/components/ui/DatePicker";
 import { Segmented } from "@/components/ui/Segmented";
 import type { ListContact } from "@/lib/types";
 import { CATEGORY_CONFIG, SELECTABLE_CATEGORIES, categoryStyle, type AnswerCategory, type SelectableCategory } from "@/lib/categories";
@@ -28,7 +28,7 @@ const GRID_COLS =
 const ROW_HEIGHT = 40;
 const MIN_WIDTH = 1008;
 
-type BoardView = "alle" | "heiss" | "blockiert";
+type BoardView = "alle" | "heiss" | "nachfassen" | "ohne_termin";
 
 type ToastState = { message: string; undo?: () => void };
 
@@ -79,14 +79,28 @@ const compactSelect: React.CSSProperties = {
   maxWidth: 130,
 };
 
-// Heißer Lead = hat positiv geantwortet, aber noch keinen Termin.
+// Heißer Lead = Kategorie "Positiv". Bewusst ohne Zusatzbedingungen —
+// wer positiv geantwortet hat, gehört hier rein, Termin hin oder her.
 function isHotLead(c: ListContact): boolean {
+  return c.answer_category === "Positiv";
+}
+
+// Fälliges Follow-up — identische Bedingung wie die Kachel "Offene Follow-ups"
+// und der nachfassen_tasks-RPC, damit sich die Zahlen nie widersprechen.
+function isDueFollowUp(c: ListContact, today: string): boolean {
   return (
-    c.answered === true &&
-    c.answer_category === "Positiv" &&
+    c.next_follow_up_at != null &&
+    c.next_follow_up_at <= today &&
+    c.answered !== true &&
     c.appointment_set !== true &&
+    c.follow_up_number !== 3 &&
     c.blocked_at == null
   );
+}
+
+// Geantwortet, aber noch kein Termin gebucht.
+function isAnsweredWithoutAppointment(c: ListContact): boolean {
+  return c.answered === true && c.appointment_set !== true;
 }
 
 /** Nächste FU-Fälligkeit nach einem "erledigt"-Klick — Spiegel der
@@ -94,6 +108,14 @@ function isHotLead(c: ListContact): boolean {
 function nextDueAfterAdvance(newFU: number): string | null {
   if (newFU >= 3) return null;
   return addDaysISO(localDateISO(), newFU === 1 ? 5 : 7);
+}
+
+/** Fälligkeit ab Pitch-Datum — Spiegel von calcNextFollowUp(anchor="pitch"),
+ *  greift beim Zurückstufen (Server rechnet dann ebenfalls pitch-verankert). */
+function dueFromPitch(pitchedAt: string | null, fu: 1 | 2 | 3 | null): string | null {
+  if (!pitchedAt || fu === 3) return null;
+  const days = fu == null ? 3 : fu === 1 ? 5 : 7;
+  return addDaysISO(pitchedAt, days);
 }
 
 // ─── Inline text cell ─────────────────────────────────────────────────────────
@@ -148,10 +170,13 @@ const FU_BG: Record<number, string> = {
 };
 
 function FUChip({
-  value, blocked, onAdvance, onStepBack,
+  value, blocked, due, dueAt, onAdvance, onStepBack,
 }: {
   value: 1 | 2 | 3 | null;
   blocked: boolean;
+  /** Wiedervorlage ist erreicht → sichtbarer Punkt am Chip. */
+  due: boolean;
+  dueAt: string | null;
   onAdvance: () => void;
   onStepBack: () => void;
 }) {
@@ -160,7 +185,7 @@ function FUChip({
     ? "Blockiert — keine Follow-ups"
     : atMax
       ? "FU3 erreicht · Rechtsklick: Stufe zurück"
-      : `Klick: FU${(value ?? 0) + 1} erledigt · Rechtsklick: Stufe zurück`;
+      : `${due ? `Fällig seit ${formatDateDe(dueAt, { short: true })} · ` : dueAt ? `Fällig am ${formatDateDe(dueAt, { short: true })} · ` : ""}Klick: FU${(value ?? 0) + 1} erledigt · Rechtsklick: Stufe zurück`;
   return (
     <button
       type="button"
@@ -172,7 +197,7 @@ function FUChip({
         padding: "2px 9px",
         borderRadius: 5,
         border: "1px solid",
-        borderColor: value ? FU_COLORS[value] : "var(--border)",
+        borderColor: due ? "var(--color-warning-text)" : value ? FU_COLORS[value] : "var(--border)",
         background: value ? FU_BG[value] : "transparent",
         color: value ? FU_COLORS[value] : "var(--text-subtle)",
         fontSize: "0.6875rem",
@@ -182,11 +207,19 @@ function FUChip({
         transition: "all 0.12s",
         minWidth: 40,
         justifyContent: "center",
+        alignItems: "center",
+        gap: 4,
         display: "inline-flex",
         opacity: blocked ? 0.5 : 1,
       }}
     >
       {value ? `FU${value}` : "—"}
+      {due && (
+        <span
+          aria-hidden
+          style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--color-warning-text)", flexShrink: 0 }}
+        />
+      )}
     </button>
   );
 }
@@ -290,28 +323,29 @@ function useContactEdit(c: ListContact, listId: string, onEdited?: () => void) {
 }
 
 // FU-Advance/-StepBack inkl. Undo-Info — geteilt von Zeile und Karte.
+// dueAt spiegelt die Server-Berechnung lokal mit: der Fällig-Punkt stimmt
+// dadurch sofort nach dem Klick, ohne auf den Hintergrund-Refresh zu warten,
+// und liefert gleichzeitig den exakten Undo-Wert.
 function useFollowUpActions(
   c: ListContact,
-  vals: { follow_up_number: 1 | 2 | 3 | null },
+  vals: { follow_up_number: 1 | 2 | 3 | null; pitched_at: string },
   save: (patch: { follow_up_number: 1 | 2 | 3 | null }, extra?: Partial<ContactInput>) => void,
   onToast: (t: ToastState) => void,
 ) {
-  // Letzte bekannte Fälligkeit (Spiegel der Server-Berechnung) — Basis für
-  // ein exaktes Undo, auch bei mehreren Klicks vor dem nächsten Refresh.
-  const nextAtRef = useRef<string | null | undefined>(undefined);
+  const [dueAt, setDueAt] = useState<string | null>(c.next_follow_up_at);
 
   const advance = () => {
     const prevFU = vals.follow_up_number ?? null;
     const next = (prevFU ?? 0) + 1;
     if (next > 3) return;
-    const prevNextAt = nextAtRef.current !== undefined ? nextAtRef.current : c.next_follow_up_at;
+    const prevDue = dueAt;
     save({ follow_up_number: next as 1 | 2 | 3 });
-    nextAtRef.current = nextDueAfterAdvance(next);
+    setDueAt(nextDueAfterAdvance(next));
     onToast({
       message: `${c.name}: FU${next} gesetzt`,
       undo: () => {
-        nextAtRef.current = prevNextAt;
-        save({ follow_up_number: prevFU }, { next_follow_up_at: prevNextAt });
+        setDueAt(prevDue);
+        save({ follow_up_number: prevFU }, { next_follow_up_at: prevDue });
       },
     });
   };
@@ -322,19 +356,20 @@ function useFollowUpActions(
     const to = cur === 1 ? null : ((cur - 1) as 1 | 2);
     // Kein explizites next_follow_up_at → Server berechnet pitch-verankert neu.
     save({ follow_up_number: to });
-    nextAtRef.current = undefined;
+    setDueAt(dueFromPitch(vals.pitched_at || null, to));
   };
 
-  return { advance, stepBack };
+  return { advance, stepBack, dueAt };
 }
 
 // ─── Contact Row (memo, absolut positioniert im Virtual-Container) ───────────
 const ContactRow = memo(function ContactRow({
-  c, listId, start, onOpenAppointment, onClearAppointment, onDeleteContact, onToggleBlocked, onToast, onEdited,
+  c, listId, start, today, onOpenAppointment, onClearAppointment, onDeleteContact, onToggleBlocked, onToast, onEdited,
 }: {
   c: ListContact;
   listId: string;
   start: number;
+  today: string;
   onOpenAppointment: (c: ListContact) => void;
   onClearAppointment: (c: ListContact) => void;
   onDeleteContact: (c: ListContact) => void;
@@ -344,9 +379,12 @@ const ContactRow = memo(function ContactRow({
 }) {
   const { vals, save, isPending } = useContactEdit(c, listId, onEdited);
   const [blocked, setBlocked] = useState(c.blocked_at != null);
-  const { advance, stepBack } = useFollowUpActions(c, vals, save, onToast);
+  const { advance, stepBack, dueAt } = useFollowUpActions(c, vals, save, onToast);
 
   const hasAppointment = c.appointment_set === true;
+  const fuDue =
+    !blocked && !vals.answered && !hasAppointment &&
+    vals.follow_up_number !== 3 && dueAt != null && dueAt <= today;
   // Optimistische Zeile (Server-ID steht noch aus): nicht interaktiv.
   const isTemp = c.id.startsWith("temp-");
 
@@ -423,7 +461,14 @@ const ContactRow = memo(function ContactRow({
 
       {/* FU — Klick stuft hoch, Rechtsklick zurück, Undo via Toast */}
       <div style={cell}>
-        <FUChip value={vals.follow_up_number} blocked={blocked} onAdvance={advance} onStepBack={stepBack} />
+        <FUChip
+          value={vals.follow_up_number}
+          blocked={blocked}
+          due={fuDue}
+          dueAt={dueAt}
+          onAdvance={advance}
+          onStepBack={stepBack}
+        />
       </div>
 
       {/* Antwort */}
@@ -836,12 +881,13 @@ function CardEditArea({
 
 // Volle Kontakt-Karte (dynamisch gemessen via virtualizer.measureElement).
 const MobileContactCard = memo(function MobileContactCard({
-  c, listId, start, index, measureRef, onOpenAppointment, onClearAppointment, onDeleteContact, onToggleBlocked, onToast, onEdited,
+  c, listId, start, index, today, measureRef, onOpenAppointment, onClearAppointment, onDeleteContact, onToggleBlocked, onToast, onEdited,
 }: {
   c: ListContact;
   listId: string;
   start: number;
   index: number;
+  today: string;
   measureRef: (node: Element | null) => void;
   onOpenAppointment: (c: ListContact) => void;
   onClearAppointment: (c: ListContact) => void;
@@ -852,9 +898,12 @@ const MobileContactCard = memo(function MobileContactCard({
 }) {
   const { vals, save, isPending } = useContactEdit(c, listId, onEdited);
   const [blocked, setBlocked] = useState(c.blocked_at != null);
-  const { advance, stepBack } = useFollowUpActions(c, vals, save, onToast);
+  const { advance, stepBack, dueAt } = useFollowUpActions(c, vals, save, onToast);
   const hasAppointment = c.appointment_set === true;
   const isTemp = c.id.startsWith("temp-");
+  const fuDue =
+    !blocked && !vals.answered && !hasAppointment &&
+    vals.follow_up_number !== 3 && dueAt != null && dueAt <= today;
 
   return (
     <div
@@ -993,6 +1042,11 @@ const MobileContactCard = memo(function MobileContactCard({
             title={blocked ? "Blockiert — keine Follow-ups" : "Tippen: nächstes Follow-up erledigt"}
           >
             {vals.follow_up_number ? `FU${vals.follow_up_number}` : "FU starten"}
+            {fuDue && (
+              <span style={{ marginLeft: 6, fontSize: "0.75rem", fontWeight: 700, color: "var(--color-warning-text)" }}>
+                · fällig
+              </span>
+            )}
           </button>
         </div>
 
@@ -1193,23 +1247,32 @@ export function ListBoardV2({ listId, contacts }: {
   }, [toast]);
   const showToast = useCallback((t: ToastState) => setToast(t), []);
 
+  const today = localDateISO();
+
   const counts = useMemo(() => ({
     alle: optContacts.length,
     heiss: optContacts.filter(isHotLead).length,
-    blockiert: optContacts.filter((c) => c.blocked_at != null).length,
-  }), [optContacts]);
+    nachfassen: optContacts.filter((c) => isDueFollowUp(c, today)).length,
+    ohne_termin: optContacts.filter(isAnsweredWithoutAppointment).length,
+  }), [optContacts, today]);
 
   const filtered = useMemo(() => {
     let base = optContacts;
     if (view === "heiss") base = base.filter(isHotLead);
-    else if (view === "blockiert") base = base.filter((c) => c.blocked_at != null);
+    else if (view === "nachfassen") {
+      // Arbeits-Queue: am längsten überfällig zuerst.
+      base = base
+        .filter((c) => isDueFollowUp(c, today))
+        .slice()
+        .sort((a, b) => (a.next_follow_up_at ?? "").localeCompare(b.next_follow_up_at ?? ""));
+    } else if (view === "ohne_termin") base = base.filter(isAnsweredWithoutAppointment);
     const q = search.trim().toLowerCase();
     if (!q) return base;
     return base.filter((c) =>
       [c.name, c.notes, c.answer_text, c.answer_category]
         .filter(Boolean).join(" ").toLowerCase().includes(q)
     );
-  }, [optContacts, search, view]);
+  }, [optContacts, search, view, today]);
 
   const parentRef = useRef<HTMLDivElement>(null);
   // Mobile: dynamische Karten-Höhen (measureElement), Desktop: fixe Zeilenhöhe.
@@ -1365,17 +1428,20 @@ export function ListBoardV2({ listId, contacts }: {
             }}
           />
         </div>
-        <Segmented<BoardView>
-          options={[
-            { value: "alle", label: `Alle (${counts.alle})` },
-            { value: "heiss", label: `Heiße Leads (${counts.heiss})` },
-            { value: "blockiert", label: `Blockiert (${counts.blockiert})` },
-          ]}
-          value={view}
-          onChange={setView}
-          ariaLabel="Ansicht"
-          fullWidth={isMobile}
-        />
+        {/* 4 Tabs passen auf schmalen Screens nicht nebeneinander → horizontal scrollbar */}
+        <div style={{ overflowX: "auto", maxWidth: "100%", flexShrink: 1 }}>
+          <Segmented<BoardView>
+            options={[
+              { value: "alle", label: `Alle ${counts.alle}` },
+              { value: "heiss", label: `Positiv ${counts.heiss}` },
+              { value: "nachfassen", label: `Nachfassen ${counts.nachfassen}` },
+              { value: "ohne_termin", label: `Ohne Termin ${counts.ohne_termin}` },
+            ]}
+            value={view}
+            onChange={setView}
+            ariaLabel="Ansicht"
+          />
+        </div>
         {search && <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>{filtered.length}/{counts.alle}</span>}
         <div className="hide-on-mobile" style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>
           Klicken zum Bearbeiten · Enter zum Speichern
@@ -1414,6 +1480,7 @@ export function ListBoardV2({ listId, contacts }: {
                     listId={listId}
                     start={vi.start}
                     index={vi.index}
+                    today={today}
                     measureRef={virtualizer.measureElement}
                     onOpenAppointment={openAppointment}
                     onClearAppointment={clearAppointment}
@@ -1466,6 +1533,7 @@ export function ListBoardV2({ listId, contacts }: {
                       c={c}
                       listId={listId}
                       start={vi.start}
+                      today={today}
                       onOpenAppointment={openAppointment}
                       onClearAppointment={clearAppointment}
                       onDeleteContact={deleteContact}
@@ -1486,8 +1554,10 @@ export function ListBoardV2({ listId, contacts }: {
 
       {filtered.length === 0 && (view !== "alle" || search) && (
         <p style={{ textAlign: "center", color: "var(--text-subtle)", fontSize: "0.8125rem", marginTop: "0.375rem" }}>
-          {view === "heiss" ? "Keine heißen Leads — positiv beantwortete Kontakte ohne Termin erscheinen hier." :
-           view === "blockiert" ? "Keine blockierten Kontakte." : "Keine Treffer."}
+          {search ? "Keine Treffer." :
+           view === "heiss" ? "Noch keine Kontakte mit Kategorie „Positiv“." :
+           view === "nachfassen" ? "Kein Follow-up fällig — alles abgearbeitet." :
+           view === "ohne_termin" ? "Alle beantworteten Kontakte haben einen Termin." : "Keine Treffer."}
         </p>
       )}
 
