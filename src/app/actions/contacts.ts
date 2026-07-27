@@ -2,7 +2,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
-import { revalidatePath } from "next/cache";
+
+// Bewusst KEIN revalidatePath in diesen Actions: alle Zielrouten sind dynamisch
+// (Cookies) und rendern beim nächsten Besuch ohnehin frisch. Ein revalidatePath
+// aus einer Server-Action rendert die komplette Seite sofort neu (inkl. Laden
+// ALLER Kontakte der Liste) und machte jede Inline-Änderung spürbar langsam.
+// Die Boards aktualisieren sich selbst: optimistisches UI + router.refresh().
 
 export type ContactInput = {
   list_id: string;
@@ -121,10 +126,6 @@ export async function createContact(input: ContactInput) {
     .select("id")
     .single();
   if (error) return { error: error.message };
-  revalidatePath(`/lists/${input.list_id}`, "page");
-  revalidatePath("/follow-up", "page");
-  revalidatePath("/crm", "page");
-  revalidatePath("/", "layout");
   return { id: data.id };
 }
 
@@ -137,13 +138,17 @@ export async function updateContact(
     return { error: "Keine Berechtigung." };
   }
   const supabase = await createClient();
-  const { data: contact } = await supabase
+  // Ein Select für Existenz-/Scope-Check UND die aktuellen Werte — nötig, um
+  // eine ECHTE FU-Änderung zu erkennen und fehlende Patch-Felder aufzufüllen.
+  // (ListBoardV2 sendet immer alle Felder, daher reicht "ist im Patch
+  // enthalten" nicht als Änderungs-Signal.)
+  const { data: current } = await supabase
     .from("contacts")
-    .select("id, list_id")
+    .select("id, pitched_at, follow_up_number, answered, blocked_at")
     .eq("id", contactId)
     .eq("list_id", listId)
     .maybeSingle();
-  if (!contact) return { error: "Keine Berechtigung." };
+  if (!current) return { error: "Keine Berechtigung." };
 
   const { name, ...rest } = patch;
   const payload: Record<string, unknown> = { ...rest };
@@ -151,23 +156,17 @@ export async function updateContact(
   if (patch.deal_closed === null) payload.deal_closed = false;
 
   // next_follow_up_at auto-berechnen, wenn sich pitch-relevante Felder ändern.
+  // Ein EXPLIZIT mitgegebenes next_follow_up_at hat Vorrang (Undo-Pfad im
+  // Board stellt damit die alte Fälligkeit exakt wieder her).
   if (
-    patch.pitched_at !== undefined ||
-    patch.follow_up_number !== undefined ||
-    patch.answered !== undefined
+    patch.next_follow_up_at === undefined &&
+    (patch.pitched_at !== undefined ||
+      patch.follow_up_number !== undefined ||
+      patch.answered !== undefined)
   ) {
-    // Vorherige Werte laden — nötig, um eine ECHTE FU-Änderung zu erkennen und
-    // fehlende Patch-Felder aufzufüllen. (ListBoardV2 sendet immer alle Felder,
-    // daher reicht "ist im Patch enthalten" nicht als Änderungs-Signal.)
-    const { data: current } = await supabase
-      .from("contacts")
-      .select("pitched_at, follow_up_number, answered")
-      .eq("id", contactId)
-      .single();
-
-    const effPitched = patch.pitched_at !== undefined ? patch.pitched_at : current?.pitched_at ?? null;
-    const effFU = patch.follow_up_number !== undefined ? patch.follow_up_number : current?.follow_up_number;
-    const effAnswered = patch.answered !== undefined ? patch.answered : current?.answered;
+    const effPitched = patch.pitched_at !== undefined ? patch.pitched_at : current.pitched_at ?? null;
+    const effFU = patch.follow_up_number !== undefined ? patch.follow_up_number : current.follow_up_number;
+    const effAnswered = patch.answered !== undefined ? patch.answered : current.answered;
 
     // Nur wenn ein FU NEU auf eine positive Stufe gesetzt wird ("erledigt"),
     // zählt die nächste Fälligkeit ab HEUTE (analog advanceLinkedInFollowUp) —
@@ -176,7 +175,7 @@ export async function updateContact(
     const fuAdvanced =
       patch.follow_up_number != null &&
       patch.follow_up_number > 0 &&
-      patch.follow_up_number !== (current?.follow_up_number ?? null);
+      patch.follow_up_number !== (current.follow_up_number ?? null);
 
     payload.next_follow_up_at = calcNextFollowUp(
       effPitched,
@@ -186,16 +185,55 @@ export async function updateContact(
     );
   }
 
+  // Blockierte Kontakte haben NIE eine Wiedervorlage.
+  if (current.blocked_at != null) payload.next_follow_up_at = null;
+
   const { error } = await supabase
     .from("contacts")
     .update(payload)
     .eq("id", contactId);
   if (error) return { error: error.message };
-  revalidatePath(`/lists/${listId}`, "page");
-  revalidatePath("/follow-up", "page");
-  revalidatePath("/nachfassen", "page");
-  revalidatePath("/crm", "page");
-  revalidatePath("/", "layout");
+  return {};
+}
+
+/**
+ * Lead hat uns auf LinkedIn blockiert (bzw. Blockierung wieder aufheben).
+ * Blockieren nimmt den Kontakt aus dem Follow-up-Flow (Wiedervorlage genullt,
+ * RPCs filtern zusätzlich auf blocked_at). Entblocken berechnet die
+ * Wiedervorlage aus dem aktuellen Stand neu.
+ */
+export async function setContactBlocked(
+  contactId: string,
+  listId: string,
+  blocked: boolean,
+): Promise<{ error?: string }> {
+  if (!(await canAccessPitchList(listId))) {
+    return { error: "Keine Berechtigung." };
+  }
+  const supabase = await createClient();
+  const { data: current } = await supabase
+    .from("contacts")
+    .select("id, pitched_at, follow_up_number, answered, appointment_set")
+    .eq("id", contactId)
+    .eq("list_id", listId)
+    .maybeSingle();
+  if (!current) return { error: "Keine Berechtigung." };
+
+  const payload = blocked
+    ? { blocked_at: new Date().toISOString(), next_follow_up_at: null }
+    : {
+        blocked_at: null,
+        next_follow_up_at:
+          current.appointment_set === true
+            ? null
+            : calcNextFollowUp(current.pitched_at, current.follow_up_number, current.answered),
+      };
+
+  const { error } = await supabase
+    .from("contacts")
+    .update(payload)
+    .eq("id", contactId);
+  if (error) return { error: error.message };
   return {};
 }
 
@@ -204,23 +242,14 @@ export async function deleteContact(contactId: string, listId: string) {
     return { error: "Keine Berechtigung." };
   }
   const supabase = await createClient();
-  const { data: contact } = await supabase
-    .from("contacts")
-    .select("id")
-    .eq("id", contactId)
-    .eq("list_id", listId)
-    .maybeSingle();
-  if (!contact) return { error: "Keine Berechtigung." };
-
+  // Kein Pre-Select nötig: canAccessPitchList hat die Liste bereits gescopet,
+  // die list_id-Bedingung bindet den Kontakt an genau diese Liste.
   const { error } = await supabase
     .from("contacts")
     .delete()
-    .eq("id", contactId);
+    .eq("id", contactId)
+    .eq("list_id", listId);
   if (error) return { error: error.message };
-  revalidatePath(`/lists/${listId}`, "page");
-  revalidatePath("/follow-up", "page");
-  revalidatePath("/crm", "page");
-  revalidatePath("/", "layout");
   return {};
 }
 

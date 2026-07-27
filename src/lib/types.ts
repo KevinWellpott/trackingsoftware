@@ -96,6 +96,8 @@ export type SettingCall = {
   objections_handled: string | null;
   objections_open: string | null;
   meet_link: string | null;
+  /** Termin-Art: 'link' (Meet o. ä.), 'telefon', null = keine Angabe. */
+  meeting_kind: "link" | "telefon" | null;
   appointment_at: string | null;
   script_answers: Record<string, string>;
   status: SettingStatus;
@@ -202,6 +204,8 @@ export type Contact = {
   meet_link: string | null;
   target_group: string | null;
   setting_call_id: string | null;
+  /** Lead hat uns auf LinkedIn blockiert → raus aus dem Follow-up-Flow. */
+  blocked_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -209,3 +213,29 @@ export type Contact = {
 export type ContactWithStage = Contact & {
   pipeline_stages: PipelineStage | null;
 };
+
+/** Schlanke Projektion für das Listen-Board — nur die Spalten, die die
+ *  Detailseite wirklich rendert (hält Payload + Re-Renders klein). */
+export type ListContact = Pick<
+  Contact,
+  | "id"
+  | "list_id"
+  | "name"
+  | "notes"
+  | "pitched_at"
+  | "follow_up_number"
+  | "answered"
+  | "answer_category"
+  | "answer_text"
+  | "appointment_set"
+  | "appointment_at"
+  | "meet_link"
+  | "linkedin_url"
+  | "next_follow_up_at"
+  | "blocked_at"
+  | "created_at"
+>;
+
+/** Spaltenliste passend zu ListContact für die Supabase-Select-Query. */
+export const LIST_CONTACT_COLUMNS =
+  "id, list_id, name, notes, pitched_at, follow_up_number, answered, answer_category, answer_text, appointment_set, appointment_at, meet_link, linkedin_url, next_follow_up_at, blocked_at, created_at";

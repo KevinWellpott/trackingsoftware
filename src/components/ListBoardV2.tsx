@@ -1,23 +1,36 @@
 "use client";
 
-import { createContactForm, deleteContactForm, updateContact } from "@/app/actions/contacts";
+import {
+  createContact,
+  deleteContact as deleteContactAction,
+  setContactBlocked,
+  updateContact,
+  type ContactInput,
+} from "@/app/actions/contacts";
 import { clearContactAppointment, convertContactToSetting } from "@/app/actions/appointments";
 import { AppointmentModal } from "@/components/appointment/AppointmentModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import type { ContactWithStage, PipelineStage } from "@/lib/types";
+import { DatePicker } from "@/components/ui/DatePicker";
+import { Segmented } from "@/components/ui/Segmented";
+import type { ListContact } from "@/lib/types";
 import { CATEGORY_CONFIG, SELECTABLE_CATEGORIES, categoryStyle, type AnswerCategory, type SelectableCategory } from "@/lib/categories";
+import { addDaysISO, localDateISO } from "@/lib/dates";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Calendar, CheckCircle, ExternalLink, Search, Trash2 } from "lucide-react";
+import { Ban, Calendar, CheckCircle, ExternalLink, Search, Trash2, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { memo, useCallback, useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 // ─── Layout-Konstanten ────────────────────────────────────────────────────────
 // Gemeinsames Grid für Header + Zeilen, damit die Spalten exakt fluchten.
 const GRID_COLS =
-  "112px minmax(150px, 1.4fr) 66px 74px 74px 150px minmax(150px, 1.4fr) minmax(120px, 1fr) 40px";
+  "112px minmax(150px, 1.4fr) 66px 74px 74px 150px minmax(150px, 1.4fr) minmax(120px, 1fr) 68px";
 const ROW_HEIGHT = 40;
-const MIN_WIDTH = 980;
+const MIN_WIDTH = 1008;
+
+type BoardView = "alle" | "heiss" | "blockiert";
+
+type ToastState = { message: string; undo?: () => void };
 
 const cell: React.CSSProperties = {
   padding: "0 12px",
@@ -66,6 +79,23 @@ const compactSelect: React.CSSProperties = {
   maxWidth: 130,
 };
 
+// Heißer Lead = hat positiv geantwortet, aber noch keinen Termin.
+function isHotLead(c: ListContact): boolean {
+  return (
+    c.answered === true &&
+    c.answer_category === "Positiv" &&
+    c.appointment_set !== true &&
+    c.blocked_at == null
+  );
+}
+
+/** Nächste FU-Fälligkeit nach einem "erledigt"-Klick — Spiegel der
+ *  Server-Logik (calcNextFollowUp, anchor="today"). */
+function nextDueAfterAdvance(newFU: number): string | null {
+  if (newFU >= 3) return null;
+  return addDaysISO(localDateISO(), newFU === 1 ? 5 : 7);
+}
+
 // ─── Inline text cell ─────────────────────────────────────────────────────────
 function InlineText({
   value, onSave, placeholder, bold,
@@ -104,35 +134,60 @@ function InlineText({
   );
 }
 
-// ─── Inline date cell ─────────────────────────────────────────────────────────
-function InlineDate({ value, onSave }: { value: string; onSave: (v: string | null) => void }) {
-  const [editing, setEditing] = useState(false);
+// ─── FU-Chip: Klick stuft hoch, Rechtsklick zurück ───────────────────────────
+const FU_COLORS: Record<number, string> = {
+  1: "var(--brand-500)",
+  2: "var(--color-warning-text)",
+  3: "var(--color-error-text)",
+};
 
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        type="date"
-        defaultValue={value}
-        onBlur={(e) => { setEditing(false); onSave(e.target.value || null); }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { setEditing(false); onSave((e.target as HTMLInputElement).value || null); }
-          if (e.key === "Escape") setEditing(false);
-        }}
-        style={{ ...editInput, maxWidth: 104 }}
-      />
-    );
-  }
+const FU_BG: Record<number, string> = {
+  1: "var(--brand-50)",
+  2: "var(--color-warning-bg)",
+  3: "var(--color-error-bg)",
+};
 
+function FUChip({
+  value, blocked, onAdvance, onStepBack,
+}: {
+  value: 1 | 2 | 3 | null;
+  blocked: boolean;
+  onAdvance: () => void;
+  onStepBack: () => void;
+}) {
+  const atMax = value === 3;
+  const title = blocked
+    ? "Blockiert — keine Follow-ups"
+    : atMax
+      ? "FU3 erreicht · Rechtsklick: Stufe zurück"
+      : `Klick: FU${(value ?? 0) + 1} erledigt · Rechtsklick: Stufe zurück`;
   return (
-    <span
-      className="lbv2-editable"
-      onClick={() => setEditing(true)}
-      style={{ ...cellText, color: value ? "var(--text-muted)" : "var(--text-subtle)", fontSize: "0.75rem" }}
-      title="Datum bearbeiten"
+    <button
+      type="button"
+      disabled={blocked}
+      onClick={() => { if (!atMax) onAdvance(); }}
+      onContextMenu={(e) => { e.preventDefault(); onStepBack(); }}
+      title={title}
+      style={{
+        padding: "2px 9px",
+        borderRadius: 5,
+        border: "1px solid",
+        borderColor: value ? FU_COLORS[value] : "var(--border)",
+        background: value ? FU_BG[value] : "transparent",
+        color: value ? FU_COLORS[value] : "var(--text-subtle)",
+        fontSize: "0.6875rem",
+        fontWeight: 800,
+        cursor: blocked ? "default" : "pointer",
+        whiteSpace: "nowrap",
+        transition: "all 0.12s",
+        minWidth: 40,
+        justifyContent: "center",
+        display: "inline-flex",
+        opacity: blocked ? 0.5 : 1,
+      }}
     >
-      {value || "Datum"}
-    </span>
+      {value ? `FU${value}` : "—"}
+    </button>
   );
 }
 
@@ -163,43 +218,6 @@ function InlineToggle({ value, onChange }: { value: boolean; onChange: (v: boole
     >
       {value ? <><CheckCircle size={9} /> Ja</> : "—"}
     </button>
-  );
-}
-
-// ─── FU Select ────────────────────────────────────────────────────────────────
-const FU_COLORS: Record<number, string> = {
-  1: "var(--brand-500)",
-  2: "var(--color-warning-text)",
-  3: "var(--color-error-text)",
-};
-
-function FUSelect({ value, onChange }: { value: 1 | 2 | 3 | null; onChange: (v: 1 | 2 | 3 | null) => void }) {
-  const color = value ? FU_COLORS[value] : "var(--text-subtle)";
-  return (
-    <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-      {value ? (
-        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "0.6875rem", fontWeight: 800, color, zIndex: 1 }}>
-          FU{value}
-        </span>
-      ) : (
-        <span style={{ position: "absolute", left: 4, pointerEvents: "none", color: "var(--text-subtle)", fontSize: "0.6875rem" }}>—</span>
-      )}
-      <select
-        value={value ?? ""}
-        onChange={(e) => {
-          const v = e.target.value;
-          onChange(v === "1" ? 1 : v === "2" ? 2 : v === "3" ? 3 : null);
-        }}
-        style={{ ...compactSelect, opacity: 0.01, position: "absolute", inset: 0, width: "100%" }}
-        title="Follow-Up Nummer"
-      >
-        <option value="">—</option>
-        <option value="1">FU1</option>
-        <option value="2">FU2</option>
-        <option value="3">FU3</option>
-      </select>
-      <span style={{ width: 42, height: 24, display: "block" }} />
-    </div>
   );
 }
 
@@ -234,7 +252,9 @@ function CategorySelect({ value, onChange }: { value: string | null; onChange: (
 }
 
 // ─── Gemeinsamer Edit-State (Desktop-Zeile + Mobile-Karte) ────────────────────
-function useContactEdit(c: ContactWithStage, listId: string) {
+// vals ist bewusst lokal (optimistisch): die Zeile zeigt sofort den neuen Wert,
+// der Server-Sync läuft im Hintergrund; onEdited stößt den debounced Refresh an.
+function useContactEdit(c: ListContact, listId: string, onEdited?: () => void) {
   const [vals, setVals] = useState({
     name: c.name,
     pitched_at: c.pitched_at ?? "",
@@ -246,7 +266,9 @@ function useContactEdit(c: ContactWithStage, listId: string) {
   });
   const [isPending, startTransition] = useTransition();
 
-  function save(patch: Partial<typeof vals>) {
+  // extra: Payload-Felder, die nicht Teil von vals sind (z. B. explizites
+  // next_follow_up_at im Undo-Pfad — überstimmt die Server-Autoberechnung).
+  function save(patch: Partial<typeof vals>, extra?: Partial<ContactInput>) {
     const next = { ...vals, ...patch };
     setVals(next);
     startTransition(async () => {
@@ -258,27 +280,75 @@ function useContactEdit(c: ContactWithStage, listId: string) {
         answer_category: next.answer_category,
         answer_text: next.answer_text || null,
         notes: next.notes || null,
+        ...extra,
       });
+      onEdited?.();
     });
   }
 
   return { vals, save, isPending };
 }
 
+// FU-Advance/-StepBack inkl. Undo-Info — geteilt von Zeile und Karte.
+function useFollowUpActions(
+  c: ListContact,
+  vals: { follow_up_number: 1 | 2 | 3 | null },
+  save: (patch: { follow_up_number: 1 | 2 | 3 | null }, extra?: Partial<ContactInput>) => void,
+  onToast: (t: ToastState) => void,
+) {
+  // Letzte bekannte Fälligkeit (Spiegel der Server-Berechnung) — Basis für
+  // ein exaktes Undo, auch bei mehreren Klicks vor dem nächsten Refresh.
+  const nextAtRef = useRef<string | null | undefined>(undefined);
+
+  const advance = () => {
+    const prevFU = vals.follow_up_number ?? null;
+    const next = (prevFU ?? 0) + 1;
+    if (next > 3) return;
+    const prevNextAt = nextAtRef.current !== undefined ? nextAtRef.current : c.next_follow_up_at;
+    save({ follow_up_number: next as 1 | 2 | 3 });
+    nextAtRef.current = nextDueAfterAdvance(next);
+    onToast({
+      message: `${c.name}: FU${next} gesetzt`,
+      undo: () => {
+        nextAtRef.current = prevNextAt;
+        save({ follow_up_number: prevFU }, { next_follow_up_at: prevNextAt });
+      },
+    });
+  };
+
+  const stepBack = () => {
+    const cur = vals.follow_up_number ?? null;
+    if (cur == null) return;
+    const to = cur === 1 ? null : ((cur - 1) as 1 | 2);
+    // Kein explizites next_follow_up_at → Server berechnet pitch-verankert neu.
+    save({ follow_up_number: to });
+    nextAtRef.current = undefined;
+  };
+
+  return { advance, stepBack };
+}
+
 // ─── Contact Row (memo, absolut positioniert im Virtual-Container) ───────────
 const ContactRow = memo(function ContactRow({
-  c, listId, start, onOpenAppointment, onClearAppointment, onDeleteContact,
+  c, listId, start, onOpenAppointment, onClearAppointment, onDeleteContact, onToggleBlocked, onToast, onEdited,
 }: {
-  c: ContactWithStage;
+  c: ListContact;
   listId: string;
   start: number;
-  onOpenAppointment: (c: ContactWithStage) => void;
-  onClearAppointment: (c: ContactWithStage) => void;
-  onDeleteContact: (c: ContactWithStage) => void;
+  onOpenAppointment: (c: ListContact) => void;
+  onClearAppointment: (c: ListContact) => void;
+  onDeleteContact: (c: ListContact) => void;
+  onToggleBlocked: (c: ListContact, currentlyBlocked: boolean) => Promise<boolean>;
+  onToast: (t: ToastState) => void;
+  onEdited: () => void;
 }) {
-  const { vals, save, isPending } = useContactEdit(c, listId);
+  const { vals, save, isPending } = useContactEdit(c, listId, onEdited);
+  const [blocked, setBlocked] = useState(c.blocked_at != null);
+  const { advance, stepBack } = useFollowUpActions(c, vals, save, onToast);
 
   const hasAppointment = c.appointment_set === true;
+  // Optimistische Zeile (Server-ID steht noch aus): nicht interaktiv.
+  const isTemp = c.id.startsWith("temp-");
 
   return (
     <div
@@ -295,16 +365,21 @@ const ContactRow = memo(function ContactRow({
         alignItems: "center",
         borderBottom: "1px solid var(--border)",
         boxSizing: "border-box",
-        opacity: isPending ? 0.6 : 1,
+        opacity: isPending || isTemp ? 0.6 : blocked ? 0.55 : 1,
+        pointerEvents: isTemp ? "none" : undefined,
         transition: "opacity 0.15s",
       }}
     >
       {/* Datum */}
       <div style={cell}>
-        <InlineDate value={vals.pitched_at} onSave={(v) => save({ pitched_at: v ?? "" })} />
+        <DatePicker
+          value={vals.pitched_at || null}
+          onChange={(v) => save({ pitched_at: v ?? "" })}
+          placeholder="Datum"
+        />
       </div>
 
-      {/* Name (+ LinkedIn-Link) */}
+      {/* Name (+ LinkedIn-Link, Blockiert-Marker) */}
       <div style={{ ...cell, gap: 6 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <InlineText
@@ -314,6 +389,25 @@ const ContactRow = memo(function ContactRow({
             placeholder="Name…"
           />
         </div>
+        {blocked && (
+          <span
+            title="Lead hat dich blockiert"
+            style={{
+              fontSize: "0.5625rem",
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              color: "var(--color-error-text)",
+              background: "var(--color-error-bg)",
+              border: "1px solid var(--color-error-border)",
+              borderRadius: 99,
+              padding: "1px 6px",
+              flexShrink: 0,
+            }}
+          >
+            Blockiert
+          </span>
+        )}
         {c.linkedin_url && (
           <a
             href={c.linkedin_url}
@@ -327,9 +421,9 @@ const ContactRow = memo(function ContactRow({
         )}
       </div>
 
-      {/* FU */}
+      {/* FU — Klick stuft hoch, Rechtsklick zurück, Undo via Toast */}
       <div style={cell}>
-        <FUSelect value={vals.follow_up_number} onChange={(v) => save({ follow_up_number: v })} />
+        <FUChip value={vals.follow_up_number} blocked={blocked} onAdvance={advance} onStepBack={stepBack} />
       </div>
 
       {/* Antwort */}
@@ -341,8 +435,9 @@ const ContactRow = memo(function ContactRow({
       <div style={cell}>
         <button
           type="button"
+          disabled={blocked && !hasAppointment}
           onClick={() => (hasAppointment ? onClearAppointment(c) : onOpenAppointment(c))}
-          title={hasAppointment ? "Termin entfernen" : "Termin einbuchen"}
+          title={blocked && !hasAppointment ? "Blockiert" : hasAppointment ? "Termin entfernen" : "Termin einbuchen"}
           style={{
             padding: "2px 9px",
             borderRadius: 5,
@@ -352,7 +447,7 @@ const ContactRow = memo(function ContactRow({
             color: hasAppointment ? "var(--color-success-text)" : "var(--text-subtle)",
             fontSize: "0.6875rem",
             fontWeight: 700,
-            cursor: "pointer",
+            cursor: blocked && !hasAppointment ? "default" : "pointer",
             display: "inline-flex",
             alignItems: "center",
             gap: 3,
@@ -360,6 +455,7 @@ const ContactRow = memo(function ContactRow({
             transition: "all 0.12s",
             minWidth: 36,
             justifyContent: "center",
+            opacity: blocked && !hasAppointment ? 0.5 : 1,
           }}
         >
           {hasAppointment ? <><Calendar size={9} /> Ja</> : "—"}
@@ -381,8 +477,29 @@ const ContactRow = memo(function ContactRow({
         <InlineText value={vals.notes} onSave={(v) => save({ notes: v })} placeholder="Notizen…" />
       </div>
 
-      {/* Delete */}
-      <div style={cell}>
+      {/* Blockiert-Toggle + Delete */}
+      <div style={{ ...cell, gap: 2, justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          className="lbv2-block"
+          onClick={async () => {
+            const toggled = await onToggleBlocked(c, blocked);
+            if (toggled) setBlocked(!blocked);
+          }}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "3px 4px",
+            borderRadius: 4,
+            display: "flex",
+            alignItems: "center",
+            ...(blocked ? { color: "var(--color-error-text)", opacity: 1 } : null),
+          }}
+          title={blocked ? "Blockierung aufheben" : "Lead hat mich blockiert"}
+        >
+          <Ban size={12} />
+        </button>
         <button
           type="button"
           className="lbv2-del"
@@ -398,23 +515,51 @@ const ContactRow = memo(function ContactRow({
 });
 
 // ─── New entry row ────────────────────────────────────────────────────────────
-function localToday(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+export type NewContactInput = {
+  name: string;
+  pitched_at: string;
+  follow_up_number: 1 | 2 | 3 | null;
+  answer_category: string | null;
+  answer_text: string | null;
+  notes: string | null;
+};
 
-function NewRow({ listId }: { listId: string }) {
+function NewRow({ onCreate }: { onCreate: (input: NewContactInput) => void }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const today = localToday();
+  const [date, setDate] = useState(localDateISO());
+  const [name, setName] = useState("");
+  const [fu, setFu] = useState<"" | "1" | "2" | "3">("");
+  const [category, setCategory] = useState("");
+  const [answerText, setAnswerText] = useState("");
+  const [notes, setNotes] = useState("");
+
+  function submit() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onCreate({
+      name: trimmed,
+      pitched_at: date,
+      follow_up_number: fu === "" ? null : (Number(fu) as 1 | 2 | 3),
+      answer_category: category || null,
+      answer_text: answerText.trim() || null,
+      notes: notes.trim() || null,
+    });
+    // Datum bleibt stehen (Rapid-Add am selben Tag), Rest wird geleert.
+    setName("");
+    setFu("");
+    setCategory("");
+    setAnswerText("");
+    setNotes("");
+  }
 
   const submitOnEnter = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") { e.preventDefault(); formRef.current?.requestSubmit(); }
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
   };
 
   return (
     <form
       ref={formRef}
-      action={createContactForm}
+      onSubmit={(e) => { e.preventDefault(); submit(); }}
       style={{
         display: "grid",
         gridTemplateColumns: GRID_COLS,
@@ -425,13 +570,14 @@ function NewRow({ listId }: { listId: string }) {
         boxSizing: "border-box",
       }}
     >
-      <input type="hidden" name="list_id" value={listId} />
       <div style={cell}>
-        <input name="pitched_at" type="date" defaultValue={today} style={{ ...editInput, fontSize: "0.75rem" }} tabIndex={1} />
+        <DatePicker value={date} onChange={(v) => setDate(v ?? localDateISO())} />
       </div>
       <div style={cell}>
         <input
           name="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
           placeholder="+ Neuen Pitch-Kontakt hinzufügen…"
           required
           style={{ ...editInput, fontWeight: 600, color: "var(--brand-500)" }}
@@ -440,7 +586,7 @@ function NewRow({ listId }: { listId: string }) {
         />
       </div>
       <div style={cell}>
-        <select name="follow_up_number" defaultValue="" style={{ ...editInput, fontSize: "0.75rem", padding: "3px 2px" }} tabIndex={3}>
+        <select value={fu} onChange={(e) => setFu(e.target.value as typeof fu)} style={{ ...editInput, fontSize: "0.75rem", padding: "3px 2px" }} tabIndex={3}>
           <option value="">—</option>
           <option value="1">FU1</option>
           <option value="2">FU2</option>
@@ -453,16 +599,16 @@ function NewRow({ listId }: { listId: string }) {
         </span>
       </div>
       <div style={cell}>
-        <select name="answer_category" defaultValue="" style={{ ...editInput, fontSize: "0.75rem" }} tabIndex={4}>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...editInput, fontSize: "0.75rem" }} tabIndex={4}>
           <option value="">—</option>
           {SELECTABLE_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
         </select>
       </div>
       <div style={cell}>
-        <input name="answer_text" placeholder="Antwort…" style={editInput} tabIndex={5} onKeyDown={submitOnEnter} />
+        <input value={answerText} onChange={(e) => setAnswerText(e.target.value)} placeholder="Antwort…" style={editInput} tabIndex={5} onKeyDown={submitOnEnter} />
       </div>
       <div style={cell}>
-        <input name="notes" placeholder="Notizen…" style={editInput} tabIndex={6} onKeyDown={submitOnEnter} />
+        <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notizen…" style={editInput} tabIndex={6} onKeyDown={submitOnEnter} />
       </div>
       <div style={cell}>
         <button
@@ -490,7 +636,7 @@ function NewRow({ listId }: { listId: string }) {
 }
 
 // ─── Stats footer ─────────────────────────────────────────────────────────────
-function StatsRow({ contacts }: { contacts: ContactWithStage[] }) {
+function StatsRow({ contacts }: { contacts: ListContact[] }) {
   const total = contacts.length;
   const answered = contacts.filter((c) => c.answered === true).length;
   const appt = contacts.filter((c) => c.appointment_set === true).length;
@@ -690,19 +836,25 @@ function CardEditArea({
 
 // Volle Kontakt-Karte (dynamisch gemessen via virtualizer.measureElement).
 const MobileContactCard = memo(function MobileContactCard({
-  c, listId, start, index, measureRef, onOpenAppointment, onClearAppointment, onDeleteContact,
+  c, listId, start, index, measureRef, onOpenAppointment, onClearAppointment, onDeleteContact, onToggleBlocked, onToast, onEdited,
 }: {
-  c: ContactWithStage;
+  c: ListContact;
   listId: string;
   start: number;
   index: number;
   measureRef: (node: Element | null) => void;
-  onOpenAppointment: (c: ContactWithStage) => void;
-  onClearAppointment: (c: ContactWithStage) => void;
-  onDeleteContact: (c: ContactWithStage) => void;
+  onOpenAppointment: (c: ListContact) => void;
+  onClearAppointment: (c: ListContact) => void;
+  onDeleteContact: (c: ListContact) => void;
+  onToggleBlocked: (c: ListContact, currentlyBlocked: boolean) => Promise<boolean>;
+  onToast: (t: ToastState) => void;
+  onEdited: () => void;
 }) {
-  const { vals, save, isPending } = useContactEdit(c, listId);
+  const { vals, save, isPending } = useContactEdit(c, listId, onEdited);
+  const [blocked, setBlocked] = useState(c.blocked_at != null);
+  const { advance, stepBack } = useFollowUpActions(c, vals, save, onToast);
   const hasAppointment = c.appointment_set === true;
+  const isTemp = c.id.startsWith("temp-");
 
   return (
     <div
@@ -728,11 +880,12 @@ const MobileContactCard = memo(function MobileContactCard({
           display: "flex",
           flexDirection: "column",
           gap: "0.5rem",
-          opacity: isPending ? 0.6 : 1,
+          opacity: isPending || isTemp ? 0.6 : blocked ? 0.6 : 1,
+          pointerEvents: isTemp ? "none" : undefined,
           transition: "opacity 0.15s",
         }}
       >
-        {/* Kopf: Name + LinkedIn + Löschen (oben rechts) */}
+        {/* Kopf: Name + Blockiert + LinkedIn + Aktionen (oben rechts) */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: "0.25rem" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <CardEditText
@@ -742,6 +895,25 @@ const MobileContactCard = memo(function MobileContactCard({
               placeholder="Name…"
             />
           </div>
+          {blocked && (
+            <span
+              style={{
+                alignSelf: "center",
+                fontSize: "0.625rem",
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                color: "var(--color-error-text)",
+                background: "var(--color-error-bg)",
+                border: "1px solid var(--color-error-border)",
+                borderRadius: 99,
+                padding: "2px 8px",
+                flexShrink: 0,
+              }}
+            >
+              Blockiert
+            </span>
+          )}
           {c.linkedin_url && (
             <a
               href={c.linkedin_url}
@@ -755,6 +927,30 @@ const MobileContactCard = memo(function MobileContactCard({
           )}
           <button
             type="button"
+            className="lbv2-block"
+            onClick={async () => {
+              const toggled = await onToggleBlocked(c, blocked);
+              if (toggled) setBlocked(!blocked);
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              minWidth: 40,
+              minHeight: 40,
+              borderRadius: "var(--radius-sm)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              ...(blocked ? { color: "var(--color-error-text)", opacity: 1 } : null),
+            }}
+            title={blocked ? "Blockierung aufheben" : "Lead hat mich blockiert"}
+          >
+            <Ban size={16} />
+          </button>
+          <button
+            type="button"
             className="lbv2-del"
             onClick={() => onDeleteContact(c)}
             style={{ background: "none", border: "none", cursor: "pointer", minWidth: 40, minHeight: 40, borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
@@ -765,34 +961,40 @@ const MobileContactCard = memo(function MobileContactCard({
         </div>
 
         {/* Datum */}
-        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span style={cardLabel}>Datum</span>
-          <input
-            type="date"
-            value={vals.pitched_at}
-            onChange={(e) => save({ pitched_at: e.target.value })}
-            style={mobileControl}
+          <DatePicker
+            value={vals.pitched_at || null}
+            onChange={(v) => save({ pitched_at: v ?? "" })}
+            variant="input"
+            placeholder="Datum wählen"
           />
-        </label>
+        </div>
 
-        {/* FU */}
-        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        {/* FU — Chip stuft hoch (Klick), lange Liste im Griff via Undo-Toast */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span style={cardLabel}>FU</span>
-          <select
-            value={vals.follow_up_number ?? ""}
-            onChange={(e) => {
-              const v = e.target.value;
-              save({ follow_up_number: v === "1" ? 1 : v === "2" ? 2 : v === "3" ? 3 : null });
+          <button
+            type="button"
+            disabled={blocked}
+            onClick={() => { if (vals.follow_up_number !== 3) advance(); }}
+            onContextMenu={(e) => { e.preventDefault(); stepBack(); }}
+            style={{
+              ...mobileControl,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: blocked ? "default" : "pointer",
+              color: vals.follow_up_number ? FU_COLORS[vals.follow_up_number] : "var(--text-subtle)",
+              fontWeight: vals.follow_up_number ? 800 : 400,
+              background: vals.follow_up_number ? FU_BG[vals.follow_up_number] : "var(--surface-50)",
+              opacity: blocked ? 0.5 : 1,
             }}
-            style={{ ...mobileControl, color: vals.follow_up_number ? FU_COLORS[vals.follow_up_number] : "var(--text-subtle)", fontWeight: vals.follow_up_number ? 800 : 400 }}
-            title="Follow-Up Nummer"
+            title={blocked ? "Blockiert — keine Follow-ups" : "Tippen: nächstes Follow-up erledigt"}
           >
-            <option value="">—</option>
-            <option value="1">FU1</option>
-            <option value="2">FU2</option>
-            <option value="3">FU3</option>
-          </select>
-        </label>
+            {vals.follow_up_number ? `FU${vals.follow_up_number}` : "FU starten"}
+          </button>
+        </div>
 
         {/* Kategorie */}
         <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -828,9 +1030,10 @@ const MobileContactCard = memo(function MobileContactCard({
           </button>
           <button
             type="button"
+            disabled={blocked && !hasAppointment}
             onClick={() => (hasAppointment ? onClearAppointment(c) : onOpenAppointment(c))}
-            title={hasAppointment ? "Termin entfernen" : "Termin einbuchen"}
-            style={mobileChip(hasAppointment)}
+            title={blocked && !hasAppointment ? "Blockiert" : hasAppointment ? "Termin entfernen" : "Termin einbuchen"}
+            style={{ ...mobileChip(hasAppointment), opacity: blocked && !hasAppointment ? 0.5 : 1 }}
           >
             {hasAppointment ? <><Calendar size={13} /> Termin: Ja</> : "Termin: —"}
           </button>
@@ -845,10 +1048,27 @@ const MobileContactCard = memo(function MobileContactCard({
 });
 
 // Kompaktes Anlege-Formular als Karte (Name + Datum + Submit).
-function MobileNewCard({ listId }: { listId: string }) {
+function MobileNewCard({ onCreate }: { onCreate: (input: NewContactInput) => void }) {
+  const [name, setName] = useState("");
+  const [date, setDate] = useState(localDateISO());
+
+  function submit() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onCreate({
+      name: trimmed,
+      pitched_at: date,
+      follow_up_number: null,
+      answer_category: null,
+      answer_text: null,
+      notes: null,
+    });
+    setName("");
+  }
+
   return (
     <form
-      action={createContactForm}
+      onSubmit={(e) => { e.preventDefault(); submit(); }}
       style={{
         background: "var(--brand-50)",
         border: "1px solid var(--border-bright)",
@@ -860,19 +1080,14 @@ function MobileNewCard({ listId }: { listId: string }) {
         boxSizing: "border-box",
       }}
     >
-      <input type="hidden" name="list_id" value={listId} />
       <input
-        name="name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
         required
         placeholder="+ Neuen Pitch-Kontakt hinzufügen…"
         style={{ ...editInput, minHeight: 44, fontSize: "1rem", fontWeight: 600, color: "var(--brand-500)" }}
       />
-      <input
-        name="pitched_at"
-        type="date"
-        defaultValue={localToday()}
-        style={{ ...editInput, minHeight: 44, fontSize: "1rem" }}
-      />
+      <DatePicker value={date} onChange={(v) => setDate(v ?? localDateISO())} variant="input" />
       <button
         type="submit"
         style={{
@@ -894,7 +1109,7 @@ function MobileNewCard({ listId }: { listId: string }) {
 }
 
 // Kleine Zusammenfassungs-Karte (gleiche Werte wie Desktop-Footer).
-function MobileStatsCard({ contacts }: { contacts: ContactWithStage[] }) {
+function MobileStatsCard({ contacts }: { contacts: ListContact[] }) {
   const total = contacts.length;
   const answered = contacts.filter((c) => c.answered === true).length;
   const appt = contacts.filter((c) => c.appointment_set === true).length;
@@ -936,24 +1151,65 @@ function MobileStatsCard({ contacts }: { contacts: ContactWithStage[] }) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
+type OptimisticAction =
+  | { type: "add"; contact: ListContact }
+  | { type: "remove"; id: string };
+
 export function ListBoardV2({ listId, contacts }: {
-  listId: string; stages: PipelineStage[]; contacts: ContactWithStage[];
+  listId: string; contacts: ListContact[];
 }) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [search, setSearch] = useState("");
-  const [apptContact, setApptContact] = useState<ContactWithStage | null>(null);
+  const [view, setView] = useState<BoardView>("alle");
+  const [apptContact, setApptContact] = useState<ListContact | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const { confirm, dialog } = useConfirm();
 
+  // Optimistisches UI: neue/gelöschte Einträge erscheinen bzw. verschwinden
+  // sofort; router.refresh() im selben Transition-Scope holt die Server-Wahrheit.
+  const [optContacts, applyOptimistic] = useOptimistic(
+    contacts,
+    (cur: ListContact[], action: OptimisticAction) =>
+      action.type === "add" ? [action.contact, ...cur] : cur.filter((c) => c.id !== action.id),
+  );
+
+  // Inline-Edits ändern nur die Zeile (lokaler State) — Stats/Charts holen sich
+  // die Server-Wahrheit kurz danach im Hintergrund (debounced, nicht blockierend).
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => router.refresh(), 2500);
+  }, [router]);
+  useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current); }, []);
+
+  // Undo-Toast (FU-Fehlklick-Schutz) — 6 s sichtbar.
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
+  const showToast = useCallback((t: ToastState) => setToast(t), []);
+
+  const counts = useMemo(() => ({
+    alle: optContacts.length,
+    heiss: optContacts.filter(isHotLead).length,
+    blockiert: optContacts.filter((c) => c.blocked_at != null).length,
+  }), [optContacts]);
+
   const filtered = useMemo(() => {
+    let base = optContacts;
+    if (view === "heiss") base = base.filter(isHotLead);
+    else if (view === "blockiert") base = base.filter((c) => c.blocked_at != null);
     const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((c) =>
+    if (!q) return base;
+    return base.filter((c) =>
       [c.name, c.notes, c.answer_text, c.answer_category]
         .filter(Boolean).join(" ").toLowerCase().includes(q)
     );
-  }, [contacts, search]);
+  }, [optContacts, search, view]);
 
   const parentRef = useRef<HTMLDivElement>(null);
   // Mobile: dynamische Karten-Höhen (measureElement), Desktop: fixe Zeilenhöhe.
@@ -980,8 +1236,47 @@ export function ListBoardV2({ listId, contacts }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
 
-  const openAppointment = useCallback((c: ContactWithStage) => setApptContact(c), []);
-  const clearAppointment = useCallback(async (c: ContactWithStage) => {
+  const createOptimistic = useCallback((input: NewContactInput) => {
+    const temp: ListContact = {
+      id: `temp-${crypto.randomUUID()}`,
+      list_id: listId,
+      name: input.name,
+      notes: input.notes,
+      pitched_at: input.pitched_at,
+      follow_up_number: input.follow_up_number,
+      answered: null,
+      answer_category: input.answer_category,
+      answer_text: input.answer_text,
+      appointment_set: null,
+      appointment_at: null,
+      meet_link: null,
+      linkedin_url: null,
+      next_follow_up_at: null,
+      blocked_at: null,
+      created_at: new Date().toISOString(),
+    };
+    setActionError(null);
+    startTransition(async () => {
+      applyOptimistic({ type: "add", contact: temp });
+      const res = await createContact({
+        list_id: listId,
+        name: input.name,
+        pitched_at: input.pitched_at,
+        follow_up_number: input.follow_up_number,
+        answer_category: input.answer_category,
+        answer_text: input.answer_text,
+        notes: input.notes,
+      });
+      if (res?.error) {
+        setActionError(res.error);
+        return;
+      }
+      router.refresh();
+    });
+  }, [applyOptimistic, listId, router]);
+
+  const openAppointment = useCallback((c: ListContact) => setApptContact(c), []);
+  const clearAppointment = useCallback(async (c: ListContact) => {
     const ok = await confirm({
       title: "Termin entfernen?",
       message: `Der eingebuchte Termin für "${c.name}" wird entfernt.`,
@@ -995,7 +1290,7 @@ export function ListBoardV2({ listId, contacts }: {
     });
   }, [confirm, listId, router]);
 
-  const deleteContact = useCallback(async (c: ContactWithStage) => {
+  const deleteContact = useCallback(async (c: ListContact) => {
     const ok = await confirm({
       title: "Kontakt löschen?",
       message: `"${c.name}" löschen?`,
@@ -1003,13 +1298,35 @@ export function ListBoardV2({ listId, contacts }: {
       destructive: true,
     });
     if (!ok) return;
-    const fd = new FormData();
-    fd.set("contact_id", c.id);
-    fd.set("list_id", listId);
     startTransition(async () => {
-      await deleteContactForm(fd);
+      applyOptimistic({ type: "remove", id: c.id });
+      const res = await deleteContactAction(c.id, listId);
+      if (res?.error) {
+        setActionError(res.error);
+        return;
+      }
+      router.refresh();
     });
-  }, [confirm, listId]);
+  }, [applyOptimistic, confirm, listId, router]);
+
+  const toggleBlocked = useCallback(async (c: ListContact, currentlyBlocked: boolean) => {
+    const ok = await confirm({
+      title: currentlyBlocked ? "Blockierung aufheben?" : "Als blockiert markieren?",
+      message: currentlyBlocked
+        ? `"${c.name}" wieder in den Follow-up-Flow aufnehmen? Die Fälligkeit wird neu berechnet.`
+        : `"${c.name}" hat dich auf LinkedIn blockiert? Der Kontakt fliegt damit aus dem Follow-up-Tracking und den Erinnerungen.`,
+      confirmLabel: currentlyBlocked ? "Aufheben" : "Als blockiert markieren",
+      destructive: !currentlyBlocked,
+    });
+    if (!ok) return false;
+    const res = await setContactBlocked(c.id, listId, !currentlyBlocked);
+    if (res?.error) {
+      setActionError(res.error);
+      return false;
+    }
+    scheduleRefresh();
+    return true;
+  }, [confirm, listId, scheduleRefresh]);
 
   const headerCell: React.CSSProperties = {
     ...cell,
@@ -1022,11 +1339,13 @@ export function ListBoardV2({ listId, contacts }: {
     overflow: "hidden",
   };
 
+  const showNewEntry = !search && view === "alle";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
-        <div style={{ position: "relative", flex: "1 1 240px", maxWidth: isMobile ? "100%" : 280 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: "1 1 200px", maxWidth: isMobile ? "100%" : 260 }}>
           <Search size={13} style={{ position: "absolute", left: "0.5rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-subtle)", pointerEvents: "none" }} />
           <input
             type="search"
@@ -1046,17 +1365,43 @@ export function ListBoardV2({ listId, contacts }: {
             }}
           />
         </div>
-        {search && <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>{filtered.length}/{contacts.length}</span>}
+        <Segmented<BoardView>
+          options={[
+            { value: "alle", label: `Alle (${counts.alle})` },
+            { value: "heiss", label: `Heiße Leads (${counts.heiss})` },
+            { value: "blockiert", label: `Blockiert (${counts.blockiert})` },
+          ]}
+          value={view}
+          onChange={setView}
+          ariaLabel="Ansicht"
+          fullWidth={isMobile}
+        />
+        {search && <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>{filtered.length}/{counts.alle}</span>}
         <div className="hide-on-mobile" style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>
           Klicken zum Bearbeiten · Enter zum Speichern
         </div>
       </div>
 
+      {actionError && (
+        <div
+          style={{
+            fontSize: "0.8125rem",
+            color: "var(--color-error-text)",
+            background: "var(--color-error-bg)",
+            border: "1px solid var(--color-error-border)",
+            borderRadius: "var(--radius-sm)",
+            padding: "0.375rem 0.75rem",
+          }}
+        >
+          {actionError}
+        </div>
+      )}
+
       {/* Board */}
       {isMobile ? (
         /* Mobile: gestapelte, virtualisierte Karten */
         <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
-          {!search && <MobileNewCard listId={listId} />}
+          {showNewEntry && <MobileNewCard onCreate={createOptimistic} />}
 
           <div ref={parentRef} style={{ maxHeight: "62vh", overflowY: "auto", WebkitOverflowScrolling: "touch" as never }}>
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -1073,6 +1418,9 @@ export function ListBoardV2({ listId, contacts }: {
                     onOpenAppointment={openAppointment}
                     onClearAppointment={clearAppointment}
                     onDeleteContact={deleteContact}
+                    onToggleBlocked={toggleBlocked}
+                    onToast={showToast}
+                    onEdited={scheduleRefresh}
                   />
                 );
               })}
@@ -1106,7 +1454,7 @@ export function ListBoardV2({ listId, contacts }: {
               </div>
 
               {/* Quick-add row */}
-              {!search && <NewRow listId={listId} />}
+              {showNewEntry && <NewRow onCreate={createOptimistic} />}
 
               {/* Virtualized rows */}
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -1121,6 +1469,9 @@ export function ListBoardV2({ listId, contacts }: {
                       onOpenAppointment={openAppointment}
                       onClearAppointment={clearAppointment}
                       onDeleteContact={deleteContact}
+                      onToggleBlocked={toggleBlocked}
+                      onToast={showToast}
+                      onEdited={scheduleRefresh}
                     />
                   );
                 })}
@@ -1133,7 +1484,14 @@ export function ListBoardV2({ listId, contacts }: {
         </div>
       )}
 
-      {contacts.length === 0 && !search && (
+      {filtered.length === 0 && (view !== "alle" || search) && (
+        <p style={{ textAlign: "center", color: "var(--text-subtle)", fontSize: "0.8125rem", marginTop: "0.375rem" }}>
+          {view === "heiss" ? "Keine heißen Leads — positiv beantwortete Kontakte ohne Termin erscheinen hier." :
+           view === "blockiert" ? "Keine blockierten Kontakte." : "Keine Treffer."}
+        </p>
+      )}
+
+      {contacts.length === 0 && !search && view === "alle" && (
         <p style={{ textAlign: "center", color: "var(--text-subtle)", fontSize: "0.8125rem", marginTop: "0.375rem" }}>
           Name eingeben und Enter drücken — fertig.
         </p>
@@ -1146,14 +1504,63 @@ export function ListBoardV2({ listId, contacts }: {
         leadName={apptContact?.name}
         defaultMeetLink={apptContact?.meet_link ?? undefined}
         defaultAppointmentAt={apptContact?.appointment_at?.slice(0, 16) ?? undefined}
-        onSubmit={async (meetLink, appointmentAt) => {
+        onSubmit={async ({ meetLink, meetingKind, appointmentAt }) => {
           if (!apptContact) return { error: "Kein Kontakt ausgewählt." };
-          return convertContactToSetting({ contactId: apptContact.id, listId, meetLink, appointmentAt });
+          return convertContactToSetting({ contactId: apptContact.id, listId, meetLink, meetingKind, appointmentAt });
         }}
         onSaved={() => router.refresh()}
       />
 
-      {/* Themen-konformer Bestätigungsdialog (Löschen / Termin entfernen) */}
+      {/* Undo-Toast (FU-Fehlklick-Schutz) */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 22,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 120,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
+            background: "var(--surface-100)",
+            border: "1px solid var(--border-bright)",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "var(--shadow-lg)",
+            padding: "0.5rem 0.875rem",
+            fontSize: "0.8125rem",
+            color: "var(--text-primary)",
+            whiteSpace: "nowrap",
+            animation: "fade-up 0.15s ease both",
+          }}
+        >
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: "60vw" }}>{toast.message}</span>
+          {toast.undo && (
+            <button
+              type="button"
+              onClick={() => { toast.undo?.(); setToast(null); }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                border: "1px solid var(--brand-200)",
+                background: "var(--brand-50)",
+                color: "var(--brand-500)",
+                borderRadius: "var(--radius-sm)",
+                padding: "0.25rem 0.625rem",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <Undo2 size={12} /> Rückgängig
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Themen-konformer Bestätigungsdialog (Löschen / Termin entfernen / Blockieren) */}
       {dialog}
     </div>
   );

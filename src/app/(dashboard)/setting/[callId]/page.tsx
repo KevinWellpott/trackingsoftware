@@ -192,6 +192,26 @@ export default async function SettingCallPage({ params }: { params: Promise<{ ca
               <Video size={14} /> Meet öffnen
             </a>
           )}
+          {!call.meet_link && call.meeting_kind === "telefon" && (
+            <span
+              title="Termin findet telefonisch statt"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.5rem 0.875rem",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border)",
+                background: "var(--surface-50)",
+                color: "var(--text-muted)",
+                fontSize: "0.8125rem",
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              <Phone size={14} /> Telefon-Termin
+            </span>
+          )}
         </div>
       </div>
 

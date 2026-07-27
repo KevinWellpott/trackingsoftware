@@ -1151,8 +1151,8 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
           leadName={current.company ?? current.decider_name ?? undefined}
           defaultMeetLink={current.meet_link ?? undefined}
           defaultAppointmentAt={current.appointment_at ?? undefined}
-          onSubmit={(meetLink, appointmentAt) =>
-            convertPhoneLeadToSetting({ phoneLeadId: current.id, listId: list.id, meetLink, appointmentAt })
+          onSubmit={({ meetLink, meetingKind, appointmentAt }) =>
+            convertPhoneLeadToSetting({ phoneLeadId: current.id, listId: list.id, meetLink, meetingKind, appointmentAt })
           }
           onSaved={() => {
             setField(current.id, { status: "termin", appointment_set: true });

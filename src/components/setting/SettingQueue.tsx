@@ -514,6 +514,28 @@ export function SettingQueue({ calls, assigneesByCall, currentUserId }: Props) {
                       <Video size={12} /> Meet
                     </button>
                   )}
+
+                  {/* Telefon-Termin (kein Link) */}
+                  {!c.meet_link && c.meeting_kind === "telefon" && (
+                    <span
+                      title="Termin findet telefonisch statt"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.3rem",
+                        padding: "0.3rem 0.625rem",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border)",
+                        background: "var(--surface-50)",
+                        color: "var(--text-muted)",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Phone size={12} /> Telefon
+                    </span>
+                  )}
                 </div>
               </Link>
             );

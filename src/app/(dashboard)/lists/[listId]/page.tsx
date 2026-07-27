@@ -7,7 +7,7 @@ import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { updateListPitchForm } from "@/app/actions/lists";
 import { MultiMetricBarChart, AnswerDonutChart, type MultiMetricDay } from "@/components/DashboardCharts";
 import { StatTile } from "@/components/dashboard/StatTile";
-import type { ContactWithStage, PipelineStage, PitchList } from "@/lib/types";
+import { LIST_CONTACT_COLUMNS, type ListContact, type PitchList } from "@/lib/types";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { AlertTriangle, ArrowLeft, ArrowRight, Bell, Calendar, CalendarCheck, CheckCircle, FileText, MessageCircle, MessageSquare, TrendingUp } from "lucide-react";
 import Link from "next/link";
@@ -34,11 +34,12 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   const { data: list, error: le } = await listQuery.single();
   if (le || !list) notFound();
 
-  const { data: stages } = await supabase.from("pipeline_stages").select("*").eq("list_id", listId).order("sort_order");
+  // Nur die Spalten laden, die Board + Kacheln wirklich brauchen — der frühere
+  // "*, pipeline_stages (*)"-Join hat den Payload bei großen Listen vervielfacht.
   const rawContacts = await fetchAllRows((from, to) =>
     supabase
       .from("contacts")
-      .select("*, pipeline_stages (*)")
+      .select(LIST_CONTACT_COLUMNS)
       .eq("list_id", listId)
       .order("pitched_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
@@ -46,7 +47,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
       .range(from, to)
   );
 
-  const contacts = (rawContacts ?? []) as unknown as ContactWithStage[];
+  const contacts = (rawContacts ?? []) as unknown as ListContact[];
   const L = list as PitchList;
   const today = localDateISO();
 
@@ -60,7 +61,8 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   const openFU = contacts.filter((c) =>
     c.next_follow_up_at != null &&
     c.next_follow_up_at <= today &&
-    c.answered !== true && c.appointment_set !== true && c.follow_up_number !== 3
+    c.answered !== true && c.appointment_set !== true && c.follow_up_number !== 3 &&
+    c.blocked_at == null
   ).length;
 
   const answerRate = pct(answered, total);
@@ -232,7 +234,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
       </div>
 
       {/* ── Kontakt-Tabelle ── */}
-      <ListBoardV2 listId={listId} stages={(stages ?? []) as PipelineStage[]} contacts={contacts} />
+      <ListBoardV2 listId={listId} contacts={contacts} />
     </div>
   );
 }

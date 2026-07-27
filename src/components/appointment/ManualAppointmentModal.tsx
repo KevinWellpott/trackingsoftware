@@ -2,8 +2,11 @@
 
 import { createManualSetting } from "@/app/actions/appointments";
 import { Modal } from "@/components/ui/Modal";
+import { Segmented } from "@/components/ui/Segmented";
 import { Building2, CalendarClock, Tag, User, Video } from "lucide-react";
 import { useState, useTransition } from "react";
+
+type KindOption = "link" | "telefon" | "ohne";
 
 // Termin manuell buchen — für Leads, die NICHT in einer LinkedIn-DM- oder
 // Telefon-Liste stehen (Social Selling, alte Kontakte, WhatsApp-Nachfass).
@@ -20,6 +23,7 @@ export function ManualAppointmentModal({
   const [leadName, setLeadName] = useState("");
   const [company, setCompany] = useState("");
   const [sourceDetail, setSourceDetail] = useState("");
+  const [kind, setKind] = useState<KindOption>("link");
   const [meetLink, setMeetLink] = useState("");
   const [appointmentAt, setAppointmentAt] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +37,7 @@ export function ManualAppointmentModal({
       setLeadName("");
       setCompany("");
       setSourceDetail("");
+      setKind("link");
       setMeetLink("");
       setAppointmentAt("");
       setError(null);
@@ -68,8 +73,12 @@ export function ManualAppointmentModal({
     const name = leadName.trim();
     const link = meetLink.trim();
     const at = appointmentAt.trim();
-    if (!name || !at || !link) {
-      setError("Bitte Name, Termin und Google-Meet-Link ausfüllen.");
+    if (!name || !at) {
+      setError("Bitte Name und Termin ausfüllen.");
+      return;
+    }
+    if (kind === "link" && !link) {
+      setError("Bitte Termin-Link eintragen oder Art auf Telefon/Ohne stellen.");
       return;
     }
     setError(null);
@@ -78,7 +87,8 @@ export function ManualAppointmentModal({
         leadName: name,
         company: company.trim() || null,
         sourceDetail: sourceDetail.trim() || null,
-        meetLink: link,
+        meetLink: kind === "link" ? link : null,
+        meetingKind: kind === "ohne" ? null : kind,
         appointmentAt: at,
       });
       if (res?.error) {
@@ -151,19 +161,38 @@ export function ManualAppointmentModal({
         </div>
 
         <div>
-          <label htmlFor="man-link" style={labelStyle}>
-            <Video size={13} /> Google-Meet-Link
-          </label>
-          <input
-            id="man-link"
-            type="url"
-            required
-            placeholder="https://meet.google.com/…"
-            value={meetLink}
-            onChange={(e) => setMeetLink(e.target.value)}
-            style={inputStyle}
+          <span style={labelStyle}>
+            <Video size={13} /> Termin-Art
+          </span>
+          <Segmented<KindOption>
+            options={[
+              { value: "link", label: "Link" },
+              { value: "telefon", label: "Telefon" },
+              { value: "ohne", label: "Ohne" },
+            ]}
+            value={kind}
+            onChange={setKind}
+            ariaLabel="Termin-Art"
+            fullWidth
           />
         </div>
+
+        {kind === "link" && (
+          <div>
+            <label htmlFor="man-link" style={labelStyle}>
+              Termin-Link
+            </label>
+            <input
+              id="man-link"
+              type="url"
+              required
+              placeholder="https://meet.google.com/…"
+              value={meetLink}
+              onChange={(e) => setMeetLink(e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+        )}
 
         <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", margin: 0, lineHeight: 1.5 }}>
           Wird als Setting-Eintrag mit Quelle „Manuell“ angelegt.

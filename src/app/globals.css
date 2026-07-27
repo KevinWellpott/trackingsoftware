@@ -319,6 +319,18 @@ body {
   color: var(--color-error-text);
   opacity: 1;
 }
+.lbv2-block {
+  color: var(--text-subtle);
+  opacity: 0.6;
+  transition: color 0.1s, opacity 0.1s;
+}
+.lbv2-block:hover {
+  color: var(--color-warning-text);
+  opacity: 1;
+}
+
+/* ─── DatePicker (Kalender-Popover) ────────────────────────── */
+.dp-day:hover { background: var(--surface-200); }
 
 /* ─── Buttons ──────────────────────────────────────────────── */
 .btn-primary {

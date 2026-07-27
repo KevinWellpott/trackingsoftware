@@ -8,6 +8,23 @@ import { revalidatePath } from "next/cache";
 // aus dem Follow-up-Flow (next_follow_up_at = null, appointment_set = true).
 // Kein Zuweisen hier — die Zuweisung an einen Setter passiert im Setting-Eintrag.
 
+/** Termin-Art: 'link' (Meet o. ä.), 'telefon' oder null = keine Angabe. */
+export type MeetingKind = "link" | "telefon" | null;
+
+// Link nur bei Termin-Art 'link' Pflicht; sonst wird er verworfen, damit kein
+// verwaister Link an einem Telefon-/Ohne-Termin hängen bleibt.
+function normalizeMeeting(input: {
+  meetingKind: MeetingKind;
+  meetLink: string | null | undefined;
+}): { meetingKind: MeetingKind; meetLink: string | null; error?: string } {
+  const kind = input.meetingKind ?? null;
+  const link = input.meetLink?.trim() || null;
+  if (kind === "link" && !link) {
+    return { meetingKind: kind, meetLink: null, error: "Termin-Link ist erforderlich." };
+  }
+  return { meetingKind: kind, meetLink: kind === "link" ? link : null };
+}
+
 async function canAccessPitchList(listId: string): Promise<boolean> {
   const access = await getAccessContext();
   if (!access) return false;
@@ -27,17 +44,20 @@ async function canAccessPitchList(listId: string): Promise<boolean> {
 
 /**
  * LinkedIn-Kontakt terminieren: legt einen setting_calls-Eintrag an und
- * verknüpft ihn mit dem Kontakt. Pflicht: Meet-Link + Termin-Zeitpunkt.
+ * verknüpft ihn mit dem Kontakt. Pflicht: nur der Termin-Zeitpunkt —
+ * Termin-Art wahlweise Link, Telefon oder ohne Angabe.
  */
 export async function convertContactToSetting(input: {
   contactId: string;
   listId: string;
-  meetLink: string;
+  meetLink: string | null;
+  meetingKind: MeetingKind;
   appointmentAt: string; // ISO datetime-local
 }): Promise<{ error?: string; settingCallId?: string }> {
-  const meetLink = input.meetLink.trim();
+  const meeting = normalizeMeeting(input);
+  if (meeting.error) return { error: meeting.error };
+  const { meetLink, meetingKind } = meeting;
   const appointmentAt = input.appointmentAt.trim();
-  if (!meetLink) return { error: "Google-Meet-Link ist erforderlich." };
   if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
   if (!(await canAccessPitchList(input.listId))) {
     return { error: "Keine Berechtigung." };
@@ -60,7 +80,7 @@ export async function convertContactToSetting(input: {
   if (settingCallId) {
     await supabase
       .from("setting_calls")
-      .update({ meet_link: meetLink, appointment_at: appointmentAt })
+      .update({ meet_link: meetLink, meeting_kind: meetingKind, appointment_at: appointmentAt })
       .eq("id", settingCallId);
   } else {
     const { data: sc, error: scErr } = await supabase
@@ -71,6 +91,7 @@ export async function convertContactToSetting(input: {
         lead_name: contact.name,
         company: (contact as { company?: string | null }).company ?? null,
         meet_link: meetLink,
+        meeting_kind: meetingKind,
         appointment_at: appointmentAt,
         status: "offen",
       })
@@ -80,7 +101,8 @@ export async function convertContactToSetting(input: {
     settingCallId = sc.id;
   }
 
-  // Kontakt terminieren + aus dem Follow-up-Flow nehmen.
+  // Kontakt terminieren + aus dem Follow-up-Flow nehmen. Kein revalidatePath:
+  // das Board refresht selbst (onSaved), alle anderen Routen sind dynamisch.
   const { error: upErr } = await supabase
     .from("contacts")
     .update({
@@ -93,11 +115,6 @@ export async function convertContactToSetting(input: {
     .eq("id", input.contactId);
   if (upErr) return { error: upErr.message };
 
-  revalidatePath(`/lists/${input.listId}`, "page");
-  revalidatePath("/setting", "page");
-  revalidatePath("/follow-up", "page");
-  revalidatePath("/crm", "page");
-  revalidatePath("/", "layout");
   return { settingCallId: settingCallId ?? undefined };
 }
 
@@ -111,16 +128,18 @@ export async function createManualSetting(input: {
   leadName: string;
   company?: string | null;
   sourceDetail?: string | null;
-  meetLink: string;
+  meetLink: string | null;
+  meetingKind: MeetingKind;
   appointmentAt: string;
 }): Promise<{ error?: string; settingCallId?: string }> {
   const leadName = input.leadName.trim();
   const company = input.company?.trim() || null;
   const sourceDetail = input.sourceDetail?.trim() || null;
-  const meetLink = input.meetLink.trim();
+  const meeting = normalizeMeeting(input);
+  if (meeting.error) return { error: meeting.error };
+  const { meetLink, meetingKind } = meeting;
   const appointmentAt = input.appointmentAt.trim();
   if (!leadName) return { error: "Name ist erforderlich." };
-  if (!meetLink) return { error: "Google-Meet-Link ist erforderlich." };
   if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
 
   const access = await getAccessContext();
@@ -141,6 +160,7 @@ export async function createManualSetting(input: {
       lead_name: leadName,
       company,
       meet_link: meetLink,
+      meeting_kind: meetingKind,
       appointment_at: appointmentAt,
       status: "offen",
     })
@@ -148,9 +168,6 @@ export async function createManualSetting(input: {
     .single();
   if (scErr || !sc) return { error: scErr?.message ?? "Termin konnte nicht angelegt werden." };
 
-  revalidatePath("/setting", "page");
-  revalidatePath("/analyse", "page");
-  revalidatePath("/", "layout");
   return { settingCallId: sc.id };
 }
 
@@ -173,17 +190,20 @@ async function canAccessPhoneList(listId: string): Promise<boolean> {
 
 /**
  * Telefon-Lead terminieren: legt einen setting_calls-Eintrag an (source telefon),
- * setzt den Lead auf Status 'termin' + appointment_set. Pflicht: Meet-Link + Zeit.
+ * setzt den Lead auf Status 'termin' + appointment_set. Pflicht: nur die Zeit —
+ * Termin-Art wahlweise Link, Telefon oder ohne Angabe.
  */
 export async function convertPhoneLeadToSetting(input: {
   phoneLeadId: string;
   listId: string;
-  meetLink: string;
+  meetLink: string | null;
+  meetingKind: MeetingKind;
   appointmentAt: string;
 }): Promise<{ error?: string; settingCallId?: string }> {
-  const meetLink = input.meetLink.trim();
+  const meeting = normalizeMeeting(input);
+  if (meeting.error) return { error: meeting.error };
+  const { meetLink, meetingKind } = meeting;
   const appointmentAt = input.appointmentAt.trim();
-  if (!meetLink) return { error: "Google-Meet-Link ist erforderlich." };
   if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
   if (!(await canAccessPhoneList(input.listId))) return { error: "Keine Berechtigung." };
 
@@ -206,7 +226,7 @@ export async function convertPhoneLeadToSetting(input: {
   if (settingCallId) {
     await supabase
       .from("setting_calls")
-      .update({ meet_link: meetLink, appointment_at: appointmentAt })
+      .update({ meet_link: meetLink, meeting_kind: meetingKind, appointment_at: appointmentAt })
       .eq("id", settingCallId);
   } else {
     const { data: sc, error: scErr } = await supabase
@@ -217,6 +237,7 @@ export async function convertPhoneLeadToSetting(input: {
         lead_name: (lead as { decider_name?: string | null }).decider_name ?? null,
         company: (lead as { company?: string | null }).company ?? null,
         meet_link: meetLink,
+        meeting_kind: meetingKind,
         appointment_at: appointmentAt,
         status: "offen",
       })
@@ -258,8 +279,5 @@ export async function clearContactAppointment(input: {
     .eq("id", input.contactId)
     .eq("list_id", input.listId);
   if (error) return { error: error.message };
-  revalidatePath(`/lists/${input.listId}`, "page");
-  revalidatePath("/crm", "page");
-  revalidatePath("/", "layout");
   return {};
 }
