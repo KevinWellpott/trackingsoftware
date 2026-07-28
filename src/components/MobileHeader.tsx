@@ -2,6 +2,7 @@
 
 import { Menu } from "lucide-react";
 import { SearchTrigger } from "@/components/search/SearchDialog";
+import type { ViewNode } from "@/lib/listViews";
 import { useState } from "react";
 import { MobileDrawer } from "./Sidebar";
 
@@ -14,6 +15,7 @@ type Props = {
   username: string;
   workspaceId: string;
   lists: { id: string; name: string; owner_name: string | null }[];
+  viewTree?: ViewNode[];
   phoneLists?: {
     id: string;
     name: string;
@@ -29,7 +31,7 @@ type Props = {
   };
 };
 
-export function MobileHeader({ workspaceName, username, workspaceId, lists, phoneLists, dataScope, dataView }: Props) {
+export function MobileHeader({ workspaceName, username, workspaceId, lists, viewTree, phoneLists, dataScope, dataView }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
@@ -82,6 +84,7 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, phon
         username={username}
         workspaceId={workspaceId}
         lists={lists}
+        viewTree={viewTree}
         phoneLists={phoneLists}
         dataScope={dataScope}
         dataView={dataView}

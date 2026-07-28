@@ -3,6 +3,8 @@
 import { setDataViewForm, signOut } from "@/app/actions/workspace";
 import { createListForm } from "@/app/actions/lists";
 import { SearchTrigger } from "@/components/search/SearchDialog";
+import { ViewTree } from "@/components/listen/ViewTree";
+import type { ViewNode } from "@/lib/listViews";
 import {
   ArrowRight,
   BarChart2,
@@ -53,6 +55,8 @@ type Props = {
   username: string;
   workspaceId: string;
   lists: SidebarList[];
+  /** Smart-View-Baum unter der LinkedIn-Sektion. */
+  viewTree?: ViewNode[];
   phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
@@ -335,6 +339,7 @@ export function SidebarContent({
   username,
   workspaceId,
   lists,
+  viewTree = [],
   phoneLists = [],
   dataScope = "workspace",
   dataView,
@@ -590,6 +595,12 @@ export function SidebarContent({
               Noch keine Listen.
             </p>
           )}
+
+          {/* Gefilterte Ansichten und Ordner — additiv neben den echten
+              Listen, die weiterhin die Heimat der Kontakte sind. */}
+          <div style={{ marginTop: "var(--sp-4)", paddingTop: "var(--sp-4)", borderTop: "1px solid var(--border-subtle)" }}>
+            <ViewTree tree={viewTree} lists={lists} onNavigate={onClose} />
+          </div>
         </CollapsibleSection>
 
         {/* ── Telefon ── */}
@@ -736,6 +747,7 @@ export function MobileDrawer({
   username,
   workspaceId,
   lists,
+  viewTree,
   phoneLists,
   dataScope,
   dataView,
@@ -746,6 +758,7 @@ export function MobileDrawer({
   username: string;
   workspaceId: string;
   lists: SidebarList[];
+  viewTree?: ViewNode[];
   phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
@@ -772,6 +785,7 @@ export function MobileDrawer({
           username={username}
           workspaceId={workspaceId}
           lists={lists}
+          viewTree={viewTree}
           phoneLists={phoneLists}
           dataScope={dataScope}
           dataView={dataView}

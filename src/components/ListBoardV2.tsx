@@ -1258,7 +1258,13 @@ type OptimisticAction =
   | { type: "remove"; id: string };
 
 export function ListBoardV2({ listId, contacts }: {
-  listId: string; contacts: ListContact[];
+  /**
+   * Die Liste, in die neue Kontakte gehen. `null` in Smart Views: dort stammen
+   * die Kontakte aus mehreren Listen, es gaebe also kein eindeutiges Ziel —
+   * die Neu-Zeile entfaellt. Bearbeiten, Termin und Loeschen laufen dagegen
+   * ueber `contact.list_id` und funktionieren dort unveraendert.
+   */
+  listId: string | null; contacts: ListContact[];
 }) {
   const router = useRouter();
   const isMobile = useIsMobile();
@@ -1363,6 +1369,7 @@ export function ListBoardV2({ listId, contacts }: {
   }, [isMobile]);
 
   const createOptimistic = useCallback((input: NewContactInput) => {
+    if (!listId) return; // ohne Zielliste gibt es keine Neu-Zeile
     const temp: ListContact = {
       id: `temp-${crypto.randomUUID()}`,
       list_id: listId,
@@ -1411,10 +1418,10 @@ export function ListBoardV2({ listId, contacts }: {
     });
     if (!ok) return;
     startTransition(async () => {
-      await clearContactAppointment({ contactId: c.id, listId });
+      await clearContactAppointment({ contactId: c.id, listId: c.list_id });
       router.refresh();
     });
-  }, [confirm, listId, router]);
+  }, [confirm, router]);
 
   const deleteContact = useCallback(async (c: ListContact) => {
     const ok = await confirm({
@@ -1426,14 +1433,14 @@ export function ListBoardV2({ listId, contacts }: {
     if (!ok) return;
     startTransition(async () => {
       applyOptimistic({ type: "remove", id: c.id });
-      const res = await deleteContactAction(c.id, listId);
+      const res = await deleteContactAction(c.id, c.list_id);
       if (res?.error) {
         setActionError(res.error);
         return;
       }
       router.refresh();
     });
-  }, [applyOptimistic, confirm, listId, router]);
+  }, [applyOptimistic, confirm, router]);
 
   const toggleBlocked = useCallback(async (c: ListContact, currentlyBlocked: boolean) => {
     const ok = await confirm({
@@ -1445,14 +1452,14 @@ export function ListBoardV2({ listId, contacts }: {
       destructive: !currentlyBlocked,
     });
     if (!ok) return false;
-    const res = await setContactBlocked(c.id, listId, !currentlyBlocked);
+    const res = await setContactBlocked(c.id, c.list_id, !currentlyBlocked);
     if (res?.error) {
       setActionError(res.error);
       return false;
     }
     scheduleRefresh();
     return true;
-  }, [confirm, listId, scheduleRefresh]);
+  }, [confirm, scheduleRefresh]);
 
   const headerCell: React.CSSProperties = {
     ...cell,
@@ -1553,7 +1560,7 @@ export function ListBoardV2({ listId, contacts }: {
       {isMobile ? (
         /* Mobile: gestapelte, virtualisierte Karten */
         <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
-          {showNewEntry && <MobileNewCard onCreate={createOptimistic} />}
+          {showNewEntry && listId && <MobileNewCard onCreate={createOptimistic} />}
 
           <div ref={parentRef} style={{ maxHeight: "62vh", overflowY: "auto", WebkitOverflowScrolling: "touch" as never }}>
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -1563,7 +1570,7 @@ export function ListBoardV2({ listId, contacts }: {
                   <MobileContactCard
                     key={c.id}
                     c={c}
-                    listId={listId}
+                    listId={c.list_id}
                     start={vi.start}
                     index={vi.index}
                     today={today}
@@ -1607,7 +1614,7 @@ export function ListBoardV2({ listId, contacts }: {
               </div>
 
               {/* Quick-add row */}
-              {showNewEntry && <NewRow onCreate={createOptimistic} />}
+              {showNewEntry && listId && <NewRow onCreate={createOptimistic} />}
 
               {/* Virtualized rows */}
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -1617,7 +1624,7 @@ export function ListBoardV2({ listId, contacts }: {
                     <ContactRow
                       key={c.id}
                       c={c}
-                      listId={listId}
+                      listId={c.list_id}
                       start={vi.start}
                       today={today}
                       onOpenAppointment={openAppointment}
@@ -1665,7 +1672,7 @@ export function ListBoardV2({ listId, contacts }: {
         defaultAppointmentAt={apptContact?.appointment_at?.slice(0, 16) ?? undefined}
         onSubmit={async ({ meetLink, meetingKind, appointmentAt }) => {
           if (!apptContact) return { error: "Kein Kontakt ausgewählt." };
-          return convertContactToSetting({ contactId: apptContact.id, listId, meetLink, meetingKind, appointmentAt });
+          return convertContactToSetting({ contactId: apptContact.id, listId: apptContact.list_id, meetLink, meetingKind, appointmentAt });
         }}
         onSaved={() => router.refresh()}
       />
