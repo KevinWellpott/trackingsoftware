@@ -1265,6 +1265,21 @@ input:hover::-webkit-calendar-picker-indicator { filter: brightness(0) invert(85
 .data-table td.num,
 .data-table th.num { text-align: right; font-weight: var(--fw-medium); }
 
+/* Summenzeile: abgesetzt wie der Kopf, aber ohne dessen Versalien. */
+.data-table tfoot td {
+  height: var(--h-row);
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--surface-1);
+  border-top: 1px solid var(--border-default);
+  font-weight: var(--fw-medium);
+}
+
+/* Zeilen-Link: erst beim Ueberfahren der ZEILE faerbt der Name in den Akzent —
+   damit ist die ganze Zeile als Ziel erkennbar, ohne jeden Namen dauerhaft
+   orange einzufaerben. */
+.listen-name { transition: color var(--transition-fast); }
+.data-table tbody tr:hover .listen-name { color: var(--orange-300); }
+
 /* ─── 6.10 Einklappbare Karte (<details>/<summary>) ────────── */
 .collapse-summary {
   list-style: none;

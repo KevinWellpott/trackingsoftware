@@ -3,20 +3,27 @@ import { ListenTabs, type ListenTab } from "@/components/listen/ListenTabs";
 import { EmptyState, PageHeader } from "@/components/ui/PageHeader";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
-import { ownerColor } from "@/lib/ownerColor";
 import { createClient } from "@/lib/supabase/server";
-import { CalendarCheck, Inbox, MessageSquare, RotateCcw, Users } from "lucide-react";
+import { Inbox, RotateCcw } from "lucide-react";
 import Link from "next/link";
 
 // Listen-Uebersicht.
 //
 // Bisher gab es keinen Ort, an dem man alle LinkedIn-Listen auf einmal sieht —
 // sie existierten ausschliesslich in der Sidebar. Archivierte Listen lagen
-// zudem unter /team/archiv und waren damit fuer alle ohne Owner-Rolle
-// unerreichbar. Diese Seite ist beides: Uebersicht und persoenliches Archiv.
+// zudem unter /team/archiv und waren fuer alle ohne Owner-Rolle unerreichbar.
 //
-// /team/archiv bleibt bestehen — dort sieht ein Owner das Archiv des GESAMTEN
-// Workspace, hier sieht jeder sein eigenes.
+// Darstellung als dichte TABELLE, nicht als Karten: die Seite dient dem
+// Vergleich („wo liegt am meisten liegen?"). Karten stellen jede Liste einzeln
+// dar und zwingen die Zahlen in kleine Bloecke, die untereinander nicht
+// fluchten — genau daran war die erste Fassung unlesbar.
+//
+// FARBEN: nur Rot, Gruen, Grau/Weiss und Orange.
+//   Faellig  = Rot   (verlangt Handlung)
+//   Termine  = Gruen (erreichtes Ergebnis)
+//   alles Uebrige = Grau/Weiss, Orange bleibt der Akzent (aktiver Reiter).
+// Dieselbe Zuordnung wie auf der Listen-Detailseite. Owner-Farben (sechs
+// Hues aus ownerColor) sind hier bewusst NICHT im Einsatz.
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +45,8 @@ type ContactRow = {
 
 type Counts = { kontakte: number; faellig: number; termine: number };
 
+const EMPTY: Counts = { kontakte: 0, faellig: 0, termine: 0 };
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
@@ -57,7 +66,7 @@ export default async function ListenPage({
   const today = localDateISO();
 
   // Personenfilter nur, wenn der Zugriff eingeschraenkt ist. Ein Owner mit
-  // Workspace-Datensicht sieht hier alle Listen — dieselbe Regel wie ueberall.
+  // Workspace-Datensicht sieht alle Listen — dieselbe Regel wie ueberall.
   const scope = ownScopeFilter(access);
   let listsQuery = supabase
     .from("lists")
@@ -66,7 +75,7 @@ export default async function ListenPage({
     .order("sort_order", { ascending: true });
   if (scope) listsQuery = listsQuery.or(scope);
 
-  // Zaehler in EINER Abfrage statt einer pro Karte. Nur die sechs Spalten, die
+  // Zaehler in EINER Abfrage statt einer pro Zeile. Nur die sechs Spalten, die
   // isDueFollowUp braucht — RLS beschraenkt die Menge bereits auf den Scope.
   const contactsQuery = supabase
     .from("contacts")
@@ -81,11 +90,11 @@ export default async function ListenPage({
   const counts = new Map<string, Counts>();
   for (const c of contacts) {
     if (!c.list_id) continue;
-    const cur = counts.get(c.list_id) ?? { kontakte: 0, faellig: 0, termine: 0 };
+    const cur = counts.get(c.list_id) ?? { ...EMPTY };
     cur.kontakte += 1;
     if (c.appointment_set === true) cur.termine += 1;
-    // Identische Bedingung wie isDueFollowUp im Board und wie nachfassen_tasks —
-    // sonst widersprechen sich die Zahlen zwischen den Ansichten.
+    // Exakt die Bedingung aus isDueFollowUp und nachfassen_tasks — weicht sie
+    // ab, widersprechen sich die Zahlen zwischen den Ansichten.
     if (
       c.next_follow_up_at != null &&
       c.next_follow_up_at <= today &&
@@ -105,14 +114,34 @@ export default async function ListenPage({
     .sort((a, b) => (b.archived_at ?? "").localeCompare(a.archived_at ?? ""));
   const shown = tab === "aktiv" ? aktiv : archiviert;
 
-  const gesamtKontakte = aktiv.reduce((n, l) => n + (counts.get(l.id)?.kontakte ?? 0), 0);
+  const summe = aktiv.reduce<Counts>(
+    (acc, l) => {
+      const c = counts.get(l.id) ?? EMPTY;
+      return {
+        kontakte: acc.kontakte + c.kontakte,
+        faellig: acc.faellig + c.faellig,
+        termine: acc.termine + c.termine,
+      };
+    },
+    { ...EMPTY },
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       <PageHeader
         eyebrow="LinkedIn"
         title="Listen"
-        meta={`${aktiv.length} aktive Listen · ${gesamtKontakte.toLocaleString("de-DE")} Kontakte`}
+        meta={
+          <span style={{ display: "inline-flex", gap: "var(--sp-6)", flexWrap: "wrap" }}>
+            <span>{aktiv.length} aktive Listen</span>
+            <span>{summe.kontakte.toLocaleString("de-DE")} Kontakte</span>
+            {summe.faellig > 0 && (
+              <span style={{ color: "var(--danger-fg)", fontWeight: 500 }}>
+                {summe.faellig.toLocaleString("de-DE")} fällig
+              </span>
+            )}
+          </span>
+        }
       >
         <ListenTabs tab={tab} counts={{ aktiv: aktiv.length, archiviert: archiviert.length }} />
       </PageHeader>
@@ -127,128 +156,123 @@ export default async function ListenPage({
           }
         />
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-            gap: "var(--sp-6)",
-          }}
-        >
-          {shown.map((l) => {
-            const c = counts.get(l.id) ?? { kontakte: 0, faellig: 0, termine: 0 };
-            const oc = l.owner_name ? ownerColor(l.owner_name) : null;
-
-            const head = (
-              <>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", minWidth: 0 }}>
-                  <MessageSquare size={14} style={{ color: "var(--stage-linkedin)", flexShrink: 0 }} />
-                  <span
-                    style={{
-                      fontSize: "var(--fs-md)",
-                      fontWeight: 600,
-                      letterSpacing: "var(--ls-tight)",
-                      color: "var(--text-primary)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {l.name}
-                  </span>
-                </div>
-                {l.owner_name && oc && (
-                  <span
-                    style={{
-                      fontSize: "var(--fs-2xs)",
-                      fontWeight: 600,
-                      color: oc.fg,
-                      background: oc.bg,
-                      border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`,
-                      padding: "1px 8px",
-                      borderRadius: "var(--r-full)",
-                      alignSelf: "flex-start",
-                    }}
-                  >
-                    {l.owner_name}
-                  </span>
+        // Schmale Fenster: die Tabelle scrollt in sich, die Seite nie horizontal.
+        <div className="card" style={{ padding: 0, overflowX: "auto" }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Liste</th>
+                <th>Inhaber</th>
+                {tab === "aktiv" ? (
+                  <>
+                    <th className="num">Kontakte</th>
+                    <th className="num">Fällig</th>
+                    <th className="num">Termine</th>
+                  </>
+                ) : (
+                  <>
+                    <th>Archiviert</th>
+                    <th />
+                  </>
                 )}
-              </>
-            );
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((l) => {
+                const c = counts.get(l.id) ?? EMPTY;
+                return (
+                  <tr key={l.id}>
+                    <td style={{ maxWidth: 320 }}>
+                      {tab === "aktiv" ? (
+                        <Link
+                          href={`/lists/${l.id}`}
+                          className="listen-name"
+                          style={{
+                            display: "block",
+                            fontWeight: 500,
+                            color: "var(--text-primary)",
+                            textDecoration: "none",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {l.name}
+                        </Link>
+                      ) : (
+                        <span style={{ color: "var(--text-secondary)" }}>{l.name}</span>
+                      )}
+                    </td>
+                    <td style={{ color: "var(--text-muted)", fontSize: "var(--fs-sm)", whiteSpace: "nowrap" }}>
+                      {l.owner_name ?? "—"}
+                    </td>
 
-            if (tab === "archiviert") {
-              return (
-                <div key={l.id} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
-                  {head}
-                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-subtle)" }}>
-                    Archiviert am {formatDate(l.archived_at as string)}
-                  </span>
-                  <form action={restoreListForm} style={{ marginTop: "auto" }}>
-                    <input type="hidden" name="list_id" value={l.id} />
-                    <button type="submit" className="btn-secondary" style={{ width: "100%" }}>
-                      <RotateCcw size={14} /> Wiederherstellen
-                    </button>
-                  </form>
-                </div>
-              );
-            }
+                    {tab === "aktiv" ? (
+                      <>
+                        <td className="num" style={{ color: "var(--text-secondary)" }}>
+                          {c.kontakte.toLocaleString("de-DE")}
+                        </td>
+                        {/* Nur die Null ist still. Alles darueber verlangt eine
+                            Handlung und traegt deshalb Rot. */}
+                        <td
+                          className="num"
+                          style={{
+                            color: c.faellig > 0 ? "var(--danger-fg)" : "var(--text-disabled)",
+                            fontWeight: c.faellig > 0 ? 600 : 400,
+                          }}
+                        >
+                          {c.faellig.toLocaleString("de-DE")}
+                        </td>
+                        <td
+                          className="num"
+                          style={{
+                            color: c.termine > 0 ? "var(--success-fg)" : "var(--text-disabled)",
+                            fontWeight: c.termine > 0 ? 600 : 400,
+                          }}
+                        >
+                          {c.termine.toLocaleString("de-DE")}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td style={{ color: "var(--text-muted)", fontSize: "var(--fs-sm)", whiteSpace: "nowrap" }}>
+                          {formatDate(l.archived_at as string)}
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <form action={restoreListForm}>
+                            <input type="hidden" name="list_id" value={l.id} />
+                            <button type="submit" className="btn-secondary" style={{ whiteSpace: "nowrap" }}>
+                              <RotateCcw size={14} /> Wiederherstellen
+                            </button>
+                          </form>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
 
-            return (
-              <Link key={l.id} href={`/lists/${l.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
-                <div
-                  className="card organic-list-card"
-                  style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)", height: "100%" }}
-                >
-                  {head}
-                  <div style={{ display: "flex", gap: "var(--sp-7)", marginTop: "auto", flexWrap: "wrap" }}>
-                    <Stat icon={<Users size={12} />} label="Kontakte" value={c.kontakte} />
-                    {/* Faellige FUs sind der einzige Wert hier, der eine Handlung
-                        verlangt — nur er traegt Warnfarbe, und nur wenn > 0. */}
-                    <Stat
-                      icon={<Inbox size={12} />}
-                      label="Fällig"
-                      value={c.faellig}
-                      tone={c.faellig > 0 ? "warning" : undefined}
-                    />
-                    <Stat icon={<CalendarCheck size={12} />} label="Termine" value={c.termine} />
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+            {tab === "aktiv" && shown.length > 1 && (
+              <tfoot>
+                <tr>
+                  <td style={{ color: "var(--text-muted)", fontSize: "var(--fs-sm)" }}>Gesamt</td>
+                  <td />
+                  <td className="num" style={{ color: "var(--text-secondary)" }}>
+                    {summe.kontakte.toLocaleString("de-DE")}
+                  </td>
+                  <td className="num" style={{ color: summe.faellig > 0 ? "var(--danger-fg)" : "var(--text-disabled)" }}>
+                    {summe.faellig.toLocaleString("de-DE")}
+                  </td>
+                  <td className="num" style={{ color: summe.termine > 0 ? "var(--success-fg)" : "var(--text-disabled)" }}>
+                    {summe.termine.toLocaleString("de-DE")}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       )}
-    </div>
-  );
-}
-
-function Stat({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  tone?: "warning";
-}) {
-  const color = tone === "warning" ? "var(--warning-fg)" : "var(--text-primary)";
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <span
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "var(--sp-3)",
-          fontSize: "var(--fs-2xs)",
-          color: "var(--text-muted)",
-        }}
-      >
-        {icon} {label}
-      </span>
-      <span className="tnum" style={{ fontSize: "var(--fs-lg)", fontWeight: 600, color }}>
-        {value.toLocaleString("de-DE")}
-      </span>
     </div>
   );
 }

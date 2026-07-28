@@ -19,11 +19,13 @@ import { useEffect, useRef, useState, useTransition } from "react";
 
 const DEBOUNCE_MS = 220;
 
-const KIND_META: Record<SearchKind, { label: string; icon: React.ReactNode; color: string }> = {
-  contact: { label: "LinkedIn", icon: <MessageSquare size={13} />, color: "var(--stage-linkedin)" },
-  phone_lead: { label: "Telefon", icon: <Phone size={13} />, color: "var(--stage-telefon)" },
-  setting: { label: "Setting", icon: <Users size={13} />, color: "var(--stage-setting)" },
-  closing: { label: "Closing", icon: <Handshake size={13} />, color: "var(--success-fg)" },
+// Die Quelle steht als Text daneben — eine eigene Farbe je Kanal traegt hier
+// nichts bei und bringt vier weitere Hues ins Bild. Icons bleiben grau.
+const KIND_META: Record<SearchKind, { label: string; icon: React.ReactNode }> = {
+  contact: { label: "LinkedIn", icon: <MessageSquare size={13} /> },
+  phone_lead: { label: "Telefon", icon: <Phone size={13} /> },
+  setting: { label: "Setting", icon: <Users size={13} /> },
+  closing: { label: "Closing", icon: <Handshake size={13} /> },
 };
 
 const KIND_ORDER: SearchKind[] = ["contact", "phone_lead", "setting", "closing"];
@@ -136,7 +138,7 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
               return (
                 <section key={g.kind}>
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", marginBottom: "var(--sp-4)" }}>
-                    <span style={{ color: meta.color, display: "inline-flex" }}>{meta.icon}</span>
+                    <span style={{ color: "var(--text-muted)", display: "inline-flex" }}>{meta.icon}</span>
                     <span className="eyebrow eyebrow-muted">{meta.label}</span>
                     <span className="count-pill">{g.items.length}</span>
                   </div>
