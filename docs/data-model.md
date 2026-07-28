@@ -2,7 +2,7 @@
 
 Kontext für KI-gestützte Datenauswertung über den read-only Supabase-MCP.
 Quellen: `supabase/migrations/` (maßgeblich für Schema) + tatsächliche Nutzung in `src/`.
-Stand: Juli 2026 (nach Migration `20260404000020_list_followup_texts.sql`).
+Stand: Juli 2026 (nach Migration `20260404000023_list_views.sql`).
 
 ## 1. Was die App trackt (Lifecycle)
 
@@ -72,6 +72,7 @@ Begriffe:
 | `workspaces` / `workspace_members` | Team + Mitgliedschaft (`role`, `data_scope`, Invite-Code). |
 | `performance_targets` | Ziele je User: `channel` (`linkedin`\|`telefon`) × `period` (`daily`\|`weekly`) × `metric` (`pitches`\|`calls`\|`appointments`). App-Defaults ohne Eintrag: LinkedIn 20/Tag, 100/Woche; Telefon 40/Tag, 200/Woche (`src/lib/targets.ts`). |
 | `followup_templates` | FU-Textvorlagen je User (`fu_number` 1–3). Vorschlagstext im Nachfassen-Board: `lists.fuN_text` > `followup_templates` > Standardtext (`followUpTextFor`, `src/app/actions/nachfassen.ts`). |
+| `list_views` | **Smart Views** — gespeicherte, filter-definierte Sichten auf LinkedIn-Kontakte, beliebig verschachtelbar. `parent_id` → `list_views` (Selbstreferenz, `on delete cascade`), `name`, `sort_order`, `filters` (jsonb), `owner_name`/`created_by_user_id` wie bei `lists`. **`filters is null` = reiner Ordner** (gruppiert nur), `filters` gesetzt = Ansicht, die zu einer Kontaktmenge auflöst. Besitzt nichts: Kontakte bleiben an ihrer Liste. Filter-Schema und Query-Aufbau ausschließlich in `src/lib/listViews.ts` (`parseViewFilters`, `viewFilterOps`), UI unter `/ansicht/[viewId]` und im Sidebar-Baum. |
 | `organic_lists` / `organic_posts` | Organic-Social-Tracker (Posts, Impressions, `content_type`: educational/motivational/entertaining/bts/other). UI ist abgeklemmt (alte Routen leiten um), Daten existieren ggf. noch. |
 
 ## 4. Status-/Enum-Werte (DB-Wert ↔ UI-Label)
@@ -91,7 +92,7 @@ Historie: Alt-Wert `disqualifiziert` wurde per Migration 0018 zu `unqualifiziert
 - Aktuell wählbar: `Positiv` · `Neutral` · `Negativ`
 - Legacy in Bestandsdaten: `Interessiert`, `Kein Interesse`, `Zu teuer`, `Falsches Timing`, `Bereits Lösung`, `Kein Budget`, `Falsche Zielgruppe` (Definition: `src/lib/categories.ts`)
 
-**`contacts.follow_up_number`** (FU-Stufe): NULL/0 = noch kein Follow-up, 1–3 = FU1–FU3. Fälligkeits-Intervalle: nach Pitch +3 Tage → FU1, danach +5 → FU2, danach +7 → FU3, danach Ende (`src/app/actions/contacts.ts`, `calcNextFollowUp`). Ausschluss aus dem FU-Flow: `answered=true` oder `appointment_set=true` oder FU3 erreicht oder `blocked_at` gesetzt (Lead hat uns blockiert).
+**`contacts.follow_up_number`** (FU-Stufe): **NULL** = noch kein Follow-up, 1–3 = FU1–FU3. Achtung: der CHECK erlaubt nur `null` oder `1,2,3` — eine **0 steht nie in der DB**. Wer auf „noch kein Follow-up" filtert, braucht `is null`; ein `in (0)` findet nichts, und `in (…)` trifft NULL grundsätzlich nicht. Fälligkeits-Intervalle: nach Pitch +3 Tage → FU1, danach +5 → FU2, danach +7 → FU3, danach Ende (`src/app/actions/contacts.ts`, `calcNextFollowUp`). Ausschluss aus dem FU-Flow: `answered=true` oder `appointment_set=true` oder FU3 erreicht oder `blocked_at` gesetzt (Lead hat uns blockiert).
 
 ## 5. RPCs = maßgebliche Metrik-Definitionen
 
@@ -148,6 +149,10 @@ Der Migrationsordner ist fast, aber nicht 100 % vollständig:
 - Migration 0014 erwähnt explizit einen Alt-CHECK auf `answer_category` „aus der nicht im Repo vorhandenen Alt-Migration".
 
 Konsequenz: Bei Unsicherheit über existierende Spalten das Live-Schema per MCP prüfen (`list_tables`), statt allein den Migrationen zu vertrauen.
+
+**Nullable-Fallen bei Boolean-Filtern:** `contacts.answered` und `contacts.appointment_set` sind `boolean | null`, und **NULL ist der Normalfall** (frisch gepitcht = noch nichts passiert). Ein `= false` verliert damit die Mehrheit der Zeilen. Die gesamte App liest „nicht true" als Nein — so auch `isDueFollowUp` (`ListBoardV2`), der `nachfassen_tasks`-RPC und `viewFilterOps` (`src/lib/listViews.ts`). In SQL entsprechend `is not true` statt `= false`.
+
+**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes) und `…0023` (`list_views`) laufen nicht automatisch — sie müssen im Supabase-SQL-Editor ausgeführt werden.
 
 ## 8. Datenauswertung per MCP
 
