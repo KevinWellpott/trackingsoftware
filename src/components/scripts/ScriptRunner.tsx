@@ -238,6 +238,7 @@ export function ScriptRunner({ blocks, highlight, initial, onSave }: Props) {
                 fontSize: "0.8125rem",
                 lineHeight: 1.5,
                 color: "var(--text-muted)",
+                whiteSpace: "pre-line",
                 margin: "0 0 0.5rem 1.875rem",
               }}
             >

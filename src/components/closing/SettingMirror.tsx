@@ -223,6 +223,7 @@ export function SettingMirror({ setting }: { setting: SettingContext }) {
                 fontSize: "0.8125rem",
                 lineHeight: 1.5,
                 color: "var(--text-muted)",
+                whiteSpace: "pre-line",
                 margin: `0 0 0.5rem ${BLOCK_INDENT}`,
               }}
             >

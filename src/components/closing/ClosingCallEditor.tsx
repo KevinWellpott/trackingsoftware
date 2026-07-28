@@ -5,13 +5,14 @@ import { AssigneeMultiSelect } from "@/components/assignees/AssigneeMultiSelect"
 import { DangerZone } from "@/components/ui/DangerZone";
 import { ScriptRunner } from "@/components/scripts/ScriptRunner";
 import { Modal } from "@/components/ui/Modal";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 // Alias: diese Datei hat ein eigenes, privates <Toggle> fuer die Modal-Felder.
 import { Toggle as UiToggle } from "@/components/ui/Toggle";
 import { SettingMirror, type SettingContext } from "@/components/closing/SettingMirror";
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
-import { CLOSING_BLOCKS } from "@/lib/scripts";
+import { CLOSING_BLOCKS, LEGACY_CLOSING_BLOCKS } from "@/lib/scripts";
 import type { ClosingCall } from "@/lib/types";
-import { CalendarClock, Check, ChevronRight, FileText, Users } from "lucide-react";
+import { CalendarClock, Check, ChevronRight, FileText, RotateCcw, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
@@ -210,6 +211,7 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
   const [savedTick, setSavedTick] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   // Autosave-Felder (lokaler State)
   const [status, setStatus] = useState<ClosingCall["status"]>(call.status);
@@ -298,6 +300,57 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
     { key: "nachfassen" as const, label: "Nachfassen", tone: "follow", open: () => setFollowOpen(true) },
   ];
 
+  // Anwesenheit ist ein Schalter, kein Dialog — man traegt sie beim Call-Start
+  // ein und will sie korrigieren koennen. Anders als im Setting leitet sich
+  // daraus KEIN Status ab: closing_calls kennt kein "no_show", das Ergebnis
+  // steht in status (offen/gewonnen/verloren/nachfassen).
+  function handleShowStatus(next: "show" | "no_show") {
+    const value = showStatus === next ? null : next;
+    setShowStatus(value);
+    save({ show_status: value });
+  }
+
+  // Setzt alles zurueck, was das ERGEBNIS beschreibt. Script-Antworten,
+  // Notizen, Aufzeichnung und Termin bleiben — das ist Arbeit, kein Ergebnis.
+  async function handleReset() {
+    const ok = await confirm({
+      title: "Ergebnis zurücksetzen?",
+      message:
+        "Anwesenheit, Status und alle erfassten Deal-Daten werden geleert, der Call steht wieder auf „Offen“. Script-Antworten, Notizen und der Termin bleiben erhalten.",
+      confirmLabel: "Zurücksetzen",
+      destructive: true,
+    });
+    if (!ok) return;
+    setStatus("offen");
+    setShowStatus(null);
+    setDealVolume("");
+    setPaymentType("Einmal");
+    setContractStart("");
+    setSignatureReceived(false);
+    setLostReason("");
+    setFollowUpDue("");
+    save(
+      {
+        status: "offen",
+        show_status: null,
+        closed: false,
+        deal_volume: null,
+        payment_type: null,
+        contract_start: null,
+        signature_received: false,
+        lost_reason: null,
+        follow_up_due: null,
+      },
+      { refresh: true },
+    );
+  }
+
+  // Antworten auf Bloecke, die es im aktuellen Skript nicht mehr gibt.
+  const legacyAnswers = LEGACY_CLOSING_BLOCKS.map((b) => ({
+    key: b.key,
+    label: b.label,
+    value: (call.script_answers?.[b.key] ?? "").trim(),
+  })).filter((e) => e.value.length > 0);
   // Die vier Inhaltsbloecke einmal binden — die beiden Layouts ordnen sie nur
   // um, statt dasselbe JSX zweimal zu pflegen.
   const scriptCard = (
@@ -317,13 +370,56 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
         initial={call.script_answers ?? {}}
         onSave={(answers) => updateClosingCall(call.id, { script_answers: answers })}
       />
+
+      {/* Antworten aus der Skript-Vorversion. Sie stehen weiter in
+          script_answers und wuerden sonst still verschwinden. */}
+      {legacyAnswers.length > 0 && (
+        <details style={{ marginTop: "var(--sp-8)", borderTop: "1px solid var(--border-subtle)", paddingTop: "var(--sp-6)" }}>
+          <summary
+            className="collapse-summary"
+            style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", cursor: "pointer", userSelect: "none" }}
+          >
+            <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+            <span className="eyebrow eyebrow-muted">Aus früherer Skript-Version ({legacyAnswers.length})</span>
+          </summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)", marginTop: "var(--sp-6)" }}>
+            {legacyAnswers.map((e) => (
+              <div key={e.key}>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: "var(--fs-sm)",
+                    fontWeight: 500,
+                    color: "var(--text-secondary)",
+                    marginBottom: "var(--sp-3)",
+                  }}
+                >
+                  {e.label}
+                </span>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "var(--fs-base)",
+                    lineHeight: "var(--lh-base)",
+                    color: "var(--text-muted)",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {e.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 
+  // Volle Breite: Zusatznotizen sind das laengste Freitextfeld der Seite.
   const notesCard = (
     <div
       style={{
-        height: "100%",
         display: "flex",
         flexDirection: "column",
         background: "var(--surface-100)",
@@ -371,21 +467,34 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
     </div>
   );
 
+  // Zuweisung sitzt ganz oben und bleibt flach: eine Zeile, kein Kartenkopf.
+  // Als hohe Karte in der unteren Reihe stand sie meist halb leer.
   const assignCard = (
     <div
+      className="card"
       style={{
-        height: "100%",
-        background: "var(--surface-100)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "1rem 1.125rem",
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--sp-6)",
+        flexWrap: "wrap",
+        padding: "var(--sp-5) var(--sp-7)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.625rem" }}>
-        <Users size={14} style={{ color: "var(--text-subtle)" }} />
-        <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}>Zuweisung</span>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "var(--sp-4)",
+          flexShrink: 0,
+          color: "var(--text-muted)",
+        }}
+      >
+        <Users size={15} />
+        <span className="eyebrow eyebrow-muted">Zuweisung</span>
+      </span>
+      <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+        <AssigneeMultiSelect entityType="closing_call" entityId={call.id} users={users} initial={assignees} />
       </div>
-      <AssigneeMultiSelect entityType="closing_call" entityId={call.id} users={users} initial={assignees} />
     </div>
   );
 
@@ -453,33 +562,6 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
       </div>
 
       <div>
-        <span style={fieldLabel}>Show-Status</span>
-        <Segmented
-          value={showStatus}
-          options={[
-            {
-              value: "show",
-              label: "Show",
-              color: "var(--color-success-text)",
-              bg: "var(--color-success-bg)",
-              border: "var(--color-success-border)",
-            },
-            {
-              value: "no_show",
-              label: "No-Show",
-              color: "var(--color-error-text)",
-              bg: "var(--color-error-bg)",
-              border: "var(--color-error-border)",
-            },
-          ]}
-          onChange={(v) => {
-            setShowStatus(v);
-            save({ show_status: v });
-          }}
-        />
-      </div>
-
-      <div>
         <span style={fieldLabel}>Aufzeichnung (Link)</span>
         <input
           type="url"
@@ -540,8 +622,46 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
           padding: "var(--sp-5) var(--sp-7)",
         }}
       >
-        {/* Links: worum es geht + Kontext zum gesetzten Ergebnis. */}
-        <span className="eyebrow eyebrow-muted">Ergebnis</span>
+        {/* Links: Anwesenheit als frei umschaltbarer Selektor — identisch
+            zum Setting, damit beide Detailansichten gleich zu bedienen sind. */}
+        <span className="eyebrow eyebrow-muted">Anwesenheit</span>
+        <div className="show-group" role="group" aria-label="Anwesenheit">
+          <button
+            type="button"
+            className="show-seg"
+            data-tone="show"
+            data-active={showStatus === "show"}
+            aria-pressed={showStatus === "show"}
+            onClick={() => handleShowStatus("show")}
+            disabled={isPending}
+          >
+            Erschienen
+          </button>
+          <button
+            type="button"
+            className="show-seg"
+            data-tone="noshow"
+            data-active={showStatus === "no_show"}
+            aria-pressed={showStatus === "no_show"}
+            onClick={() => handleShowStatus("no_show")}
+            disabled={isPending}
+          >
+            Nicht erschienen
+          </button>
+        </div>
+
+        {/* Korrektur-Ausgang, bewusst leise. */}
+        <button
+          type="button"
+          className="ui-btn"
+          data-variant="ghost"
+          onClick={handleReset}
+          disabled={isPending}
+          title="Ergebnis zurücksetzen"
+          style={{ minHeight: 28, padding: "0 var(--sp-5)", fontSize: "var(--fs-sm)" }}
+        >
+          <RotateCcw size={13} /> Zurücksetzen
+        </button>
 
         {status === "gewonnen" && currentDealVolume != null && !Number.isNaN(currentDealVolume) && (
           <span className="tnum" style={metaText}>
@@ -626,7 +746,8 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
         </div>
       )}
 
-      {/* ── Call-Details: ganz oben, zugeklappt ── */}
+      {/* ── Zuweisung + Call-Details: beides ganz oben ── */}
+      {assignCard}
       {detailsCard}
 
       {/* ── Umschalter: Setting neben dem Script ── */}
@@ -668,28 +789,17 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
             </div>
           </div>
 
-          {/* Reihe 2: Zuweisung · Zusatznotizen, ebenfalls auf gleicher Hoehe */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: "1.25rem",
-            }}
-          >
-            {assignCard}
-            {notesCard}
-          </div>
+          {/* Reihe 2: Zusatznotizen ueber die volle Breite */}
+          {notesCard}
         </>
       ) : (
-        /* Ohne Setting-Spiegel: Script links, Zuweisung + Notizen rechts. */
-        <div style={{ display: "flex", gap: "1.25rem", alignItems: "stretch", flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 520px", minWidth: 0 }}>{scriptCard}</div>
-          <div style={{ flex: "1 1 300px", maxWidth: 400, display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {assignCard}
-            {notesCard}
-          </div>
-        </div>
+        <>
+          {scriptCard}
+          {notesCard}
+        </>
       )}
+
+      {dialog}
 
       {/* ── Danger-Zone: Eintrag löschen ── */}
       <DangerZone
