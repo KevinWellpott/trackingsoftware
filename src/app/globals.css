@@ -192,6 +192,10 @@
                  0 2px 4px -2px rgb(250 250 250 / 0.08);
   --shadow-overlay: 0 16px 40px -12px rgb(0 0 0 / 0.55);
   --glow-accent: 0 0 24px -4px rgb(249 115 22 / 0.35);
+  /* Warning-Pendant zu --glow-accent: markiert „du bist dran" (faellige
+     Follow-ups). Enger und kraeftiger als der Akzent-Glow, weil er auf
+     kleinen Chips in dichten Tabellenzeilen sitzt. */
+  --glow-warning: 0 0 16px -4px rgb(209 162 79 / 0.55);
   --shadow-btn-primary: inset 0 1px 0 rgb(255 255 255 / 0.086),
                         inset 0 0 0 1px #ea580c;
   --ring-focus: var(--orange-500);
@@ -1277,6 +1281,15 @@ details[open] > .collapse-summary {
   margin-bottom: var(--sp-6);
 }
 
+/* Gruppen-Kopf innerhalb einer Liste (<details>/<summary>).
+   Bewusst leichter als .collapse-summary: das ist ein Karten-Rezept mit
+   Hover-Flaeche und Trennlinie und wuerde eine Zwischenueberschrift zur
+   eigenen Karte aufblasen. */
+.group-summary { list-style: none; cursor: pointer; }
+.group-summary::-webkit-details-marker { display: none; }
+.group-chevron { transition: transform var(--transition-fast); flex-shrink: 0; }
+details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
+
 /* ─── 6.11 Listen & Boards ─────────────────────────────────── */
 .lbv2-row { transition: background var(--transition-fast); }
 .lbv2-row:hover { background: var(--surface-1); }
@@ -1292,6 +1305,18 @@ details[open] > .collapse-summary {
 }
 .lbv2-del:hover   { color: var(--danger-fg); }
 .lbv2-block:hover { color: var(--warning-fg); }
+
+/* Faelliges Follow-up.
+   Die FU-Stufe ist eine Eskalation (neutral → gold → rot), die FAELLIGKEIT ist
+   eine Aufforderung. Vorher gewann die Stufenfarbe: ab FU1 uebermalte sie das
+   goldene Signal, sodass nur „noch nichts gesendet" gold aussah. Jetzt schlaegt
+   die Faelligkeit die Stufe — Gold heisst ausnahmslos „du bist dran".
+   Der Glow ist bewusst statisch: 40 pulsierende Chips in einer virtualisierten
+   Tabelle waeren Laerm, kein Signal.
+
+   Die Flaechenfarbe setzt die Komponente (sie kennt die Stufe), hier steht
+   nur der Glow — sonst braeuchte es !important gegen die Inline-Styles. */
+.fu-due { box-shadow: var(--glow-warning); }
 
 .dp-day { transition: background var(--transition-fast); }
 .dp-day:hover { background: var(--surface-3); }

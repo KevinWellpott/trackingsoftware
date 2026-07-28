@@ -191,6 +191,21 @@ const FU_BG: Record<number, string> = {
   3: "var(--danger-bg)",
 };
 
+/**
+ * Farbe des FU-Chips. **Fälligkeit schlägt Stufe.**
+ *
+ * Vorher färbte allein die Stufe, und die Fälligkeit trug nur einen 1px-Rand.
+ * Weil die Fläche bei „noch nichts gesendet" transparent ist, sah nur dieser
+ * eine Fall golden aus — ab FU1 übermalte die Stufenfarbe (grau/gold/rot) das
+ * Signal. Jetzt heißt Gold ausnahmslos „du bist dran", die Stufe bleibt als
+ * Text lesbar.
+ */
+function fuTone(value: 1 | 2 | 3 | null, due: boolean): { bg: string; fg: string; border: string } {
+  if (due) return { bg: "var(--warning-bg)", fg: "var(--warning-fg)", border: "var(--warning)" };
+  if (value) return { bg: FU_BG[value], fg: FU_COLORS[value], border: FU_COLORS[value] };
+  return { bg: "transparent", fg: "var(--text-subtle)", border: "var(--border)" };
+}
+
 function FUChip({
   value, blocked, due, dueAt, onAdvance, onStepBack,
 }: {
@@ -208,6 +223,7 @@ function FUChip({
     : atMax
       ? "FU3 erreicht · Rechtsklick: Stufe zurück"
       : `${due ? `Fällig seit ${formatDateDe(dueAt, { short: true })} · ` : dueAt ? `Fällig am ${formatDateDe(dueAt, { short: true })} · ` : ""}Klick: FU${(value ?? 0) + 1} erledigt · Rechtsklick: Stufe zurück`;
+  const tone = fuTone(value, due);
   return (
     <button
       type="button"
@@ -215,13 +231,14 @@ function FUChip({
       onClick={() => { if (!atMax) onAdvance(); }}
       onContextMenu={(e) => { e.preventDefault(); onStepBack(); }}
       title={title}
+      className={due ? "fu-due" : undefined}
       style={{
         padding: "2px 9px",
         borderRadius: "var(--r-full)",
         border: "1px solid",
-        borderColor: due ? "var(--warning)" : value ? FU_COLORS[value] : "var(--border)",
-        background: value ? FU_BG[value] : "transparent",
-        color: value ? FU_COLORS[value] : "var(--text-subtle)",
+        borderColor: tone.border,
+        background: tone.bg,
+        color: tone.fg,
         fontSize: "var(--fs-xs)",
         fontWeight: 600,
         cursor: blocked ? "default" : "pointer",
@@ -1055,22 +1072,25 @@ const MobileContactCard = memo(function MobileContactCard({
             disabled={blocked}
             onClick={() => { if (vals.follow_up_number !== 3) advance(); }}
             onContextMenu={(e) => { e.preventDefault(); stepBack(); }}
+            className={fuDue ? "fu-due" : undefined}
             style={{
               ...mobileControl,
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: blocked ? "default" : "pointer",
-              color: vals.follow_up_number ? FU_COLORS[vals.follow_up_number] : "var(--text-subtle)",
-              fontWeight: vals.follow_up_number ? 800 : 400,
-              background: vals.follow_up_number ? FU_BG[vals.follow_up_number] : "var(--surface-50)",
+              // Gleiche Regel wie am Desktop-Chip: faellig schlaegt Stufe.
+              color: fuDue ? "var(--warning-fg)" : vals.follow_up_number ? FU_COLORS[vals.follow_up_number] : "var(--text-subtle)",
+              fontWeight: fuDue || vals.follow_up_number ? 800 : 400,
+              background: fuDue ? "var(--warning-bg)" : vals.follow_up_number ? FU_BG[vals.follow_up_number] : "var(--surface-50)",
+              borderColor: fuDue ? "var(--warning)" : undefined,
               opacity: blocked ? 0.5 : 1,
             }}
             title={blocked ? "Blockiert — keine Follow-ups" : "Tippen: nächstes Follow-up erledigt"}
           >
             {vals.follow_up_number ? `FU${vals.follow_up_number}` : "FU starten"}
             {fuDue && (
-              <span style={{ marginLeft: 6, fontSize: "0.75rem", fontWeight: 600, color: "var(--color-warning-text)" }}>
+              <span style={{ marginLeft: 6, fontSize: "0.75rem", fontWeight: 600, color: "var(--warning-fg)" }}>
                 · fällig
               </span>
             )}

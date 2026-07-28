@@ -117,17 +117,30 @@ export function TermineBoard({
 
   const hiddenCount = useMemo(() => baseFiltered.filter((e) => e.hidden).length, [baseFiltered]);
 
+  // Suchbegriff greift in ALLEN Ansichten — vorher filterte er nur die Liste
+  // und ging beim Wechsel auf den Kalender verloren.
+  const matchesSearch = useCallback(
+    (e: TerminEvent) => {
+      const q = params.search.trim().toLowerCase();
+      if (!q) return true;
+      return [e.title, e.company].filter(Boolean).join(" ").toLowerCase().includes(q);
+    },
+    [params.search],
+  );
+
   const filtered = useMemo(
-    () => (params.showHidden ? baseFiltered : baseFiltered.filter((e) => !e.hidden)),
-    [baseFiltered, params.showHidden],
+    () =>
+      (params.showHidden ? baseFiltered : baseFiltered.filter((e) => !e.hidden)).filter(matchesSearch),
+    [baseFiltered, params.showHidden, matchesSearch],
   );
 
   const ohneTermin = useMemo(
     () =>
       allOhneTermin
         .filter((e) => params.kinds.has(e.kind) && matchesPerson(e))
-        .filter((e) => params.showHidden || !e.hidden),
-    [allOhneTermin, params.kinds, matchesPerson, params.showHidden],
+        .filter((e) => params.showHidden || !e.hidden)
+        .filter(matchesSearch),
+    [allOhneTermin, params.kinds, matchesPerson, params.showHidden, matchesSearch],
   );
 
   // Typ-Zähler zeigen den Bestand VOR dem Typ-Filter, damit man sieht, was das
@@ -238,6 +251,10 @@ export function TermineBoard({
         hiddenCount={hiddenCount}
         counts={counts}
         canFilterPersons={canFilterPersons}
+        search={params.search}
+        zeit={params.zeit}
+        onSearch={(q) => setParam("q", q.trim() ? q : null)}
+        onZeit={(z) => setParam("zeit", z === "anstehend" ? null : z)}
         onView={(v: TerminView) => setParam("view", v)}
         onStep={(dir) => setParam("date", stepDate(params.view, params.date, dir))}
         onToday={() => setParam("date", today)}
@@ -275,7 +292,7 @@ export function TermineBoard({
       )}
 
       {params.view === "liste" ? (
-        <TermineList events={filtered} ohneTermin={ohneTermin} />
+        <TermineList events={filtered} ohneTermin={ohneTermin} zeit={params.zeit} today={today} />
       ) : params.view === "monat" ? (
         <CalendarMonth
           year={ay}

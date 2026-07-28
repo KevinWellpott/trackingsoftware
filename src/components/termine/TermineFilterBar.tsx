@@ -2,8 +2,10 @@
 
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import { Segmented } from "@/components/ui/Segmented";
-import { CalendarDays, ChevronLeft, ChevronRight, Eye, EyeOff, List } from "lucide-react";
-import type { TerminView } from "./viewState";
+import { Input } from "@/components/ui/Input";
+import { CalendarDays, ChevronLeft, ChevronRight, Eye, EyeOff, List, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import type { TerminView, TerminZeit } from "./viewState";
 
 // Obere Filterzeile: Navigation + Ansichtswechsel + Typ- und Personenfilter.
 // Die Listenansicht ist bewusst kein vierter Tab, sondern ein zurückhaltender
@@ -15,6 +17,14 @@ const VIEW_OPTIONS = [
   { value: "monat", label: "Monat" },
   { value: "woche", label: "Woche" },
   { value: "tag", label: "Tag" },
+] as const;
+
+// Zeitfenster der Listenansicht. In den Kalenderansichten setzt der Zeitraum
+// bereits die Grenze — dort waere der Filter bedeutungslos und wird ausgeblendet.
+const ZEIT_OPTIONS = [
+  { value: "anstehend", label: "Anstehend" },
+  { value: "vergangen", label: "Vergangen" },
+  { value: "alle", label: "Alle" },
 ] as const;
 
 const chipBase: React.CSSProperties = {
@@ -54,6 +64,10 @@ export function TermineFilterBar({
   hiddenCount,
   counts,
   canFilterPersons,
+  search,
+  zeit,
+  onSearch,
+  onZeit,
   onView,
   onStep,
   onToday,
@@ -71,6 +85,10 @@ export function TermineFilterBar({
   hiddenCount: number;
   counts: { setting: number; closing: number };
   canFilterPersons: boolean;
+  search: string;
+  zeit: TerminZeit;
+  onSearch: (q: string) => void;
+  onZeit: (z: TerminZeit) => void;
   onView: (v: TerminView) => void;
   onStep: (dir: -1 | 1) => void;
   onToday: () => void;
@@ -80,6 +98,25 @@ export function TermineFilterBar({
   onToggleHidden: () => void;
 }) {
   const isList = view === "liste";
+
+  // Eingabe lokal puffern und verzoegert in die URL schreiben. setParam macht
+  // ein router.replace — pro Tastendruck waere das ein Server-Roundtrip.
+  // Die URL bleibt trotzdem die Wahrheit (teilbar, ueberlebt Ansichtswechsel).
+  const [draft, setDraft] = useState(search);
+  const [syncedSearch, setSyncedSearch] = useState(search);
+  if (search !== syncedSearch) {
+    setSyncedSearch(search);
+    setDraft(search);
+  }
+
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  function onSearchInput(value: string) {
+    setDraft(value);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => onSearch(value), 250);
+  }
 
   return (
     <div
@@ -133,6 +170,29 @@ export function TermineFilterBar({
         </span>
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+          {/* Suche gilt in ALLEN Ansichten und liegt in der URL — vorher hielt
+              die Listenansicht sie lokal und verlor sie beim Umschalten. */}
+          <div style={{ position: "relative", width: 208 }}>
+            <Search
+              size={13}
+              style={{
+                position: "absolute",
+                left: "0.625rem",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "var(--text-subtle)",
+                pointerEvents: "none",
+              }}
+            />
+            <Input
+              type="search"
+              placeholder="Lead oder Firma…"
+              value={draft}
+              onChange={(e) => onSearchInput(e.target.value)}
+              aria-label="Termine durchsuchen"
+              style={{ minHeight: "var(--h-control)", padding: "0.35rem 0.75rem 0.35rem 2rem", fontSize: "var(--fs-sm)" }}
+            />
+          </div>
           <Segmented
             options={VIEW_OPTIONS}
             value={isList ? "woche" : view}
@@ -156,8 +216,32 @@ export function TermineFilterBar({
         </div>
       </div>
 
-      {/* ── Zeile 2: Typ · Person · Versteckte ── */}
+      {/* ── Zeile 2: Zeit · Typ · Person · Versteckte ── */}
       <div className="filter-bar-row" style={{ display: "flex", alignItems: "center", gap: "var(--sp-6)", flexWrap: "wrap" }}>
+        {isList && (
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
+            {ZEIT_OPTIONS.map((o) => {
+              const active = zeit === o.value;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => onZeit(o.value)}
+                  aria-pressed={active}
+                  style={{
+                    ...chipBase,
+                    border: `1px solid ${active ? "var(--border-accent)" : "var(--border-default)"}`,
+                    background: active ? "var(--accent-muted)" : "var(--surface-1)",
+                    color: active ? "var(--orange-300)" : "var(--text-muted)",
+                  }}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
           {(["setting", "closing"] as const).map((k) => {
             const active = kinds.has(k);

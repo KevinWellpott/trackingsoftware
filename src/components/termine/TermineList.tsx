@@ -4,11 +4,18 @@ import { formatTermin } from "@/lib/apptTime";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { TerminEvent } from "@/lib/termine";
 import { EUR_FMT, SOURCE_META } from "@/lib/terminMeta";
-import { Input } from "@/components/ui/Input";
-import { CalendarClock, CalendarX2, Phone, Search, Video } from "lucide-react";
+import { addDaysISO, weekStart } from "@/lib/dates";
+import { CalendarClock, CalendarX2, ChevronRight, Phone, Video } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { eventVars, kindLabel } from "./EventChip";
+import {
+  GRUPPEN_LABEL,
+  GRUPPEN_ORDER,
+  gruppeFor,
+  type TerminGruppe,
+  type TerminZeit,
+} from "./viewState";
 
 // Die „versteckte" Listenansicht — ersetzt die früheren getrennten Queues für
 // Setting und Closing. Kartenlayout und Verhalten bleiben wie gewohnt, ergänzt
@@ -19,87 +26,98 @@ import { eventVars, kindLabel } from "./EventChip";
 // offen) — dieselbe Bedeutung wie im Kalender und auf den Ergebnis-Buttons.
 // Typ und Quelle stehen als stiller Text, die Quelle mit ihrem Kanal-Dot.
 
-export function TermineList({ events, ohneTermin }: { events: TerminEvent[]; ohneTermin: TerminEvent[] }) {
-  const [search, setSearch] = useState("");
+/** Chronologisch; innerhalb eines Tages nach Uhrzeit. */
+function byTime(a: TerminEvent, b: TerminEvent): number {
+  const d = (a.dayISO ?? "").localeCompare(b.dayISO ?? "");
+  return d !== 0 ? d : a.startMin - b.startMin;
+}
 
-  const [visible, visibleOhne] = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return [events, ohneTermin];
-    const match = (e: TerminEvent) =>
-      [e.title, e.company].filter(Boolean).join(" ").toLowerCase().includes(q);
-    return [events.filter(match), ohneTermin.filter(match)];
-  }, [events, ohneTermin, search]);
+export function TermineList({
+  events,
+  ohneTermin,
+  zeit,
+  today,
+}: {
+  events: TerminEvent[];
+  ohneTermin: TerminEvent[];
+  zeit: TerminZeit;
+  today: string;
+}) {
+  const weekEnd = useMemo(() => addDaysISO(weekStart(today), 6), [today]);
 
-  const total = visible.length + visibleOhne.length;
+  const sections = useMemo(() => {
+    const buckets = new Map<TerminGruppe, TerminEvent[]>();
+    const push = (g: TerminGruppe, e: TerminEvent) => {
+      const arr = buckets.get(g);
+      if (arr) arr.push(e);
+      else buckets.set(g, [e]);
+    };
+
+    // „Erledigt" heisst hier: das Ergebnis ist eingetragen. Nur ein noch
+    // OFFENER Termin in der Vergangenheit ist wirklich liegen geblieben —
+    // sonst waere die dringendste Gruppe voller abgehakter Altlasten.
+    for (const e of events) push(gruppeFor(e.dayISO, e.status !== "offen", today, weekEnd), e);
+    for (const e of ohneTermin) push("ohne", e);
+
+    // Zeitfenster. „Ohne Termin" bleibt in jedem Fenster ausser „vergangen"
+    // sichtbar: der Eintrag ist per Definition unerledigt und haette sonst
+    // keinen Ort.
+    const allowed: readonly TerminGruppe[] =
+      zeit === "anstehend"
+        ? ["ueberfaellig", "heute", "woche", "spaeter", "ohne"]
+        : zeit === "vergangen"
+          ? ["vergangen"]
+          : GRUPPEN_ORDER;
+
+    return GRUPPEN_ORDER.filter((g) => allowed.includes(g))
+      .map((g) => {
+        const items = [...(buckets.get(g) ?? [])].sort(byTime);
+        // Vergangenes von neu nach alt — das Letzte interessiert zuerst.
+        if (g === "vergangen") items.reverse();
+        return { key: g, label: GRUPPEN_LABEL[g], items };
+      })
+      .filter((s) => s.items.length > 0);
+  }, [events, ohneTermin, today, weekEnd, zeit]);
+
+  if (sections.length === 0) return <EmptyState />;
 
   return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
-        <div style={{ position: "relative", flex: "1 1 200px", maxWidth: 320 }}>
-          <Search
-            size={13}
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-7)" }}>
+      {sections.map((s) => (
+        // Vergangenes startet zugeklappt — es ist Nachschlagewerk, kein Arbeitsvorrat.
+        <details key={s.key} open={s.key !== "vergangen"}>
+          <summary
+            className="group-summary"
             style={{
-              position: "absolute",
-              left: "0.625rem",
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "var(--text-subtle)",
-              pointerEvents: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              marginBottom: "0.625rem",
             }}
-          />
-          <Input
-            type="search"
-            placeholder="Lead oder Firma…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ minHeight: 32, padding: "0.35rem 0.75rem 0.35rem 2rem", fontSize: "0.8125rem" }}
-          />
-        </div>
-        <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", whiteSpace: "nowrap" }}>
-          {total.toLocaleString("de-DE")} Termine
-        </span>
-      </div>
-
-      {total === 0 ? (
-        <EmptyState />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
-          {visible.map((e) => (
-            <EventRow key={e.id} event={e} />
-          ))}
-
-          {visibleOhne.length > 0 && (
-            <>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  marginTop: "0.75rem",
-                  paddingTop: "0.75rem",
-                  borderTop: "1px solid var(--border)",
-                }}
-              >
-                <CalendarX2 size={14} style={{ color: "var(--text-subtle)" }} />
-                <span
-                  style={{
-                    fontSize: "0.6875rem",
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    color: "var(--text-subtle)",
-                  }}
-                >
-                  Ohne Termin · {visibleOhne.length}
-                </span>
-              </div>
-              {visibleOhne.map((e) => (
-                <EventRow key={e.id} event={e} />
-              ))}
-            </>
-          )}
-        </div>
-      )}
+          >
+            <ChevronRight size={13} className="group-chevron" style={{ color: "var(--text-subtle)" }} />
+            {s.key === "ohne" && <CalendarX2 size={13} style={{ color: "var(--text-subtle)" }} />}
+            <span
+              className="eyebrow"
+              style={{
+                // Nur „Überfällig" traegt Warnfarbe — die eine Gruppe, die eine
+                // Handlung verlangt. Alles andere bleibt still.
+                color: s.key === "ueberfaellig" ? "var(--warning-fg)" : "var(--text-subtle)",
+              }}
+            >
+              {s.label}
+            </span>
+            <span className="count-pill" data-tone={s.key === "ueberfaellig" ? "overdue" : undefined}>
+              {s.items.length}
+            </span>
+          </summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
+            {s.items.map((e) => (
+              <EventRow key={e.id} event={e} />
+            ))}
+          </div>
+        </details>
+      ))}
     </div>
   );
 }

@@ -5,7 +5,18 @@ import { addDaysISO, buildWeekDays, monthLabelDe, weekStart } from "@/lib/dates"
 
 export type TerminView = "monat" | "woche" | "tag" | "liste";
 
+/**
+ * Zeitfenster der Listenansicht.
+ *
+ * Die Liste hatte bisher keine Grenze (`rangeForView` liefert für sie `null`) —
+ * sie zeigte damit jeden Termin, den es je gab, als eine flache Folge. Für die
+ * Kalenderansichten ist der Parameter bedeutungslos, dort setzt der Zeitraum
+ * bereits die Grenze.
+ */
+export type TerminZeit = "anstehend" | "vergangen" | "alle";
+
 const VIEWS: readonly TerminView[] = ["monat", "woche", "tag", "liste"];
+const ZEITEN: readonly TerminZeit[] = ["anstehend", "vergangen", "alle"];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type TermineParams = {
@@ -16,6 +27,8 @@ export type TermineParams = {
   persons: Set<string>;
   showHidden: boolean;
   search: string;
+  /** Nur in der Listenansicht wirksam. */
+  zeit: TerminZeit;
 };
 
 export function parseTermineParams(
@@ -45,6 +58,9 @@ export function parseTermineParams(
 
   const persons = new Set((get("person") ?? "").split(",").filter(Boolean));
 
+  const rawZeit = get("zeit");
+  const zeit = ZEITEN.includes(rawZeit as TerminZeit) ? (rawZeit as TerminZeit) : "anstehend";
+
   return {
     view,
     date,
@@ -52,7 +68,55 @@ export function parseTermineParams(
     persons,
     showHidden: get("versteckt") === "1",
     search: get("q")?.trim() ?? "",
+    zeit,
   };
+}
+
+/**
+ * Termin-Gruppen der Listenansicht, nach Dringlichkeit sortiert.
+ *
+ * `ohne` fasst Termine ohne gesetzten Zeitpunkt zusammen — die gibt es nur in
+ * der Liste, im Kalender haben sie keinen Platz.
+ */
+export type TerminGruppe = "ueberfaellig" | "heute" | "woche" | "spaeter" | "ohne" | "vergangen";
+
+export const GRUPPEN_LABEL: Record<TerminGruppe, string> = {
+  ueberfaellig: "Überfällig",
+  heute: "Heute",
+  woche: "Diese Woche",
+  spaeter: "Später",
+  ohne: "Ohne Termin",
+  vergangen: "Vergangen",
+};
+
+/** Reihenfolge der Gruppen in der Liste — dringend zuerst. */
+export const GRUPPEN_ORDER: readonly TerminGruppe[] = [
+  "ueberfaellig",
+  "heute",
+  "woche",
+  "spaeter",
+  "ohne",
+  "vergangen",
+];
+
+/**
+ * Einordnung eines Termins.
+ *
+ * „Überfällig" meint: liegt in der Vergangenheit und ist noch NICHT abgehakt —
+ * genau das, was liegen geblieben ist. Abgeschlossene Termine der Vergangenheit
+ * landen in „Vergangen", sonst wäre die dringendste Gruppe voller Altlasten.
+ */
+export function gruppeFor(
+  dayISO: string | null,
+  erledigt: boolean,
+  today: string,
+  weekEnd: string,
+): TerminGruppe {
+  if (!dayISO) return "ohne";
+  if (dayISO < today) return erledigt ? "vergangen" : "ueberfaellig";
+  if (dayISO === today) return "heute";
+  if (dayISO <= weekEnd) return "woche";
+  return "spaeter";
 }
 
 /** Die in der aktuellen Ansicht sichtbaren Tage (leer bei Monat/Liste). */
