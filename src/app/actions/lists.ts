@@ -153,4 +153,8 @@ export async function restoreListForm(formData: FormData) {
   if (!listId) return;
   await updateList(listId, { archived_at: null });
   revalidatePath("/team/archiv", "page");
+  revalidatePath("/listen", "page");
+  // Die Sidebar haengt am Dashboard-Layout — ohne das taucht die
+  // wiederhergestellte Liste dort erst nach einem harten Reload auf.
+  revalidatePath("/", "layout");
 }

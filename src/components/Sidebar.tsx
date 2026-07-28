@@ -2,6 +2,7 @@
 
 import { setDataViewForm, signOut } from "@/app/actions/workspace";
 import { createListForm } from "@/app/actions/lists";
+import { SearchTrigger } from "@/components/search/SearchDialog";
 import {
   ArrowRight,
   BarChart2,
@@ -457,6 +458,9 @@ export function SidebarContent({
           gap: 1,
         }}
       >
+        {/* Suche ueber ALLE Listen — ein Name muss nicht mehr in drei, vier
+            Listen einzeln gesucht werden. */}
+        <SearchTrigger onNavigate={onClose} />
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
         {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
         <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
@@ -576,6 +580,8 @@ export function SidebarContent({
             </div>
           )}
 
+          {/* Uebersicht aller Listen inkl. Archiv-Reiter. */}
+          <ListRow href="/listen" name="Alle Listen" onClick={onClose} />
           {lists.map((l) => (
             <ListRow key={l.id} href={`/lists/${l.id}`} name={l.name} onClick={onClose} />
           ))}

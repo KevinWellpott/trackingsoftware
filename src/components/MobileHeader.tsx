@@ -1,6 +1,7 @@
 "use client";
 
 import { Menu } from "lucide-react";
+import { SearchTrigger } from "@/components/search/SearchDialog";
 import { useState } from "react";
 import { MobileDrawer } from "./Sidebar";
 
@@ -49,24 +50,29 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, phon
         <span className="wordmark" style={{ fontSize: "var(--fs-md)" }}>
           titan
         </span>
-        <button
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Menü öffnen"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--border-default)",
-            borderRadius: "var(--r-full)",
-            cursor: "pointer",
-            color: "var(--text-secondary)",
-            width: 36,
-            height: 36,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Menu size={18} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+          {/* Suche direkt im Header — sie ueber den Drawer zu verstecken
+              waere genau der Umweg, den sie abschaffen soll. */}
+          <SearchTrigger variant="icon" />
+          <button
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Menü öffnen"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--border-default)",
+              borderRadius: "var(--r-full)",
+              cursor: "pointer",
+              color: "var(--text-secondary)",
+              width: 36,
+              height: 36,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Menu size={18} />
+          </button>
+        </div>
       </header>
 
       <MobileDrawer
