@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
+import { berlinInputToIso } from "@/lib/apptTime";
 import { revalidatePath } from "next/cache";
 import { parsePhoneCsv } from "@/lib/phone-csv";
 import type { PhoneListKind } from "@/lib/types";
@@ -167,6 +168,8 @@ export async function updatePhoneLead(
 ): Promise<{ error?: string }> {
   if (!(await canAccessPhoneList(listId))) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
+  // callback_at kommt als datetime-local (Berlin-Wandzeit) aus dem Call-Modus.
+  if (patch.callback_at) patch = { ...patch, callback_at: berlinInputToIso(patch.callback_at) };
   const { error } = await supabase.from("phone_leads").update(patch).eq("id", leadId).eq("list_id", listId);
   if (error) return { error: error.message };
   revalidatePath(`/telefon/${listId}`, "page");
@@ -205,7 +208,7 @@ export async function setPhoneLeadOutcome(input: {
   if (!(lead as { first_call_at?: string | null }).first_call_at) patch.first_call_at = todayLocal();
 
   if (input.outcome === "rueckruf") {
-    patch.callback_at = input.callbackAt;
+    patch.callback_at = berlinInputToIso(input.callbackAt);
     const target = await ensurePhoneRoutingList(srcList, "rueckruf");
     if (target) patch.list_id = target;
   } else if (input.outcome === "nicht_erreicht") {

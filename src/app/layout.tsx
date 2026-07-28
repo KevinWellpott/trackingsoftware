@@ -1,24 +1,25 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Ember Glass laedt ausschliesslich 400/500/600 — Gewicht 700 existiert im
+// System nicht, Hierarchie kommt aus Groesse (DESIGN.md §6.2).
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Pitch-Tracker",
+  title: "titan. — Pitch-Tracker",
   description: "Follow-ups und Pitch-Pipelines im Team tracken",
 };
 
-// Setzt data-theme vor dem ersten Paint (kein Theme-Flash). Standard: hell.
-const themeInit = `(function(){try{var t=localStorage.getItem('theme');if(t!=='dark'&&t!=='light'){t='light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`;
+export const viewport = {
+  themeColor: "#0a0a0b",
+  colorScheme: "dark" as const,
+};
 
 export default function RootLayout({
   children,
@@ -26,15 +27,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="de"
-      data-theme="light"
-      suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInit }} />
-      </head>
+    // Ember Glass ist Dark-only — es gibt keinen Light Mode und damit auch
+    // kein Theme-Skript, das vor dem ersten Paint umschalten muesste.
+    <html lang="de" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

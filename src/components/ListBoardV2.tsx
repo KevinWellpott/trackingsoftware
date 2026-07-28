@@ -25,16 +25,22 @@ import { useIsMobile } from "@/lib/useIsMobile";
 // Gemeinsames Grid für Header + Zeilen, damit die Spalten exakt fluchten.
 const GRID_COLS =
   "112px minmax(150px, 1.4fr) 66px 74px 74px 150px minmax(150px, 1.4fr) minmax(120px, 1fr) 68px";
-const ROW_HEIGHT = 40;
+const ROW_HEIGHT = 36;
 const MIN_WIDTH = 1008;
 
 type BoardView = "alle" | "heiss" | "nachfassen" | "ohne_termin";
+
+/** Stufen-Unterauswahl der Nachfassen-Ansicht. null = alle Stufen. */
+type FuFilter = 1 | 2 | 3 | null;
+
+// Segmented arbeitet auf Strings — hier die Brücke zum numerischen Filter.
+type FuSegment = "alle" | "1" | "2" | "3";
 
 type ToastState = { message: string; undo?: () => void };
 
 const cell: React.CSSProperties = {
   padding: "0 12px",
-  fontSize: "0.8125rem",
+  fontSize: "var(--fs-sm)",
   display: "flex",
   alignItems: "center",
   minWidth: 0,
@@ -55,11 +61,11 @@ const cellText: React.CSSProperties = {
 
 const editInput: React.CSSProperties = {
   width: "100%",
-  background: "var(--color-info-bg)",
-  border: "1px solid var(--brand-500)",
-  borderRadius: 5,
+  background: "var(--accent-muted)",
+  border: "1px solid var(--orange-500)",
+  borderRadius: "var(--r-sm)",
   padding: "3px 7px",
-  fontSize: "0.8125rem",
+  fontSize: "var(--fs-sm)",
   color: "var(--text-primary)",
   outline: "none",
   boxSizing: "border-box",
@@ -79,10 +85,11 @@ const compactSelect: React.CSSProperties = {
   maxWidth: 130,
 };
 
-// Heißer Lead = Kategorie "Positiv". Bewusst ohne Zusatzbedingungen —
-// wer positiv geantwortet hat, gehört hier rein, Termin hin oder her.
+// Offene Chance = Kategorie "Positiv", aber noch KEIN Termin. Der Tab ist eine
+// Arbeitsliste, kein Archiv: wer schon terminiert ist, lebt im Kalender und
+// würde hier nur die echten Chancen zuscrollen.
 function isHotLead(c: ListContact): boolean {
-  return c.answer_category === "Positiv";
+  return c.answer_category === "Positiv" && c.appointment_set !== true;
 }
 
 // Fälliges Follow-up — identische Bedingung wie die Kachel "Offene Follow-ups"
@@ -96,6 +103,18 @@ function isDueFollowUp(c: ListContact, today: string): boolean {
     c.follow_up_number !== 3 &&
     c.blocked_at == null
   );
+}
+
+/**
+ * Welche FU-Stufe als Nächstes ansteht (1–3), sonst null.
+ *
+ * `follow_up_number` ist die zuletzt GESENDETE Stufe — ausstehend ist also die
+ * darauf folgende. Spiegelt `next_fu_number` aus dem nachfassen_tasks-RPC;
+ * beide Ansichten müssen denselben Kontakt unter derselben Stufe zeigen.
+ */
+function nextFuNumber(c: ListContact): 1 | 2 | 3 | null {
+  const next = (c.follow_up_number ?? 0) + 1;
+  return next === 1 || next === 2 || next === 3 ? next : null;
 }
 
 // Geantwortet, aber noch kein Termin gebucht.
@@ -157,16 +176,18 @@ function InlineText({
 }
 
 // ─── FU-Chip: Klick stuft hoch, Rechtsklick zurück ───────────────────────────
+// FU-Stufen sind eine Eskalation, kein Status — und kein Markenorange.
+// Neutral → Gold → Rot spiegelt die steigende Dringlichkeit der Kadenz.
 const FU_COLORS: Record<number, string> = {
-  1: "var(--brand-500)",
-  2: "var(--color-warning-text)",
-  3: "var(--color-error-text)",
+  1: "var(--text-secondary)",
+  2: "var(--warning-fg)",
+  3: "var(--danger-fg)",
 };
 
 const FU_BG: Record<number, string> = {
-  1: "var(--brand-50)",
-  2: "var(--color-warning-bg)",
-  3: "var(--color-error-bg)",
+  1: "var(--surface-3)",
+  2: "var(--warning-bg)",
+  3: "var(--danger-bg)",
 };
 
 function FUChip({
@@ -195,13 +216,13 @@ function FUChip({
       title={title}
       style={{
         padding: "2px 9px",
-        borderRadius: 5,
+        borderRadius: "var(--r-full)",
         border: "1px solid",
-        borderColor: due ? "var(--color-warning-text)" : value ? FU_COLORS[value] : "var(--border)",
+        borderColor: due ? "var(--warning)" : value ? FU_COLORS[value] : "var(--border)",
         background: value ? FU_BG[value] : "transparent",
         color: value ? FU_COLORS[value] : "var(--text-subtle)",
-        fontSize: "0.6875rem",
-        fontWeight: 800,
+        fontSize: "var(--fs-xs)",
+        fontWeight: 600,
         cursor: blocked ? "default" : "pointer",
         whiteSpace: "nowrap",
         transition: "all 0.12s",
@@ -232,13 +253,13 @@ function InlineToggle({ value, onChange }: { value: boolean; onChange: (v: boole
       onClick={() => onChange(!value)}
       style={{
         padding: "2px 9px",
-        borderRadius: 5,
+        borderRadius: "var(--r-full)",
         border: "1px solid",
         borderColor: value ? "var(--color-success-border)" : "var(--border)",
         background: value ? "var(--color-success-bg)" : "transparent",
         color: value ? "var(--color-success-text)" : "var(--text-subtle)",
-        fontSize: "0.6875rem",
-        fontWeight: 700,
+        fontSize: "var(--fs-xs)",
+        fontWeight: 600,
         cursor: "pointer",
         display: "inline-flex",
         alignItems: "center",
@@ -263,11 +284,11 @@ function CategorySelect({ value, onChange }: { value: string | null; onChange: (
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       {cfg ? (
-        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "0.6875rem", fontWeight: 700, color: cfg.color, whiteSpace: "nowrap", zIndex: 1, maxWidth: 122, overflow: "hidden", textOverflow: "ellipsis" }}>
+        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "var(--fs-xs)", fontWeight: 600, color: cfg.color, whiteSpace: "nowrap", zIndex: 1, maxWidth: 122, overflow: "hidden", textOverflow: "ellipsis" }}>
           {value}
         </span>
       ) : (
-        <span style={{ position: "absolute", left: 4, pointerEvents: "none", color: "var(--text-subtle)", fontSize: "0.6875rem" }}>—</span>
+        <span style={{ position: "absolute", left: 4, pointerEvents: "none", color: "var(--text-muted)", fontSize: "0.6875rem" }}>—</span>
       )}
       <select
         value={value ?? ""}
@@ -432,7 +453,7 @@ const ContactRow = memo(function ContactRow({
             title="Lead hat dich blockiert"
             style={{
               fontSize: "0.5625rem",
-              fontWeight: 800,
+              fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.05em",
               color: "var(--color-error-text)",
@@ -485,13 +506,13 @@ const ContactRow = memo(function ContactRow({
           title={blocked && !hasAppointment ? "Blockiert" : hasAppointment ? "Termin entfernen" : "Termin einbuchen"}
           style={{
             padding: "2px 9px",
-            borderRadius: 5,
+            borderRadius: "var(--r-full)",
             border: "1px solid",
             borderColor: hasAppointment ? "var(--color-success-border)" : "var(--border)",
             background: hasAppointment ? "var(--color-success-bg)" : "transparent",
             color: hasAppointment ? "var(--color-success-text)" : "var(--text-subtle)",
-            fontSize: "0.6875rem",
-            fontWeight: 700,
+            fontSize: "var(--fs-xs)",
+            fontWeight: 600,
             cursor: blocked && !hasAppointment ? "default" : "pointer",
             display: "inline-flex",
             alignItems: "center",
@@ -639,7 +660,7 @@ function NewRow({ onCreate }: { onCreate: (input: NewContactInput) => void }) {
         </select>
       </div>
       <div style={{ ...cell, gridColumn: "span 2" }}>
-        <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           Antwort/Termin nach Anlegen
         </span>
       </div>
@@ -661,12 +682,13 @@ function NewRow({ onCreate }: { onCreate: (input: NewContactInput) => void }) {
           tabIndex={7}
           title="Hinzufügen"
           style={{
-            background: "var(--btn-primary-bg)",
-            color: "var(--btn-primary-fg)",
+            background: "var(--grad-cta)",
+            color: "var(--text-on-accent)",
+            boxShadow: "var(--shadow-btn-primary)",
             border: "none",
-            borderRadius: 5,
+            borderRadius: "var(--r-full)",
             cursor: "pointer",
-            fontWeight: 700,
+            fontWeight: 600,
             fontSize: "0.75rem",
             padding: "3px 8px",
             display: "flex",
@@ -697,8 +719,8 @@ function StatsRow({ contacts }: { contacts: ListContact[] }) {
   const stat: React.CSSProperties = {
     ...cell,
     fontSize: "0.75rem",
-    fontWeight: 700,
-    color: "var(--text-subtle)",
+    fontWeight: 600,
+    color: "var(--text-muted)",
     whiteSpace: "nowrap",
     overflow: "hidden",
   };
@@ -739,10 +761,10 @@ function StatsRow({ contacts }: { contacts: ListContact[] }) {
 // ─── Mobile (<768px): gestapelte Karten statt Grid-Zeilen ─────────────────────
 const cardLabel: React.CSSProperties = {
   fontSize: "0.625rem",
-  fontWeight: 700,
+  fontWeight: 600,
   textTransform: "uppercase",
   letterSpacing: "0.06em",
-  color: "var(--text-subtle)",
+  color: "var(--text-muted)",
   width: 68,
   flexShrink: 0,
 };
@@ -773,8 +795,8 @@ function mobileChip(on: boolean): React.CSSProperties {
     borderColor: on ? "var(--color-success-border)" : "var(--border)",
     background: on ? "var(--color-success-bg)" : "var(--surface-50)",
     color: on ? "var(--color-success-text)" : "var(--text-subtle)",
-    fontSize: "0.8125rem",
-    fontWeight: 700,
+    fontSize: "var(--fs-sm)",
+    fontWeight: 600,
     cursor: "pointer",
     display: "inline-flex",
     alignItems: "center",
@@ -863,7 +885,7 @@ function CardEditArea({
           style={{
             minHeight: 40,
             padding: "0.5rem 0.375rem",
-            fontSize: "0.8125rem",
+            fontSize: "var(--fs-sm)",
             color: value ? "var(--text-secondary)" : "var(--text-subtle)",
             cursor: "text",
             whiteSpace: "pre-wrap",
@@ -949,7 +971,7 @@ const MobileContactCard = memo(function MobileContactCard({
               style={{
                 alignSelf: "center",
                 fontSize: "0.625rem",
-                fontWeight: 800,
+                fontWeight: 600,
                 textTransform: "uppercase",
                 letterSpacing: "0.05em",
                 color: "var(--color-error-text)",
@@ -987,7 +1009,7 @@ const MobileContactCard = memo(function MobileContactCard({
               cursor: "pointer",
               minWidth: 40,
               minHeight: 40,
-              borderRadius: "var(--radius-sm)",
+              borderRadius: "var(--r-full)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1002,7 +1024,7 @@ const MobileContactCard = memo(function MobileContactCard({
             type="button"
             className="lbv2-del"
             onClick={() => onDeleteContact(c)}
-            style={{ background: "none", border: "none", cursor: "pointer", minWidth: 40, minHeight: 40, borderRadius: "var(--radius-sm)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            style={{ background: "none", border: "none", cursor: "pointer", minWidth: 40, minHeight: 40, borderRadius: "var(--r-full)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
             title="Löschen"
           >
             <Trash2 size={16} />
@@ -1043,7 +1065,7 @@ const MobileContactCard = memo(function MobileContactCard({
           >
             {vals.follow_up_number ? `FU${vals.follow_up_number}` : "FU starten"}
             {fuDue && (
-              <span style={{ marginLeft: 6, fontSize: "0.75rem", fontWeight: 700, color: "var(--color-warning-text)" }}>
+              <span style={{ marginLeft: 6, fontSize: "0.75rem", fontWeight: 600, color: "var(--color-warning-text)" }}>
                 · fällig
               </span>
             )}
@@ -1147,11 +1169,12 @@ function MobileNewCard({ onCreate }: { onCreate: (input: NewContactInput) => voi
         style={{
           width: "100%",
           minHeight: 44,
-          background: "var(--btn-primary-bg)",
-          color: "var(--btn-primary-fg)",
+          background: "var(--grad-cta)",
+          color: "var(--text-on-accent)",
+          boxShadow: "var(--shadow-btn-primary)",
           border: "none",
-          borderRadius: "var(--radius-md)",
-          fontWeight: 700,
+          borderRadius: "var(--r-full)",
+          fontWeight: 600,
           fontSize: "0.875rem",
           cursor: "pointer",
         }}
@@ -1196,8 +1219,8 @@ function MobileStatsCard({ contacts }: { contacts: ListContact[] }) {
     >
       {rows.map(([label, value]) => (
         <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "0.8125rem" }}>
-          <span style={{ color: "var(--text-subtle)", fontWeight: 600 }}>{label}</span>
-          <span style={{ color: "var(--text-primary)", fontWeight: 700 }}>{value}</span>
+          <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>{label}</span>
+          <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{value}</span>
         </div>
       ))}
     </div>
@@ -1216,6 +1239,8 @@ export function ListBoardV2({ listId, contacts }: {
   const isMobile = useIsMobile();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<BoardView>("alle");
+  // Unterauswahl der Nachfassen-Ansicht: null = alle Stufen.
+  const [fuFilter, setFuFilter] = useState<FuFilter>(null);
   const [apptContact, setApptContact] = useState<ListContact | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1249,12 +1274,25 @@ export function ListBoardV2({ listId, contacts }: {
 
   const today = localDateISO();
 
-  const counts = useMemo(() => ({
-    alle: optContacts.length,
-    heiss: optContacts.filter(isHotLead).length,
-    nachfassen: optContacts.filter((c) => isDueFollowUp(c, today)).length,
-    ohne_termin: optContacts.filter(isAnsweredWithoutAppointment).length,
-  }), [optContacts, today]);
+  // Ein Durchlauf für alle Zähler — counts läuft bei jeder Sucheingabe neu,
+  // und die Liste kann mehrere tausend Zeilen haben.
+  const counts = useMemo(() => {
+    let heiss = 0;
+    let nachfassen = 0;
+    let ohne_termin = 0;
+    const fu: Record<1 | 2 | 3, number> = { 1: 0, 2: 0, 3: 0 };
+    for (const c of optContacts) {
+      if (isHotLead(c)) heiss++;
+      if (isAnsweredWithoutAppointment(c)) ohne_termin++;
+      if (isDueFollowUp(c, today)) {
+        nachfassen++;
+        const n = nextFuNumber(c);
+        if (n != null) fu[n]++;
+      }
+    }
+    // Invariante: fu[1] + fu[2] + fu[3] === nachfassen.
+    return { alle: optContacts.length, heiss, nachfassen, ohne_termin, fu };
+  }, [optContacts, today]);
 
   const filtered = useMemo(() => {
     let base = optContacts;
@@ -1262,7 +1300,7 @@ export function ListBoardV2({ listId, contacts }: {
     else if (view === "nachfassen") {
       // Arbeits-Queue: am längsten überfällig zuerst.
       base = base
-        .filter((c) => isDueFollowUp(c, today))
+        .filter((c) => isDueFollowUp(c, today) && (fuFilter == null || nextFuNumber(c) === fuFilter))
         .slice()
         .sort((a, b) => (a.next_follow_up_at ?? "").localeCompare(b.next_follow_up_at ?? ""));
     } else if (view === "ohne_termin") base = base.filter(isAnsweredWithoutAppointment);
@@ -1272,7 +1310,7 @@ export function ListBoardV2({ listId, contacts }: {
       [c.name, c.notes, c.answer_text, c.answer_category]
         .filter(Boolean).join(" ").toLowerCase().includes(q)
     );
-  }, [optContacts, search, view, today]);
+  }, [optContacts, search, view, fuFilter, today]);
 
   const parentRef = useRef<HTMLDivElement>(null);
   // Mobile: dynamische Karten-Höhen (measureElement), Desktop: fixe Zeilenhöhe.
@@ -1393,11 +1431,11 @@ export function ListBoardV2({ listId, contacts }: {
 
   const headerCell: React.CSSProperties = {
     ...cell,
-    fontSize: "0.6875rem",
-    fontWeight: 700,
-    letterSpacing: "0.06em",
+    fontSize: "var(--fs-xs)",
+    fontWeight: 500,
+    letterSpacing: "var(--ls-eyebrow)",
     textTransform: "uppercase",
-    color: "var(--text-subtle)",
+    color: "var(--text-muted)",
     whiteSpace: "nowrap",
     overflow: "hidden",
   };
@@ -1405,27 +1443,18 @@ export function ListBoardV2({ listId, contacts }: {
   const showNewEntry = !search && view === "alle";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: "1 1 200px", maxWidth: isMobile ? "100%" : 260 }}>
-          <Search size={13} style={{ position: "absolute", left: "0.5rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-subtle)", pointerEvents: "none" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: "1 1 200px", maxWidth: isMobile ? "100%" : 240 }}>
+          <Search size={14} style={{ position: "absolute", left: "var(--sp-5)", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", pointerEvents: "none", zIndex: 1 }} />
           <input
             type="search"
             placeholder="Suchen…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{
-              width: "100%",
-              background: "var(--surface-100)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-sm)",
-              padding: "0.35rem 0.75rem 0.35rem 1.875rem",
-              fontSize: "0.8125rem",
-              color: "var(--text-secondary)",
-              outline: "none",
-              boxSizing: "border-box",
-            }}
+            className="ui-input"
+            style={{ paddingLeft: "var(--sp-10)" }}
           />
         </div>
         {/* 4 Tabs passen auf schmalen Screens nicht nebeneinander → horizontal scrollbar */}
@@ -1438,25 +1467,57 @@ export function ListBoardV2({ listId, contacts }: {
               { value: "ohne_termin", label: `Ohne Termin ${counts.ohne_termin}` },
             ]}
             value={view}
-            onChange={setView}
+            onChange={(v) => {
+              setView(v);
+              // Stufenfilter zuruecksetzen, sobald Nachfassen verlassen wird —
+              // sonst kommt man spaeter mit unsichtbar aktivem Filter zurueck.
+              if (v !== "nachfassen") setFuFilter(null);
+            }}
             ariaLabel="Ansicht"
           />
         </div>
-        {search && <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>{filtered.length}/{counts.alle}</span>}
-        <div className="hide-on-mobile" style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>
+        {search && (
+          <span className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
+            {filtered.length}/{counts.alle}
+          </span>
+        )}
+        <div className="hide-on-mobile" style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
           Klicken zum Bearbeiten · Enter zum Speichern
         </div>
       </div>
 
+      {/* Stufen-Unterauswahl — nur in der Nachfassen-Ansicht. Alle drei Stufen
+          bleiben sichtbar, auch bei 0, damit die Leiste beim Abarbeiten nicht
+          springt. */}
+      {view === "nachfassen" && (
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
+          <span className="eyebrow eyebrow-muted">Stufe</span>
+          <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+            <Segmented<FuSegment>
+              options={[
+                { value: "alle", label: `Alle FU ${counts.nachfassen}` },
+                { value: "1", label: `FU 1 · ${counts.fu[1]}` },
+                { value: "2", label: `FU 2 · ${counts.fu[2]}` },
+                { value: "3", label: `FU 3 · ${counts.fu[3]}` },
+              ]}
+              value={fuFilter == null ? "alle" : (String(fuFilter) as FuSegment)}
+              onChange={(v) => setFuFilter(v === "alle" ? null : (Number(v) as 1 | 2 | 3))}
+              ariaLabel="Follow-up-Stufe"
+            />
+          </div>
+        </div>
+      )}
+
       {actionError && (
         <div
+          role="alert"
           style={{
-            fontSize: "0.8125rem",
-            color: "var(--color-error-text)",
-            background: "var(--color-error-bg)",
-            border: "1px solid var(--color-error-border)",
-            borderRadius: "var(--radius-sm)",
-            padding: "0.375rem 0.75rem",
+            fontSize: "var(--fs-base)",
+            color: "var(--danger-fg)",
+            background: "var(--danger-bg)",
+            borderLeft: "2px solid var(--danger)",
+            borderRadius: "var(--r-sm)",
+            padding: "var(--sp-4) var(--sp-6)",
           }}
         >
           {actionError}
@@ -1497,7 +1558,7 @@ export function ListBoardV2({ listId, contacts }: {
           {contacts.length > 0 && <MobileStatsCard contacts={filtered} />}
         </div>
       ) : (
-        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-100)", boxShadow: "var(--shadow-sm)", overflow: "clip" }}>
+        <div style={{ border: "1px solid var(--border-default)", borderRadius: "var(--r-lg)", background: "var(--surface-2)", overflow: "clip" }}>
           <div ref={parentRef} style={{ maxHeight: "62vh", overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch" as never }}>
             <div style={{ minWidth: MIN_WIDTH }}>
               {/* Sticky header */}
@@ -1509,11 +1570,11 @@ export function ListBoardV2({ listId, contacts }: {
                   display: "grid",
                   gridTemplateColumns: GRID_COLS,
                   alignItems: "center",
-                  height: 34,
-                  background: "var(--surface-50)",
-                  borderBottom: "1px solid var(--border)",
+                  height: "var(--h-row)",
+                  borderBottom: "1px solid var(--border-default)",
                   boxSizing: "border-box",
                 }}
+                className="glass-nav"
               >
                 {["Datum", "Name", "FU", "Antwort", "Termin", "Kategorie", "Was war die Antwort?", "Notizen", ""].map((h, i) => (
                   <div key={i} style={headerCell}>{h}</div>
@@ -1553,16 +1614,19 @@ export function ListBoardV2({ listId, contacts }: {
       )}
 
       {filtered.length === 0 && (view !== "alle" || search) && (
-        <p style={{ textAlign: "center", color: "var(--text-subtle)", fontSize: "0.8125rem", marginTop: "0.375rem" }}>
+        <p style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "var(--fs-sm)", marginTop: "0.375rem" }}>
           {search ? "Keine Treffer." :
-           view === "heiss" ? "Noch keine Kontakte mit Kategorie „Positiv“." :
-           view === "nachfassen" ? "Kein Follow-up fällig — alles abgearbeitet." :
+           view === "heiss" ? "Keine offenen positiven Leads — alle haben schon einen Termin." :
+           view === "nachfassen"
+             ? fuFilter != null
+               ? `Kein FU ${fuFilter} fällig.`
+               : "Kein Follow-up fällig — alles abgearbeitet." :
            view === "ohne_termin" ? "Alle beantworteten Kontakte haben einen Termin." : "Keine Treffer."}
         </p>
       )}
 
       {contacts.length === 0 && !search && view === "alle" && (
-        <p style={{ textAlign: "center", color: "var(--text-subtle)", fontSize: "0.8125rem", marginTop: "0.375rem" }}>
+        <p style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "var(--fs-sm)", marginTop: "0.375rem" }}>
           Name eingeben und Enter drücken — fertig.
         </p>
       )}
@@ -1598,7 +1662,7 @@ export function ListBoardV2({ listId, contacts }: {
             borderRadius: "var(--radius-lg)",
             boxShadow: "var(--shadow-lg)",
             padding: "0.5rem 0.875rem",
-            fontSize: "0.8125rem",
+            fontSize: "var(--fs-sm)",
             color: "var(--text-primary)",
             whiteSpace: "nowrap",
             animation: "fade-up 0.15s ease both",
@@ -1616,10 +1680,10 @@ export function ListBoardV2({ listId, contacts }: {
                 border: "1px solid var(--brand-200)",
                 background: "var(--brand-50)",
                 color: "var(--brand-500)",
-                borderRadius: "var(--radius-sm)",
+                borderRadius: "var(--r-full)",
                 padding: "0.25rem 0.625rem",
                 fontSize: "0.75rem",
-                fontWeight: 700,
+                fontWeight: 600,
                 cursor: "pointer",
                 flexShrink: 0,
               }}

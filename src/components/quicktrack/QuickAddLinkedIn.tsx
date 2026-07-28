@@ -109,7 +109,7 @@ export function QuickAddLinkedIn({
   const labelStyle: React.CSSProperties = {
     display: "block",
     fontSize: "0.75rem",
-    fontWeight: 700,
+    fontWeight: 600,
     textTransform: "uppercase",
     letterSpacing: "0.06em",
     color: "var(--text-muted)",
@@ -143,15 +143,20 @@ export function QuickAddLinkedIn({
           display: "inline-flex",
           alignItems: "center",
           gap: "0.5rem",
-          background: "var(--btn-primary-bg)",
-          color: "var(--btn-primary-fg)",
+          background: "var(--grad-cta)",
+          color: "var(--text-on-accent)",
           border: "none",
-          borderRadius: 999,
-          padding: "0.625rem 1.125rem",
-          fontSize: "0.875rem",
+          borderRadius: "var(--r-full)",
+          height: "var(--h-control-lg)",
+          padding: "0 var(--sp-8)",
+          fontSize: "var(--fs-base)",
           fontWeight: 600,
+          fontFamily: "inherit",
+          letterSpacing: "var(--ls-tight)",
           cursor: "pointer",
-          boxShadow: "var(--shadow-lg)",
+          // Licht-Lippe + Hairline der Signature Pill, darueber der
+          // Overlay-Schatten, weil der FAB ueber dem Inhalt schwebt.
+          boxShadow: "var(--shadow-btn-primary), var(--shadow-overlay)",
         }}
       >
         <Zap size={15} /> Schnell-Track
@@ -233,10 +238,11 @@ export function QuickAddLinkedIn({
                 type="submit"
                 disabled={isPending}
                 style={{
-                  background: "var(--btn-primary-bg)",
-                  color: "var(--btn-primary-fg)",
+                  background: "var(--grad-cta)",
+                  color: "var(--text-on-accent)",
+                  boxShadow: "var(--shadow-btn-primary)",
                   border: "none",
-                  borderRadius: "var(--radius-md)",
+                  borderRadius: "var(--r-full)",
                   padding: "0.5625rem 1.125rem",
                   fontSize: "0.875rem",
                   fontWeight: 600,

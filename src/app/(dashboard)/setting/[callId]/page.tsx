@@ -1,37 +1,16 @@
 import { getAssignees } from "@/app/actions/assignees";
 import { SettingCallEditor } from "@/components/scripts/SettingCallEditor";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
+import { formatTerminParts } from "@/lib/apptTime";
 import { createClient } from "@/lib/supabase/server";
 import type { SettingCall } from "@/lib/types";
-import { ArrowLeft, AtSign, CalendarClock, Phone, Video } from "lucide-react";
-import Link from "next/link";
+import { BackLink } from "@/components/ui/BackLink";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { notFound } from "next/navigation";
 
 // Setting-Detail: Header + Script-Runner-Editor. Lädt den Call (workspace-
 // und personen-gescoped), Zuweisungen, Nutzerliste und Quell-Kontext
 // (Notizen aus LinkedIn-Kontakt bzw. Telefon-Lead, read-only).
-
-function formatTermin(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${new Intl.DateTimeFormat("de-DE", {
-    weekday: "long",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Berlin",
-  }).format(d)} Uhr`;
-}
-
-const SOURCE_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  linkedin: { label: "LinkedIn", color: "var(--color-info-text)", bg: "var(--color-info-bg)", border: "var(--color-info-border)" },
-  telefon: { label: "Telefon", color: "var(--brand-500)", bg: "var(--brand-50)", border: "var(--brand-200)" },
-  inbound: { label: "Inbound", color: "var(--text-muted)", bg: "var(--surface-150)", border: "var(--border)" },
-  website: { label: "Website", color: "var(--text-muted)", bg: "var(--surface-150)", border: "var(--border)" },
-};
 
 export default async function SettingCallPage({ params }: { params: Promise<{ callId: string }> }) {
   const { callId } = await params;
@@ -61,6 +40,12 @@ export default async function SettingCallPage({ params }: { params: Promise<{ ca
     : allUsers
   ).map((u) => ({ user_id: u.user_id, username: u.username }));
 
+  // Wer den Termin angelegt hat — fuer alle ohne Zuweisungs-Recht ist das
+  // die feste Zuordnung. Aufloesung ueber die UNgefilterte Liste, sonst
+  // faende ein Member den Namen eines fremden Erstellers nicht.
+  const creatorName =
+    allUsers.find((u) => u.user_id === call.created_by_user_id)?.username ?? null;
+
   // Quell-Kontext (read-only Notizen aus LinkedIn-Kontakt / Telefon-Lead)
   const sourceNotes: { label: string; text: string }[] = [];
   if (call.source_contact_id) {
@@ -85,138 +70,45 @@ export default async function SettingCallPage({ params }: { params: Promise<{ ca
     if (l?.script?.trim()) sourceNotes.push({ label: "Script", text: l.script });
   }
 
-  const termin = formatTermin(call.appointment_at);
-  const source = call.source_type ? SOURCE_META[call.source_type] : null;
+  // Kompaktes Termin-Format: Datum ruhig, Uhrzeit hervorgehoben.
+  const termin = formatTerminParts(call.appointment_at);
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       {/* ── Header ── */}
-      <div style={{ marginBottom: "1.25rem" }}>
-        <Link
-          href="/setting"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.375rem",
-            fontSize: "0.8125rem",
-            color: "var(--text-subtle)",
-            textDecoration: "none",
-            marginBottom: "0.75rem",
-          }}
-        >
-          <ArrowLeft size={13} /> Setting
-        </Link>
+      <BackLink href="/termine" label="Termine" />
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "space-between",
-            gap: "1rem",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-              {source && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.3rem",
-                    fontSize: "0.6875rem",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    color: source.color,
-                    background: source.bg,
-                    border: `1px solid ${source.border}`,
-                    padding: "2px 8px",
-                    borderRadius: 99,
-                  }}
-                >
-                  {call.source_type === "linkedin" ? <AtSign size={11} /> : call.source_type === "telefon" ? <Phone size={11} /> : null}
-                  {source.label}
-                </span>
-              )}
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  color: termin ? "var(--text-secondary)" : "var(--text-subtle)",
-                }}
-              >
-                <CalendarClock size={13} style={{ color: "var(--text-subtle)" }} />
-                {termin ?? "Kein Termin"}
-              </span>
-            </div>
-            <h1
-              style={{
-                fontSize: "1.5rem",
-                fontWeight: 800,
-                color: "var(--text-primary)",
-                letterSpacing: "-0.03em",
-                margin: 0,
-              }}
-            >
-              {call.lead_name ?? "Unbenannter Lead"}
-            </h1>
-            {call.company && (
-              <p style={{ fontSize: "0.875rem", color: "var(--text-muted)", margin: "0.125rem 0 0" }}>{call.company}</p>
-            )}
-          </div>
-
-          {call.meet_link && (
-            <a
-              href={call.meet_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                padding: "0.5rem 0.875rem",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--brand-200)",
-                background: "var(--brand-50)",
-                color: "var(--brand-500)",
-                fontSize: "0.8125rem",
-                fontWeight: 700,
-                textDecoration: "none",
-                flexShrink: 0,
-              }}
-            >
-              <Video size={14} /> Meet öffnen
-            </a>
-          )}
-          {!call.meet_link && call.meeting_kind === "telefon" && (
+      <PageHeader
+        eyebrow="Setting-Call"
+        title={call.lead_name ?? "Unbenannter Lead"}
+        meta={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-5)", flexWrap: "wrap" }}>
             <span
-              title="Termin findet telefonisch statt"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                padding: "0.5rem 0.875rem",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--border)",
-                background: "var(--surface-50)",
-                color: "var(--text-muted)",
-                fontSize: "0.8125rem",
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
+              className="tnum"
+              style={{ display: "inline-flex", alignItems: "baseline", gap: "var(--sp-3)" }}
             >
-              <Phone size={14} /> Telefon-Termin
+              {termin ? (
+                <>
+                  <span style={{ color: "var(--text-secondary)" }}>{termin.date}</span>
+                  <span aria-hidden style={{ color: "var(--text-disabled)" }}>·</span>
+                  <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{termin.time}</span>
+                </>
+              ) : (
+                <span style={{ color: "var(--text-muted)" }}>Kein Termin</span>
+              )}
             </span>
-          )}
-        </div>
-      </div>
+            {call.company && <span>{call.company}</span>}
+            {call.meeting_kind === "telefon" && !call.meet_link && (
+              <span style={{ color: "var(--text-muted)" }}>Telefon-Termin</span>
+            )}
+          </span>
+        }
+      />
 
       <SettingCallEditor
         call={call}
+        canAssign={access.can_switch_view}
+        creatorName={creatorName}
         assignees={assignees}
         users={users}
         sourceNotes={sourceNotes.length > 0 ? sourceNotes : undefined}

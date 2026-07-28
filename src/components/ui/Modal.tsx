@@ -110,9 +110,8 @@ export function Modal({
         alignItems: "flex-start",
         justifyContent: "center",
         padding: "12vh 1rem 1rem",
-        background: "rgb(0 0 0 / 0.45)",
-        backdropFilter: "blur(2px)",
-        animation: "fade-up 0.15s ease both",
+        background: "var(--surface-scrim)",
+        animation: "modal-scrim var(--dur-2) var(--ease-out) both",
       }}
     >
       <div
@@ -124,15 +123,18 @@ export function Modal({
         style={{
           width: "100%",
           maxWidth: width,
-          background: "var(--surface-100)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-xl)",
-          boxShadow: "var(--shadow-lg)",
+          // Dialoge sind bewusst SOLID (surface-4) — Inhalte muessen ruhig
+          // lesbar sein. Glas bleibt Nav, Popover und Palette vorbehalten.
+          background: "var(--surface-4)",
+          border: "1px solid var(--border-default)",
+          borderRadius: "var(--r-xl)",
+          boxShadow: "var(--shadow-overlay)",
           overflow: "hidden",
           maxHeight: "80vh",
           display: "flex",
           flexDirection: "column",
           outline: "none",
+          animation: "modal-enter var(--dur-3) var(--ease-spring) both",
         }}
       >
         {(title || subtitle) && (
@@ -140,44 +142,51 @@ export function Modal({
             style={{
               display: "flex",
               alignItems: "flex-start",
-              gap: "0.75rem",
-              padding: "1.125rem 1.375rem",
-              borderBottom: "1px solid var(--border)",
+              gap: "var(--sp-5)",
+              padding: "var(--sp-7) var(--sp-8)",
+              borderBottom: "1px solid var(--border-default)",
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
               {title && (
                 <div
                   id={titleId}
-                  style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.01em" }}
+                  style={{
+                    fontSize: "var(--fs-md)",
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                    letterSpacing: "var(--ls-tight)",
+                  }}
                 >
                   {title}
                 </div>
               )}
               {subtitle && (
-                <div style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", marginTop: 2 }}>{subtitle}</div>
+                <div style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)", marginTop: 2 }}>{subtitle}</div>
               )}
             </div>
             <button
               type="button"
               onClick={onClose}
               aria-label="Schließen"
+              className="ui-btn"
+              data-variant="ghost"
               style={{
+                width: 28,
+                height: 28,
+                minHeight: 28,
+                padding: 0,
                 background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--text-subtle)",
-                padding: 4,
-                borderRadius: "var(--radius-sm)",
-                display: "flex",
+                border: "1px solid transparent",
+                color: "var(--text-muted)",
                 flexShrink: 0,
               }}
             >
-              <X size={18} />
+              <X size={16} />
             </button>
           </div>
         )}
-        <div style={{ padding: "1.25rem 1.375rem", overflowY: "auto" }}>{children}</div>
+        <div style={{ padding: "var(--sp-8)", overflowY: "auto" }}>{children}</div>
       </div>
     </div>,
     document.body,

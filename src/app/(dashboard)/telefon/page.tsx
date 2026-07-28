@@ -5,6 +5,7 @@ import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { ownerColor } from "@/lib/ownerColor";
 import type { PhoneLeadStatus, PhoneList, PhoneListKind } from "@/lib/types";
+import { EmptyState, PageHeader } from "@/components/ui/PageHeader";
 import { Phone, PhoneMissed, Voicemail } from "lucide-react";
 import Link from "next/link";
 
@@ -22,21 +23,18 @@ type ListCounts = {
 
 const EMPTY_COUNTS: ListCounts = { total: 0, aktiv: 0, rueckruf: 0, nicht_erreicht: 0, termin: 0, dead: 0 };
 
-const KIND_BADGE: Record<PhoneListKind, { label: string; color: string; bg: string; border: string } | null> = {
+// Routing-Listen tragen Info-Blau (Rueckruf) bzw. Warning-Gold (nicht
+// erreicht). Orange bleibt dem Akzent vorbehalten und traegt hier keinen Status.
+const KIND_BADGE: Record<PhoneListKind, { label: string; color: string; bg: string } | null> = {
   akquise: null,
-  rueckruf: { label: "Rückruf", color: "var(--brand-500)", bg: "var(--brand-50)", border: "var(--brand-200)" },
-  nicht_erreicht: {
-    label: "Nicht erreicht",
-    color: "var(--color-warning-text)",
-    bg: "var(--color-warning-bg)",
-    border: "var(--color-warning-border)",
-  },
+  rueckruf: { label: "Rückruf", color: "var(--info-fg)", bg: "var(--info-bg)" },
+  nicht_erreicht: { label: "Nicht erreicht", color: "var(--warning-fg)", bg: "var(--warning-bg)" },
 };
 
 function KindIcon({ kind }: { kind: PhoneListKind }) {
-  if (kind === "rueckruf") return <PhoneMissed size={13} style={{ color: "var(--brand-500)" }} />;
-  if (kind === "nicht_erreicht") return <Voicemail size={13} style={{ color: "var(--color-warning-text)" }} />;
-  return <Phone size={13} style={{ color: "var(--text-subtle)" }} />;
+  if (kind === "rueckruf") return <PhoneMissed size={14} style={{ color: "var(--info-fg)" }} />;
+  if (kind === "nicht_erreicht") return <Voicemail size={14} style={{ color: "var(--warning-fg)" }} />;
+  return <Phone size={14} style={{ color: "var(--stage-telefon)" }} />;
 }
 
 export default async function TelefonPage() {
@@ -95,173 +93,135 @@ export default async function TelefonPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-9)" }}>
       {/* ── Page Header ── */}
-      <div
-        style={{
-          marginBottom: "1.5rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-            <Phone size={18} color="var(--brand-500)" />
-            <h1 style={{ fontSize: "1.375rem", fontWeight: 800, margin: 0, letterSpacing: "-0.03em", color: "var(--text-primary)" }}>
-              Telefon
-            </h1>
-          </div>
-          <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: 0 }}>
-            Telefonakquise · Call-Mode · CSV-Import · Rückruf-Routing
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "0.625rem", alignItems: "center", flexWrap: "wrap" }}>
-          <span
-            style={{
-              fontSize: "0.75rem",
-              color: "var(--text-subtle)",
-              background: "var(--surface-100)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              padding: "0.25rem 0.625rem",
-            }}
-          >
-            {lists.length} Listen · {totalLeads.toLocaleString("de-DE")} Leads
-          </span>
-          <CsvImportDialog
-            users={users}
-            me={{ user_id: access.user.id, username: access.username }}
-            isAdmin={access.role === "owner"}
-          />
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Kaltakquise"
+        title="Telefon"
+        meta="Call-Mode · CSV-Import · Rückruf-Routing"
+        actions={
+          <>
+            <span
+              className="badge badge-gray tnum"
+              title={`${lists.length} Listen mit insgesamt ${totalLeads.toLocaleString("de-DE")} Leads`}
+            >
+              {lists.length} Listen · {totalLeads.toLocaleString("de-DE")} Leads
+            </span>
+            {/* Der eine Primaer-CTA dieser View. */}
+            <CsvImportDialog
+              users={users}
+              me={{ user_id: access.user.id, username: access.username }}
+              isAdmin={access.role === "owner"}
+            />
+          </>
+        }
+      />
 
       {/* ── Metriken ── */}
       <PhoneDashboard />
 
       {/* ── Listen nach Inhaber ── */}
       {lists.length === 0 ? (
-        <div
-          style={{
-            background: "var(--surface-100)",
-            border: "1px dashed var(--border-bright)",
-            borderRadius: "var(--radius-lg)",
-            padding: "3rem 1.5rem",
-            textAlign: "center",
-          }}
-        >
-          <Phone size={26} style={{ color: "var(--text-subtle)", marginBottom: "0.625rem" }} />
-          <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
-            Noch keine Telefonlisten
-          </div>
-          <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: 0 }}>
-            Importiere eine Google-Maps-CSV, um die erste Akquise-Liste anzulegen.
-          </p>
+        <div className="card dot-grid">
+          <EmptyState
+            icon={<Phone size={24} />}
+            message="Noch keine Telefonlisten. Importiere eine Google-Maps-CSV, um die erste Akquise-Liste anzulegen."
+          />
         </div>
       ) : (
         ownerNames.map((owner) => {
           const { fg: color, bg: colorBg } = ownerColor(owner);
           return (
-            <div key={owner} style={{ marginBottom: "1.5rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+            <section key={owner} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
                 <div
                   style={{
                     width: 24,
                     height: 24,
-                    borderRadius: "50%",
+                    borderRadius: "var(--r-full)",
                     background: colorBg,
-                    border: `1.5px solid ${color}`,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: "0.6875rem",
-                    fontWeight: 800,
+                    fontSize: "var(--fs-2xs)",
+                    fontWeight: 600,
                     color,
                     flexShrink: 0,
                   }}
                 >
                   {owner.charAt(0).toUpperCase()}
                 </div>
-                <span style={{ fontWeight: 800, fontSize: "0.9375rem", color }}>{owner}</span>
-                <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>
-                  {grouped[owner].length} Listen
-                </span>
+                <span style={{ fontWeight: 600, fontSize: "var(--fs-md)", color: "var(--text-primary)" }}>{owner}</span>
+                <span className="count-pill">{grouped[owner].length}</span>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "0.75rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "var(--sp-6)" }}>
                 {grouped[owner].map((l) => {
                   const c = countsByList[l.id] ?? EMPTY_COUNTS;
                   const badge = KIND_BADGE[l.list_kind];
                   return (
                     <div key={l.id} style={{ position: "relative" }}>
-                    <Link href={`/telefon/${l.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
-                      <div
-                        className="organic-list-card"
-                        style={{
-                          background: "var(--surface-100)",
-                          border: "1px solid var(--border)",
-                          borderRadius: "var(--radius-md)",
-                          padding: "0.875rem 1rem",
-                          transition: "border-color 0.15s, box-shadow 0.15s",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem", paddingRight: "1.5rem" }}>
-                          <KindIcon kind={l.list_kind} />
-                          <span
+                      <Link href={`/telefon/${l.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
+                        <div className="organic-list-card card" style={{ padding: "var(--sp-6) var(--sp-7)" }}>
+                          <div
                             style={{
-                              flex: 1,
-                              fontSize: "0.875rem",
-                              fontWeight: 700,
-                              color: "var(--text-primary)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "var(--sp-4)",
+                              marginBottom: "var(--sp-6)",
+                              paddingRight: "var(--sp-8)",
                             }}
                           >
-                            {l.name}
-                          </span>
-                          {badge && (
+                            <KindIcon kind={l.list_kind} />
                             <span
                               style={{
-                                fontSize: "0.625rem",
-                                fontWeight: 800,
-                                textTransform: "uppercase",
-                                letterSpacing: "0.05em",
-                                color: badge.color,
-                                background: badge.bg,
-                                border: `1px solid ${badge.border}`,
-                                borderRadius: 99,
-                                padding: "0.1rem 0.45rem",
-                                flexShrink: 0,
+                                flex: 1,
+                                fontSize: "var(--fs-base)",
+                                fontWeight: 500,
+                                color: "var(--text-primary)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
                               }}
                             >
-                              {badge.label}
+                              {l.name}
                             </span>
-                          )}
-                        </div>
+                            {badge && (
+                              <span
+                                className="badge"
+                                style={{ color: badge.color, background: badge.bg, flexShrink: 0 }}
+                              >
+                                {badge.label}
+                              </span>
+                            )}
+                          </div>
 
-                        <div style={{ display: "flex", gap: "0.625rem", flexWrap: "wrap", fontSize: "0.6875rem", fontWeight: 600 }}>
-                          <span style={{ color: "var(--text-secondary)" }}>
-                            <strong style={{ fontWeight: 800 }}>{c.total}</strong> gesamt
-                          </span>
-                          <span style={{ color: "var(--text-muted)" }}>{c.aktiv} aktiv</span>
-                          <span style={{ color: "var(--brand-500)" }}>{c.rueckruf} Rückruf</span>
-                          <span style={{ color: "var(--color-success-text)" }}>{c.termin} Termin</span>
-                          <span style={{ color: "var(--color-error-text)" }}>{c.dead} dead</span>
+                          {/* Status-Zeile: Zahl + Wort, nie Farbe allein. */}
+                          <div
+                            className="tnum"
+                            style={{
+                              display: "flex",
+                              gap: "var(--sp-4) var(--sp-6)",
+                              flexWrap: "wrap",
+                              fontSize: "var(--fs-xs)",
+                            }}
+                          >
+                            <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{c.total} gesamt</span>
+                            <span style={{ color: "var(--text-muted)" }}>{c.aktiv} aktiv</span>
+                            <span style={{ color: "var(--info-fg)" }}>{c.rueckruf} Rückruf</span>
+                            <span style={{ color: "var(--success-fg)" }}>{c.termin} Termin</span>
+                            <span style={{ color: "var(--text-muted)" }}>{c.dead} dead</span>
+                          </div>
                         </div>
+                      </Link>
+                      <div style={{ position: "absolute", top: "var(--sp-4)", right: "var(--sp-4)" }}>
+                        <DeletePhoneListButton iconOnly listId={l.id} listName={l.name} />
                       </div>
-                    </Link>
-                    <div style={{ position: "absolute", top: "0.5rem", right: "0.5rem" }}>
-                      <DeletePhoneListButton iconOnly listId={l.id} listName={l.name} />
-                    </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
+            </section>
           );
         })
       )}

@@ -33,23 +33,27 @@ function formatValue(v: number | null, format: ComparisonFormat): string {
   return INT_FMT.format(v);
 }
 
-const CELL_PAD = "0.5rem 0.75rem";
+// Dichte Tabelle (COMPONENTS.md §6): 36px-Zeilen, Header 12px uppercase,
+// nur horizontale Hairlines, Zahlen rechtsbuendig mit tabular-nums.
+const CELL_PAD = "var(--sp-3) var(--sp-5)";
 const HEAD_STYLE = {
-  fontSize: "0.6875rem",
-  fontWeight: 700 as const,
+  height: "var(--h-row)",
+  fontSize: "var(--fs-xs)",
+  fontWeight: 500 as const,
   textTransform: "uppercase" as const,
-  letterSpacing: "0.05em",
-  color: "var(--text-subtle)",
-  padding: CELL_PAD,
+  letterSpacing: "var(--ls-eyebrow)",
+  color: "var(--text-muted)",
+  padding: "0 var(--sp-5)",
+  background: "var(--surface-1)",
   whiteSpace: "nowrap" as const,
 };
 
 function DeltaSub({ value }: { value: number }) {
   const positive = value >= 0;
   const sign = positive ? "+" : "−";
-  const color = positive ? "var(--color-success-text)" : "var(--color-error-text)";
+  const color = positive ? "var(--success-fg)" : "var(--danger-fg)";
   return (
-    <span style={{ display: "block", fontSize: "0.625rem", fontWeight: 600, color, marginTop: 1 }}>
+    <span style={{ display: "block", fontSize: "var(--fs-2xs)", fontWeight: 500, color, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>
       {sign}
       {DELTA_FMT.format(Math.abs(value))} pp
     </span>
@@ -84,27 +88,27 @@ export function ComparisonTable({
           {rows.map((row) => {
             const color = ownerColor(row.name);
             return (
-              <tr key={row.name} style={{ borderTop: "1px solid var(--border)" }}>
+              <tr key={row.name} className="funnel-matrix-row" style={{ borderTop: "1px solid var(--border-subtle)" }}>
                 <td style={{ padding: CELL_PAD }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
                     <span
                       style={{
                         width: 26,
                         height: 26,
-                        borderRadius: "50%",
+                        borderRadius: "var(--r-full)",
                         background: color.bg,
                         color: color.fg,
                         display: "inline-flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        fontSize: "0.6875rem",
-                        fontWeight: 800,
+                        fontSize: "var(--fs-xs)",
+                        fontWeight: 600,
                         flexShrink: 0,
                       }}
                     >
                       {ownerInitials(row.name)}
                     </span>
-                    <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                    <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>
                       {row.name}
                     </span>
                   </span>
@@ -120,7 +124,8 @@ export function ComparisonTable({
                         padding: CELL_PAD,
                         textAlign: "right",
                         fontVariantNumeric: "tabular-nums",
-                        fontSize: "0.8125rem",
+                        fontSize: "var(--fs-base)",
+                        fontWeight: 500,
                         color: "var(--text-primary)",
                       }}
                     >
@@ -135,8 +140,8 @@ export function ComparisonTable({
         </tbody>
         {average && (
           <tfoot>
-            <tr style={{ borderTop: "1px solid var(--border)" }}>
-              <td style={{ padding: CELL_PAD, fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-muted)" }}>
+            <tr className="funnel-matrix-row" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+              <td style={{ padding: CELL_PAD, fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-muted)" }}>
                 {averageLabel ?? "Ø Gesamt"}
               </td>
               {columns.map((c) => (
@@ -146,7 +151,7 @@ export function ComparisonTable({
                     padding: CELL_PAD,
                     textAlign: "right",
                     fontVariantNumeric: "tabular-nums",
-                    fontSize: "0.8125rem",
+                    fontSize: "var(--fs-base)",
                     color: "var(--text-muted)",
                   }}
                 >

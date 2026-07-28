@@ -1,0 +1,225 @@
+/* ============================================================================
+   TITAN DESIGN SYSTEM — "Ember Glass"
+   Design Tokens · v1 · 2026-07 · DARK ONLY
+   ----------------------------------------------------------------------------
+   Für die CRM/Akquise-Produktlinie (titan-tracking & verwandte Tools).
+   Near-Black Canvas + Orange-Akzent (#F97316) + Liquid Glass, Schrift: Inter.
+   Abgeleitet aus LinkedIn-Banner + titan-landing-v2.
+
+   Einbinden:  <link rel="stylesheet" href="tokens.css">
+   Nutzen:     color: var(--text-primary); background: var(--surface-2);
+   ============================================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* --- 1. SURFACES · Leuchtdichte-Rampe ---------------------------------
+     Tiefe entsteht durch Helligkeit, nie durch Schatten.
+     Ebene = Surface-Stufe: je höher die Schicht, desto heller die Fläche. */
+  --surface-0: #0A0A0B;   /* Canvas · Seitenhintergrund                  */
+  --surface-1: #101013;   /* Table-Header · leicht erhabene Panels       */
+  --surface-2: #151519;   /* Cards (solid) · Sidebar                     */
+  --surface-3: #1B1B20;   /* Hover-Füllungen · Popover-Fallback          */
+  --surface-4: #212127;   /* Dialoge · Command Palette (oberste Ebene)   */
+  --surface-scrim: rgba(10, 10, 11, 0.72);  /* Overlay-Scrim             */
+
+  /* --- 2. TEXT · Hierarchie (Kontrast gemessen auf surface-0) ----------- */
+  --text-primary:   #FAFAFA;  /* 18.9:1 · Headlines, Werte, Zellen       */
+  --text-secondary: #B5B5B5;  /*  9.6:1 · Beschreibungen, Labels         */
+  --text-muted:     #8A8B90;  /*  5.8:1 · Meta, Achsen — dunkelste Stufe
+                                          für bedeutungstragenden Text   */
+  --text-disabled:  #55565C;  /*  2.7:1 · NUR Disabled, nie Bedeutung    */
+  --text-on-accent: #FFFFFF;  /* nur auf CTA-Gradient, ≥14px/600         */
+
+  /* --- 3. BORDERS -------------------------------------------------------- */
+  --border-subtle:  rgba(255, 255, 255, 0.06);  /* Zeilen-Hairlines       */
+  --border-default: rgba(255, 255, 255, 0.10);  /* Standard (Brand-Wert)  */
+  --border-strong:  rgba(255, 255, 255, 0.16);  /* Controls · Hover       */
+  --border-accent:  rgba(249, 115, 22, 0.40);   /* aktive/selektierte Panels */
+
+  /* --- 4. AKZENT · Orange-Rampe ----------------------------------------- */
+  --orange-200: #FED7AA;
+  --orange-300: #FDBA74;   /* Akzent-Text hell · 11.7:1 auf Canvas        */
+  --orange-400: #FB923C;
+  --orange-500: #F97316;   /* KERN · Markenorange · 7.1:1 (als Text)      */
+  --orange-600: #EA580C;   /* Gradient-Ende · Button-Ring                 */
+  --orange-700: #C2410C;
+  --orange-900: #7C2D12;
+  --orange-950: #431407;
+
+  --amber-glow: #FFB02C;   /* NUR dekorativ (Gradienten/Glows)            */
+  --ember:      #FF3D00;   /* NUR dekorativ (Gradienten/Glows)            */
+
+  --accent:        var(--orange-500);
+  --accent-hover:  var(--orange-400);
+  --accent-active: var(--orange-600);
+  --accent-muted:  rgba(249, 115, 22, 0.10);  /* Tints · Selected-Rows    */
+
+  /* --- 5. SEMANTIK · entsättigt für Dark-UI ------------------------------
+     Orange trägt NIE Status. Warning ist Gold, nicht Markenorange.       */
+  --success:    #3FB37F;  --success-fg: #7ED9AC;  --success-bg: rgba(63, 179, 127, 0.10);
+  --warning:    #D1A24F;  --warning-fg: #E4C687;  --warning-bg: rgba(209, 162, 79, 0.10);
+  --danger:     #D65A52;  --danger-fg:  #EC9A93;  --danger-bg:  rgba(214, 90, 82, 0.10);
+  --info:       #4E80D6;  --info-fg:    #9DB9EA;  --info-bg:    rgba(78, 128, 214, 0.12);
+
+  /* --- 6. PIPELINE & KANÄLE ---------------------------------------------- */
+  --stage-telefon:    #4E80D6;   /* Steel-Blau                            */
+  --stage-linkedin:   #0D9488;   /* Teal                                  */
+  --stage-setting:    #8B5CF6;   /* Violett                               */
+  --stage-closing:    #3FA36F;   /* Grün                                  */
+  --stage-nachfassen: #D1A24F;   /* Gold (Dringlichkeit, Warning-Familie) */
+  --stage-heute:      #F97316;   /* Fokus = Markenorange                  */
+
+  /* --- 7. DATENVISUALISIERUNG · validierte Palette ------------------------
+     Kategorial: FIXE Slot-Reihenfolge viz-1…6, nie umsortieren (CVD-safe).
+     Chart-Orange ist bewusst orange-600, nicht das UI-Orange.            */
+  --viz-1: #EA580C;   /* Orange (Marken-Slot)                             */
+  --viz-2: #4E80D6;   /* Steel-Blau                                       */
+  --viz-3: #3FA36F;   /* Grün                                             */
+  --viz-4: #D946EF;   /* Fuchsia                                          */
+  --viz-5: #0D9488;   /* Teal                                             */
+  --viz-6: #8B5CF6;   /* Violett                                          */
+  --viz-grid: rgba(255, 255, 255, 0.06);
+  --viz-axis: var(--text-muted);
+  /* Sequenziell (eine Hue, hell→dunkel umgekehrt einsetzbar):
+     #431407 → #7C2D12 → #C2410C → #EA580C → #F97316 → #FDBA74
+     Divergierend: #4E80D6 ← #6E7076 (Neutral-Mitte) → #EA580C            */
+
+  /* --- 8. LIQUID GLASS ---------------------------------------------------
+     Drei Rezepte: Nav / Card / Popover. Immer mit Border + Licht-Lippe.
+     Max. 3 Glasflächen pro Viewport, nie in scrollenden Zeilen.          */
+  --glass-bg:         rgba(23, 23, 23, 0.60);   /* Card-Füllung           */
+  --glass-bg-nav:     rgba(10, 10, 11, 0.80);   /* Topbar · Sticky-Header */
+  --glass-bg-popover: rgba(21, 21, 25, 0.75);   /* Popover · ⌘K-Palette   */
+  --glass-blur-sm: 8px;
+  --glass-blur-md: 16px;
+  --glass-blur-lg: 24px;
+  --glass-saturate: 1.5;                        /* nur Popover/Palette    */
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-lip: inset 0 1px 0 rgba(255, 255, 255, 0.08);  /* Licht-Lippe   */
+
+  /* --- 9. GRADIENTEN ------------------------------------------------------
+     Highlight-Paar direkt aus titan-landing-v2 (Dark Theme):
+     gradient-primary = Amber, gradient-secondary = tiefes Ember-Rot.       */
+  --gradient-primary:   #FDBA4C;
+  --gradient-secondary: #C2340F;
+
+  --grad-cta:         linear-gradient(180deg, #F97316, #EA580C);
+  --grad-cta-hover:   linear-gradient(180deg, #FB923C, #F97316);
+
+  /* Ergebnis-Pills (DESIGN.md 5.2) — gleiche 180deg-Mechanik wie der CTA:
+     Grundton oben, eine Stufe tiefer unten; Hover schiebt beide Stopps
+     heller. Label darauf IMMER #0A0A0B, nie Weiss (Kontrast).          */
+  --grad-won:           linear-gradient(180deg, #3FB37F, #2E9A6A);
+  --grad-won-hover:     linear-gradient(180deg, #56C795, #3FB37F);
+  --grad-lost:          linear-gradient(180deg, #D65A52, #BE4239);
+  --grad-lost-hover:    linear-gradient(180deg, #E27B74, #D65A52);
+  --grad-neutral:       linear-gradient(180deg, #FAFAFA, #DEDEE2);
+  --grad-neutral-hover: linear-gradient(180deg, #FFFFFF, #ECECEF);
+  --grad-ember:       radial-gradient(80% 100% at 50% 0%,
+                        rgba(255, 176, 44, 0.16), rgba(255, 61, 0, 0.06) 45%,
+                        transparent 70%);
+  --grad-ribbon:      radial-gradient(120% 120% at 20% 0%,
+                        #FFB147, rgba(209, 1, 1, 0.40) 60%, transparent);
+  /* RADIAL wie das <Highlight> der Landing Page (bg-radial + bg-clip-text).
+     Default-Shape farthest-corner: Amber trägt das ganze Wort, Ember nur
+     die Ecken — closest-side würde lange Wörter an den Enden absaufen.    */
+  --grad-text-accent: radial-gradient(
+                        var(--gradient-primary), rgba(194, 52, 15, 0.40));
+  /* Sektions-Akzent der Landing (from-primary/10 → transparent); Position
+     per background-position/size spiegeln: oben (50% 0%) oder unten.      */
+  --grad-section:     radial-gradient(60% 70% at 50% 0%,
+                        rgba(249, 115, 22, 0.10), transparent 70%);
+  /* CTA-Glow-Stapel der Landing (amber → ember, nach unten maskiert)      */
+  --grad-cta-glow:    radial-gradient(80% 80% at 45% 90%,
+                        rgba(255, 176, 44, 0.40), rgba(255, 61, 0, 0.04) 60%,
+                        transparent 80%);
+  --grad-fade-bottom: linear-gradient(180deg, rgba(10, 10, 11, 0), #0A0A0B);
+  --grad-sheen:       linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 40%);
+
+  /* --- 10. TYPOGRAFIE · Inter (App-Dichte) --------------------------------
+     Gewichte: 400 · 500 · 600 — nie 700. Ziffern in Tabellen/KPIs:
+     font-variant-numeric: tabular-nums.                                  */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-2xs: 11px;   /* Achsen · Kbd-Chips                                 */
+  --fs-xs:  12px;   /* Eyebrows · Badges · Meta                           */
+  --fs-sm:  13px;   /* Tabellenzellen kompakt · Hilfetexte                */
+  --fs-base: 14px;  /* Body · Zellen · Controls                           */
+  --fs-md:  16px;   /* Card-Titel · betonter Body                         */
+  --fs-lg:  18px;   /* Sektions-Titel                                     */
+  --fs-xl:  22px;   /* Seiten-Titel                                       */
+  --fs-2xl: 28px;   /* KPI-Zahl                                           */
+  --fs-3xl: 36px;   /* KPI-Zahl groß · Dashboard-Hero                     */
+
+  --lh-tight: 1.15;
+  --lh-snug:  1.3;
+  --lh-base:  1.5;
+
+  --ls-tight:   -0.01em;   /* Titel ab 16px                               */
+  --ls-display: -0.025em;  /* KPI-Zahlen · Seiten-Titel                   */
+  --ls-headline: -0.05em;  /* große Headlines (tracking-tighter, Landing) */
+  --ls-eyebrow:  0.08em;   /* Eyebrows uppercase                          */
+
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+
+  /* --- 11. SPACING (12 Stufen) + DICHTE ---------------------------------- */
+  --sp-1: 2px;   --sp-2: 4px;   --sp-3: 6px;   --sp-4: 8px;
+  --sp-5: 12px;  --sp-6: 16px;  --sp-7: 20px;  --sp-8: 24px;
+  --sp-9: 32px;  --sp-10: 40px; --sp-11: 48px; --sp-12: 64px;
+
+  --h-control:     32px;   /* Buttons · Inputs · Selects (Standard)       */
+  --h-control-lg:  40px;   /* Primär-CTA · große Inputs                   */
+  --h-row:         36px;   /* Tabellenzeile Standard                      */
+  --h-row-compact: 32px;   /* Tabellenzeile kompakt                       */
+  --h-topbar:      56px;
+  --w-sidebar:    248px;
+  --w-rail:        64px;
+  --touch-target:  44px;
+
+  /* --- 12. RADIUS --------------------------------------------------------- */
+  --r-xs: 4px;    /* Kbd-Chips · Mini-Elemente                            */
+  --r-sm: 6px;    /* Controls in Tabellen · Chips                         */
+  --r-md: 10px;   /* Inputs · Buttons · Nav-Items                        */
+  --r-lg: 14px;   /* Cards                                                */
+  --r-xl: 16px;   /* Modals · Glass-Panels                                */
+  --r-full: 9999px;  /* Pills · Badges · Signature-CTA                    */
+
+  /* --- 13. SCHATTEN & GLOW · die einzigen drei + Button-Inset ------------ */
+  --shadow-badge: 0 0 0 1px rgba(250, 250, 250, 0.08),
+                  0 1px 2px -0.5px rgba(250, 250, 250, 0.12),
+                  0 2px 4px -2px rgba(250, 250, 250, 0.10);
+  --shadow-overlay: 0 16px 40px -12px rgba(0, 0, 0, 0.55);
+  --glow-accent: 0 0 24px -4px rgba(249, 115, 22, 0.35);
+  --shadow-btn-primary: inset 0 1px 0 rgba(255, 255, 255, 0.086),
+                        inset 0 0 0 1px #EA580C;
+  --ring-focus: var(--orange-500);
+
+  /* --- 14. MOTION --------------------------------------------------------- */
+  --ease-out:    cubic-bezier(0.22, 0.61, 0.36, 1);   /* Standard          */
+  --ease-in-out: cubic-bezier(0.40, 0.00, 0.20, 1);   /* Press · Toggle    */
+  --ease-spring: cubic-bezier(0.20, 0.90, 0.30, 1.15);/* Palette · Dialog  */
+  --dur-1: 120ms;   /* Hover · Row-Highlight                              */
+  --dur-2: 200ms;   /* Dropdown · Tooltip                                 */
+  --dur-3: 320ms;   /* Dialog · Command Palette                           */
+
+  /* --- 15. STRUKTUR-DETAILS ---------------------------------------------- */
+  --dot-grid: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  /* Nutzung: background-image: var(--dot-grid); background-size: 24px 24px; */
+}
+
+/* Fallback ohne backdrop-filter: Glasflächen werden deckend */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-bg:         #151519;   /* = surface-2 */
+    --glass-bg-nav:     #0A0A0B;   /* = surface-0 */
+    --glass-bg-popover: #1B1B20;   /* = surface-3 */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-1: 0ms; --dur-2: 0ms; --dur-3: 0ms; }
+}

@@ -22,9 +22,9 @@ const KIND_META: Record<PhoneListKind, { label: string; color: string; bg: strin
   },
   rueckruf: {
     label: "Rückruf",
-    color: "var(--brand-500)",
-    bg: "var(--brand-50)",
-    border: "var(--brand-200)",
+    color: "var(--info-fg)",
+    bg: "var(--info-bg)",
+    border: "rgb(78 128 214 / 0.28)",
     icon: <PhoneMissed size={11} />,
   },
   nicht_erreicht: {
@@ -93,7 +93,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
             <span
               style={{
                 fontSize: "0.6875rem",
-                fontWeight: 700,
+                fontWeight: 600,
                 textTransform: "uppercase",
                 letterSpacing: "0.06em",
                 color: oc.fg,
@@ -112,7 +112,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
               alignItems: "center",
               gap: "0.3rem",
               fontSize: "0.6875rem",
-              fontWeight: 700,
+              fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.06em",
               color: kind.color,
@@ -131,7 +131,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
             <DeletePhoneListButton listId={list.id} listName={list.name} redirectTo="/telefon" />
           </span>
         </div>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>
           {list.name}
         </h1>
       </div>

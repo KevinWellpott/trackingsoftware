@@ -73,7 +73,6 @@ export async function setAssignees(
     if (error) return { error: error.message };
   }
 
-  revalidatePath("/setting", "page");
-  revalidatePath("/closing", "page");
+  revalidatePath("/termine", "page");
   return {};
 }

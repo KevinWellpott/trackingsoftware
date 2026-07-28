@@ -55,17 +55,17 @@ export default async function DashboardLayout({
   }));
 
   return (
-    <div style={{ display: "flex", minHeight: "100dvh" }}>
-      {/* Desktop Sidebar */}
+    <div style={{ display: "flex", minHeight: "100dvh", background: "var(--surface-0)" }}>
+      {/* Desktop Sidebar — 248px, solid, rechte Kante als 1px-Linie. */}
       <aside
         style={{
-          width: 220,
+          width: "var(--w-sidebar)",
           flexShrink: 0,
-          borderRight: "1px solid var(--border-bright)",
+          borderRight: "1px solid var(--border-default)",
           position: "sticky",
           top: 0,
           height: "100dvh",
-          overflowY: "auto",
+          overflow: "hidden",
         }}
         className="hidden md:block"
       >
@@ -105,12 +105,15 @@ export default async function DashboardLayout({
           />
         </div>
 
+        {/* Content-Maxbreite 1440px (DESIGN.md §8), Blockabstand ueber --sp-9. */}
         <main
           className="main-content"
           style={{
             flex: 1,
-            padding: "2rem",
-            maxWidth: "100%",
+            width: "100%",
+            maxWidth: 1440,
+            margin: "0 auto",
+            padding: "var(--sp-9)",
           }}
         >
           {children}

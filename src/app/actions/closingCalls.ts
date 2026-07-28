@@ -38,7 +38,7 @@ export async function updateClosingCall(id: string, patch: ClosingCallPatch): Pr
   const { error } = await supabase.from("closing_calls").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath(`/closing/${id}`, "page");
-  revalidatePath("/closing", "page");
+  revalidatePath("/termine", "page");
   revalidatePath("/crm", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
@@ -87,7 +87,44 @@ export async function setClosingOutcome(input: {
   const { error } = await supabase.from("closing_calls").update(patch).eq("id", input.closingId);
   if (error) return { error: error.message };
   revalidatePath(`/closing/${input.closingId}`, "page");
-  revalidatePath("/closing", "page");
+  revalidatePath("/termine", "page");
+  revalidatePath("/crm", "page");
+  revalidatePath("/nachfassen", "page");
+  revalidatePath("/", "layout");
+  return {};
+}
+
+/**
+ * Closing-Call endgültig löschen.
+ *
+ * Das verknüpfte Setting wandert dabei zurück auf „Offen" und verliert seine
+ * Closing-Markierung — sonst stünde es dauerhaft auf „Closing gelegt", ohne
+ * dass es ein Closing gäbe, und der Weg dorthin wäre in der Oberfläche
+ * blockiert.
+ */
+export async function deleteClosingCall(id: string): Promise<{ error?: string }> {
+  if (!(await canAccessClosingCall(id))) return { error: "Keine Berechtigung." };
+
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("closing_calls")
+    .select("setting_call_id")
+    .eq("id", id)
+    .maybeSingle();
+  const settingId = (raw as { setting_call_id: string | null } | null)?.setting_call_id ?? null;
+
+  const { error } = await supabase.from("closing_calls").delete().eq("id", id);
+  if (error) return { error: error.message };
+
+  if (settingId) {
+    await supabase
+      .from("setting_calls")
+      .update({ status: "offen", closing_scheduled: false, closing_at: null })
+      .eq("id", settingId);
+    revalidatePath(`/setting/${settingId}`, "page");
+  }
+
+  revalidatePath("/termine", "page");
   revalidatePath("/crm", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");

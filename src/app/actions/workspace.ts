@@ -139,8 +139,8 @@ export async function createUserForm(formData: FormData) {
 function safeRedirectAfterViewSwitch(next: string): string {
   if (/^\/lists\/[^/]+/.test(next)) return "/";
   if (/^\/telefon\/[^/]+/.test(next)) return "/telefon";
-  if (/^\/setting\/[^/]+/.test(next)) return "/setting";
-  if (/^\/closing\/[^/]+/.test(next)) return "/closing";
+  if (/^\/setting\/[^/]+/.test(next)) return "/termine";
+  if (/^\/closing\/[^/]+/.test(next)) return "/termine";
   return next;
 }
 

@@ -75,7 +75,7 @@ function TemplateField({
         htmlFor={`fu-template-${fu}`}
         style={{ display: "flex", alignItems: "baseline", gap: "0.375rem", fontSize: "0.8125rem" }}
       >
-        <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{label}</span>
+        <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{label}</span>
         <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", fontWeight: 500 }}>{timing}</span>
       </label>
       <Textarea
@@ -100,7 +100,7 @@ function TemplateField({
               alignItems: "center",
               gap: "0.25rem",
               fontSize: "0.75rem",
-              fontWeight: 700,
+              fontWeight: 600,
               color: "var(--color-success-text)",
             }}
           >

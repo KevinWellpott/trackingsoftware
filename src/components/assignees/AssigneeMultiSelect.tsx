@@ -127,7 +127,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                 borderRadius: 99,
                 padding: "0.2rem 0.45rem 0.2rem 0.25rem",
                 fontSize: "0.75rem",
-                fontWeight: 700,
+                fontWeight: 600,
                 color: "var(--text-secondary)",
               }}
             >
@@ -142,7 +142,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                   alignItems: "center",
                   justifyContent: "center",
                   fontSize: "0.5625rem",
-                  fontWeight: 800,
+                  fontWeight: 600,
                   flexShrink: 0,
                 }}
               >
@@ -182,10 +182,10 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
             gap: "0.3rem",
             background: "var(--surface-50)",
             border: "1px dashed var(--border-bright)",
-            borderRadius: 99,
+            borderRadius: "var(--r-full)",
             padding: "0.25rem 0.625rem",
             fontSize: "0.75rem",
-            fontWeight: 700,
+            fontWeight: 600,
             color: "var(--text-muted)",
             cursor: "pointer",
             opacity: isPending ? 0.6 : 1,
@@ -212,17 +212,15 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
           aria-multiselectable="true"
           aria-label="Nutzer zuweisen"
           onKeyDown={onListKeyDown}
+          // Dropdown = Glass-Popover (DESIGN.md §4.2).
+          className="glass-popover"
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
             left: 0,
             zIndex: 30,
             minWidth: 220,
-            background: "var(--surface-100)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-md)",
-            boxShadow: "var(--shadow-lg)",
-            padding: "0.375rem",
+            padding: "var(--sp-3)",
             maxHeight: 260,
             overflowY: "auto",
           }}
@@ -251,7 +249,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                   gap: "0.5rem",
                   background: active ? "var(--surface-150)" : "none",
                   border: "none",
-                  borderRadius: "var(--radius-sm)",
+                  borderRadius: "var(--r-full)",
                   padding: "0.4rem 0.5rem",
                   cursor: "pointer",
                   textAlign: "left",
@@ -274,7 +272,7 @@ export function AssigneeMultiSelect({ entityType, entityId, users, initial }: Pr
                     alignItems: "center",
                     justifyContent: "center",
                     fontSize: "0.625rem",
-                    fontWeight: 800,
+                    fontWeight: 600,
                     flexShrink: 0,
                   }}
                 >

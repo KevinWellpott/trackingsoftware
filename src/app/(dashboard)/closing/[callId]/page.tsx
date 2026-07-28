@@ -1,44 +1,32 @@
 import { getAssignees } from "@/app/actions/assignees";
-import { ClosingCallEditor, type SettingContext } from "@/components/closing/ClosingCallEditor";
+import { ClosingCallEditor } from "@/components/closing/ClosingCallEditor";
+import type { SettingContext } from "@/components/closing/SettingMirror";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
+import { formatTermin } from "@/lib/apptTime";
 import { createClient } from "@/lib/supabase/server";
 import type { ClosingCall } from "@/lib/types";
-import { ArrowLeft, CalendarClock, Video } from "lucide-react";
-import Link from "next/link";
+import { BackLink } from "@/components/ui/BackLink";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { CalendarClock } from "lucide-react";
 import { notFound } from "next/navigation";
 
 // Closing-Detail: Header + Script-Runner-Editor. Lädt den Call (workspace-
 // und personen-gescoped), Zuweisungen, Nutzerliste und den verlinkten
 // Setting-Call als read-only Kontext für den Closer.
 
-function formatTermin(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${new Intl.DateTimeFormat("de-DE", {
-    weekday: "long",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Berlin",
-  }).format(d)} Uhr`;
-}
-
 const STATUS_META: Record<ClosingCall["status"], { label: string; color: string; bg: string; border: string }> = {
-  offen: { label: "Offen", color: "var(--text-muted)", bg: "var(--surface-150)", border: "var(--border)" },
+  offen: { label: "Offen", color: "var(--text-secondary)", bg: "var(--surface-3)", border: "var(--border-default)" },
   gewonnen: {
     label: "Gewonnen",
-    color: "var(--color-success-text)",
-    bg: "var(--color-success-bg)",
-    border: "var(--color-success-border)",
+    color: "var(--success-fg)",
+    bg: "var(--success-bg)",
+    border: "rgb(63 179 127 / 0.28)",
   },
   verloren: {
     label: "Verloren",
-    color: "var(--color-error-text)",
-    bg: "var(--color-error-bg)",
-    border: "var(--color-error-border)",
+    color: "var(--danger-fg)",
+    bg: "var(--danger-bg)",
+    border: "rgb(214 90 82 / 0.28)",
   },
   nachfassen: {
     label: "Nachfassen",
@@ -81,8 +69,11 @@ export default async function ClosingCallPage({ params }: { params: Promise<{ ca
   if (call.setting_call_id) {
     const { data: setting } = await supabase
       .from("setting_calls")
+      // Eine einzige String-Literal-Zeile: Supabase leitet den Zeilentyp aus
+      // dem Literal ab — eine Konkatenation mit + macht daraus `string` und
+      // die Inferenz kippt auf GenericStringError.
       .select(
-        "script_answers, notes, ist_pain, warmth, soll_ziel, objections_handled, objections_open, has_budget_8k, branche",
+        "script_answers, notes, ist_pain, warmth, soll_ziel, objections_handled, objections_open, has_budget_8k, branche, sole_decider, can_decide_now, clear_need, show_status, status, appointment_at, recording_link",
       )
       .eq("id", call.setting_call_id)
       .maybeSingle();
@@ -93,107 +84,34 @@ export default async function ClosingCallPage({ params }: { params: Promise<{ ca
   const status = STATUS_META[call.status];
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       {/* ── Header ── */}
-      <div style={{ marginBottom: "1.25rem" }}>
-        <Link
-          href="/closing"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.375rem",
-            fontSize: "0.8125rem",
-            color: "var(--text-subtle)",
-            textDecoration: "none",
-            marginBottom: "0.75rem",
-          }}
-        >
-          <ArrowLeft size={13} /> Closing
-        </Link>
+      <BackLink href="/termine" label="Termine" />
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "space-between",
-            gap: "1rem",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  fontSize: "0.6875rem",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  color: status.color,
-                  background: status.bg,
-                  border: `1px solid ${status.border}`,
-                  padding: "2px 8px",
-                  borderRadius: 99,
-                }}
-              >
-                {status.label}
-              </span>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  color: termin ? "var(--text-secondary)" : "var(--text-subtle)",
-                }}
-              >
-                <CalendarClock size={13} style={{ color: "var(--text-subtle)" }} />
-                {termin ?? "Kein Termin"}
-              </span>
-            </div>
-            <h1
-              style={{
-                fontSize: "1.5rem",
-                fontWeight: 800,
-                color: "var(--text-primary)",
-                letterSpacing: "-0.03em",
-                margin: 0,
-              }}
-            >
-              {call.lead_name ?? "Unbenannter Lead"}
-            </h1>
-            {call.company && (
-              <p style={{ fontSize: "0.875rem", color: "var(--text-muted)", margin: "0.125rem 0 0" }}>{call.company}</p>
-            )}
-          </div>
-
-          {call.meet_link && (
-            <a
-              href={call.meet_link}
-              target="_blank"
-              rel="noopener noreferrer"
+      <PageHeader
+        eyebrow="Closing-Call"
+        title={call.lead_name ?? "Unbenannter Lead"}
+        meta={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-5)", flexWrap: "wrap" }}>
+            <span className="badge" style={{ color: status.color, background: status.bg }}>
+              {status.label}
+            </span>
+            <span
+              className="tnum"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "0.4rem",
-                padding: "0.5rem 0.875rem",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--brand-200)",
-                background: "var(--brand-50)",
-                color: "var(--brand-500)",
-                fontSize: "0.8125rem",
-                fontWeight: 700,
-                textDecoration: "none",
-                flexShrink: 0,
+                gap: "var(--sp-3)",
+                color: termin ? "var(--text-secondary)" : "var(--text-muted)",
               }}
             >
-              <Video size={14} /> Meet öffnen
-            </a>
-          )}
-        </div>
-      </div>
+              <CalendarClock size={13} style={{ color: "var(--text-muted)" }} />
+              {termin ?? "Kein Termin"}
+            </span>
+            {call.company && <span>{call.company}</span>}
+          </span>
+        }
+      />
 
       <ClosingCallEditor call={call} assignees={assignees} users={users} settingContext={settingContext} />
     </div>

@@ -1,4 +1,5 @@
 import { createUserForm, listUsers } from "@/app/actions/workspace";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getTargets, setTargetForm } from "@/app/actions/targets";
 import { getFollowupTemplates } from "@/app/actions/templates";
 import {
@@ -14,7 +15,7 @@ import { ownerColor } from "@/lib/ownerColor";
 import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
 import { RenameUserButton } from "@/components/settings/RenameUserButton";
 import { FollowupTemplatesEditor } from "@/components/settings/FollowupTemplatesEditor";
-import { MessageSquareText, Plus, Settings, Shield, Target, UserCheck, Users } from "lucide-react";
+import { MessageSquareText, Plus, Shield, Target, UserCheck, Users } from "lucide-react";
 
 const TARGET_FIELDS: {
   label: string;
@@ -28,6 +29,49 @@ const TARGET_FIELDS: {
   { label: "Telefon Anrufe/Woche", channel: "telefon", period: "weekly", metric: "calls" },
   { label: "Termine/Woche", channel: "telefon", period: "weekly", metric: "appointments" },
 ];
+
+// Gemeinsame Stile des Settings-Layouts (COMPONENTS.md §15).
+const SECTION_HEAD: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--sp-4)",
+  padding: "var(--sp-6) var(--sp-8)",
+  borderBottom: "1px solid var(--border-default)",
+};
+const SECTION_TITLE: React.CSSProperties = {
+  fontSize: "var(--fs-md)",
+  fontWeight: 600,
+  letterSpacing: "var(--ls-tight)",
+  color: "var(--text-primary)",
+};
+const ROW_LABEL: React.CSSProperties = {
+  fontSize: "var(--fs-sm)",
+  color: "var(--text-muted)",
+};
+const FIELD_LABEL: React.CSSProperties = {
+  display: "block",
+  fontSize: "var(--fs-xs)",
+  fontWeight: 500,
+  color: "var(--text-secondary)",
+  marginBottom: "var(--sp-3)",
+};
+const FEEDBACK_BASE: React.CSSProperties = {
+  borderRadius: "var(--r-sm)",
+  fontSize: "var(--fs-base)",
+  padding: "var(--sp-5) var(--sp-6)",
+};
+const FEEDBACK_OK: React.CSSProperties = {
+  ...FEEDBACK_BASE,
+  background: "var(--success-bg)",
+  borderLeft: "2px solid var(--success)",
+  color: "var(--success-fg)",
+};
+const FEEDBACK_ERR: React.CSSProperties = {
+  ...FEEDBACK_BASE,
+  background: "var(--danger-bg)",
+  borderLeft: "2px solid var(--danger)",
+  color: "var(--danger-fg)",
+};
 
 export default async function SettingsPage({
   searchParams,
@@ -52,49 +96,36 @@ export default async function SettingsPage({
     : [];
 
   return (
-    <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+    <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--brand-500)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)", flexShrink: 0 }}>
-          <Settings size={17} color="white" />
-        </div>
-        <div>
-          <h1 style={{ fontSize: "1.375rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>Einstellungen</h1>
-          <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: 0 }}>Workspace & Nutzerverwaltung</p>
-        </div>
-      </div>
+      <PageHeader eyebrow="Verwaltung" title="Einstellungen" meta="Workspace, Team und Ziele" />
 
       {/* Feedback */}
       {q.userOk && (
-        <div style={{ background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: 10, color: "var(--color-success-text)", fontSize: "0.875rem", padding: "0.75rem 1rem", fontWeight: 500 }}>
-          ✓ Nutzer erfolgreich angelegt.
-        </div>
+        <div role="status" style={FEEDBACK_OK}>Nutzer angelegt.</div>
       )}
       {q.deleted && (
-        <div style={{ background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: 10, color: "var(--color-success-text)", fontSize: "0.875rem", padding: "0.75rem 1rem", fontWeight: 500 }}>
-          ✓ Nutzer gelöscht.
-        </div>
+        <div role="status" style={FEEDBACK_OK}>Nutzer gelöscht.</div>
       )}
       {q.userErr && (
-        <div style={{ background: "var(--color-error-bg)", border: "1px solid var(--color-error-border)", borderRadius: 10, color: "var(--color-error-text)", fontSize: "0.875rem", padding: "0.75rem 1rem", fontWeight: 500 }}>
-          Fehler: {q.userErr}
-        </div>
+        <div role="alert" style={FEEDBACK_ERR}>{q.userErr}</div>
       )}
 
       {/* ── Workspace ── */}
-      <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-        <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Shield size={14} color="var(--brand-500)" />
-          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Workspace</span>
+      <div className="card" style={{ overflow: "hidden" }}>
+        <div style={SECTION_HEAD}>
+          <Shield size={16} color="var(--text-muted)" />
+          <span style={SECTION_TITLE}>Workspace</span>
         </div>
-        <div style={{ padding: "1.125rem 1.375rem", display: "grid", gridTemplateColumns: "140px 1fr", rowGap: "0.625rem", alignItems: "center" }}>
-          <span style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", fontWeight: 600 }}>Name</span>
-          <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)" }}>{m.workspaces.name}</span>
-          <span style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", fontWeight: 600 }}>Invite-Code</span>
-          <code style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--brand-500)", background: "var(--color-info-bg)", border: "1px solid var(--color-info-border)", borderRadius: 6, padding: "2px 8px", letterSpacing: "0.08em" }}>{m.workspaces.invite_code}</code>
-          <span style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", fontWeight: 600 }}>Deine Rolle</span>
-          <span style={{ display: "inline-flex", width: "fit-content", padding: "2px 10px", borderRadius: 99, background: isOwner ? "var(--color-info-bg)" : "var(--surface-150)", border: `1px solid ${isOwner ? "var(--color-info-border)" : "var(--border-bright)"}`, color: isOwner ? "var(--brand-500)" : "var(--text-subtle)", fontSize: "0.75rem", fontWeight: 700 }}>
+        {/* Settings-Layout: Label links (COMPONENTS.md §15). */}
+        <div style={{ padding: "var(--sp-7) var(--sp-8)", display: "grid", gridTemplateColumns: "160px 1fr", rowGap: "var(--sp-6)", alignItems: "center" }}>
+          <span style={ROW_LABEL}>Name</span>
+          <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>{m.workspaces.name}</span>
+          <span style={ROW_LABEL}>Invite-Code</span>
+          <code style={{ width: "fit-content", fontFamily: "var(--font-mono-stack)", fontSize: "var(--fs-sm)", color: "var(--orange-300)", background: "var(--accent-muted)", border: "1px solid var(--border-accent)", borderRadius: "var(--r-sm)", padding: "3px 8px", letterSpacing: "0.08em" }}>{m.workspaces.invite_code}</code>
+          <span style={ROW_LABEL}>Deine Rolle</span>
+          <span className={isOwner ? "badge badge-indigo" : "badge badge-gray"} style={{ width: "fit-content" }}>
             {isOwner ? "Owner" : "Member"}
           </span>
         </div>
@@ -102,10 +133,11 @@ export default async function SettingsPage({
 
       {/* ── Nutzer ── */}
       {isOwner && (
-        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-          <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Users size={14} color="var(--brand-400)" />
-            <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Team ({users.length})</span>
+        <div className="card" style={{ overflow: "hidden" }}>
+          <div style={SECTION_HEAD}>
+            <Users size={16} color="var(--text-muted)" />
+            <span style={SECTION_TITLE}>Team</span>
+            <span className="count-pill" style={{ marginLeft: "auto" }}>{users.length}</span>
           </div>
 
           {/* User list */}
@@ -114,18 +146,18 @@ export default async function SettingsPage({
               const isMe = u.user_id === currentUser?.id;
               const avatar = ownerColor(u.username);
               return (
-                <div key={u.user_id} style={{ display: "flex", alignItems: "center", gap: "0.875rem", padding: "0.875rem 1.375rem", borderBottom: i < users.length - 1 ? "1px solid var(--border)" : "none" }}>
+                <div key={u.user_id} style={{ display: "flex", alignItems: "center", gap: "var(--sp-6)", padding: "var(--sp-6) var(--sp-8)", borderBottom: i < users.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
                   {/* Avatar */}
-                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatar.bg, border: `1.5px solid color-mix(in srgb, ${avatar.fg} 33%, transparent)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: avatar.fg, fontSize: "0.9375rem", flexShrink: 0 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "var(--r-full)", background: avatar.bg, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, color: avatar.fg, fontSize: "var(--fs-sm)", flexShrink: 0 }}>
                     {u.username[0].toUpperCase()}
                   </div>
                   {/* Info */}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)" }}>{u.username}</span>
-                      {isMe && <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", background: "var(--surface-200)", borderRadius: 99, padding: "1px 6px" }}>Du</span>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+                      <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>{u.username}</span>
+                      {isMe && <span className="badge badge-gray">Du</span>}
                     </div>
-                    <span style={{ fontSize: "0.75rem", color: u.role === "owner" ? "var(--brand-500)" : "var(--text-subtle)", fontWeight: 600 }}>
+                    <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
                       {u.role === "owner" ? "Owner" : "Mitglied"} · {u.data_scope === "own" ? "Nur eigene Daten" : "Alle Daten"}
                     </span>
                   </div>
@@ -138,49 +170,39 @@ export default async function SettingsPage({
           </div>
 
           {/* Create user form */}
-          <div style={{ borderTop: "1px solid var(--border)", padding: "1.125rem 1.375rem", background: "color-mix(in srgb, var(--brand-500) 3%, transparent)" }}>
-            <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem", display: "flex", alignItems: "center", gap: "0.375rem" }}>
+          <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-7) var(--sp-8)", background: "var(--surface-1)" }}>
+            <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
               <Plus size={12} /> Neuen Nutzer anlegen
             </div>
-            <form action={createUserForm} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <form action={createUserForm} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--sp-6)" }}>
                 <div>
-                  <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-subtle)", marginBottom: "0.3rem" }}>Benutzername</label>
-                  <input
-                    name="username"
-                    required
-                    placeholder="z. B. Thomas"
-                    style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.4rem 0.625rem", fontSize: "0.875rem", color: "var(--text-primary)", outline: "none", boxSizing: "border-box" }}
-                  />
+                  <label htmlFor="new-username" style={FIELD_LABEL}>Benutzername</label>
+                  <input id="new-username" name="username" required placeholder="z. B. Thomas" className="ui-input" />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-subtle)", marginBottom: "0.3rem" }}>Passwort</label>
-                  <input
-                    name="password"
-                    type="text"
-                    required
-                    placeholder="Frei wählbar"
-                    style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.4rem 0.625rem", fontSize: "0.875rem", color: "var(--text-primary)", outline: "none", boxSizing: "border-box" }}
-                  />
+                  <label htmlFor="new-password" style={FIELD_LABEL}>Passwort</label>
+                  <input id="new-password" name="password" type="text" required placeholder="Frei wählbar" className="ui-input" />
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: "var(--sp-6)", flexWrap: "wrap" }}>
                 <div>
-                  <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-subtle)", marginBottom: "0.3rem" }}>Rolle</label>
-                  <select name="role" defaultValue="member" style={{ background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.4rem 0.625rem", fontSize: "0.875rem", color: "var(--text-primary)", outline: "none" }}>
+                  <label htmlFor="new-role" style={FIELD_LABEL}>Rolle</label>
+                  <select id="new-role" name="role" defaultValue="member" className="ui-input" style={{ width: "auto" }}>
                     <option value="member">Member</option>
                     <option value="owner">Owner</option>
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-subtle)", marginBottom: "0.3rem" }}>Datensicht</label>
-                  <select name="data_scope" defaultValue="workspace" style={{ background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.4rem 0.625rem", fontSize: "0.875rem", color: "var(--text-primary)", outline: "none" }}>
+                  <label htmlFor="new-scope" style={FIELD_LABEL}>Datensicht</label>
+                  <select id="new-scope" name="data_scope" defaultValue="workspace" className="ui-input" style={{ width: "auto" }}>
                     <option value="workspace">Alle Daten</option>
                     <option value="own">Nur eigene Daten</option>
                   </select>
                 </div>
-                <button type="submit" style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: "0.375rem", padding: "0.5rem 1rem", borderRadius: 9, border: "none", background: "var(--brand-500)", color: "white", fontWeight: 700, fontSize: "0.875rem", cursor: "pointer", boxShadow: "var(--shadow-sm)", whiteSpace: "nowrap" }}>
-                  <Plus size={14} /> Anlegen
+                {/* Der eine Primaer-CTA dieser View. */}
+                <button type="submit" className="btn-primary">
+                  <Plus size={15} /> Anlegen
                 </button>
               </div>
               <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--text-subtle)" }}>
@@ -193,22 +215,22 @@ export default async function SettingsPage({
 
       {/* ── Ziele ── */}
       {isOwner && (
-        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-          <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Target size={14} color="var(--color-warning-text)" />
-            <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Ziele</span>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", fontWeight: 500 }}>Tages- und Wochenziele je Nutzer</span>
+        <div className="card" style={{ overflow: "hidden" }}>
+          <div style={SECTION_HEAD}>
+            <Target size={16} color="var(--text-muted)" />
+            <span style={SECTION_TITLE}>Ziele</span>
+            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>Tag &amp; Woche je Nutzer</span>
           </div>
           <div>
             {users.map((u, i) => {
               const accentColor = ownerColor(u.username).fg;
               return (
-                <div key={u.user_id} style={{ padding: "0.875rem 1.375rem", borderBottom: i < users.length - 1 ? "1px solid var(--border)" : "none" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.625rem" }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: accentColor, flexShrink: 0 }} />
-                    <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>{u.username}</span>
+                <div key={u.user_id} style={{ padding: "var(--sp-6) var(--sp-8)", borderBottom: i < users.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-6)" }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "var(--r-full)", background: accentColor, flexShrink: 0 }} />
+                    <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>{u.username}</span>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.625rem" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "var(--sp-6)" }}>
                     {TARGET_FIELDS.map((f) => {
                       const value = resolveTarget(targets, u.user_id, f.channel, f.period, f.metric);
                       return (
@@ -217,20 +239,22 @@ export default async function SettingsPage({
                           <input type="hidden" name="channel" value={f.channel} />
                           <input type="hidden" name="period" value={f.period} />
                           <input type="hidden" name="metric" value={f.metric} />
-                          <label style={{ display: "block", fontSize: "0.6875rem", fontWeight: 600, color: "var(--text-subtle)", marginBottom: "0.25rem" }}>{f.label}</label>
-                          <div style={{ display: "flex", gap: "0.25rem" }}>
+                          <label style={{ display: "block", fontSize: "var(--fs-xs)", fontWeight: 500, color: "var(--text-muted)", marginBottom: "var(--sp-3)" }}>{f.label}</label>
+                          <div style={{ display: "flex", gap: "var(--sp-3)" }}>
                             <input
                               type="number"
                               name="target_value"
                               min={0}
                               step={1}
                               defaultValue={value}
-                              style={{ width: "100%", minWidth: 0, background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.8125rem", color: "var(--text-primary)", outline: "none", boxSizing: "border-box" }}
+                              className="ui-input"
+                              style={{ minWidth: 0, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                             />
                             <button
                               type="submit"
                               title="Ziel speichern"
-                              style={{ background: "var(--surface-150)", border: "1px solid var(--border)", borderRadius: 6, padding: "0 0.5rem", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", cursor: "pointer", flexShrink: 0 }}
+                              className="btn-secondary"
+                              style={{ padding: "0 var(--sp-5)", flexShrink: 0 }}
                             >
                               ✓
                             </button>
@@ -252,24 +276,24 @@ export default async function SettingsPage({
       )}
 
       {/* ── Follow-up-Vorlagen ── */}
-      <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-        <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <MessageSquareText size={14} color="var(--brand-400)" />
-          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Follow-up-Vorlagen</span>
-          <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", fontWeight: 500 }}>Eigene LinkedIn-Nachfass-Texte (FU1–FU3)</span>
+      <div className="card" style={{ overflow: "hidden" }}>
+        <div style={SECTION_HEAD}>
+          <MessageSquareText size={16} color="var(--text-muted)" />
+          <span style={SECTION_TITLE}>Follow-up-Vorlagen</span>
+          <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>FU1–FU3</span>
         </div>
-        <div style={{ padding: "1.125rem 1.375rem" }}>
+        <div style={{ padding: "var(--sp-7) var(--sp-8)" }}>
           <FollowupTemplatesEditor initial={templates} />
         </div>
       </div>
 
       {/* ── Passwort-Info ── */}
-      <div style={{ background: "var(--color-warning-bg)", border: "1px solid var(--color-warning-border)", borderRadius: "var(--radius-lg)", padding: "1rem 1.375rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.375rem" }}>
-          <UserCheck size={14} color="var(--color-warning-text)" />
-          <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--color-warning-text)" }}>Passwort ändern</span>
+      <div style={{ background: "var(--warning-bg)", borderLeft: "2px solid var(--warning)", borderRadius: "var(--r-md)", padding: "var(--sp-6) var(--sp-7)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-3)" }}>
+          <UserCheck size={15} color="var(--warning-fg)" />
+          <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--warning-fg)" }}>Passwort ändern</span>
         </div>
-        <p style={{ margin: 0, fontSize: "0.8125rem", color: "var(--text-subtle)", lineHeight: 1.6 }}>
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-secondary)", lineHeight: "var(--lh-base)" }}>
           Um ein Passwort zu ändern: Nutzer löschen und neu anlegen. Die Pitch-Daten (Listen + Kontakte) bleiben dabei vollständig erhalten.
         </p>
       </div>

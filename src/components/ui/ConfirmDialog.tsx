@@ -33,9 +33,9 @@ export function ConfirmDialog({
   loading = false,
 }: ConfirmDialogProps) {
   return (
-    <Modal open={open} onClose={onClose} title={title} width={400} closeOnBackdrop={!loading}>
+    <Modal open={open} onClose={onClose} title={title} width={480} closeOnBackdrop={!loading}>
       {message != null && (
-        <div style={{ fontSize: "0.875rem", color: "var(--text-muted)", lineHeight: 1.55 }}>
+        <div style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)", lineHeight: "var(--lh-base)" }}>
           {message}
         </div>
       )}
@@ -43,24 +43,22 @@ export function ConfirmDialog({
         style={{
           display: "flex",
           justifyContent: "flex-end",
-          gap: "0.5rem",
-          marginTop: message != null ? "1.25rem" : 0,
+          gap: "var(--sp-4)",
+          marginTop: message != null ? "var(--sp-8)" : 0,
         }}
       >
-        <Button variant="secondary" onClick={onClose} disabled={loading}>
+        <Button variant="ghost" onClick={onClose} disabled={loading}>
           {cancelLabel}
         </Button>
         <Button
           variant={destructive ? "danger" : "primary"}
           onClick={onConfirm}
           loading={loading}
+          // Erst im Bestaetigungs-Dialog wird die Flaeche voll --danger mit
+          // dunklem Text (COMPONENTS.md §2.4) — nie Orange fuer Destruktives.
           style={
             destructive
-              ? {
-                  background: "var(--color-ember)",
-                  color: "#ffffff",
-                  borderColor: "transparent",
-                }
+              ? { background: "var(--danger)", color: "#0a0a0b", borderColor: "var(--danger)", fontWeight: 600 }
               : undefined
           }
         >

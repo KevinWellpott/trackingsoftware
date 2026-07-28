@@ -32,7 +32,7 @@ export function DeleteListButton({ listId, listName, contactCount }: Props) {
       <button
         type="button"
         onClick={() => setStep("confirm")}
-        style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", padding: "0.4rem 0.875rem", borderRadius: 8, border: "1px solid var(--color-error-border)", background: "var(--color-error-bg)", color: "var(--color-error-text)", fontSize: "0.8125rem", fontWeight: 600, cursor: "pointer", transition: "all 0.15s" }}
+        style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", padding: "0.4rem 0.875rem", borderRadius: "var(--r-full)", border: "1px solid var(--color-error-border)", background: "var(--color-error-bg)", color: "var(--color-error-text)", fontSize: "0.8125rem", fontWeight: 600, cursor: "pointer", transition: "all 0.15s" }}
         onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "color-mix(in srgb, var(--color-error-text) 12%, transparent)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "color-mix(in srgb, var(--color-error-text) 40%, transparent)"; }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-error-bg)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--color-error-border)"; }}
       >
@@ -52,11 +52,11 @@ export function DeleteListButton({ listId, listName, contactCount }: Props) {
               <AlertTriangle size={18} color="var(--color-error-text)" />
             </div>
             <div>
-              <div style={{ fontSize: "1rem", fontWeight: 800, color: "var(--text-primary)" }}>Liste wirklich löschen?</div>
+              <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>Liste wirklich löschen?</div>
               <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)", marginTop: 1 }}>Diese Aktion kann nicht rückgängig gemacht werden</div>
             </div>
           </div>
-          <button type="button" onClick={() => { setStep("idle"); setTyped(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-subtle)", padding: 4, borderRadius: 6, display: "flex" }}>
+          <button type="button" onClick={() => { setStep("idle"); setTyped(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-subtle)", padding: 4, borderRadius: "var(--r-full)", display: "flex" }}>
             <X size={16} />
           </button>
         </div>
@@ -68,7 +68,7 @@ export function DeleteListButton({ listId, listName, contactCount }: Props) {
           </div>
           <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)", lineHeight: 1.5 }}>
             {contactCount > 0 ? (
-              <><span style={{ color: "var(--color-error-text)", fontWeight: 700 }}>{contactCount} Kontakte</span> werden unwiderruflich gelöscht.</>
+              <><span style={{ color: "var(--color-error-text)", fontWeight: 600 }}>{contactCount} Kontakte</span> werden unwiderruflich gelöscht.</>
             ) : (
               "Die Liste ist leer und wird gelöscht."
             )}
@@ -94,11 +94,26 @@ export function DeleteListButton({ listId, listName, contactCount }: Props) {
         {/* Actions */}
         <div style={{ display: "flex", gap: "0.625rem" }}>
           <button type="button" onClick={() => { setStep("idle"); setTyped(""); }}
-            style={{ flex: 1, padding: "0.5rem", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text-subtle)", fontSize: "0.875rem", fontWeight: 600, cursor: "pointer" }}>
+            style={{ flex: 1, padding: "0.5rem", borderRadius: "var(--r-full)", border: "1px solid var(--border)", background: "transparent", color: "var(--text-subtle)", fontSize: "0.875rem", fontWeight: 600, cursor: "pointer" }}>
             Abbrechen
           </button>
           <button type="button" onClick={handleDelete} disabled={!confirmed || isPending}
-            style={{ flex: 1, padding: "0.5rem", borderRadius: 8, border: "none", background: confirmed ? "var(--color-ember)" : "var(--surface-200)", color: confirmed ? "white" : "var(--text-subtle)", fontSize: "0.875rem", fontWeight: 700, cursor: confirmed ? "pointer" : "not-allowed", transition: "all 0.15s", boxShadow: confirmed ? "0 0 16px color-mix(in srgb, var(--color-ember) 35%, transparent)" : "none" }}>
+            style={{
+              flex: 1,
+              minHeight: "var(--h-control-lg)",
+              padding: "0 var(--sp-7)",
+              borderRadius: "var(--r-full)",
+              border: "none",
+              // Bestaetigter Destruktiv-Button: volle Danger-Flaeche mit
+              // dunklem Text (COMPONENTS.md 2.4) — nie Orange, nie Weiss auf Rot.
+              background: confirmed ? "var(--danger)" : "var(--surface-3)",
+              color: confirmed ? "#0a0a0b" : "var(--text-disabled)",
+              fontSize: "var(--fs-base)",
+              fontFamily: "inherit",
+              fontWeight: 600,
+              cursor: confirmed ? "pointer" : "not-allowed",
+              transition: "background var(--transition-fast), color var(--transition-fast)",
+            }}>
             {isPending ? "Wird gelöscht…" : "Endgültig löschen"}
           </button>
         </div>

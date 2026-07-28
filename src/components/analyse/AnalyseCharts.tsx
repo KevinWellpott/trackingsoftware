@@ -2,11 +2,22 @@
 
 import { useState } from "react";
 import {
-  Bar, BarChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { AXIS_TICK, CURSOR_FILL, TOOLTIP_STYLE } from "@/components/DashboardCharts";
+import {
+  AXIS_PROPS, BAR_RADIUS, CURSOR_FILL, GRID_PROPS, LEGEND_STYLE,
+  TOOLTIP_LABEL_STYLE, TOOLTIP_STYLE,
+} from "@/lib/viz";
 import { Segmented } from "@/components/ui/Segmented";
 import { ownerColor } from "@/lib/ownerColor";
+
+const TOOLTIP_PROPS = {
+  contentStyle: TOOLTIP_STYLE,
+  labelStyle: TOOLTIP_LABEL_STYLE,
+  itemStyle: { color: "var(--text-primary)" },
+  cursor: CURSOR_FILL,
+};
+const LEGEND_PROPS = { iconType: "circle" as const, iconSize: 8, wrapperStyle: LEGEND_STYLE };
 
 // Client-Charts für den Analyse-Bereich: Zeitreihen (Linien) mit Metrik-
 // Umschalter je Flow sowie ein gruppiertes Balken-Chart pro Bucket.
@@ -25,8 +36,8 @@ function EmptyState({ height = 240 }: { height?: number }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        color: "var(--text-subtle)",
-        fontSize: "0.8125rem",
+        color: "var(--text-muted)",
+        fontSize: "var(--fs-sm)",
       }}
     >
       Noch keine Daten.
@@ -53,16 +64,13 @@ function SeriesChart({
   return (
     <ResponsiveContainer width="100%" height={240}>
       <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-        <XAxis dataKey="label" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <YAxis
-          tick={AXIS_TICK}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={isRate ? (v: number) => `${v} %` : undefined}
-        />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="label" {...AXIS_PROPS} />
+        <YAxis {...AXIS_PROPS} tickFormatter={isRate ? (v: number) => `${v} %` : undefined} />
+        <Tooltip {...TOOLTIP_PROPS} />
+        <Legend {...LEGEND_PROPS} />
         {seriesNames.map((name) => (
+          // Linien 2px, Punkte nur bei Hover (COMPONENTS.md §9).
           <Line
             key={name}
             type="monotone"
@@ -70,6 +78,7 @@ function SeriesChart({
             stroke={ownerColor(name).fg}
             strokeWidth={2}
             dot={false}
+            activeDot={{ r: 4, strokeWidth: 0 }}
           />
         ))}
       </LineChart>
@@ -137,7 +146,7 @@ export function LinkedInSeriesChart({
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
       <Segmented<LinkedInMetric> options={LINKEDIN_OPTIONS} value={metric} onChange={setMetric} size="sm" ariaLabel="Metrik" />
       <SeriesChart points={points} seriesNames={seriesNames} isRate={isRate} />
     </div>
@@ -180,7 +189,7 @@ export function PhoneSeriesChart({
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
       <Segmented<PhoneMetric> options={PHONE_OPTIONS} value={metric} onChange={setMetric} size="sm" ariaLabel="Metrik" />
       <SeriesChart points={points} seriesNames={seriesNames} isRate={isRate} />
     </div>
@@ -209,12 +218,13 @@ export function BucketBarChart({
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={points} barGap={2} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-        <XAxis dataKey="label" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="label" {...AXIS_PROPS} />
+        <YAxis allowDecimals={false} {...AXIS_PROPS} />
+        <Tooltip {...TOOLTIP_PROPS} />
+        <Legend {...LEGEND_PROPS} />
         {seriesNames.map((name) => (
-          <Bar key={name} dataKey={name} fill={ownerColor(name).fg} radius={[3, 3, 0, 0]} />
+          <Bar key={name} dataKey={name} fill={ownerColor(name).fg} radius={BAR_RADIUS} />
         ))}
       </BarChart>
     </ResponsiveContainer>

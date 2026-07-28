@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ember Glass — Style Tile · Titan CRM/Akquise</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* == Basis ============================================================= */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    font-family: var(--font-sans);
+    font-size: var(--fs-base);
+    line-height: var(--lh-base);
+    color: var(--text-primary);
+    background: var(--surface-0);
+    -webkit-font-smoothing: antialiased;
+  }
+  .frame {
+    max-width: 1240px;
+    margin: 0 auto;
+    border-left: 1px solid var(--border-default);
+    border-right: 1px solid var(--border-default);
+  }
+  section { border-bottom: 1px solid var(--border-default); }
+  a { color: inherit; text-decoration: none; }
+
+  .eyebrow {
+    font-size: var(--fs-xs); font-weight: var(--fw-medium);
+    text-transform: uppercase; letter-spacing: var(--ls-eyebrow);
+    color: var(--orange-500);
+  }
+  .sec-head { padding: var(--sp-11) var(--sp-10) var(--sp-9); }
+  .sec-title {
+    margin-top: var(--sp-4);
+    font-size: 28px; font-weight: var(--fw-medium);
+    letter-spacing: var(--ls-display); line-height: var(--lh-tight);
+    text-wrap: balance;
+  }
+  .sec-desc { font-size: var(--fs-base); color: var(--text-muted); margin-top: var(--sp-5); max-width: 560px; }
+  .muted { color: var(--text-muted); }
+  .mono { font-family: var(--font-mono); font-size: var(--fs-xs); }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .grad-word {
+    background: var(--grad-text-accent);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  /* Divided-Grid: Zellen durch 1px-Linien getrennt (Landing-Muster) */
+  .cells { display: grid; gap: 1px; background: var(--border-default); border-top: 1px solid var(--border-default); }
+  .cell { background: var(--surface-0); padding: var(--sp-9) var(--sp-10); transition: background var(--dur-1) var(--ease-out); }
+  .cell:hover { background: var(--surface-1); }
+  .cell-label { font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--text-secondary); }
+
+  /* Corner-Plus-Ticks */
+  .ticked { position: relative; }
+  .tick { position: absolute; width: 12px; height: 12px; color: rgba(138,139,144,0.4); }
+  .tick::before, .tick::after { content: ""; position: absolute; background: currentColor; }
+  .tick::before { left: 0; top: 5px; width: 12px; height: 1px; }
+  .tick::after  { left: 5px; top: 0; width: 1px; height: 12px; }
+  .tick.tl { top: -6px; left: -6px; } .tick.tr { top: -6px; right: -6px; }
+  .tick.bl { bottom: -6px; left: -6px; } .tick.br { bottom: -6px; right: -6px; }
+
+  svg.icon { stroke: currentColor; fill: none; stroke-width: 1.5;
+             stroke-linecap: square; stroke-linejoin: miter; stroke-miterlimit: 6;
+             width: 16px; height: 16px; flex-shrink: 0; }
+  svg.icon.sm { width: 12px; height: 12px; }
+
+  /* == Navbar (Landing: fixed glass bar, h-16) =========================== */
+  nav.topnav {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: space-between;
+    height: 64px; padding: 0 var(--sp-8);
+    background: var(--glass-bg-nav);
+    -webkit-backdrop-filter: blur(var(--glass-blur-md));
+    backdrop-filter: blur(var(--glass-blur-md));
+    border-bottom: 1px solid var(--glass-border);
+  }
+  .wordmark { font-size: var(--fs-lg); font-weight: var(--fw-semibold); letter-spacing: var(--ls-tight); text-transform: lowercase; }
+  .wordmark .dot { color: var(--orange-500); }
+  .nav-links { display: flex; gap: var(--sp-2); }
+  .nav-links a {
+    display: inline-flex; align-items: center; height: 32px; padding: 0 var(--sp-6);
+    border: 1px solid transparent; border-radius: var(--r-full);
+    font-size: var(--fs-base); font-weight: var(--fw-medium);
+    transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+  }
+  .nav-links a:hover { border-color: var(--border-default); background: var(--surface-2); }
+  .nav-cta {
+    display: inline-flex; align-items: center; height: 36px; padding: 0 var(--sp-7);
+    border-radius: var(--r-md); background: var(--orange-500);
+    color: #0A0A0B; font-size: var(--fs-base); font-weight: var(--fw-semibold);
+    transition: background var(--dur-1) var(--ease-out);
+  }
+  .nav-cta:hover { background: var(--orange-400); }
+
+  /* == Hero ============================================================== */
+  header.hero {
+    position: relative; overflow: hidden; text-align: center;
+    padding: 96px var(--sp-10) 88px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .hero .bg-dots {
+    position: absolute; inset: 0;
+    background-image: var(--dot-grid); background-size: 24px 24px;
+    -webkit-mask-image: radial-gradient(70% 60% at 50% 40%, #000, transparent);
+    mask-image: radial-gradient(70% 60% at 50% 40%, #000, transparent);
+  }
+  .hero .bg-glow { position: absolute; inset: 0; background: var(--grad-ember); }
+  .hero > div { position: relative; }
+  .header-badge {
+    display: inline-flex; align-items: center; gap: var(--sp-4);
+    padding: var(--sp-3) var(--sp-6); border-radius: var(--r-full);
+    background: var(--surface-2); box-shadow: var(--shadow-badge);
+    font-size: var(--fs-base); font-weight: var(--fw-medium);
+  }
+  .hero h1 {
+    margin: var(--sp-8) auto 0; max-width: 720px;
+    font-size: 52px; font-weight: var(--fw-semibold);
+    letter-spacing: var(--ls-headline); line-height: 1.05;
+    text-wrap: balance;
+  }
+  .hero p.lead { margin: var(--sp-7) auto 0; max-width: 560px; font-size: var(--fs-md); color: var(--text-secondary); text-wrap: balance; }
+  .hero .actions { display: flex; gap: var(--sp-5); justify-content: center; margin-top: var(--sp-9); flex-wrap: wrap; }
+
+  /* == Buttons =========================================================== */
+  button { font-family: var(--font-sans); cursor: pointer; border: none; background: none; color: inherit; }
+  button:focus-visible, input:focus-visible, a:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--ring-focus);
+  }
+  .btn-primary {
+    display: inline-flex; align-items: center; gap: var(--sp-4);
+    height: 48px; padding: 0 var(--sp-9);
+    border-radius: var(--r-full);
+    background: var(--grad-cta);
+    box-shadow: var(--shadow-btn-primary), 0 0 0 2px var(--orange-600);
+    color: var(--text-on-accent); font-size: var(--fs-base); font-weight: var(--fw-semibold);
+    transition: background var(--dur-1) var(--ease-in-out), box-shadow var(--dur-1) var(--ease-in-out),
+                transform var(--dur-1) var(--ease-in-out);
+  }
+  .btn-primary.md { height: var(--h-control-lg); padding: 0 var(--sp-8); }
+  .btn-primary:hover { background: var(--grad-cta-hover); box-shadow: var(--shadow-btn-primary), 0 0 0 2px var(--orange-600), var(--glow-accent); }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-outline {
+    display: inline-flex; align-items: center; gap: var(--sp-4);
+    height: 48px; padding: 0 var(--sp-9);
+    border-radius: var(--r-full); background: var(--surface-2);
+    border: 1px solid var(--border-default);
+    color: var(--text-primary); font-size: var(--fs-base); font-weight: var(--fw-medium);
+    transition: background var(--dur-1) var(--ease-in-out), border-color var(--dur-1) var(--ease-in-out);
+  }
+  .btn-outline:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .btn-secondary {
+    display: inline-flex; align-items: center; gap: var(--sp-4);
+    height: var(--h-control); padding: 0 var(--sp-6);
+    border-radius: var(--r-md); background: var(--surface-2);
+    border: 1px solid var(--border-default);
+    color: var(--text-primary); font-size: var(--fs-base); font-weight: var(--fw-medium);
+    transition: background var(--dur-1) var(--ease-in-out), border-color var(--dur-1) var(--ease-in-out);
+  }
+  .btn-secondary:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .btn-ghost {
+    display: inline-flex; align-items: center; gap: var(--sp-4);
+    height: var(--h-control); padding: 0 var(--sp-6);
+    border-radius: var(--r-md); color: var(--orange-300);
+    font-size: var(--fs-base); font-weight: var(--fw-medium);
+    transition: background var(--dur-1) var(--ease-in-out);
+  }
+  .btn-ghost:hover { background: var(--surface-1); }
+  .btn-danger {
+    display: inline-flex; align-items: center;
+    height: var(--h-control); padding: 0 var(--sp-6);
+    border-radius: var(--r-md); background: transparent;
+    border: 1px solid rgba(214, 90, 82, 0.4);
+    color: var(--danger-fg); font-size: var(--fs-base); font-weight: var(--fw-medium);
+  }
+  .btn-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: var(--h-control); height: var(--h-control);
+    border-radius: var(--r-md); color: var(--text-secondary);
+    transition: background var(--dur-1) var(--ease-in-out);
+  }
+  .btn-icon:hover { background: var(--surface-1); }
+  .btn-row { display: flex; gap: var(--sp-6); align-items: center; flex-wrap: wrap; }
+
+  /* == Swatches / Chips ================================================== */
+  .chip { height: 56px; border-radius: var(--r-md); border: 1px solid var(--border-default); }
+  .swatch-name { font-size: var(--fs-sm); font-weight: var(--fw-medium); margin-top: var(--sp-4); }
+  .swatch-val { font-size: var(--fs-2xs); color: var(--text-muted); font-family: var(--font-mono); margin-top: 1px; }
+  .swatch-use { font-size: var(--fs-2xs); color: var(--text-muted); margin-top: 1px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: var(--sp-3);
+    height: 22px; padding: 0 var(--sp-4); border-radius: var(--r-full);
+    font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--text-secondary);
+    box-shadow: var(--shadow-badge);
+  }
+  .badge .b-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .sem-chip {
+    display: inline-flex; align-items: center; gap: var(--sp-3);
+    height: 24px; padding: 0 var(--sp-5); border-radius: var(--r-full);
+    font-size: var(--fs-xs); font-weight: var(--fw-medium);
+  }
+  .viz-item { display: flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-sm); color: var(--text-secondary); }
+  .viz-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .chip-row { display: flex; gap: var(--sp-4); flex-wrap: wrap; }
+
+  .check-list { display: grid; gap: var(--sp-5); }
+  .check-item { display: flex; align-items: flex-start; gap: var(--sp-5); font-size: var(--fs-base); color: var(--text-secondary); }
+  .check-item .ring {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 20px; height: 20px; margin-top: 1px; border-radius: var(--r-full);
+    background: var(--accent-muted); color: var(--orange-500);
+  }
+
+  /* == Typografie ======================================================== */
+  .type-row { display: grid; grid-template-columns: 200px 1fr; gap: var(--sp-6); align-items: baseline;
+              padding: var(--sp-6) var(--sp-10); border-top: 1px solid var(--border-subtle); }
+  .type-label { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); }
+
+  /* == Formulare ========================================================= */
+  .field label { display: block; font-size: var(--fs-xs); font-weight: var(--fw-medium);
+                 color: var(--text-secondary); margin-bottom: var(--sp-3); }
+  .input {
+    width: 100%; height: var(--h-control); padding: 0 var(--sp-5);
+    background: var(--surface-1); border: 1px solid var(--border-default);
+    border-radius: var(--r-md); color: var(--text-primary);
+    font-family: var(--font-sans); font-size: var(--fs-base);
+    transition: border-color var(--dur-1) var(--ease-in-out);
+  }
+  .input::placeholder { color: var(--text-muted); }
+  .input:hover { border-color: var(--border-strong); }
+  .input:focus { outline: none; border-color: var(--orange-500); box-shadow: 0 0 0 3px var(--accent-muted); }
+  .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .track { position: absolute; inset: 0; background: var(--surface-3); border-radius: var(--r-full);
+                   transition: background var(--dur-1) var(--ease-in-out); }
+  .switch .track::before { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+                           border-radius: 50%; background: #FAFAFA;
+                           transition: transform var(--dur-1) var(--ease-in-out); }
+  .switch input:checked + .track { background: var(--orange-500); }
+  .switch input:checked + .track::before { transform: translateX(16px); }
+  .checkbox { appearance: none; width: 16px; height: 16px; border: 1px solid var(--border-strong);
+              border-radius: var(--r-xs); background: transparent; cursor: pointer; position: relative;
+              vertical-align: middle; flex-shrink: 0; }
+  .checkbox:checked { background: var(--orange-500); border-color: var(--orange-500); }
+  .checkbox:checked::after { content: ""; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px;
+                             border: solid #0A0A0B; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+  .segmented { display: inline-flex; gap: var(--sp-1); padding: var(--sp-1);
+               background: var(--surface-1); border: 1px solid var(--border-default); border-radius: var(--r-full); }
+  .segmented button { height: 26px; padding: 0 var(--sp-6); border-radius: var(--r-full);
+                      font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--text-muted);
+                      transition: color var(--dur-1) var(--ease-out); }
+  .segmented button:hover { color: var(--text-primary); }
+  .segmented button.active { background: var(--orange-500); color: #0A0A0B; font-weight: var(--fw-semibold); }
+
+  /* == Glass ============================================================= */
+  .glass-card {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur-md));
+    backdrop-filter: blur(var(--glass-blur-md));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-xl);
+    box-shadow: var(--glass-lip);
+  }
+  .glass-popover {
+    background: var(--glass-bg-popover);
+    -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--glass-lip), var(--shadow-overlay);
+  }
+  .glass-stage {
+    position: relative; overflow: hidden;
+    border-top: 1px solid var(--border-default);
+    padding: var(--sp-11) var(--sp-10);
+    background-image: var(--grad-ember), var(--dot-grid);
+    background-size: auto, 24px 24px;
+  }
+  .glass-stage .blob { position: absolute; border-radius: 50%; filter: blur(40px); opacity: 0.35; }
+
+  /* == KPI / Queue / Karten ============================================= */
+  .kpi-num { font-size: var(--fs-2xl); font-weight: var(--fw-semibold); letter-spacing: var(--ls-display);
+             line-height: var(--lh-tight); margin-top: var(--sp-4); }
+  .delta { display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 var(--sp-4);
+           border-radius: var(--r-full); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
+  .delta.up { color: var(--success-fg); background: var(--success-bg); }
+  .delta.down { color: var(--danger-fg); background: var(--danger-bg); }
+  .delta svg { width: 10px; height: 10px; }
+  .sparkline { margin-top: var(--sp-5); display: block; }
+
+  .card {
+    background: var(--surface-2); border: 1px solid var(--border-default);
+    border-radius: var(--r-lg); padding: var(--sp-8);
+  }
+  .queue-item {
+    display: flex; align-items: center; gap: var(--sp-6);
+    min-height: 44px; padding: 0 var(--sp-6);
+    border: 1px solid var(--border-default); border-radius: var(--r-md);
+    background: var(--surface-1);
+  }
+  .queue-item.active { background: var(--accent-muted); border-color: var(--border-accent);
+                       box-shadow: inset 2px 0 0 var(--orange-500); }
+  .q-name { font-weight: var(--fw-medium); font-size: var(--fs-base); }
+  .q-firm { font-size: var(--fs-sm); color: var(--text-secondary); }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: var(--sp-3) var(--sp-6); }
+  .kv dt { font-size: var(--fs-xs); color: var(--text-muted); }
+  .kv dd { font-size: var(--fs-base); }
+
+  /* == Tabelle =========================================================== */
+  table.data { width: 100%; border-collapse: collapse; }
+  table.data th {
+    background: var(--glass-bg-nav);
+    -webkit-backdrop-filter: blur(var(--glass-blur-md));
+    backdrop-filter: blur(var(--glass-blur-md));
+    border-bottom: 1px solid var(--glass-border);
+    font-size: var(--fs-xs); font-weight: var(--fw-medium);
+    text-transform: uppercase; letter-spacing: var(--ls-eyebrow);
+    color: var(--text-muted); text-align: left;
+    height: var(--h-row); padding: 0 var(--sp-5);
+  }
+  table.data td {
+    height: var(--h-row); padding: 0 var(--sp-5);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--fs-base);
+  }
+  table.data th.num, table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.data td.num { font-weight: var(--fw-medium); }
+  table.data tr.hoverable { transition: background var(--dur-1) var(--ease-out); }
+  table.data tr.hoverable:hover { background: var(--surface-1); }
+  table.data tr.selected { background: var(--accent-muted); box-shadow: inset 2px 0 0 var(--orange-500); }
+
+  /* == Palette / Kbd ===================================================== */
+  .kbd {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 20px; min-width: 20px; padding: 0 var(--sp-3);
+    background: var(--surface-1); border: 1px solid var(--border-default);
+    border-radius: var(--r-xs); font-family: var(--font-mono); font-size: var(--fs-2xs);
+    color: var(--text-secondary);
+  }
+  .palette-item { display: flex; align-items: center; gap: var(--sp-5); height: 40px; padding: 0 var(--sp-6);
+                  border-radius: var(--r-sm); font-size: var(--fs-base); }
+  .palette-item.active { background: var(--surface-3); box-shadow: inset 2px 0 0 var(--orange-500); }
+  .palette-group { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow);
+                   color: var(--text-muted); padding: var(--sp-5) var(--sp-6) var(--sp-2); }
+
+  .script-step { display: flex; gap: var(--sp-5); padding: var(--sp-5) 0;
+                 border-bottom: 1px solid var(--border-subtle); font-size: var(--fs-base); }
+  .script-num { color: var(--orange-500); font-weight: var(--fw-semibold); font-size: var(--fs-xs);
+                min-width: 20px; padding-top: 2px; }
+
+  /* == CTA / Footer ====================================================== */
+  .cta-block { position: relative; overflow: hidden; text-align: center; padding: 112px var(--sp-10); }
+  .cta-block .glow-1, .cta-block .glow-2 {
+    position: absolute; inset: 0; background: var(--grad-cta-glow);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000);
+    mask-image: linear-gradient(to bottom, transparent, #000);
+  }
+  .cta-block .glow-2 { filter: blur(50px); }
+  .cta-block > div { position: relative; }
+  .cta-block h2 { font-size: 40px; font-weight: var(--fw-medium); letter-spacing: var(--ls-headline);
+                  line-height: 1.1; text-wrap: balance; }
+  .cta-block p { margin: var(--sp-6) auto 0; max-width: 480px; color: var(--text-secondary); }
+
+  footer .cols { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 1px; background: var(--border-default); }
+  footer .col { background: var(--surface-0); padding: var(--sp-9) var(--sp-10) var(--sp-11); }
+  footer .col h4 { font-size: var(--fs-base); font-weight: var(--fw-semibold); margin-bottom: var(--sp-6); }
+  footer .col a { display: block; font-size: var(--fs-base); color: var(--text-muted); padding: var(--sp-2) 0;
+                  transition: color var(--dur-1) var(--ease-out); }
+  footer .col a:hover { color: var(--text-primary); }
+  footer .bottom { border-top: 1px solid var(--border-default); padding: var(--sp-6) var(--sp-10);
+                   font-size: var(--fs-sm); color: var(--text-muted); display: flex; justify-content: space-between;
+                   flex-wrap: wrap; gap: var(--sp-4); }
+</style>
+</head>
+<body>
+<div class="frame">
+
+  <!-- ================= NAVBAR ================= -->
+  <nav class="topnav">
+    <span class="wordmark">titan<span class="dot">.</span></span>
+    <div class="nav-links">
+      <a href="#farben">Farben</a>
+      <a href="#typografie">Typografie</a>
+      <a href="#komponenten">Komponenten</a>
+      <a href="#material">Material</a>
+    </div>
+    <a class="nav-cta" href="#cta">Loslegen</a>
+  </nav>
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="bg-glow"></div>
+    <div class="bg-dots"></div>
+    <div>
+      <span class="header-badge">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--orange-500)"></span>
+        Ember Glass · Design-System v1
+      </span>
+      <h1>Das Interface, das deinen Vertrieb <span class="grad-word">trägt</span>.</h1>
+      <p class="lead">Near-Black Canvas, ein Funken Orange, Liquid Glass für die oberste Schicht.
+        Gebaut für die CRM/Akquise-Produktlinie — abgeleitet aus Banner und Landing Page.</p>
+      <div class="actions">
+        <button class="btn-primary">Anruf starten</button>
+        <button class="btn-outline">Die Dokumentation</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= SURFACES ================= -->
+  <section id="farben">
+    <div class="sec-head">
+      <div class="eyebrow">Farbsystem</div>
+      <div class="sec-title">Tiefe durch <span class="grad-word">Leuchtdichte</span>, nie durch Schatten.</div>
+      <p class="sec-desc">Ebene = Helligkeit. Hover springt genau eine Surface-Stufe nach oben.</p>
+    </div>
+    <div class="cells" style="grid-template-columns: repeat(5, 1fr)">
+      <div class="cell"><div class="chip" style="background:#0A0A0B"></div><div class="swatch-name">surface-0</div><div class="swatch-val">#0A0A0B</div><div class="swatch-use">Canvas</div></div>
+      <div class="cell"><div class="chip" style="background:#101013"></div><div class="swatch-name">surface-1</div><div class="swatch-val">#101013</div><div class="swatch-use">Header · Panels</div></div>
+      <div class="cell"><div class="chip" style="background:#151519"></div><div class="swatch-name">surface-2</div><div class="swatch-val">#151519</div><div class="swatch-use">Cards · Sidebar</div></div>
+      <div class="cell"><div class="chip" style="background:#1B1B20"></div><div class="swatch-name">surface-3</div><div class="swatch-val">#1B1B20</div><div class="swatch-use">Hover</div></div>
+      <div class="cell"><div class="chip" style="background:#212127"></div><div class="swatch-name">surface-4</div><div class="swatch-val">#212127</div><div class="swatch-use">Dialoge · Palette</div></div>
+    </div>
+    <div class="cells" style="grid-template-columns: repeat(8, 1fr)">
+      <div class="cell" style="padding: var(--sp-8)"><div class="chip" style="background:#FED7AA; height:40px"></div><div class="swatch-name">200</div><div class="swatch-val">#FED7AA</div></div>
+      <div class="cell" style="padding: var(--sp-8)"><div class="chip" style="background:#FDBA74; height:40px"></div><div class="swatch-name">300</div><div class="swatch-val">#FDBA74</div></div>
+      <div class="cell" style="padding: var(--sp-8)"><div class="chip" style="background:#FB923C; height:40px"></div><div class="swatch-name">400</div><div class="swatch-val">#FB923C</div></div>
+      <div class="cell" style="padding: var(--sp-8)"><div class="chip" style="background:#F97316; height:40px; box-shadow: var(--glow-accent)"></div><div class="swatch-name">500 · Kern</div><div class="swatch-val">#F97316</div></div>
+      <div class="cell" style="padding: var(--sp-8)"><div class="chip" style="background:#EA580C; height:40px"></div><div class="swatch-name">600</div><div class="swatch-val">#EA580C</div></div>
+      <div class="cell" style="padding: var(--sp-8)"><div class="chip" style="background:#C2410C; height:40px"></div><div class="swatch-name">700</div><div class="swatch-val">#C2410C</div></div>
+      <div class="cell" style="padding: var(--sp-8)"><div class="chip" style="background:#7C2D12; height:40px"></div><div class="swatch-name">900</div><div class="swatch-val">#7C2D12</div></div>
+      <div class="cell" style="padding: var(--sp-8)"><div class="chip" style="background:#431407; height:40px"></div><div class="swatch-name">950</div><div class="swatch-val">#431407</div></div>
+    </div>
+    <div class="cells" style="grid-template-columns: repeat(4, 1fr)">
+      <div class="cell"><div class="chip" style="background:var(--grad-cta)"></div><div class="swatch-name">grad-cta</div><div class="swatch-use">Signature-Pill</div></div>
+      <div class="cell"><div class="chip" style="background:var(--grad-text-accent)"></div><div class="swatch-name">grad-text-accent</div><div class="swatch-use">radial — 1 Wort pro View</div></div>
+      <div class="cell"><div class="chip" style="background:var(--grad-ember); background-color:var(--surface-1)"></div><div class="swatch-name">grad-ember</div><div class="swatch-use">Glüh-Header</div></div>
+      <div class="cell"><div class="chip" style="background:var(--grad-ribbon); background-color:var(--surface-1)"></div><div class="swatch-name">grad-ribbon</div><div class="swatch-use">nur Marketing</div></div>
+    </div>
+  </section>
+
+  <!-- ================= VIZ / STAGES / SEMANTIK ================= -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">Akzente &amp; Status</div>
+      <div class="sec-title">Ein Orange. Und ein Plan für alles andere.</div>
+      <p class="sec-desc">Kanalfarben nur als Dots und Tints, Chart-Palette in fixer Slot-Reihenfolge,
+        Warning ist Gold — Orange trägt nie Status.</p>
+    </div>
+    <div class="cells" style="grid-template-columns: repeat(2, 1fr)">
+      <div class="cell">
+        <div class="cell-label">Datenvisualisierung · Slots 1–6, CVD-validiert</div>
+        <div class="chip-row" style="margin-top: var(--sp-6); gap: var(--sp-7)">
+          <span class="viz-item"><span class="viz-dot" style="background:#EA580C"></span>viz-1</span>
+          <span class="viz-item"><span class="viz-dot" style="background:#4E80D6"></span>viz-2</span>
+          <span class="viz-item"><span class="viz-dot" style="background:#3FA36F"></span>viz-3</span>
+          <span class="viz-item"><span class="viz-dot" style="background:#D946EF"></span>viz-4</span>
+          <span class="viz-item"><span class="viz-dot" style="background:#0D9488"></span>viz-5</span>
+          <span class="viz-item"><span class="viz-dot" style="background:#8B5CF6"></span>viz-6</span>
+        </div>
+        <div class="cell-label" style="margin-top: var(--sp-8)">Pipeline &amp; Kanäle</div>
+        <div class="chip-row" style="margin-top: var(--sp-5)">
+          <span class="badge" style="background:rgba(78,128,214,0.10)"><span class="b-dot" style="background:var(--stage-telefon)"></span>Telefon</span>
+          <span class="badge" style="background:rgba(13,148,136,0.10)"><span class="b-dot" style="background:var(--stage-linkedin)"></span>LinkedIn</span>
+          <span class="badge" style="background:rgba(139,92,246,0.10)"><span class="b-dot" style="background:var(--stage-setting)"></span>Setting</span>
+          <span class="badge" style="background:rgba(63,163,111,0.10)"><span class="b-dot" style="background:var(--stage-closing)"></span>Closing</span>
+          <span class="badge" style="background:rgba(209,162,79,0.10)"><span class="b-dot" style="background:var(--stage-nachfassen)"></span>Nachfassen</span>
+          <span class="badge" style="background:rgba(249,115,22,0.10)"><span class="b-dot" style="background:var(--stage-heute)"></span>Heute</span>
+        </div>
+        <div class="cell-label" style="margin-top: var(--sp-8)">Semantik — entsättigt, nie Farbe allein</div>
+        <div class="chip-row" style="margin-top: var(--sp-5)">
+          <span class="sem-chip" style="color:var(--success-fg); background:var(--success-bg)">
+            <svg class="icon sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg> Gewonnen</span>
+          <span class="sem-chip" style="color:var(--warning-fg); background:var(--warning-bg)">
+            <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg> Überfällig · 3 Tage</span>
+          <span class="sem-chip" style="color:var(--danger-fg); background:var(--danger-bg)">
+            <svg class="icon sm" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg> Verloren</span>
+          <span class="sem-chip" style="color:var(--info-fg); background:var(--info-bg)">
+            <svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/></svg> Hinweis</span>
+        </div>
+      </div>
+      <div class="cell">
+        <div class="cell-label">Check-Bullets &amp; Header-Badge — direkt aus der Landing Page</div>
+        <div style="margin-top: var(--sp-6)">
+          <span class="header-badge" style="font-size: var(--fs-sm)">
+            <svg class="icon sm" viewBox="0 0 24 24" style="color:var(--orange-500)"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            87 Anrufe heute
+          </span>
+        </div>
+        <div class="check-list" style="margin-top: var(--sp-8)">
+          <div class="check-item"><span class="ring"><svg class="icon sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>
+            Jede Liste wird zur Smart Queue — sortiert nach Fälligkeit und Priorität.</div>
+          <div class="check-item"><span class="ring"><svg class="icon sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>
+            Übergaben laufen über die Handoff-Karte. Nichts geht verloren.</div>
+          <div class="check-item"><span class="ring"><svg class="icon sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>
+            Auswertung ohne Excel: Funnel, Quoten und Benchmarks pro Kanal.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= TYPOGRAFIE ================= -->
+  <section id="typografie">
+    <div class="sec-head">
+      <div class="eyebrow">Typografie</div>
+      <div class="sec-title">Inter. Drei Gewichte, <span class="grad-word">nie</span> 700.</div>
+      <p class="sec-desc">Hierarchie über Größe + 500/600. Große Headlines mit −0.05em wie auf der Landing Page.
+        Ziffern tabellarisch, Formate de-DE.</p>
+    </div>
+    <div class="type-row" style="border-top: 1px solid var(--border-default)"><span class="type-label">Hero · 36/600 · −0.05em</span>
+      <span style="font-size:var(--fs-3xl); font-weight:var(--fw-semibold); letter-spacing:var(--ls-headline); line-height:1.1">Endlich verstehen, was <span class="grad-word">funktioniert</span>.</span></div>
+    <div class="type-row"><span class="type-label">Seiten-Titel · 22/600</span><span style="font-size:var(--fs-xl); font-weight:var(--fw-semibold); letter-spacing:var(--ls-display)">Auswertung Q3 — Telefonakquise</span></div>
+    <div class="type-row"><span class="type-label">Card-Titel · 16/600</span><span style="font-size:var(--fs-md); font-weight:var(--fw-semibold); letter-spacing:var(--ls-tight)">Übergabe an Closing</span></div>
+    <div class="type-row"><span class="type-label">Body · 14/400</span><span>Der Lead hat drei Mitarbeiter im Vertrieb und nutzt bisher kein CRM.</span></div>
+    <div class="type-row"><span class="type-label">Eyebrow · 12/500</span><span class="eyebrow">Leitfaden · Einwandbehandlung</span></div>
+    <div class="type-row"><span class="type-label">Meta · 12/400</span><span class="muted" style="font-size:var(--fs-xs)">zuletzt aktualisiert am 27.07.2026 · 14:30</span></div>
+    <div class="type-row"><span class="type-label">KPI + tabular-nums</span>
+      <span class="tnum" style="font-size:var(--fs-2xl); font-weight:var(--fw-semibold); letter-spacing:var(--ls-display)">1.234,56&nbsp;€ <span style="font-size:var(--fs-base); color:var(--text-muted); font-weight:var(--fw-regular)">· 87 Anrufe · 12,4&nbsp;%</span></span></div>
+  </section>
+
+  <!-- ================= BUTTONS + FORMULARE ================= -->
+  <section id="komponenten" style="background-image: var(--grad-section)">
+    <div class="sec-head">
+      <div class="eyebrow">Komponenten</div>
+      <div class="sec-title">Ein CTA glüht. Der Rest bleibt ruhig.</div>
+      <p class="sec-desc">Signature-Pill mit Gradient, Licht-Lippe und Ring — genau eine pro View.
+        Sekundär und Ghost tragen die Arbeit.</p>
+    </div>
+    <div class="cells" style="grid-template-columns: repeat(3, 1fr)">
+      <div class="cell">
+        <div class="cell-label">Primär — Signature Pill</div>
+        <div class="btn-row" style="margin-top: var(--sp-6)">
+          <button class="btn-primary md">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            Anrufen
+          </button>
+        </div>
+        <p class="muted" style="font-size:var(--fs-xs); margin-top: var(--sp-6)">Hover = hellerer Gradient + Glow · Text weiß, ≥ 14px/600</p>
+      </div>
+      <div class="cell">
+        <div class="cell-label">Sekundär · Ghost · Destruktiv</div>
+        <div class="btn-row" style="margin-top: var(--sp-6)">
+          <button class="btn-secondary">Liste importieren</button>
+          <button class="btn-ghost">Nachfassen
+            <svg class="icon sm" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+          <button class="btn-danger">Löschen</button>
+        </div>
+        <p class="muted" style="font-size:var(--fs-xs); margin-top: var(--sp-6)">Destruktiv nie in Orange — Danger hat seine eigene Farbe</p>
+      </div>
+      <div class="cell">
+        <div class="cell-label">Icon-Button · Fokusring</div>
+        <div class="btn-row" style="margin-top: var(--sp-6)">
+          <button class="btn-icon" aria-label="Bearbeiten"><svg class="icon" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>
+          <button class="btn-icon" aria-label="Kopieren"><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg></button>
+          <button class="btn-icon" aria-label="Suchen"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></button>
+        </div>
+        <p class="muted" style="font-size:var(--fs-xs); margin-top: var(--sp-6)">Tab drücken: Doppelring aus Canvas + Orange auf jeder Fläche</p>
+      </div>
+    </div>
+    <div class="cells" style="grid-template-columns: 2fr 1fr">
+      <div class="cell">
+        <div class="cell-label">Formulare</div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-6); margin-top: var(--sp-6)">
+          <div class="field"><label>Firma</label><input class="input" placeholder="z. B. Nordwind Media GmbH"></div>
+          <div class="field"><label>Ansprechpartner</label><input class="input" value="Jana Kessler"></div>
+        </div>
+        <div class="btn-row" style="margin-top: var(--sp-7)">
+          <label class="switch"><input type="checkbox" checked><span class="track"></span></label>
+          <span style="font-size:var(--fs-sm); color:var(--text-secondary)">Follow-up automatisch planen</span>
+          <input type="checkbox" class="checkbox" checked id="cb1"> <label for="cb1" style="font-size:var(--fs-sm); color:var(--text-secondary)">Entscheider erreicht</label>
+        </div>
+      </div>
+      <div class="cell">
+        <div class="cell-label">Segmented — aktive Pill in Orange</div>
+        <div style="margin-top: var(--sp-6)">
+          <div class="segmented">
+            <button>Heute</button><button class="active">Woche</button><button>Monat</button>
+          </div>
+        </div>
+        <p class="muted" style="font-size:var(--fs-xs); margin-top: var(--sp-6)">Wie der Track-Switcher der Landing — dunkler Text auf Orange (7,1:1)</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= LIQUID GLASS ================= -->
+  <section id="material">
+    <div class="sec-head">
+      <div class="eyebrow">Material</div>
+      <div class="sec-title">Liquid <span class="grad-word">Glass</span> — für die oberste Schicht.</div>
+      <p class="sec-desc">Border + Licht-Lippe sind Pflicht, sonst ist Glas auf Near-Black unsichtbar.
+        Max. 3 Flächen pro Viewport, nie in scrollenden Zeilen.</p>
+    </div>
+    <div class="glass-stage">
+      <div class="blob" style="width:220px;height:220px;background:#FFB02C;top:-60px;left:12%"></div>
+      <div class="blob" style="width:180px;height:180px;background:#FF3D00;bottom:-70px;right:18%"></div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:var(--sp-8); position:relative">
+        <div class="glass-card ticked" style="padding:var(--sp-8)">
+          <i class="tick tl"></i><i class="tick tr"></i><i class="tick bl"></i><i class="tick br"></i>
+          <div class="eyebrow" style="margin-bottom:var(--sp-3)">Glass-Card · blur 16px</div>
+          <div style="font-size:var(--fs-md); font-weight:var(--fw-semibold)">Fokus-Karte</div>
+          <p style="font-size:var(--fs-sm); color:var(--text-secondary); margin-top:var(--sp-3)">
+            Nächster Schritt: Jana Kessler zurückrufen — Angebot liegt seit 3 Tagen vor.</p>
+          <div style="margin-top:var(--sp-6)"><button class="btn-secondary">Anruf starten</button></div>
+        </div>
+        <div class="glass-popover" style="padding:var(--sp-8)">
+          <div class="eyebrow" style="margin-bottom:var(--sp-3)">Glass-Popover · blur 24px + saturate 1.5</div>
+          <div style="font-size:var(--fs-md); font-weight:var(--fw-semibold)">Dropdown &amp; Tooltip-Material</div>
+          <p style="font-size:var(--fs-sm); color:var(--text-secondary); margin-top:var(--sp-3)">
+            Die Sättigung lässt die Farben dahinter leuchten — nur für Popover und ⌘K-Palette.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= KPI ================= -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">Auswertung</div>
+      <div class="sec-title">Zahlen, die man nebeneinander lesen kann.</div>
+      <p class="sec-desc">28px/600, tabellarisch. Delta immer mit Richtungs-Icon — nie Farbe allein.</p>
+    </div>
+    <div class="cells" style="grid-template-columns: repeat(3, 1fr)">
+      <div class="cell">
+        <div class="eyebrow">Anrufe heute</div>
+        <div class="kpi-num tnum">87
+          <span class="delta up"><svg viewBox="0 0 10 10" fill="currentColor" stroke="none"><path d="M5 1l4 6H1z"/></svg>+12&nbsp;%</span></div>
+        <svg class="sparkline" width="100%" height="32" viewBox="0 0 200 32" preserveAspectRatio="none">
+          <polyline points="0,26 25,22 50,24 75,16 100,18 125,10 150,14 175,6 200,8" fill="none" stroke="#EA580C" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="cell">
+        <div class="eyebrow">Termine gesetzt</div>
+        <div class="kpi-num tnum">14
+          <span class="delta up"><svg viewBox="0 0 10 10" fill="currentColor" stroke="none"><path d="M5 1l4 6H1z"/></svg>+3</span></div>
+        <svg class="sparkline" width="100%" height="32" viewBox="0 0 200 32" preserveAspectRatio="none">
+          <polyline points="0,24 25,25 50,20 75,21 100,15 125,17 150,12 175,13 200,9" fill="none" stroke="#EA580C" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="cell">
+        <div class="eyebrow">Abschlussquote</div>
+        <div class="kpi-num tnum"><span class="grad-word">12,4&nbsp;%</span>
+          <span class="delta down"><svg viewBox="0 0 10 10" fill="currentColor" stroke="none"><path d="M5 9L1 3h8z"/></svg>−1,1&nbsp;%</span></div>
+        <svg class="sparkline" width="100%" height="32" viewBox="0 0 200 32" preserveAspectRatio="none">
+          <polyline points="0,10 25,14 50,12 75,18 100,16 125,20 150,17 175,22 200,20" fill="none" stroke="#EA580C" stroke-width="1.5"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= TABELLE ================= -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">Daten</div>
+      <div class="sec-title">Die Tabelle ist das Arbeitspferd.</div>
+      <p class="sec-desc">36px-Zeilen, Hairlines statt Zebra, Glass-Header. Selektierte Zeile: Orange-Tint + 2px-Rail.</p>
+    </div>
+    <div style="border-top: 1px solid var(--border-default)">
+      <table class="data">
+        <thead><tr>
+          <th style="width:52px; padding-left: var(--sp-10)"></th><th>Lead</th><th>Kanal</th><th>Stage</th>
+          <th class="num">Versuche</th><th class="num">Wert</th><th style="padding-right: var(--sp-10)">Fällig</th>
+        </tr></thead>
+        <tbody>
+          <tr class="hoverable">
+            <td style="padding-left: var(--sp-10)"><input type="checkbox" class="checkbox"></td>
+            <td><span class="q-name">Jana Kessler</span> <span class="q-firm">· Nordwind Media</span></td>
+            <td><span class="viz-dot" style="display:inline-block;width:8px;height:8px;background:var(--stage-telefon)"></span></td>
+            <td><span class="badge" style="background:rgba(139,92,246,0.10)"><span class="b-dot" style="background:var(--stage-setting)"></span>Setting</span></td>
+            <td class="num tnum">3</td><td class="num tnum">4.800&nbsp;€</td>
+            <td style="padding-right: var(--sp-10)"><span class="sem-chip" style="color:var(--orange-300); background:var(--accent-muted); height:20px">Heute</span></td>
+          </tr>
+          <tr class="selected">
+            <td style="padding-left: var(--sp-10)"><input type="checkbox" class="checkbox" checked></td>
+            <td><span class="q-name">Timo Brandt</span> <span class="q-firm">· Brandt &amp; Söhne</span></td>
+            <td><span class="viz-dot" style="display:inline-block;width:8px;height:8px;background:var(--stage-linkedin)"></span></td>
+            <td><span class="badge" style="background:rgba(63,163,111,0.10)"><span class="b-dot" style="background:var(--stage-closing)"></span>Closing</span></td>
+            <td class="num tnum">6</td><td class="num tnum">12.500&nbsp;€</td>
+            <td style="padding-right: var(--sp-10)"><span class="sem-chip" style="color:var(--warning-fg); background:var(--warning-bg); height:20px">Überfällig · 2 T.</span></td>
+          </tr>
+          <tr class="hoverable">
+            <td style="padding-left: var(--sp-10)"><input type="checkbox" class="checkbox"></td>
+            <td><span class="q-name">Aylin Demir</span> <span class="q-firm">· Demir Consulting</span></td>
+            <td><span class="viz-dot" style="display:inline-block;width:8px;height:8px;background:var(--stage-telefon)"></span></td>
+            <td><span class="badge" style="background:rgba(78,128,214,0.10)"><span class="b-dot" style="background:var(--stage-telefon)"></span>Telefon</span></td>
+            <td class="num tnum">1</td><td class="num tnum">2.900&nbsp;€</td>
+            <td style="padding-right: var(--sp-10)"><span class="muted" style="font-size:var(--fs-sm)">30.07.2026</span></td>
+          </tr>
+          <tr class="hoverable">
+            <td style="padding-left: var(--sp-10)"><input type="checkbox" class="checkbox"></td>
+            <td><span class="q-name">Markus Feld</span> <span class="q-firm">· Feldwerk GmbH</span></td>
+            <td><span class="viz-dot" style="display:inline-block;width:8px;height:8px;background:var(--stage-linkedin)"></span></td>
+            <td><span class="badge" style="background:rgba(209,162,79,0.10)"><span class="b-dot" style="background:var(--stage-nachfassen)"></span>Nachfassen</span></td>
+            <td class="num tnum">4</td><td class="num tnum">6.900&nbsp;€</td>
+            <td style="padding-right: var(--sp-10)"><span class="sem-chip" style="color:var(--orange-300); background:var(--accent-muted); height:20px">Heute</span></td>
+          </tr>
+          <tr class="hoverable">
+            <td style="padding-left: var(--sp-10)"><input type="checkbox" class="checkbox"></td>
+            <td><span class="q-name">Sofia Lang</span> <span class="q-firm">· Langfilm Studio</span></td>
+            <td><span class="viz-dot" style="display:inline-block;width:8px;height:8px;background:var(--stage-telefon)"></span></td>
+            <td><span class="badge" style="background:rgba(63,163,111,0.10)"><span class="b-dot" style="background:var(--stage-closing)"></span>Closing</span></td>
+            <td class="num tnum">8</td><td class="num tnum">9.200&nbsp;€</td>
+            <td style="padding-right: var(--sp-10)"><span class="sem-chip" style="color:var(--success-fg); background:var(--success-bg); height:20px">
+              <svg class="icon sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg> Gewonnen</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= QUEUE + HANDOFF + SCRIPT ================= -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">Arbeitsfluss</div>
+      <div class="sec-title">Queue abarbeiten. <span class="grad-word">Übergeben.</span> Abschließen.</div>
+      <p class="sec-desc">Work-Queue mit Keyboard-Flow, Handoff-Karte als die eine Glass-Karte der View,
+        Leitfaden immer sichtbar.</p>
+    </div>
+    <div class="cells" style="grid-template-columns: repeat(3, 1fr)">
+      <div class="cell">
+        <div class="cell-label" style="text-transform:uppercase; letter-spacing:var(--ls-eyebrow); font-size:var(--fs-2xs); color:var(--text-muted)">Heute · 3</div>
+        <div style="display:grid; gap:var(--sp-4); margin-top: var(--sp-5)">
+          <div class="queue-item active">
+            <input type="checkbox" class="checkbox">
+            <div style="flex:1"><span class="q-name">Jana Kessler</span><br><span class="q-firm">Nordwind Media</span></div>
+            <span class="viz-dot" style="width:8px;height:8px;background:var(--stage-telefon)"></span>
+            <span class="sem-chip" style="color:var(--orange-300); background:var(--accent-muted); height:20px">Heute</span>
+          </div>
+          <div class="queue-item">
+            <input type="checkbox" class="checkbox">
+            <div style="flex:1"><span class="q-name">Markus Feld</span><br><span class="q-firm">Feldwerk GmbH</span></div>
+            <span class="viz-dot" style="width:8px;height:8px;background:var(--stage-linkedin)"></span>
+            <span class="sem-chip" style="color:var(--warning-fg); background:var(--warning-bg); height:20px">FU2 · fällig</span>
+          </div>
+          <div class="queue-item">
+            <input type="checkbox" class="checkbox">
+            <div style="flex:1"><span class="q-name">Aylin Demir</span><br><span class="q-firm">Demir Consulting</span></div>
+            <span class="viz-dot" style="width:8px;height:8px;background:var(--stage-telefon)"></span>
+            <span class="muted" style="font-size:var(--fs-sm)">später</span>
+          </div>
+        </div>
+        <p class="muted" style="font-size:var(--fs-xs); margin-top:var(--sp-5)">↑↓ wählen · <span class="kbd">Enter</span> öffnen · <span class="kbd">E</span> erledigt</p>
+      </div>
+      <div class="cell" style="background-color: var(--surface-0); background-image: var(--grad-ember), var(--dot-grid); background-size: auto, 24px 24px; padding: var(--sp-8)">
+        <div class="glass-card ticked" style="padding:var(--sp-8); height:100%">
+          <i class="tick tl"></i><i class="tick tr"></i><i class="tick bl"></i><i class="tick br"></i>
+          <div style="display:flex; justify-content:space-between; align-items:start">
+            <div>
+              <div style="font-size:var(--fs-md); font-weight:var(--fw-semibold)">Timo Brandt</div>
+              <div class="q-firm">Brandt &amp; Söhne · Setter: Simon</div>
+            </div>
+            <span class="badge" style="background:rgba(63,163,111,0.10)"><span class="b-dot" style="background:var(--stage-closing)"></span>Closing</span>
+          </div>
+          <dl class="kv" style="margin-top:var(--sp-6)">
+            <dt>Budget</dt><dd class="tnum">12.500&nbsp;€</dd>
+            <dt>Entscheider</dt><dd>ja, allein</dd>
+            <dt>Zeithorizont</dt><dd>ab September</dd>
+          </dl>
+          <div style="background:var(--surface-1); border-radius:var(--r-md); padding:var(--sp-5); margin-top:var(--sp-6); font-size:var(--fs-sm); color:var(--text-secondary)">
+            „Will vor allem den Angebotsprozess digitalisieren — Demo auf Kundenportal fokussieren."
+          </div>
+          <div style="display:flex; gap:var(--sp-5); margin-top:var(--sp-7)">
+            <button class="btn-primary md" style="height:var(--h-control); padding:0 var(--sp-7)">Übernehmen</button>
+            <button class="btn-ghost">Zurückgeben</button>
+          </div>
+        </div>
+      </div>
+      <div class="cell">
+        <div class="eyebrow">Leitfaden</div>
+        <div style="font-size:var(--fs-md); font-weight:var(--fw-semibold); margin: var(--sp-4) 0">Kaltakquise · Opener</div>
+        <div class="script-step"><span class="script-num">01</span><span>Begrüßung + Grund des Anrufs in einem Satz.</span></div>
+        <div class="script-step"><span class="script-num">02</span><span>Problem-Hypothese: „Die meisten Agenturen wissen nicht, woher der nächste Kunde kommt."</span></div>
+        <div class="script-step" style="border-bottom:none"><span class="script-num">03</span><span>Terminvorschlag mit zwei Optionen.</span></div>
+        <button class="btn-ghost" style="margin-top:var(--sp-4)">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+          Einwand kopieren
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CHARTS ================= -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">Charts</div>
+      <div class="sec-title">Serien in festen Slots. Funnel in einer Hue.</div>
+      <p class="sec-desc">Grid nur horizontal, Balkenradius oben 4px, Tooltip im Glass-Popover-Material.</p>
+    </div>
+    <div class="cells" style="grid-template-columns: repeat(2, 1fr)">
+      <div class="cell">
+        <div class="cell-label">Termine je Woche</div>
+        <svg width="100%" height="160" viewBox="0 0 320 160" style="margin-top: var(--sp-6)">
+          <line x1="0" y1="130" x2="320" y2="130" stroke="rgba(255,255,255,0.06)"/>
+          <line x1="0" y1="90"  x2="320" y2="90"  stroke="rgba(255,255,255,0.06)"/>
+          <line x1="0" y1="50"  x2="320" y2="50"  stroke="rgba(255,255,255,0.06)"/>
+          <line x1="0" y1="10"  x2="320" y2="10"  stroke="rgba(255,255,255,0.06)"/>
+          <g>
+            <rect x="20"  y="70" width="24" height="60" rx="4" fill="#EA580C"/><rect x="48"  y="95" width="24" height="35" rx="4" fill="#4E80D6"/>
+            <rect x="96"  y="50" width="24" height="80" rx="4" fill="#EA580C"/><rect x="124" y="85" width="24" height="45" rx="4" fill="#4E80D6"/>
+            <rect x="172" y="38" width="24" height="92" rx="4" fill="#EA580C"/><rect x="200" y="72" width="24" height="58" rx="4" fill="#4E80D6"/>
+            <rect x="248" y="22" width="24" height="108" rx="4" fill="#EA580C"/><rect x="276" y="60" width="24" height="70" rx="4" fill="#4E80D6"/>
+          </g>
+          <g fill="#8A8B90" font-size="11" font-family="Inter, sans-serif">
+            <text x="46"  y="148" text-anchor="middle">KW 27</text><text x="122" y="148" text-anchor="middle">KW 28</text>
+            <text x="198" y="148" text-anchor="middle">KW 29</text><text x="274" y="148" text-anchor="middle">KW 30</text>
+          </g>
+        </svg>
+        <div class="chip-row" style="margin-top:var(--sp-5); gap: var(--sp-7)">
+          <span class="viz-item"><span class="viz-dot" style="background:#EA580C"></span>Telefon</span>
+          <span class="viz-item"><span class="viz-dot" style="background:#4E80D6"></span>LinkedIn</span>
+        </div>
+      </div>
+      <div class="cell">
+        <div class="cell-label">Pipeline-Funnel — ordinale Orange-Rampe</div>
+        <svg width="100%" height="160" viewBox="0 0 320 160" style="margin-top: var(--sp-6)">
+          <rect x="10"  y="16" width="300" height="20" rx="4" fill="#FDBA74"/>
+          <rect x="40"  y="46" width="240" height="20" rx="4" fill="#F97316"/>
+          <rect x="70"  y="76" width="180" height="20" rx="4" fill="#EA580C"/>
+          <rect x="100" y="106" width="120" height="20" rx="4" fill="#C2410C"/>
+          <rect x="130" y="136" width="60"  height="20" rx="4" fill="#7C2D12"/>
+          <g fill="#0A0A0B" font-size="11" font-weight="500" font-family="Inter, sans-serif">
+            <text x="160" y="30" text-anchor="middle">Kontaktiert · 412</text>
+            <text x="160" y="60" text-anchor="middle">Erreicht · 186</text>
+            <text x="160" y="90" text-anchor="middle">Termin · 74</text>
+          </g>
+          <g fill="#FAFAFA" font-size="11" font-weight="500" font-family="Inter, sans-serif">
+            <text x="160" y="120" text-anchor="middle">Angebot · 31</text>
+            <text x="160" y="150" text-anchor="middle">Abschluss · 12</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= COMMAND PALETTE ================= -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">Navigation</div>
+      <div class="sec-title">⌘K statt Klickpfade.</div>
+      <p class="sec-desc">Glass-Popover mit blur 24px + saturate 1.5, 560px breit, Eintritt mit scale 0.98 → 1.</p>
+    </div>
+    <div class="glass-stage" style="display:flex; justify-content:center">
+      <div class="blob" style="width:200px;height:200px;background:#FFB02C;top:-50px;right:10%"></div>
+      <div class="glass-popover" style="width:100%; max-width:560px; position:relative">
+        <div style="display:flex; align-items:center; gap:var(--sp-5); padding:var(--sp-5) var(--sp-6); border-bottom:1px solid var(--border-subtle)">
+          <svg class="icon muted" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <span style="font-size:var(--fs-md); color:var(--text-muted)">Suchen oder Befehl eingeben …</span>
+          <span class="kbd" style="margin-left:auto">Esc</span>
+        </div>
+        <div class="palette-group">Aktionen</div>
+        <div style="padding:0 var(--sp-4) var(--sp-4)">
+          <div class="palette-item active">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Neuen Lead anlegen <span class="kbd" style="margin-left:auto">N</span>
+          </div>
+          <div class="palette-item">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            Nächsten Anruf starten
+          </div>
+        </div>
+        <div class="palette-group">Kontakte</div>
+        <div style="padding:0 var(--sp-4) var(--sp-5)">
+          <div class="palette-item">
+            <span class="viz-dot" style="width:8px;height:8px;background:var(--stage-linkedin)"></span>
+            Timo Brandt <span class="muted" style="font-size:var(--fs-xs)">· Brandt &amp; Söhne</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:var(--sp-6); padding:var(--sp-4) var(--sp-6); border-top:1px solid var(--border-subtle); font-size:var(--fs-2xs); color:var(--text-muted)">
+          <span><span class="kbd">↑↓</span> wählen</span><span><span class="kbd">Enter</span> ausführen</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CTA ================= -->
+  <section id="cta" style="border-bottom: none">
+    <div class="cta-block">
+      <div class="glow-1"></div>
+      <div class="glow-2"></div>
+      <div>
+        <h2>Bereit für den nächsten <span class="grad-word">Anruf</span>?</h2>
+        <p>So endet jede View, die einen Abschluss braucht: ein Glow, eine Headline, eine Pill. Mehr nicht.</p>
+        <div style="margin-top: var(--sp-9)">
+          <button class="btn-primary">Erstgespräch anfragen</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FOOTER ================= -->
+  <footer style="border-top: 1px solid var(--border-default)">
+    <div class="cols">
+      <div class="col">
+        <span class="wordmark" style="font-size: var(--fs-xl)">titan<span class="dot">.</span></span>
+        <p class="muted" style="margin-top: var(--sp-5); max-width: 320px; font-size: var(--fs-base)">
+          Ember Glass ist das Design-System der CRM/Akquise-Produktlinie von Titan Development.
+          Dark only. Ein Orange. Inter.</p>
+      </div>
+      <div class="col">
+        <h4>Dateien</h4>
+        <a href="DESIGN.md">DESIGN.md</a>
+        <a href="COMPONENTS.md">COMPONENTS.md</a>
+        <a href="tokens.css">tokens.css</a>
+      </div>
+      <div class="col">
+        <h4>Herkunft</h4>
+        <a>titan-landing-v2</a>
+        <a>LinkedIn-Banner v2</a>
+        <a>titan-tracking</a>
+      </div>
+    </div>
+    <div class="bottom">
+      <span>© 2026 Titan Development · Vlotho</span>
+      <span>Ember Glass v1 · Motion respektiert prefers-reduced-motion</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

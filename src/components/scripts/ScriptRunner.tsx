@@ -11,6 +11,12 @@ export type ScriptRunnerBlock = { key: string; label: string; hint: string };
 
 type Props = {
   blocks: ScriptRunnerBlock[];
+  /**
+   * Optionaler hervorgehobener Abschnitt unter dem Verlauf — z. B. die
+   * Gold Standards des Settings. 2x2-Raster mit Akzent-Rahmen; zaehlt in
+   * den Fortschritt mit.
+   */
+  highlight?: { title: string; blocks: ScriptRunnerBlock[] };
   initial: Record<string, string>;
   onSave: (answers: Record<string, string>) => Promise<{ error?: string }>;
 };
@@ -20,20 +26,28 @@ function AutoGrowTextarea({
   onChange,
   onBlur,
   placeholder,
+  fixed = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   onBlur: () => void;
   placeholder?: string;
+  /**
+   * Feste Hoehe statt Mitwachsen. Im 2x2-Raster der Gold Standards muessen
+   * alle vier Felder exakt gleich hoch bleiben — mitwachsende Boxen
+   * zerreissen das Raster, sobald eine Antwort laenger ist als die anderen.
+   */
+  fixed?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   const resize = useCallback(() => {
+    if (fixed) return;
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.max(el.scrollHeight, 88)}px`;
-  }, []);
+  }, [fixed]);
 
   useEffect(() => {
     resize();
@@ -51,7 +65,7 @@ function AutoGrowTextarea({
         width: "100%",
         boxSizing: "border-box",
         resize: "none",
-        overflow: "hidden",
+        ...(fixed ? { flex: 1, minHeight: 88, overflow: "auto" } : { overflow: "hidden" }),
         background: "var(--surface-50)",
         border: "1px solid var(--border-bright)",
         borderRadius: "var(--radius-md)",
@@ -75,7 +89,7 @@ function AutoGrowTextarea({
   );
 }
 
-export function ScriptRunner({ blocks, initial, onSave }: Props) {
+export function ScriptRunner({ blocks, highlight, initial, onSave }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>(() => ({ ...initial }));
   const [savedKey, setSavedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,8 +103,10 @@ export function ScriptRunner({ blocks, initial, onSave }: Props) {
     };
   }, []);
 
-  const filled = blocks.filter((b) => (answers[b.key] ?? "").trim().length > 0).length;
-  const progressPct = blocks.length > 0 ? Math.round((filled / blocks.length) * 100) : 0;
+  // Fortschritt zaehlt Verlauf UND Gold Standards — beides gehoert zum Call.
+  const allBlocks = highlight ? [...blocks, ...highlight.blocks] : blocks;
+  const filled = allBlocks.filter((b) => (answers[b.key] ?? "").trim().length > 0).length;
+  const progressPct = allBlocks.length > 0 ? Math.round((filled / allBlocks.length) * 100) : 0;
 
   function handleBlur(key: string) {
     const merged = { ...answers };
@@ -125,7 +141,7 @@ export function ScriptRunner({ blocks, initial, onSave }: Props) {
           <span
             style={{
               fontSize: "0.6875rem",
-              fontWeight: 700,
+              fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.07em",
               color: "var(--text-subtle)",
@@ -133,40 +149,27 @@ export function ScriptRunner({ blocks, initial, onSave }: Props) {
           >
             Script-Fortschritt
           </span>
-          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)" }}>
-            {filled} / {blocks.length}
+          <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)" }}>
+            {filled} / {allBlocks.length}
           </span>
         </div>
         <div
-          style={{
-            height: 6,
-            borderRadius: 99,
-            background: "var(--surface-200)",
-            overflow: "hidden",
-          }}
+          className="progress-track"
         >
-          <div
-            style={{
-              height: "100%",
-              width: `${progressPct}%`,
-              borderRadius: 99,
-              background: "var(--brand-500)",
-              transition: "width var(--transition-slow)",
-            }}
-          />
+          <div className="progress-fill" style={{ width: `${progressPct}%` }} />
         </div>
       </div>
 
       {error && (
         <div
+          role="alert"
           style={{
-            background: "var(--color-error-bg)",
-            border: "1px solid var(--color-error-border)",
-            color: "var(--color-error-text)",
-            borderRadius: "var(--radius-md)",
-            padding: "0.625rem 0.875rem",
-            fontSize: "0.8125rem",
-            fontWeight: 600,
+            background: "var(--danger-bg)",
+            borderLeft: "2px solid var(--danger)",
+            color: "var(--danger-fg)",
+            borderRadius: "var(--r-sm)",
+            padding: "var(--sp-5) var(--sp-6)",
+            fontSize: "var(--fs-base)",
           }}
         >
           Speichern fehlgeschlagen: {error}
@@ -197,7 +200,7 @@ export function ScriptRunner({ blocks, initial, onSave }: Props) {
                   alignItems: "center",
                   justifyContent: "center",
                   fontSize: "0.6875rem",
-                  fontWeight: 800,
+                  fontWeight: 600,
                   background: hasContent ? "var(--color-success-bg)" : "var(--surface-200)",
                   border: `1px solid ${hasContent ? "var(--color-success-border)" : "var(--border)"}`,
                   color: hasContent ? "var(--color-success-text)" : "var(--text-subtle)",
@@ -208,7 +211,7 @@ export function ScriptRunner({ blocks, initial, onSave }: Props) {
               <span
                 style={{
                   fontSize: "1rem",
-                  fontWeight: 800,
+                  fontWeight: 600,
                   letterSpacing: "-0.01em",
                   color: "var(--text-primary)",
                 }}
@@ -222,7 +225,7 @@ export function ScriptRunner({ blocks, initial, onSave }: Props) {
                     alignItems: "center",
                     gap: "0.25rem",
                     fontSize: "0.6875rem",
-                    fontWeight: 700,
+                    fontWeight: 600,
                     color: "var(--color-success-text)",
                   }}
                 >
@@ -251,6 +254,89 @@ export function ScriptRunner({ blocks, initial, onSave }: Props) {
           </section>
         );
       })}
+
+      {/* ── Gold Standards ──
+          Kein Erzaehlschritt, sondern eine Checkliste: eigener Kasten mit
+          Akzent-Rahmen, 2x2, kompaktere Koepfe als im Verlauf. */}
+      {highlight && highlight.blocks.length > 0 && (
+        <section className="gold-block">
+          <div className="eyebrow" style={{ marginBottom: "var(--sp-6)" }}>
+            {highlight.title}
+          </div>
+          <div className="gold-grid">
+            {highlight.blocks.map((block) => {
+              const value = answers[block.key] ?? "";
+              const hasContent = value.trim().length > 0;
+              return (
+                // Flex-Spalte + flex:1 auf dem Feld: der Kopf nimmt seine
+                // Hoehe, den Rest fuellt die Textbox. Zusammen mit
+                // grid-auto-rows:1fr stehen alle vier Zellen exakt gleich hoch.
+                <div key={block.key} style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: "var(--r-full)",
+                        flexShrink: 0,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: hasContent ? "var(--accent-muted)" : "transparent",
+                        border: `1px solid ${hasContent ? "var(--border-accent)" : "var(--border-default)"}`,
+                        color: "var(--orange-300)",
+                      }}
+                    >
+                      {hasContent && <Check size={10} strokeWidth={3} />}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "var(--fs-md)",
+                        fontWeight: 600,
+                        letterSpacing: "var(--ls-tight)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {block.label}
+                    </span>
+                    {savedKey === block.key && (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.25rem",
+                          fontSize: "var(--fs-2xs)",
+                          color: "var(--success-fg)",
+                        }}
+                      >
+                        <Check size={11} strokeWidth={3} /> gespeichert
+                      </span>
+                    )}
+                  </div>
+                  <p
+                    style={{
+                      fontSize: "0.8125rem",
+                      lineHeight: 1.5,
+                      color: "var(--text-muted)",
+                      margin: "0 0 0.5rem",
+                    }}
+                  >
+                    {block.hint}
+                  </p>
+                  <AutoGrowTextarea
+                    fixed
+                    value={value}
+                    onChange={(v) => setAnswers((prev) => ({ ...prev, [block.key]: v }))}
+                    onBlur={() => handleBlur(block.key)}
+                    placeholder="Antwort notieren…"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

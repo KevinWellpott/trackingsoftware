@@ -3,7 +3,6 @@ import {
   WeeklyDuelChart, type DuelSeries, type WeeklyDuelPoint,
 } from "@/components/DashboardCharts";
 import { ownerColor } from "@/lib/ownerColor";
-import { addDaysISO, localDateISO, weekStart } from "@/lib/dates";
 
 // Wochenduell + Duell-Verlauf: 1:1 aus dem alten Home-Dashboard extrahiert
 // (Emojis → Lucide-Icons). Wird aktuell nicht auf "/" gerendert — vorbereitet
@@ -28,9 +27,9 @@ function DuelPanel({ owner, color, count, isLeader, isLoser, goal }: { owner: st
   return (
     <div style={{ textAlign: "center" }}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
-        <div style={{ width: 38, height: 38, borderRadius: "50%", background: tint(color, 13), border: `2px solid ${isLeader ? color : tint(color, 25)}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 800, color, flexShrink: 0 }}>{owner[0]}</div>
+        <div style={{ width: 38, height: 38, borderRadius: "50%", background: tint(color, 13), border: `2px solid ${isLeader ? color : tint(color, 25)}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9375rem", fontWeight: 600, color, flexShrink: 0 }}>{owner[0]}</div>
         <div>
-          <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: isLeader ? color : "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.25rem" }}>
+          <div style={{ fontSize: "0.9375rem", fontWeight: 600, color: isLeader ? color : "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.25rem" }}>
             {owner} {isLeader && <Crown size={13} aria-hidden />}
           </div>
           <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.25rem" }}>
@@ -38,7 +37,7 @@ function DuelPanel({ owner, color, count, isLeader, isLoser, goal }: { owner: st
           </div>
         </div>
       </div>
-      <div style={{ fontSize: "3.25rem", fontWeight: 800, letterSpacing: "-0.04em", color: isLeader ? color : "var(--text-subtle)", lineHeight: 1, marginBottom: "0.5rem" }}>
+      <div style={{ fontSize: "3.25rem", fontWeight: 600, letterSpacing: "-0.04em", color: isLeader ? color : "var(--text-subtle)", lineHeight: 1, marginBottom: "0.5rem" }}>
         {count}<span style={{ fontSize: "1.125rem", fontWeight: 500, color: "var(--text-subtle)", marginLeft: 3 }}>/{goal}</span>
       </div>
       <div style={{ background: "var(--surface-200)", borderRadius: 99, height: 6, overflow: "hidden" }}>
@@ -55,7 +54,7 @@ function VSSep() {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", flexShrink: 0 }}>
       <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, transparent, var(--color-info-border))" }} />
-      <div style={{ fontSize: "0.6875rem", fontWeight: 800, color: "var(--text-subtle)", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid var(--color-info-border)", borderRadius: 99, background: "var(--color-info-bg)" }}>VS</div>
+      <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--text-subtle)", letterSpacing: "0.1em", padding: "3px 8px", border: "1px solid var(--color-info-border)", borderRadius: 99, background: "var(--color-info-bg)" }}>VS</div>
       <div style={{ width: 1, height: 24, background: "linear-gradient(to bottom, var(--color-info-border), transparent)" }} />
     </div>
   );
@@ -69,10 +68,6 @@ export function WochenduellSection({
   winCounts,
   draws,
 }: WochenduellProps) {
-  const today = localDateISO();
-  const monday = weekStart(today);
-  const sunday = addDaysISO(monday, 6); // Woche läuft Mo–So komplett
-
   const roster: DuelSeries[] = rosterNames.map((name) => ({ name, color: ownerColor(name).fg }));
   const historicalWeeks: WeeklyDuelPoint[] = historicalWeeksProp.map((w) => ({ week: w.week, values: w.counts }));
 
@@ -99,20 +94,20 @@ export function WochenduellSection({
   return (
     <>
       {/* ══ WOCHENDUELL ══ */}
-      <div style={{ position: "relative", borderRadius: "var(--radius-xl)", overflow: "hidden", background: "var(--surface-100)", border: "1px solid var(--border)", padding: "1.75rem 2rem 1.5rem", boxShadow: "var(--shadow-sm)" }}>
+      <div className="card ember-glow" style={{ position: "relative", overflow: "hidden", padding: "var(--sp-9) var(--sp-10) var(--sp-8)" }}>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "1.5rem" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: "var(--brand-500)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Trophy size={16} color="white" />
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)", marginBottom: "var(--sp-8)" }}>
+          <div style={{ width: 32, height: 32, borderRadius: "var(--r-md)", background: "var(--orange-500)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Trophy size={16} color="#0a0a0b" />
           </div>
           <div>
-            <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>Wochenduell — Wer bezahlt das Essen?</div>
-            <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>Ziel: {weeklyGoal} DMs · {monday} → {sunday} · Reset jeden Montag</div>
+            <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)", letterSpacing: "var(--ls-tight)" }}>Wochenduell — Wer bezahlt das Essen?</div>
+            <div style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>Ziel: {weeklyGoal} DMs · Reset jeden Montag</div>
           </div>
           {leader && leaderColor && (
             <div style={{ marginLeft: "auto", background: tint(leaderColor, 8), border: `1px solid ${tint(leaderColor, 25)}`, borderRadius: 99, padding: "0.2rem 0.75rem", display: "flex", alignItems: "center", gap: "0.375rem" }}>
               <Crown size={14} color={leaderColor} aria-hidden />
-              <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: leaderColor }}>{leader} +{diff}</span>
+              <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: leaderColor }}>{leader} +{diff}</span>
             </div>
           )}
         </div>
@@ -132,7 +127,7 @@ export function WochenduellSection({
         )}
 
         <div style={{ marginTop: "1rem", paddingTop: "0.875rem", borderTop: "1px solid var(--border)", fontSize: "0.8125rem", color: "var(--text-subtle)", textAlign: "center" }}>
-          {leader && diff > 0 ? <><span style={{ color: "var(--text-muted)" }}>2. Platz braucht noch </span><span style={{ color: "var(--color-warning-text)", fontWeight: 700 }}>{diff} DMs</span><span style={{ color: "var(--text-muted)" }}> zum Gleichstand · </span></> : <span style={{ color: "var(--text-subtle)" }}>Gleichstand · </span>}
+          {leader && diff > 0 ? <><span style={{ color: "var(--text-muted)" }}>2. Platz braucht noch </span><span style={{ color: "var(--color-warning-text)", fontWeight: 600 }}>{diff} DMs</span><span style={{ color: "var(--text-muted)" }}> zum Gleichstand · </span></> : <span style={{ color: "var(--text-subtle)" }}>Gleichstand · </span>}
           <span style={{ color: weeklyGoal - maxCount > 0 ? "var(--brand-500)" : "var(--color-success-text)", fontWeight: 600 }}>
             {weeklyGoal - maxCount > 0 ? `${weeklyGoal - maxCount} bis zur ${weeklyGoal}er-Marke` : `${weeklyGoal}er-Marke erreicht!`}
           </span>
@@ -143,7 +138,7 @@ export function WochenduellSection({
       <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.5rem", boxShadow: "var(--shadow-sm)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem", flexWrap: "wrap" }}>
           <History size={14} color="var(--color-warning-text)" />
-          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Duell-Verlauf letzte 10 Wochen</span>
+          <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)" }}>Duell-Verlauf letzte 10 Wochen</span>
           <div style={{ marginLeft: "auto", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
             {[...roster.map((r) => ({ label: r.name, color: r.color })), { label: `Ziel ${weeklyGoal}`, color: "var(--color-warning-text)" }].map((m) => (
               <div key={m.label} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
@@ -158,9 +153,9 @@ export function WochenduellSection({
           <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>Siege 10 Wochen:</div>
           <div style={{ display: "flex", gap: "0.875rem", flexWrap: "wrap" }}>
             {roster.map((r) => (
-              <span key={r.name} style={{ fontSize: "0.875rem", fontWeight: 700, color: r.color }}>{r.name} {winCounts[r.name] ?? 0}W</span>
+              <span key={r.name} style={{ fontSize: "0.875rem", fontWeight: 600, color: r.color }}>{r.name} {winCounts[r.name] ?? 0}W</span>
             ))}
-            {draws > 0 && <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-subtle)" }}>{draws}×Unentschieden</span>}
+            {draws > 0 && <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-subtle)" }}>{draws}×Unentschieden</span>}
           </div>
           <div style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
             {overallLeaders.length === 1 ? `${overallLeaders[0]} führt (+${topWins - secondWins})` : "Gleichstand"}

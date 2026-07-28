@@ -37,37 +37,40 @@ type Props = {
 
 type ChannelFilter = "alle" | NachfassenTask["source"];
 
+// Kanalfarben kommen aus der Pipeline-Palette (DESIGN.md §3.6) und nicht aus
+// den Semantik-Tokens: ein Kanal ist eine Kategorie, kein Status. Sie
+// erscheinen ausschliesslich als Dot/Icon + Tint, nie als Flaechenfarbe.
 const CHANNEL_META: Record<
   NachfassenTask["source"],
   { label: string; icon: React.ReactNode; color: string; bg: string; border: string }
 > = {
   linkedin: {
     label: "LinkedIn",
-    icon: <AtSign size={10} />,
-    color: "var(--color-info-text)",
-    bg: "var(--color-info-bg)",
-    border: "var(--color-info-border)",
+    icon: <AtSign size={11} />,
+    color: "var(--stage-linkedin)",
+    bg: "rgb(13 148 136 / 0.10)",
+    border: "rgb(13 148 136 / 0.28)",
   },
   telefon: {
     label: "Telefon",
-    icon: <Phone size={10} />,
-    color: "var(--color-warning-text)",
-    bg: "var(--color-warning-bg)",
-    border: "var(--color-warning-border)",
+    icon: <Phone size={11} />,
+    color: "var(--stage-telefon)",
+    bg: "rgb(78 128 214 / 0.10)",
+    border: "rgb(78 128 214 / 0.28)",
   },
   setting: {
     label: "Setting",
-    icon: <ClipboardCheck size={10} />,
-    color: "var(--brand-500)",
-    bg: "var(--brand-50)",
-    border: "var(--brand-200)",
+    icon: <ClipboardCheck size={11} />,
+    color: "var(--stage-setting)",
+    bg: "rgb(139 92 246 / 0.10)",
+    border: "rgb(139 92 246 / 0.28)",
   },
   closing: {
     label: "Closing",
-    icon: <Handshake size={10} />,
-    color: "var(--color-success-text)",
-    bg: "var(--color-success-bg)",
-    border: "var(--color-success-border)",
+    icon: <Handshake size={11} />,
+    color: "var(--stage-closing)",
+    bg: "rgb(63 163 111 / 0.10)",
+    border: "rgb(63 163 111 / 0.28)",
   },
 };
 
@@ -133,17 +136,18 @@ function dueSortKey(t: NachfassenTask): number {
 const linkBtnStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
-  gap: "0.3rem",
-  padding: "0.3rem 0.625rem",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--border)",
-  background: "var(--surface-50)",
+  gap: "var(--sp-3)",
+  height: 28,
+  padding: "0 var(--sp-5)",
+  borderRadius: "var(--r-sm)",
+  border: "1px solid var(--border-default)",
+  background: "var(--surface-1)",
   color: "var(--text-secondary)",
-  fontSize: "0.6875rem",
-  fontWeight: 700,
+  fontSize: "var(--fs-sm)",
+  fontWeight: 500,
   textDecoration: "none",
   cursor: "pointer",
-  transition: "all 0.1s",
+  transition: "background var(--transition-fast), border-color var(--transition-fast)",
 };
 
 /* ── Summary-Chip: kompakte Kennzahl-Pille oberhalb der Tabs ── */
@@ -164,11 +168,12 @@ function StatChip({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: "0.4rem",
-        padding: "0.3rem 0.65rem",
-        background: hot ? "var(--color-error-bg)" : "var(--surface-100)",
-        border: `1px solid ${hot ? "var(--color-error-border)" : "var(--border)"}`,
-        borderRadius: "var(--radius-md)",
+        gap: "var(--sp-4)",
+        height: 30,
+        padding: "0 var(--sp-6)",
+        background: hot ? "var(--warning-bg)" : "var(--surface-2)",
+        border: `1px solid ${hot ? "rgb(209 162 79 / 0.28)" : "var(--border-default)"}`,
+        borderRadius: "var(--r-full)",
         whiteSpace: "nowrap",
       }}
     >
@@ -176,20 +181,20 @@ function StatChip({
         style={{
           display: "inline-flex",
           alignItems: "center",
-          color: hot ? "var(--color-error-text)" : "var(--text-subtle)",
+          color: hot ? "var(--warning-fg)" : "var(--text-muted)",
         }}
       >
         {icon}
       </span>
-      <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: hot ? "var(--color-error-text)" : "var(--text-muted)" }}>
+      <span style={{ fontSize: "var(--fs-xs)", fontWeight: 500, color: hot ? "var(--warning-fg)" : "var(--text-muted)" }}>
         {label}
       </span>
       <span
         style={{
-          fontSize: "0.8125rem",
-          fontWeight: 700,
+          fontSize: "var(--fs-base)",
+          fontWeight: 600,
           fontVariantNumeric: "tabular-nums",
-          color: hot ? "var(--color-error-text)" : "var(--text-primary)",
+          color: hot ? "var(--warning-fg)" : "var(--text-primary)",
         }}
       >
         {value}
@@ -285,7 +290,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             <span
               style={{
                 fontSize: "0.625rem",
-                fontWeight: 700,
+                fontWeight: 600,
                 color: "var(--text-muted)",
                 background: "var(--surface-150)",
                 border: "1px solid var(--border)",
@@ -302,7 +307,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
               alignItems: "center",
               gap: "0.25rem",
               fontSize: "0.625rem",
-              fontWeight: 800,
+              fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.05em",
               color: meta.color,
@@ -325,7 +330,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             alignItems: "center",
             gap: "0.3rem",
             fontSize: "0.6875rem",
-            fontWeight: 700,
+            fontWeight: 600,
             color: overdue ? "var(--color-error-text)" : "var(--text-secondary)",
           }}
         >
@@ -402,12 +407,13 @@ function TaskCard({ task }: { task: NachfassenTask }) {
                 alignItems: "center",
                 gap: "0.3rem",
                 padding: "0.3rem 0.625rem",
-                borderRadius: "var(--radius-sm)",
+                borderRadius: "var(--r-full)",
                 border: "none",
-                background: "var(--btn-primary-bg)",
-                color: "var(--btn-primary-fg)",
+                background: "var(--grad-cta)",
+                color: "var(--text-on-accent)",
+                boxShadow: "var(--shadow-btn-primary)",
                 fontSize: "0.6875rem",
-                fontWeight: 700,
+                fontWeight: 600,
                 cursor: isPending ? "default" : "pointer",
                 transition: "all 0.1s",
               }}
@@ -446,7 +452,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             {task.phone && (
               <a
                 href={`tel:${task.phone.replace(/[^\d+]/g, "")}`}
-                style={{ ...linkBtnStyle, color: "var(--brand-500)", borderColor: "var(--border-bright)" }}
+                style={{ ...linkBtnStyle, color: "var(--orange-300)", borderColor: "var(--border-accent)", background: "var(--accent-muted)" }}
               >
                 {task.phone}
               </a>
@@ -493,18 +499,22 @@ function CardGrid({ tasks }: { tasks: NachfassenTask[] }) {
 
 type Section = { key: string; label: string; tasks: NachfassenTask[] };
 
-/* ── Optik je Sektion: getönte Icon-Kachel + Badge-Ton ── */
+/* ── Optik je Sektion ──────────────────────────────────────────────────
+   Die Icon-Kachel traegt die KANAL-Farbe (Identitaet), der Badge-Ton die
+   DRINGLICHKEIT. Vorher war beides Orange — vier Sektionen im Akzent haben
+   das Budget der ganzen Seite aufgebraucht. FU3 ist die letzte Stufe der
+   Kadenz und deshalb der einzige FU-Abschnitt in Warning-Gold.            */
 const SECTION_META: Record<
   string,
   { icon: React.ReactNode; bg: string; color: string; tone: BadgeTone }
 > = {
-  "fu-1": { icon: <AtSign size={12} />, bg: "var(--brand-50)", color: "var(--brand-600)", tone: "brand" },
-  "fu-2": { icon: <AtSign size={12} />, bg: "var(--color-info-bg)", color: "var(--color-info-text)", tone: "info" },
-  "fu-3": { icon: <AtSign size={12} />, bg: "var(--color-warning-bg)", color: "var(--color-warning-text)", tone: "warning" },
-  "fu-weitere": { icon: <AtSign size={12} />, bg: "var(--surface-150)", color: "var(--text-muted)", tone: "neutral" },
-  telefon: { icon: <Phone size={12} />, bg: "var(--brand-50)", color: "var(--brand-600)", tone: "brand" },
-  setting: { icon: <ClipboardCheck size={12} />, bg: "var(--brand-50)", color: "var(--brand-600)", tone: "brand" },
-  closing: { icon: <Handshake size={12} />, bg: "var(--color-success-bg)", color: "var(--color-success-text)", tone: "success" },
+  "fu-1": { icon: <AtSign size={12} />, bg: "rgb(13 148 136 / 0.10)", color: "var(--stage-linkedin)", tone: "neutral" },
+  "fu-2": { icon: <AtSign size={12} />, bg: "rgb(13 148 136 / 0.10)", color: "var(--stage-linkedin)", tone: "neutral" },
+  "fu-3": { icon: <AtSign size={12} />, bg: "var(--warning-bg)", color: "var(--warning-fg)", tone: "warning" },
+  "fu-weitere": { icon: <AtSign size={12} />, bg: "var(--surface-3)", color: "var(--text-muted)", tone: "neutral" },
+  telefon: { icon: <Phone size={12} />, bg: "rgb(78 128 214 / 0.10)", color: "var(--stage-telefon)", tone: "info" },
+  setting: { icon: <ClipboardCheck size={12} />, bg: "rgb(139 92 246 / 0.10)", color: "var(--stage-setting)", tone: "neutral" },
+  closing: { icon: <Handshake size={12} />, bg: "var(--success-bg)", color: "var(--success-fg)", tone: "success" },
 };
 
 /* ── Einklappbare Sektion: Header (Chevron + Kachel + Titel + Badge + Divider + Meta) ── */
@@ -567,10 +577,10 @@ function CollapsibleSection({
         >
           {meta.icon}
         </span>
-        <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
           {section.label}
         </span>
-        <Badge tone={meta.tone} style={{ fontSize: "0.6875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+        <Badge tone={meta.tone} style={{ fontSize: "0.6875rem", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
           {section.tasks.length}
         </Badge>
         <span aria-hidden style={{ flex: 1, height: 1, background: "var(--border)" }} />
@@ -668,7 +678,7 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
   return (
     <div>
       {/* ── Summary-Strip: kompakte Kennzahlen aus den Tasks ── */}
-      <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+      <div style={{ display: "flex", gap: "var(--sp-4)", flexWrap: "wrap", marginBottom: "var(--sp-7)" }}>
         <StatChip icon={<CalendarClock size={12} />} label="Fällig gesamt" value={counts.alle} />
         <StatChip icon={<AlertTriangle size={12} />} label="Überfällig" value={overdueCount} danger />
         <StatChip icon={<AtSign size={12} />} label="Follow-ups" value={counts.linkedin} />
@@ -677,7 +687,7 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
       </div>
 
       {/* ── Kanal-Filter ── */}
-      <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+      <div style={{ display: "flex", gap: "var(--sp-3)", flexWrap: "wrap", marginBottom: "var(--sp-5)" }}>
         {FILTERS.map((f) => {
           const active = filter === f.value;
           const meta = f.value !== "alle" ? CHANNEL_META[f.value] : null;
@@ -692,31 +702,22 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "0.35rem",
-                padding: "0.3rem 0.625rem",
-                borderRadius: 99,
-                border: `1px solid ${active ? (meta?.border ?? "var(--border-bright)") : "var(--border)"}`,
-                background: active ? (meta?.bg ?? "var(--surface-150)") : "var(--surface-50)",
-                color: active ? (meta?.color ?? "var(--text-primary)") : "var(--text-muted)",
-                fontSize: "0.75rem",
-                fontWeight: 700,
+                gap: "var(--sp-3)",
+                height: 28,
+                padding: "0 var(--sp-4) 0 var(--sp-5)",
+                borderRadius: "var(--r-full)",
+                border: `1px solid ${active ? (meta?.border ?? "var(--border-accent)") : "var(--border-default)"}`,
+                background: active ? (meta?.bg ?? "var(--accent-muted)") : "var(--surface-1)",
+                color: active ? (meta?.color ?? "var(--orange-300)") : "var(--text-muted)",
+                fontSize: "var(--fs-sm)",
+                fontWeight: 500,
+                fontFamily: "inherit",
                 cursor: "pointer",
-                transition: "all 0.1s",
+                transition: "background var(--transition-fast), border-color var(--transition-fast)",
               }}
             >
               {f.label}
-              <span
-                style={{
-                  fontSize: "0.625rem",
-                  fontWeight: 800,
-                  background: "var(--surface-200)",
-                  color: "var(--text-muted)",
-                  borderRadius: 99,
-                  padding: "0.05rem 0.35rem",
-                }}
-              >
-                {counts[f.value]}
-              </span>
+              <span className="count-pill">{counts[f.value]}</span>
             </button>
           );
         })}
@@ -724,7 +725,7 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
 
       {/* ── FU-Schnellauswahl: nur die gewählte FU-Sektion anzeigen ── */}
       {showFuPills && (
-        <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+        <div style={{ display: "flex", gap: "var(--sp-3)", flexWrap: "wrap", marginBottom: "var(--sp-5)" }}>
           {[null, 1, 2, 3]
             .filter((fu) => fu === null || fuCounts[fu] > 0)
             .map((fu) => {
@@ -738,16 +739,18 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    padding: "0.25rem 0.6rem",
-                    borderRadius: 99,
-                    border: `1px solid ${active ? "var(--btn-primary-bg)" : "var(--border)"}`,
-                    background: active ? "var(--btn-primary-bg)" : "var(--surface-50)",
-                    color: active ? "var(--btn-primary-fg)" : "var(--text-muted)",
-                    fontSize: "0.6875rem",
-                    fontWeight: 700,
+                    height: 26,
+                    padding: "0 var(--sp-5)",
+                    borderRadius: "var(--r-full)",
+                    border: `1px solid ${active ? "var(--orange-500)" : "var(--border-default)"}`,
+                    background: active ? "var(--orange-500)" : "var(--surface-1)",
+                    color: active ? "#0a0a0b" : "var(--text-muted)",
+                    fontSize: "var(--fs-xs)",
+                    fontWeight: active ? 600 : 500,
+                    fontFamily: "inherit",
                     fontVariantNumeric: "tabular-nums",
                     cursor: "pointer",
-                    transition: "all 0.1s",
+                    transition: "background var(--transition-fast), color var(--transition-fast)",
                   }}
                 >
                   {fu === null ? "Alle FU" : `FU ${fu} (${fuCounts[fu]})`}
@@ -759,20 +762,20 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
 
       {/* ── Hinweis: ältere Leads (Pitch > 7 Tage) ── */}
       {showingAll ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginBottom: "var(--sp-7)" }}>
           <History size={12} style={{ flexShrink: 0 }} />
           <span>Alle Leads werden angezeigt</span>
-          <Link href="?" style={{ color: "var(--brand-500)", fontWeight: 700, textDecoration: "none" }}>
+          <Link href="?" style={{ color: "var(--orange-300)", fontWeight: 500, textDecoration: "none" }}>
             Nur letzte 7 Tage
           </Link>
         </div>
       ) : hiddenOlder > 0 ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-subtle)", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginBottom: "var(--sp-7)" }}>
           <History size={12} style={{ flexShrink: 0 }} />
           <span>
             {hiddenOlder} {hiddenOlder === 1 ? "älterer Lead" : "ältere Leads"} (Pitch &gt; 7 Tage) ausgeblendet
           </span>
-          <Link href="?alle=1" style={{ color: "var(--brand-500)", fontWeight: 700, textDecoration: "none" }}>
+          <Link href="?alle=1" style={{ color: "var(--orange-300)", fontWeight: 500, textDecoration: "none" }}>
             Ältere anzeigen
           </Link>
         </div>
@@ -782,42 +785,16 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
 
       {/* ── Sektionen / Leerzustand ── */}
       {sections.length === 0 ? (
-        <div
-          className="fade-up"
-          style={{
-            background: "var(--surface-100)",
-            border: "1px dashed var(--border-bright)",
-            borderRadius: "var(--radius-lg)",
-            padding: "3rem 1.5rem",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            textAlign: "center",
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 40,
-              height: 40,
-              borderRadius: "var(--radius-md)",
-              background: "var(--color-success-bg)",
-              border: "1px solid var(--color-success-border)",
-              color: "var(--color-success-text)",
-              marginBottom: "0.75rem",
-            }}
-          >
-            <CheckCircle2 size={20} />
-          </span>
-          <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
-            Keine fälligen Nachfass-Aufgaben
+        <div className="card fade-up dot-grid">
+          <div className="empty-state">
+            <CheckCircle2 size={24} aria-hidden style={{ color: "var(--success-fg)" }} />
+            <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>
+              Alles nachgefasst
+            </div>
+            <p style={{ maxWidth: 380 }}>
+              Sobald LinkedIn-Follow-ups, Telefon-Rückrufe oder Closing-Nachfassen fällig werden, erscheinen sie hier.
+            </p>
           </div>
-          <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: 0 }}>
-            Sobald LinkedIn-Follow-ups, Telefon-Rückrufe oder Closing-Nachfassen fällig werden, erscheinen sie hier.
-          </p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>

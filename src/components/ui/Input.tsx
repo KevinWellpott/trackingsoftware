@@ -28,27 +28,28 @@ export function Field({
 }) {
   const hintId = useId();
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+    // Label ueber dem Feld, 12px/500 (COMPONENTS.md §3.8).
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
       {label && (
         <label
           htmlFor={htmlFor}
           style={{
-            fontSize: "0.8125rem",
-            fontWeight: 600,
+            fontSize: "var(--fs-xs)",
+            fontWeight: 500,
             color: "var(--text-secondary)",
-            letterSpacing: "-0.006em",
           }}
         >
           {label}
         </label>
       )}
       {children}
+      {/* Fehler tragen immer Text, nie nur Farbe. */}
       {error ? (
-        <div id={hintId} role="alert" style={{ fontSize: "0.75rem", color: "var(--color-error-text)" }}>
+        <div id={hintId} role="alert" style={{ fontSize: "var(--fs-xs)", color: "var(--danger-fg)" }}>
           {error}
         </div>
       ) : hint ? (
-        <div id={hintId} style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>
+        <div id={hintId} style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
           {hint}
         </div>
       ) : null}

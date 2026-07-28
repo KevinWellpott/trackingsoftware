@@ -66,35 +66,20 @@ function MiniStat({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "0.25rem",
-          color: "var(--text-subtle)",
-          marginBottom: "0.2rem",
+          gap: "var(--sp-3)",
+          color: color ?? "var(--text-muted)",
+          marginBottom: "var(--sp-3)",
         }}
       >
         {icon}
         <span
-          style={{
-            fontSize: "0.625rem",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
+          className="eyebrow eyebrow-muted"
+          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
         >
           {label}
         </span>
       </div>
-      <div
-        style={{
-          fontSize: "1.125rem",
-          fontWeight: 800,
-          letterSpacing: "-0.02em",
-          lineHeight: 1,
-          color: color ?? "var(--text-primary)",
-        }}
-      >
+      <div className="kpi-value" style={{ fontSize: "var(--fs-lg)" }}>
         {value.toLocaleString("de-DE")}
       </div>
     </div>
@@ -120,24 +105,22 @@ function GoalBar({
         style={{
           display: "flex",
           justifyContent: "space-between",
-          fontSize: "0.6875rem",
-          marginBottom: "0.25rem",
+          fontSize: "var(--fs-xs)",
+          marginBottom: "var(--sp-3)",
         }}
       >
-        <span style={{ color: "var(--text-subtle)", fontWeight: 600 }}>{label}</span>
-        <span style={{ fontWeight: 700, color: reached ? "var(--color-success-text)" : "var(--text-secondary)" }}>
+        <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>{label}</span>
+        <span
+          className="tnum"
+          style={{ fontWeight: 500, color: reached ? "var(--success-fg)" : "var(--text-secondary)" }}
+        >
           {value.toLocaleString("de-DE")} / {target.toLocaleString("de-DE")}
         </span>
       </div>
-      <div style={{ background: "var(--surface-200)", borderRadius: 99, height: 6, overflow: "hidden" }}>
+      <div className="progress-track" style={{ height: 4 }}>
         <div
-          style={{
-            height: "100%",
-            borderRadius: 99,
-            width: `${pct}%`,
-            background: reached ? "var(--color-success-text)" : color,
-            transition: "width 0.4s ease",
-          }}
+          className="progress-fill"
+          style={{ width: `${pct}%`, background: reached ? "var(--success)" : color }}
         />
       </div>
     </div>
@@ -194,37 +177,35 @@ export async function PhoneDashboard() {
   const maxCalls = Math.max(1, ...rows30.map((r) => r.calls));
 
   return (
-    <div
-      style={{
-        background: "var(--surface-100)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--shadow-sm)",
-        marginBottom: "1.5rem",
-        overflow: "hidden",
-      }}
-    >
+    <div className="card" style={{ overflow: "hidden" }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           flexWrap: "wrap",
-          gap: "0.5rem",
-          padding: "0.875rem 1.25rem",
-          borderBottom: "1px solid var(--border)",
+          gap: "var(--sp-4)",
+          padding: "var(--sp-6) var(--sp-8)",
+          borderBottom: "1px solid var(--border-default)",
         }}
       >
-        <Headphones size={15} color="var(--brand-500)" />
-        <span style={{ fontWeight: 800, fontSize: "0.9375rem", color: "var(--text-primary)" }}>
+        <Headphones size={16} color="var(--text-muted)" />
+        <span
+          style={{
+            fontWeight: 600,
+            fontSize: "var(--fs-md)",
+            letterSpacing: "var(--ls-tight)",
+            color: "var(--text-primary)",
+          }}
+        >
           Telefon-Performance
         </span>
-        <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
-          Letzte 30 Tage · {from30} → {today}
+        <span className="eyebrow eyebrow-muted" style={{ marginLeft: "auto" }}>
+          Letzte 30 Tage
         </span>
       </div>
 
       {rows30.length === 0 ? (
-        <p style={{ fontSize: "0.875rem", color: "var(--text-subtle)", textAlign: "center", padding: "1.75rem 1rem" }}>
+        <p style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)", textAlign: "center", padding: "var(--sp-11) var(--sp-6)" }}>
           Noch keine Anrufe erfasst. Importiere eine CSV-Liste und starte den Call-Mode.
         </p>
       ) : (
@@ -232,24 +213,24 @@ export async function PhoneDashboard() {
           {/* Global total strip */}
           <div
             className="grid-6-stat"
-            style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", borderBottom: "1px solid var(--border)" }}
+            style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", borderBottom: "1px solid var(--border-default)" }}
           >
+            {/* Die Kennzahl-Zeile bleibt farblich ruhig: nur das Icon traegt
+                den Kanal-/Semantikton, die Zahl bleibt --text-primary. */}
             {[
-              { label: "Anrufe", value: totals.calls, icon: <Phone size={12} />, color: "var(--brand-500)" },
-              { label: "Gatekeeper", value: totals.gatekeeper_reached, icon: <Shield size={12} />, color: "var(--text-primary)" },
-              { label: "Entscheider", value: totals.decider_reached, icon: <UserCheck size={12} />, color: "var(--text-primary)" },
-              { label: "Termine", value: totals.appointments, icon: <Calendar size={12} />, color: "var(--color-success-text)" },
-              { label: "Rückrufe", value: totals.callbacks, icon: <PhoneMissed size={12} />, color: "var(--color-warning-text)" },
-              { label: "Dead", value: totals.dead, icon: <PhoneOff size={12} />, color: "var(--color-error-text)" },
+              { label: "Anrufe", value: totals.calls, icon: <Phone size={12} />, color: "var(--stage-telefon)" },
+              { label: "Gatekeeper", value: totals.gatekeeper_reached, icon: <Shield size={12} />, color: "var(--text-muted)" },
+              { label: "Entscheider", value: totals.decider_reached, icon: <UserCheck size={12} />, color: "var(--text-muted)" },
+              { label: "Termine", value: totals.appointments, icon: <Calendar size={12} />, color: "var(--success)" },
+              { label: "Rückrufe", value: totals.callbacks, icon: <PhoneMissed size={12} />, color: "var(--warning)" },
+              { label: "Dead", value: totals.dead, icon: <PhoneOff size={12} />, color: "var(--danger)" },
             ].map((s) => (
-              <div key={s.label} className="stat-strip-cell" style={{ padding: "0.875rem 1rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", marginBottom: "0.25rem", color: "var(--text-subtle)" }}>
+              <div key={s.label} className="stat-strip-cell" style={{ padding: "var(--sp-6) var(--sp-7)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", marginBottom: "var(--sp-3)", color: s.color }}>
                   {s.icon}
-                  <span style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                    {s.label}
-                  </span>
+                  <span className="eyebrow eyebrow-muted">{s.label}</span>
                 </div>
-                <div style={{ fontSize: "1.25rem", fontWeight: 800, color: s.color, lineHeight: 1, letterSpacing: "-0.02em" }}>
+                <div className="kpi-value" style={{ fontSize: "var(--fs-xl)" }}>
                   {s.value.toLocaleString("de-DE")}
                 </div>
               </div>
@@ -261,8 +242,8 @@ export async function PhoneDashboard() {
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-              gap: "0.875rem",
-              padding: "1rem 1.25rem",
+              gap: "var(--sp-6)",
+              padding: "var(--sp-7) var(--sp-8)",
             }}
           >
             {rows30.map((r) => {
@@ -275,51 +256,49 @@ export async function PhoneDashboard() {
                 <div
                   key={r.owner_name}
                   style={{
-                    background: "var(--surface-50)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "0.875rem 1rem",
+                    background: "var(--surface-1)",
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "var(--r-md)",
+                    padding: "var(--sp-6) var(--sp-7)",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-6)" }}>
                     <div
                       style={{
                         width: 26,
                         height: 26,
-                        borderRadius: "50%",
+                        borderRadius: "var(--r-full)",
                         background: colorBg,
-                        border: `1.5px solid ${color}`,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        fontSize: "0.75rem",
-                        fontWeight: 800,
+                        fontSize: "var(--fs-xs)",
+                        fontWeight: 600,
                         color,
                         flexShrink: 0,
                       }}
                     >
                       {r.owner_name.charAt(0).toUpperCase()}
                     </div>
-                    <span style={{ fontWeight: 700, fontSize: "0.875rem", color: "var(--text-primary)" }}>{r.owner_name}</span>
-                    <span style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>30 Tage</span>
+                    <span style={{ fontWeight: 500, fontSize: "var(--fs-base)", color: "var(--text-primary)" }}>{r.owner_name}</span>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.625rem", marginBottom: "0.875rem" }}>
-                    <MiniStat icon={<Phone size={11} />} label="Anrufe" value={r.calls} color={color} />
-                    <MiniStat icon={<Shield size={11} />} label="Gatekeeper" value={r.gatekeeper_reached} />
-                    <MiniStat icon={<UserCheck size={11} />} label="Entscheider" value={r.decider_reached} />
-                    <MiniStat icon={<Calendar size={11} />} label="Termine" value={r.appointments} color="var(--color-success-text)" />
-                    <MiniStat icon={<PhoneMissed size={11} />} label="Rückrufe" value={r.callbacks} color="var(--color-warning-text)" />
-                    <MiniStat icon={<PhoneOff size={11} />} label="Dead" value={r.dead} color="var(--color-error-text)" />
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)", marginBottom: "var(--sp-7)" }}>
+                    <MiniStat icon={<Phone size={12} />} label="Anrufe" value={r.calls} color={color} />
+                    <MiniStat icon={<Shield size={12} />} label="Gatekeeper" value={r.gatekeeper_reached} />
+                    <MiniStat icon={<UserCheck size={12} />} label="Entscheider" value={r.decider_reached} />
+                    <MiniStat icon={<Calendar size={12} />} label="Termine" value={r.appointments} color="var(--success)" />
+                    <MiniStat icon={<PhoneMissed size={12} />} label="Rückrufe" value={r.callbacks} color="var(--warning)" />
+                    <MiniStat icon={<PhoneOff size={12} />} label="Dead" value={r.dead} color="var(--danger)" />
                   </div>
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
                     <GoalBar label="Anrufe diese Woche" value={week?.calls ?? 0} target={callsTarget} color={color} />
                     <GoalBar
                       label="Termine diese Woche"
                       value={week?.appointments ?? 0}
                       target={apptTarget}
-                      color="var(--color-success-text)"
+                      color="var(--success)"
                     />
                   </div>
                 </div>
@@ -329,32 +308,22 @@ export async function PhoneDashboard() {
 
           {/* Owner comparison bars */}
           {rows30.length > 1 && (
-            <div style={{ padding: "0 1.25rem 1.125rem" }}>
-              <div
-                style={{
-                  fontSize: "0.6875rem",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  color: "var(--text-subtle)",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                Anrufe im Vergleich (30 Tage)
+            <div style={{ padding: "0 var(--sp-8) var(--sp-8)" }}>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Anrufe im Vergleich · 30 Tage
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
                 {[...rows30]
                   .sort((a, b) => b.calls - a.calls)
                   .map((r) => {
                     const color = ownerColor(r.owner_name).fg;
                     return (
-                      <div key={r.owner_name} style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+                      <div key={r.owner_name} style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)" }}>
                         <span
                           style={{
                             width: 110,
                             flexShrink: 0,
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
+                            fontSize: "var(--fs-sm)",
                             color: "var(--text-secondary)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
@@ -363,17 +332,16 @@ export async function PhoneDashboard() {
                         >
                           {r.owner_name}
                         </span>
-                        <div style={{ flex: 1, background: "var(--surface-200)", borderRadius: 99, height: 10, overflow: "hidden" }}>
+                        <div className="progress-track" style={{ flex: 1, height: 8 }}>
                           <div
-                            style={{
-                              height: "100%",
-                              borderRadius: 99,
-                              width: `${(r.calls / maxCalls) * 100}%`,
-                              background: color,
-                            }}
+                            className="progress-fill"
+                            style={{ width: `${(r.calls / maxCalls) * 100}%`, background: color }}
                           />
                         </div>
-                        <span style={{ width: 44, textAlign: "right", fontSize: "0.75rem", fontWeight: 800, color: "var(--text-primary)" }}>
+                        <span
+                          className="tnum"
+                          style={{ width: 48, textAlign: "right", fontSize: "var(--fs-sm)", fontWeight: 500, color: "var(--text-primary)" }}
+                        >
                           {r.calls.toLocaleString("de-DE")}
                         </span>
                       </div>

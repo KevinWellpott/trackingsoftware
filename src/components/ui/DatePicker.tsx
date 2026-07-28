@@ -1,6 +1,6 @@
 "use client";
 
-import { localDateISO } from "@/lib/dates";
+import { buildMonthGrid, localDateISO, monthLabelDe, WEEKDAYS_DE } from "@/lib/dates";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -9,8 +9,6 @@ import { createPortal } from "react-dom";
 // Trigger-Chip + Kalender-Popover (Portal, position: fixed — funktioniert damit
 // auch in Scroll-/Overflow-Containern wie der virtualisierten Kontakt-Tabelle).
 // Montag-Start, „Heute“-Shortcut, optional „Leeren“; Tokens für Light + Dark.
-
-const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"] as const;
 
 const POPOVER_WIDTH = 252;
 
@@ -26,26 +24,6 @@ export function formatDateDe(iso: string | null | undefined, opts?: { short?: bo
   const dd = String(d).padStart(2, "0");
   const mm = String(m).padStart(2, "0");
   return opts?.short ? `${dd}.${mm}.` : `${dd}.${mm}.${y}`;
-}
-
-function monthLabel(y: number, m: number): string {
-  return new Date(y, m - 1, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
-}
-
-/** 6 Wochen à 7 Tage rund um den Monat (Montag-Start). */
-function buildGrid(y: number, m: number): { iso: string; day: number; inMonth: boolean }[] {
-  const first = new Date(y, m - 1, 1);
-  const offset = (first.getDay() + 6) % 7; // Mo=0 … So=6
-  const cells: { iso: string; day: number; inMonth: boolean }[] = [];
-  for (let i = 0; i < 42; i++) {
-    const dt = new Date(y, m - 1, 1 - offset + i);
-    cells.push({
-      iso: localDateISO(dt),
-      day: dt.getDate(),
-      inMonth: dt.getMonth() === m - 1,
-    });
-  }
-  return cells;
 }
 
 function CalendarPopover({
@@ -101,7 +79,7 @@ function CalendarPopover({
   const top = below ? anchor.bottom + 6 : anchor.top - 6 - estHeight;
   const left = Math.max(8, Math.min(anchor.left, window.innerWidth - POPOVER_WIDTH - 8));
 
-  const grid = buildGrid(view.y, view.m);
+  const grid = buildMonthGrid(view.y, view.m);
 
   function shiftMonth(delta: number) {
     setView((v) => {
@@ -116,29 +94,31 @@ function CalendarPopover({
     justifyContent: "center",
     width: 26,
     height: 26,
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius-sm)",
-    background: "var(--surface-50)",
+    border: "1px solid var(--border-default)",
+    borderRadius: "var(--r-sm)",
+    background: "var(--surface-1)",
     color: "var(--text-muted)",
     cursor: "pointer",
   };
 
   const footBtn: React.CSSProperties = {
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius-sm)",
-    background: "var(--surface-50)",
+    border: "1px solid var(--border-default)",
+    borderRadius: "var(--r-sm)",
+    background: "var(--surface-1)",
     color: "var(--text-secondary)",
-    fontSize: "0.75rem",
-    fontWeight: 600,
+    fontSize: "var(--fs-xs)",
+    fontWeight: 500,
     padding: "0.25rem 0.625rem",
     cursor: "pointer",
   };
 
   return createPortal(
+    // Glass-Popover-Rezept (DESIGN.md §4.2) — Dropdowns sind Glas, Dialoge solid.
     <div
       ref={popRef}
       role="dialog"
       aria-label="Datum wählen"
+      className="glass-popover"
       style={{
         position: "fixed",
         top,
@@ -146,12 +126,8 @@ function CalendarPopover({
         zIndex: 130,
         width: POPOVER_WIDTH,
         boxSizing: "border-box",
-        background: "var(--surface-100)",
-        border: "1px solid var(--border-bright)",
-        borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--shadow-lg)",
-        padding: "0.75rem",
-        animation: "fade-up 0.12s ease both",
+        padding: "var(--sp-5)",
+        animation: "fade-up var(--dur-2) var(--ease-out) both",
       }}
     >
       {/* Monat-Navigation */}
@@ -159,8 +135,8 @@ function CalendarPopover({
         <button type="button" onClick={() => shiftMonth(-1)} aria-label="Voriger Monat" style={navBtn}>
           <ChevronLeft size={14} />
         </button>
-        <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)", textTransform: "capitalize" }}>
-          {monthLabel(view.y, view.m)}
+        <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--text-primary)", textTransform: "capitalize" }}>
+          {monthLabelDe(view.y, view.m)}
         </span>
         <button type="button" onClick={() => shiftMonth(1)} aria-label="Nächster Monat" style={navBtn}>
           <ChevronRight size={14} />
@@ -169,16 +145,16 @@ function CalendarPopover({
 
       {/* Wochentage */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 2 }}>
-        {WEEKDAYS.map((wd) => (
+        {WEEKDAYS_DE.map((wd) => (
           <span
             key={wd}
             style={{
               textAlign: "center",
-              fontSize: "0.625rem",
-              fontWeight: 700,
+              fontSize: "var(--fs-2xs)",
+              fontWeight: 500,
               textTransform: "uppercase",
-              letterSpacing: "0.04em",
-              color: "var(--text-subtle)",
+              letterSpacing: "var(--ls-eyebrow)",
+              color: "var(--text-muted)",
               padding: "0.25rem 0",
             }}
           >
@@ -200,17 +176,16 @@ function CalendarPopover({
               className={selected ? undefined : "dp-day"}
               style={{
                 height: 30,
-                border: isToday && !selected ? "1px solid var(--brand-500)" : "1px solid transparent",
-                borderRadius: "var(--radius-sm)",
-                background: selected ? "var(--btn-primary-bg)" : "transparent",
-                color: selected
-                  ? "var(--btn-primary-fg)"
-                  : cell.inMonth
-                    ? "var(--text-secondary)"
-                    : "var(--text-subtle)",
-                opacity: cell.inMonth || selected ? 1 : 0.55,
-                fontSize: "0.75rem",
-                fontWeight: selected || isToday ? 700 : 500,
+                // Gewaehlt = Orange-Flaeche mit dunklem Text (7.1:1);
+                // heute = nur Orange-Rand, damit nie zwei Orange-Flaechen
+                // im selben Raster stehen.
+                border: isToday && !selected ? "1px solid var(--border-accent)" : "1px solid transparent",
+                borderRadius: "var(--r-sm)",
+                background: selected ? "var(--orange-500)" : "transparent",
+                color: selected ? "#0a0a0b" : cell.inMonth ? "var(--text-secondary)" : "var(--text-disabled)",
+                fontSize: "var(--fs-xs)",
+                fontWeight: selected || isToday ? 600 : 400,
+                fontVariantNumeric: "tabular-nums",
                 cursor: "pointer",
                 padding: 0,
               }}
@@ -223,7 +198,7 @@ function CalendarPopover({
 
       {/* Footer */}
       <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", marginTop: "0.625rem" }}>
-        <button type="button" onClick={() => onPick(today)} style={{ ...footBtn, color: "var(--brand-500)", borderColor: "var(--brand-200)", background: "var(--brand-50)" }}>
+        <button type="button" onClick={() => onPick(today)} style={{ ...footBtn, color: "var(--orange-300)", borderColor: "var(--border-accent)", background: "var(--accent-muted)" }}>
           Heute
         </button>
         {clearable && value && (
@@ -266,15 +241,16 @@ export function DatePicker({
           alignItems: "center",
           gap: "0.5rem",
           width: "100%",
-          minHeight: 36,
+          minHeight: "var(--h-control)",
           boxSizing: "border-box",
-          background: "var(--surface-50)",
-          border: "1px solid var(--border-bright)",
-          borderRadius: "var(--radius-sm)",
-          padding: "0.375rem 0.625rem",
-          fontSize: "0.875rem",
+          background: "var(--surface-1)",
+          border: "1px solid var(--border-default)",
+          borderRadius: "var(--r-md)",
+          padding: "0 var(--sp-5)",
+          fontSize: "var(--fs-base)",
           fontFamily: "inherit",
-          color: value ? "var(--text-primary)" : "var(--text-subtle)",
+          fontVariantNumeric: "tabular-nums",
+          color: value ? "var(--text-primary)" : "var(--text-muted)",
           cursor: "pointer",
           textAlign: "left",
         }
@@ -284,11 +260,12 @@ export function DatePicker({
           gap: 5,
           border: "none",
           background: "transparent",
-          borderRadius: 4,
+          borderRadius: "var(--r-xs)",
           padding: "2px 4px",
-          fontSize: "0.75rem",
+          fontSize: "var(--fs-xs)",
           fontFamily: "inherit",
-          color: value ? "var(--text-muted)" : "var(--text-subtle)",
+          fontVariantNumeric: "tabular-nums",
+          color: value ? "var(--text-secondary)" : "var(--text-muted)",
           cursor: "pointer",
           whiteSpace: "nowrap",
         };

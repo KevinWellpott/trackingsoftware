@@ -5,14 +5,11 @@ import { createListForm } from "@/app/actions/lists";
 import {
   ArrowRight,
   BarChart2,
+  CalendarDays,
   CalendarPlus,
   ChevronDown,
   ChevronRight,
-  ClipboardCheck,
-  Clock,
   Download,
-  Handshake,
-  LineChart,
   LogOut,
   Phone,
   Plus,
@@ -24,8 +21,15 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { ownerColor, ownerInitials } from "@/lib/ownerColor";
+import { ownerInitials } from "@/lib/ownerColor";
+
+// Sidebar im Ember-Glass-System (COMPONENTS.md §10.1):
+// 248px, Flaeche surface-2 (SOLID — kein Glas im Body), rechte Kante als
+// 1px-Linie. Nav-Item 36px mit 2px-Orange-Rail im Aktiv-Zustand.
+//
+// FARBREGEL DIESER DATEI: ausschliesslich Graustufen + Orange. Keine Kanal-,
+// Owner- oder Semantikfarben — die Navigation ist die ruhigste Flaeche der
+// App, Orange markiert allein „hier bist du" bzw. „das ist aktiv".
 
 type SidebarList = { id: string; name: string; owner_name: string | null };
 type SidebarPhoneList = {
@@ -54,10 +58,19 @@ type Props = {
   onClose?: () => void;
 };
 
-// Echtes LinkedIn-Logo (lucide führt keine Brand-Icons mehr).
-function LinkedInIcon({ size = 14 }: { size?: number }) {
+// LinkedIn-Glyphe (lucide fuehrt keine Brand-Icons mehr). Sie erbt die
+// Textfarbe ihrer Zeile — die Sidebar ist monochrom, LinkedIn-Blau haette
+// hier nichts zu suchen.
+function LinkedInIcon({ size = 13 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="#0A66C2" aria-hidden="true" style={{ flexShrink: 0 }}>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      style={{ flexShrink: 0 }}
+    >
       <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z" />
     </svg>
   );
@@ -75,125 +88,68 @@ function NavLink({
   onClick?: () => void;
 }) {
   const pathname = usePathname();
-  // Aktiv auch auf Unterseiten (/setting/abc → "Setting"); "/" nur exakt.
+  // Aktiv auch auf Unterseiten (/setting/abc → „Setting"); "/" nur exakt.
   const isActive = pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
   return (
-    <Link
-      href={href}
-      onClick={onClick}
-      className={`sidebar-link${isActive ? " active" : ""}`}
-    >
-      <Icon size={15} strokeWidth={isActive ? 2.5 : 2} />
-      <span style={{ flex: 1 }}>{label}</span>
-      {isActive && <ChevronRight size={13} style={{ opacity: 0.4 }} />}
-    </Link>
-  );
-}
-
-function ListLink({
-  id,
-  name,
-  onClick,
-}: {
-  id: string;
-  name: string;
-  onClick?: () => void;
-}) {
-  const pathname = usePathname();
-  const href = `/lists/${id}`;
-  const isActive = pathname === href;
-  return (
-    <Link
-      href={href}
-      onClick={onClick}
-      className={`sidebar-link${isActive ? " active" : ""}`}
-      style={{ paddingLeft: "1.5rem" }}
-      title={name}
-    >
-      <span
-        style={{
-          width: 5,
-          height: 5,
-          borderRadius: "50%",
-          flexShrink: 0,
-          background: isActive ? "var(--brand-500)" : "var(--text-subtle)",
-        }}
-      />
-      <span
-        style={{
-          flex: 1,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          fontSize: "0.8125rem",
-        }}
-      >
-        {name}
+    <Link href={href} onClick={onClick} className={`sidebar-link${isActive ? " active" : ""}`}>
+      <Icon size={16} style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {label}
       </span>
     </Link>
   );
 }
 
-const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht", { label: string; color: string; bg: string; border: string }> = {
-  rueckruf: { label: "RR", color: "var(--brand-500)", bg: "var(--brand-50)", border: "var(--brand-200)" },
-  nicht_erreicht: {
-    label: "NE",
-    color: "var(--color-warning-text)",
-    bg: "var(--color-warning-bg)",
-    border: "var(--color-warning-border)",
-  },
-};
-
-function PhoneListLink({
-  list,
+/**
+ * Listeneintrag: Punkt + Name. Der Punkt kodiert nur „aktiv" (Orange) vs.
+ * „inaktiv" (Grau) — welcher Kanal gemeint ist, sagt der Abschnittskopf
+ * darueber, nicht eine zweite Farbe.
+ */
+function ListRow({
+  href,
+  name,
+  badge,
+  title,
   onClick,
 }: {
-  list: SidebarPhoneList;
+  href: string;
+  name: string;
+  badge?: { label: string } | null;
+  title?: string;
   onClick?: () => void;
 }) {
   const pathname = usePathname();
-  const href = `/telefon/${list.id}`;
   const isActive = pathname === href;
-  const badge = list.list_kind !== "akquise" ? PHONE_KIND_BADGE[list.list_kind] : null;
   return (
     <Link
       href={href}
       onClick={onClick}
       className={`sidebar-link${isActive ? " active" : ""}`}
-      style={{ paddingLeft: "1.5rem" }}
-      title={list.list_kind === "rueckruf" ? `${list.name} (Rückruf-Liste)` : list.list_kind === "nicht_erreicht" ? `${list.name} (Nicht-erreicht-Liste)` : list.name}
+      style={{ paddingLeft: "var(--sp-8)", height: 32, fontSize: "var(--fs-sm)", fontWeight: 400 }}
+      title={title ?? name}
     >
       <span
         style={{
-          width: 5,
-          height: 5,
-          borderRadius: "50%",
+          width: 6,
+          height: 6,
+          borderRadius: "var(--r-full)",
           flexShrink: 0,
-          background: isActive ? "var(--brand-500)" : "var(--text-subtle)",
+          background: isActive ? "var(--orange-500)" : "var(--text-disabled)",
         }}
       />
-      <span
-        style={{
-          flex: 1,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          fontSize: "0.8125rem",
-        }}
-      >
-        {list.name}
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {name}
       </span>
       {badge && (
         <span
           style={{
-            fontSize: "0.5625rem",
-            fontWeight: 800,
+            fontSize: "var(--fs-2xs)",
+            fontWeight: 500,
             letterSpacing: "0.04em",
-            color: badge.color,
-            background: badge.bg,
-            border: `1px solid ${badge.border}`,
-            borderRadius: 99,
-            padding: "0.05rem 0.3rem",
+            color: "var(--text-secondary)",
+            background: "var(--surface-3)",
+            borderRadius: "var(--r-full)",
+            padding: "1px 6px",
             flexShrink: 0,
           }}
         >
@@ -203,6 +159,12 @@ function PhoneListLink({
     </Link>
   );
 }
+
+// Die Kuerzel tragen die Bedeutung; der Tooltip der Zeile schreibt sie aus.
+const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht", { label: string }> = {
+  rueckruf: { label: "RR" },
+  nicht_erreicht: { label: "NE" },
+};
 
 /** Eine Zeile der Team-Ansicht: Formular, das die Datensicht wechselt. */
 function TeamViewRow({
@@ -218,36 +180,36 @@ function TeamViewRow({
   active: boolean;
   isReset?: boolean;
 }) {
-  const oc = ownerColor(isReset ? null : label);
   return (
     <form action={setDataViewForm}>
       <input type="hidden" name="next" value={pathname} />
       <input type="hidden" name="view_user_id" value={userId} />
       <button
         type="submit"
-        className="sidebar-link"
+        className={`sidebar-link${active ? " active" : ""}`}
         style={{
           width: "100%",
           border: "none",
           cursor: "pointer",
-          background: active ? "var(--brand-50)" : "none",
-          color: active ? "var(--brand-600)" : undefined,
-          fontWeight: active ? 700 : undefined,
+          background: active ? undefined : "none",
+          fontSize: "var(--fs-sm)",
         }}
         title={isReset ? "Zur eigenen Datensicht zurückkehren" : `Datensicht von ${label} anzeigen`}
       >
+        {/* Avatare in der Sidebar bleiben grau — die Owner-Palette lebt in
+            Dashboards und Charts, wo sie Datenreihen unterscheidet. */}
         <span
           style={{
             width: 22,
             height: 22,
-            borderRadius: "50%",
-            background: isReset ? "var(--surface-200)" : oc.bg,
-            color: isReset ? "var(--text-secondary)" : oc.fg,
+            borderRadius: "var(--r-full)",
+            background: active ? "var(--accent-muted)" : "var(--surface-3)",
+            color: active ? "var(--orange-300)" : "var(--text-secondary)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "0.625rem",
-            fontWeight: 700,
+            fontSize: "var(--fs-2xs)",
+            fontWeight: 600,
             flexShrink: 0,
           }}
         >
@@ -264,13 +226,12 @@ function TeamViewRow({
         >
           {label}
         </span>
-        {active && <ChevronRight size={13} style={{ opacity: 0.5 }} />}
       </button>
     </form>
   );
 }
 
-/** Einklappbarer Sidebar-Abschnitt: Kopfzeile (Chevron + Icon + Label + optionale Aktion), Inhalt per Klick ein-/ausblendbar. */
+/** Einklappbarer Abschnitt: Eyebrow-Kopf + optionale Aktion rechts. */
 function CollapsibleSection({
   icon,
   label,
@@ -279,7 +240,6 @@ function CollapsibleSection({
 }: {
   icon: React.ReactNode;
   label: string;
-  /** Optionale Aktion rechts im Header; erhält Zugriff auf den Auf-/Zuklapp-Status. */
   action?: (ctx: { open: boolean; setOpen: (open: boolean) => void }) => React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -287,7 +247,7 @@ function CollapsibleSection({
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", padding: "0.5rem 0.5rem 0.25rem 0.375rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-5) var(--sp-3) var(--sp-3)" }}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -298,24 +258,21 @@ function CollapsibleSection({
             minWidth: 0,
             display: "flex",
             alignItems: "center",
-            gap: "0.375rem",
+            gap: "var(--sp-3)",
             background: "none",
             border: "none",
             cursor: "pointer",
-            padding: "0.125rem 0.25rem",
-            color: "var(--text-subtle)",
+            padding: "0 var(--sp-2)",
+            color: "var(--text-muted)",
           }}
         >
-          <Chevron size={12} strokeWidth={2.5} style={{ flexShrink: 0, opacity: 0.7 }} />
+          <Chevron size={12} style={{ flexShrink: 0 }} />
           {icon}
           <span
+            className="eyebrow eyebrow-muted"
             style={{
               flex: 1,
               textAlign: "left",
-              fontSize: "0.6875rem",
-              fontWeight: 700,
-              letterSpacing: "0.07em",
-              textTransform: "uppercase",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -326,8 +283,50 @@ function CollapsibleSection({
         </button>
         {action?.({ open, setOpen })}
       </div>
-      {open && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>{children}</div>}
+      {open && <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>{children}</div>}
     </div>
+  );
+}
+
+/** Kleiner quadratischer Aktions-Button im Abschnitts-Kopf. */
+function SectionAction({
+  title,
+  active = false,
+  href,
+  onClick,
+  children,
+}: {
+  title: string;
+  active?: boolean;
+  href?: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  const style: React.CSSProperties = {
+    width: 22,
+    height: 22,
+    borderRadius: "var(--r-sm)",
+    background: active ? "var(--orange-500)" : "var(--surface-3)",
+    border: "none",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: active ? "#0a0a0b" : "var(--text-muted)",
+    transition: "background var(--transition-fast), color var(--transition-fast)",
+    flexShrink: 0,
+  };
+  if (href) {
+    return (
+      <Link href={href} onClick={onClick} title={title} style={style}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} title={title} style={style}>
+      {children}
+    </button>
   );
 }
 
@@ -356,22 +355,58 @@ export function SidebarContent({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        background: "var(--surface-50)",
+        background: "var(--surface-2)",
       }}
     >
+      {/* Kopf: Wortmarke. Sitzt auf Topbar-Hoehe, damit die Kanten fluchten. */}
+      <div
+        style={{
+          height: "var(--h-topbar)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "var(--sp-4)",
+          padding: "0 var(--sp-6)",
+          borderBottom: "1px solid var(--border-default)",
+          flexShrink: 0,
+        }}
+      >
+        <Link href="/" onClick={onClose} className="wordmark" style={{ textDecoration: "none" }}>
+          titan
+        </Link>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="Menü schließen"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "var(--text-muted)",
+              padding: 4,
+              display: "flex",
+            }}
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
+
       {/* Datensicht-Banner (Impersonation aktiv) */}
       {dataView?.canSwitch && isImpersonating && (
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "0.5rem",
-            margin: "0.5rem 0.5rem 0",
-            padding: "0.375rem 0.5rem 0.375rem 0.625rem",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-warning-border)",
-            background: "var(--color-warning-bg)",
-            color: "var(--color-warning-text)",
+            gap: "var(--sp-4)",
+            margin: "var(--sp-5) var(--sp-5) 0",
+            padding: "var(--sp-3) var(--sp-4)",
+            borderRadius: "var(--r-md)",
+            // Fremde Datensicht ist ein AKTIVER Modus, kein Status —
+            // deshalb der Akzent-Tint und nicht Warning-Gold.
+            border: "1px solid var(--border-accent)",
+            background: "var(--accent-muted)",
+            color: "var(--orange-300)",
             flexShrink: 0,
           }}
         >
@@ -379,15 +414,15 @@ export function SidebarContent({
           <span
             style={{
               flex: 1,
-              fontSize: "0.75rem",
-              fontWeight: 700,
+              fontSize: "var(--fs-xs)",
+              fontWeight: 500,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
             title={`Datensicht: ${dataView.activeLabel}`}
           >
-            Datensicht: {dataView.activeLabel}
+            {dataView.activeLabel}
           </span>
           <form action={setDataViewForm} style={{ display: "flex", flexShrink: 0 }}>
             <input type="hidden" name="next" value={pathname} />
@@ -399,28 +434,15 @@ export function SidebarContent({
                 background: "none",
                 border: "none",
                 cursor: "pointer",
-                color: "var(--color-warning-text)",
-                padding: "0.125rem",
+                color: "var(--orange-300)",
+                padding: 2,
                 display: "flex",
                 alignItems: "center",
               }}
             >
-              <X size={13} strokeWidth={2.5} />
+              <X size={13} />
             </button>
           </form>
-        </div>
-      )}
-
-      {/* Schließen-Button (nur im mobilen Drawer) */}
-      {onClose && (
-        <div style={{ display: "flex", justifyContent: "flex-end", padding: "0.375rem 0.5rem 0", flexShrink: 0 }}>
-          <button
-            onClick={onClose}
-            aria-label="Menü schließen"
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.25rem", display: "flex", alignItems: "center" }}
-          >
-            <X size={17} />
-          </button>
         </div>
       )}
 
@@ -429,40 +451,34 @@ export function SidebarContent({
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "0.625rem 0.375rem",
+          padding: "var(--sp-5) var(--sp-5)",
           display: "flex",
           flexDirection: "column",
-          gap: 2,
+          gap: 1,
         }}
       >
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
         {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
-        <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} />
-        <NavLink href="/setting" icon={ClipboardCheck} label="Setting" onClick={onClose} />
-        <NavLink href="/closing" icon={Handshake} label="Closing" onClick={onClose} />
-        <NavLink href="/nachfassen" icon={Clock} label="Nachfassen" onClick={onClose} />
+        <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
 
-        {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt) */}
+        {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).
+            Ghost-Akzent: die einzige Orange-Textaktion in der Navigation. */}
         <button
           type="button"
           onClick={() => setShowManualAppt(true)}
           className="sidebar-link"
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.625rem",
             width: "100%",
             border: "none",
             background: "none",
             cursor: "pointer",
-            color: "var(--brand-600)",
-            fontWeight: 600,
+            color: "var(--orange-300)",
             textAlign: "left",
           }}
           title="Termin ohne Liste manuell buchen"
         >
           <CalendarPlus size={16} style={{ flexShrink: 0 }} />
-          <span>Termin buchen</span>
+          <span style={{ flex: 1 }}>Termin buchen</span>
         </button>
         <ManualAppointmentModal
           open={showManualAppt}
@@ -470,14 +486,14 @@ export function SidebarContent({
           onSaved={() => router.refresh()}
         />
 
-        {/* ── LinkedIn Section ── */}
-        <div style={{ marginTop: "0.375rem" }} />
+        {/* ── LinkedIn ── */}
         <CollapsibleSection
           icon={<LinkedInIcon size={13} />}
           label="LinkedIn"
           action={({ open, setOpen }) => (
-            <button
-              type="button"
+            <SectionAction
+              title="Neue Liste"
+              active={showNewList && open}
               onClick={() => {
                 if (!open) {
                   setOpen(true);
@@ -487,31 +503,72 @@ export function SidebarContent({
                 }
                 setTimeout(() => nameRef.current?.focus(), 50);
               }}
-              style={{ width: 22, height: 22, borderRadius: 6, background: showNewList && open ? "var(--brand-500)" : "var(--surface-200)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: showNewList && open ? "white" : "var(--text-subtle)", transition: "all 0.15s", flexShrink: 0 }}
-              title="Neue Liste"
             >
-              <Plus size={12} strokeWidth={2.5} />
-            </button>
+              <Plus size={12} />
+            </SectionAction>
           )}
         >
-          {/* Inline new list form */}
           {showNewList && (
-            <div style={{ margin: "0.25rem 0.5rem 0.5rem", background: "var(--surface-150)", border: "1px solid var(--border-bright)", borderRadius: "var(--radius-md)", padding: "0.625rem 0.75rem" }}>
-              <form action={async (fd) => { await createListForm(fd); setShowNewList(false); }}>
+            <div
+              style={{
+                margin: "0 0 var(--sp-4)",
+                background: "var(--surface-1)",
+                border: "1px solid var(--border-default)",
+                borderRadius: "var(--r-md)",
+                padding: "var(--sp-5)",
+              }}
+            >
+              <form
+                action={async (fd) => {
+                  await createListForm(fd);
+                  setShowNewList(false);
+                }}
+              >
                 <input type="hidden" name="workspace_id" value={workspaceId} />
                 <input
                   ref={nameRef}
                   name="name"
                   required
                   placeholder="Listenname…"
-                  style={{ width: "100%", background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.3125rem 0.5rem", fontSize: "0.8125rem", color: "var(--text-primary)", outline: "none", marginBottom: "0.375rem" }}
+                  className="ui-input"
+                  style={{ marginBottom: "var(--sp-4)", fontSize: "var(--fs-sm)" }}
                 />
                 <input type="hidden" name="owner_name" value={username} />
-                <div style={{ display: "flex", gap: "0.25rem" }}>
-                  <button type="submit" style={{ flex: 1, background: "var(--brand-500)", color: "white", border: "none", borderRadius: 6, padding: "0.3rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}>
+                <div style={{ display: "flex", gap: "var(--sp-2)" }}>
+                  <button
+                    type="submit"
+                    style={{
+                      flex: 1,
+                      background: "var(--orange-500)",
+                      color: "#0a0a0b",
+                      border: "none",
+                      borderRadius: "var(--r-full)",
+                      height: 28,
+                      fontSize: "var(--fs-xs)",
+                      fontWeight: 600,
+                      fontFamily: "inherit",
+                      cursor: "pointer",
+                    }}
+                  >
                     Anlegen
                   </button>
-                  <button type="button" onClick={() => setShowNewList(false)} style={{ background: "var(--surface-200)", color: "var(--text-subtle)", border: "none", borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.75rem", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewList(false)}
+                    aria-label="Abbrechen"
+                    style={{
+                      background: "var(--surface-3)",
+                      color: "var(--text-muted)",
+                      border: "none",
+                      borderRadius: "var(--r-full)",
+                      height: 28,
+                      width: 28,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
                     <X size={12} />
                   </button>
                 </div>
@@ -520,59 +577,61 @@ export function SidebarContent({
           )}
 
           {lists.map((l) => (
-            <ListLink key={l.id} id={l.id} name={l.name} onClick={onClose} />
+            <ListRow key={l.id} href={`/lists/${l.id}`} name={l.name} onClick={onClose} />
           ))}
           {lists.length === 0 && (
-            <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>
+            <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", padding: "var(--sp-2) var(--sp-8)" }}>
               Noch keine Listen.
             </p>
           )}
         </CollapsibleSection>
 
-        {/* ── Telefon Section ── */}
-        <div style={{ borderTop: "1px solid var(--border)", margin: "0.625rem 0 0" }} />
+        {/* ── Telefon ── */}
+        <div style={{ borderTop: "1px solid var(--border-subtle)", marginTop: "var(--sp-4)" }} />
         <CollapsibleSection
-          icon={<Phone size={13} style={{ color: "var(--text-subtle)", flexShrink: 0 }} />}
+          icon={<Phone size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />}
           label="Telefon"
           action={() => (
-            <Link
-              href="/telefon"
-              onClick={onClose}
-              title="Telefon-Übersicht öffnen"
-              style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-subtle)", flexShrink: 0 }}
-            >
-              <ArrowRight size={12} strokeWidth={2.5} />
-            </Link>
+            <SectionAction title="Telefon-Übersicht öffnen" href="/telefon" onClick={onClose}>
+              <ArrowRight size={12} />
+            </SectionAction>
           )}
         >
           {phoneLists.map((l) => (
-            <PhoneListLink key={l.id} list={l} onClick={onClose} />
+            <ListRow
+              key={l.id}
+              href={`/telefon/${l.id}`}
+              name={l.name}
+              badge={l.list_kind !== "akquise" ? PHONE_KIND_BADGE[l.list_kind] : null}
+              title={
+                l.list_kind === "rueckruf"
+                  ? `${l.name} (Rückruf-Liste)`
+                  : l.list_kind === "nicht_erreicht"
+                    ? `${l.name} (Nicht-erreicht-Liste)`
+                    : l.name
+              }
+              onClick={onClose}
+            />
           ))}
           {phoneLists.length === 0 && (
-            <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", padding: "0.25rem 1.5rem" }}>
+            <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", padding: "var(--sp-2) var(--sp-8)" }}>
               Noch keine Listen.
             </p>
           )}
         </CollapsibleSection>
 
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1, minHeight: "var(--sp-6)" }} />
 
         {/* ── Team-Ansicht (nur Admin/Owner) ── */}
         {dataView?.canSwitch && teamUsers.length > 0 && (
           <>
-            <div style={{ borderTop: "1px solid var(--border)", marginTop: "0.5rem" }} />
+            <div style={{ borderTop: "1px solid var(--border-subtle)" }} />
             <CollapsibleSection
-              icon={<Users size={12} style={{ color: "var(--text-subtle)", flexShrink: 0 }} />}
+              icon={<Users size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />}
               label="Team-Ansicht"
             >
               {isImpersonating && (
-                <TeamViewRow
-                  userId=""
-                  label="Meine Daten"
-                  pathname={pathname}
-                  active={false}
-                  isReset
-                />
+                <TeamViewRow userId="" label="Meine Daten" pathname={pathname} active={false} isReset />
               )}
               {teamUsers.map((u) => (
                 <TeamViewRow
@@ -587,51 +646,75 @@ export function SidebarContent({
           </>
         )}
 
-        <div style={{ borderTop: "1px solid var(--border)", marginTop: "0.5rem", paddingTop: "0.5rem" }}>
+        <div style={{ borderTop: "1px solid var(--border-subtle)", marginTop: "var(--sp-4)", paddingTop: "var(--sp-4)" }}>
           <NavLink href="/export" icon={Download} label="Export (CSV)" onClick={onClose} />
           <NavLink href="/settings" icon={Settings} label="Einstellungen" onClick={onClose} />
         </div>
       </nav>
 
       {/* Footer */}
-      <div style={{ borderTop: "1px solid var(--border)", padding: "0.625rem 0.375rem", flexShrink: 0 }}>
+      <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-5)", flexShrink: 0 }}>
         {isOwnScope && (
-          <div style={{ margin: "0 0.75rem 0.5rem", border: "1px solid var(--color-warning-border)", background: "var(--color-warning-bg)", color: "var(--color-warning-text)", borderRadius: 8, padding: "0.35rem 0.5rem", fontSize: "0.6875rem", fontWeight: 700 }}>
+          <div
+            style={{
+              marginBottom: "var(--sp-4)",
+              border: "1px solid var(--border-default)",
+              background: "var(--surface-1)",
+              color: "var(--text-muted)",
+              borderRadius: "var(--r-sm)",
+              padding: "var(--sp-3) var(--sp-4)",
+              fontSize: "var(--fs-xs)",
+              fontWeight: 500,
+            }}
+          >
             Eigene Datensicht aktiv
           </div>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.375rem 0.75rem", marginBottom: "0.125rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", padding: "0 var(--sp-3) var(--sp-4)" }}>
           <div
             style={{
               width: 28,
               height: 28,
-              borderRadius: "50%",
-              background: "var(--brand-100)",
-              color: "var(--brand-600)",
+              borderRadius: "var(--r-full)",
+              background: "var(--surface-3)",
+              color: "var(--text-secondary)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "0.75rem",
-              fontWeight: 700,
+              fontSize: "var(--fs-xs)",
+              fontWeight: 600,
               flexShrink: 0,
             }}
           >
             {username.charAt(0).toUpperCase()}
           </div>
-          <span style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span
+            style={{
+              fontSize: "var(--fs-sm)",
+              fontWeight: 500,
+              color: "var(--text-secondary)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {username}
           </span>
-        </div>
-        <div style={{ padding: "0 0.375rem", marginBottom: "0.375rem" }}>
-          <ThemeToggle />
         </div>
         <form action={signOut}>
           <button
             type="submit"
             className="sidebar-link"
-            style={{ width: "100%", color: "var(--color-error-text)", border: "none", background: "none", cursor: "pointer" }}
+            style={{
+              width: "100%",
+              color: "var(--text-muted)",
+              border: "none",
+              background: "none",
+              cursor: "pointer",
+              fontSize: "var(--fs-sm)",
+            }}
           >
-            <LogOut size={14} />
+            <LogOut size={15} />
             <span>Abmelden</span>
           </button>
         </form>
@@ -641,7 +724,15 @@ export function SidebarContent({
 }
 
 export function MobileDrawer({
-  open, onClose, workspaceName, username, workspaceId, lists, phoneLists, dataScope, dataView,
+  open,
+  onClose,
+  workspaceName,
+  username,
+  workspaceId,
+  lists,
+  phoneLists,
+  dataScope,
+  dataView,
 }: {
   open: boolean;
   onClose: () => void;
@@ -656,9 +747,20 @@ export function MobileDrawer({
   if (!open) return null;
   return (
     <>
-      {/* Backdrop über dem FAB (zIndex 40), Panel über dem Backdrop */}
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 60 }} />
-      <div style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 70, boxShadow: "var(--shadow-lg)" }}>
+      {/* Scrim ueber dem FAB (zIndex 40), Panel darueber */}
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "var(--surface-scrim)", zIndex: 60 }} />
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: "var(--w-sidebar)",
+          zIndex: 70,
+          borderRight: "1px solid var(--border-default)",
+          boxShadow: "var(--shadow-overlay)",
+        }}
+      >
         <SidebarContent
           workspaceName={workspaceName}
           username={username}

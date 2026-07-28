@@ -2,6 +2,7 @@ import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
 import { parseAnalyseParams, prevRange } from "@/lib/analyse";
 import { AnalyseFilterBar } from "@/components/analyse/AnalyseFilterBar";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { LinkedInTab } from "@/components/analyse/tabs/LinkedInTab";
 import { TelefonTab } from "@/components/analyse/tabs/TelefonTab";
 import { SettingTab } from "@/components/analyse/tabs/SettingTab";
@@ -55,16 +56,9 @@ export default async function AnalysePage({
   const prev = prevRange(params.from, params.to);
 
   return (
-    <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       {/* ══ HEADER ══ */}
-      <div>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>
-          Analyse
-        </h1>
-        <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: "2px 0 0" }}>
-          Flows · Vergleich · Zeiträume
-        </p>
-      </div>
+      <PageHeader eyebrow="Auswertung" title="Analyse" meta="Flows · Vergleich · Zeiträume" />
 
       {/* ══ FILTER ══ */}
       <AnalyseFilterBar

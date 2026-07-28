@@ -362,7 +362,7 @@ export async function SettingTab({
                   style={{
                     marginLeft: "auto",
                     fontSize: "0.875rem",
-                    fontWeight: 800,
+                    fontWeight: 600,
                     color: "var(--text-primary)",
                     fontVariantNumeric: "tabular-nums",
                   }}

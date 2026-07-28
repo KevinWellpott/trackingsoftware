@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bell, CalendarCheck, MessageSquare, Phone, Target, TrendingUp } from "lucide-react";
+import { ArrowRight, Bell, CalendarCheck, MessageSquare, Phone, Target, TrendingUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { addDaysISO, getISOWeek, localDateISO, weekStart } from "@/lib/dates";
@@ -8,7 +8,7 @@ import { resolveTarget } from "@/lib/targets";
 import { Card } from "@/components/ui/Card";
 import { PersonalWeeklyChart, type PersonalWeekPoint } from "@/components/DashboardCharts";
 import { PeriodSwitcher, type DashboardPeriod } from "@/components/dashboard/PeriodSwitcher";
-import { StatTile } from "@/components/dashboard/StatTile";
+import { StatTile, StatChip } from "@/components/dashboard/StatTile";
 import { GoalProgress } from "@/components/dashboard/GoalProgress";
 import { PersonalFunnel, type FunnelStage } from "@/components/dashboard/PersonalFunnel";
 import { ViewingBanner } from "@/components/dashboard/ViewingBanner";
@@ -49,6 +49,9 @@ function formatRate(rate: number): string {
   return `${rate.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
+// Sektionskarte: ruhiger Kopf (Icon + Titel + Meta rechts), Inhalt darunter.
+// Der Eyebrow bleibt hier bewusst gedaempft — das Orange-Budget der Seite
+// liegt komplett in der KPI-Reihe und dem Hero-Wort.
 function SectionCard({
   title,
   icon,
@@ -63,17 +66,52 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   const heading = (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>
-      <span aria-hidden style={{ display: "inline-flex", color: "var(--text-subtle)" }}>{icon}</span>
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "var(--sp-4)",
+        fontSize: "var(--fs-md)",
+        fontWeight: 600,
+        letterSpacing: "var(--ls-tight)",
+        color: "var(--text-primary)",
+      }}
+    >
+      <span aria-hidden style={{ display: "inline-flex", color: "var(--text-muted)" }}>
+        {icon}
+      </span>
       {title}
-      {href && <span aria-hidden style={{ color: "var(--text-subtle)", fontWeight: 500, fontSize: "0.75rem" }}>→</span>}
+      {href && (
+        <ArrowRight size={13} aria-hidden style={{ color: "var(--text-muted)" }} />
+      )}
     </span>
   );
   return (
     <Card>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}>
-        {href ? <Link href={href} style={{ textDecoration: "none" }}>{heading}</Link> : heading}
-        {meta && <span style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>{meta}</span>}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: "var(--sp-4)",
+          marginBottom: "var(--sp-7)",
+          flexWrap: "wrap",
+        }}
+      >
+        {href ? (
+          <Link href={href} style={{ textDecoration: "none" }}>
+            {heading}
+          </Link>
+        ) : (
+          heading
+        )}
+        {meta && (
+          <span
+            className="eyebrow eyebrow-muted"
+            style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}
+          >
+            {meta}
+          </span>
+        )}
       </div>
       {children}
     </Card>
@@ -258,38 +296,58 @@ export default async function DashboardPage({
     { label: "DMs", value: periodDms.toLocaleString("de-DE"), sub: periodLabel },
     { label: "Antworten", value: periodAnswers.toLocaleString("de-DE"), sub: periodLabel },
     { label: "Termine", value: periodAppts.toLocaleString("de-DE"), sub: periodLabel },
-    { label: "Setting", value: settingOpen.toLocaleString("de-DE"), sub: `offen · ${settingTotal.toLocaleString("de-DE")} gesamt`, href: "/setting" },
-    { label: "Closing", value: closingOpen.toLocaleString("de-DE"), sub: "offen", href: "/closing" },
-    { label: "Gewonnen", value: closingWon.toLocaleString("de-DE"), sub: EUR.format(revenue), href: "/closing" },
+    { label: "Setting", value: settingOpen.toLocaleString("de-DE"), sub: `offen · ${settingTotal.toLocaleString("de-DE")} gesamt`, href: "/termine" },
+    { label: "Closing", value: closingOpen.toLocaleString("de-DE"), sub: "offen", href: "/termine" },
+    { label: "Gewonnen", value: closingWon.toLocaleString("de-DE"), sub: EUR.format(revenue), href: "/termine" },
   ];
 
   return (
-    <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
 
       {/* ══ VIEWING-BANNER (Impersonation) ══ */}
       {access.can_switch_view && access.effective_user_id && (
         <ViewingBanner name={access.effective_username ?? "Ausgewählter Nutzer"} />
       )}
 
-      {/* ══ HEADER ══ */}
-      <div className="section-header-mobile" style={{ display: "flex", alignItems: "flex-end", gap: "1rem", flexWrap: "wrap" }}>
+      {/* ══ HEADER ══
+          Der Glueh-Header ist der Hero-Moment der Seite; der Name traegt
+          als einziges Element das Gradient-Wort-Treatment (DESIGN.md §5). */}
+      <header
+        className="ember-glow section-header-mobile"
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          gap: "var(--sp-6)",
+          flexWrap: "wrap",
+          paddingTop: "var(--sp-2)",
+        }}
+      >
         <div>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>Dashboard</h1>
-          <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: "2px 0 0" }}>
-            Persönliche Übersicht · {displayName}
-          </p>
+          <div className="eyebrow">Persönliche Übersicht</div>
+          <h1
+            style={{
+              fontSize: "var(--fs-2xl)",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              letterSpacing: "var(--ls-headline)",
+              lineHeight: "var(--lh-tight)",
+              margin: "var(--sp-3) 0 0",
+            }}
+          >
+            Moin, <span className="accent-word">{displayName}</span>
+          </h1>
         </div>
         <div style={{ marginLeft: "auto" }}>
           <PeriodSwitcher value={period} />
         </div>
-      </div>
+      </header>
 
       {/* ══ KPI-REIHE ══ */}
-      <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.875rem" }}>
+      <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--sp-6)" }}>
         <StatTile
-          label={`DMs (${periodLabel})`}
+          label={`DMs · ${periodLabel}`}
           value={periodDms.toLocaleString("de-DE")}
-          sub={`gesamt: ${alltimeDms.toLocaleString("de-DE")}`}
+          sub={`${alltimeDms.toLocaleString("de-DE")} gesamt`}
           icon={<MessageSquare size={14} />}
         />
         <StatTile
@@ -301,23 +359,35 @@ export default async function DashboardPage({
         <StatTile
           label="Terminquote"
           value={apptRate === null ? "—" : formatRate(apptRate)}
-          sub={`${periodAppts.toLocaleString("de-DE")} Termine · Ziel 3–7%`}
+          sub={`${periodAppts.toLocaleString("de-DE")} Termine · Zielband 3–7 %`}
           tone={apptTone}
+          chip={
+            apptRate === null ? undefined : (
+              <StatChip tone={apptTone}>
+                {apptRate < 3 ? "unter Ziel" : apptRate > 7 ? "über Ziel" : "im Zielband"}
+              </StatChip>
+            )
+          }
           icon={<CalendarCheck size={14} />}
         />
         <StatTile
           label="Follow-ups fällig"
           value={fuDue.toLocaleString("de-DE")}
-          sub={`${NUM(fuRow?.overdue).toLocaleString("de-DE")} überfällig`}
-          tone={fuDue > 0 ? "error" : "neutral"}
+          sub={fuDue > 0 ? "Nachfassen öffnen" : "nichts offen"}
+          tone={NUM(fuRow?.overdue) > 0 ? "warning" : "neutral"}
+          chip={
+            NUM(fuRow?.overdue) > 0 ? (
+              <StatChip tone="warning">{NUM(fuRow?.overdue).toLocaleString("de-DE")} überfällig</StatChip>
+            ) : undefined
+          }
           href="/nachfassen"
           icon={<Bell size={14} />}
         />
       </div>
 
       {/* ══ ZIELE ══ */}
-      <SectionCard title="Ziele" icon={<Target size={15} />} meta={`${monday} → ${addDaysISO(monday, 6)}`}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <SectionCard title="Ziele" icon={<Target size={16} />} meta={`KW ${getISOWeek(monday)}`}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-7)" }}>
           <GoalProgress label="Heute" current={todayDms} goal={dailyGoal} />
           <GoalProgress label="Diese Woche" current={weekDms} goal={weeklyGoal} />
           {showPhoneGoal && (
@@ -327,34 +397,40 @@ export default async function DashboardPage({
       </SectionCard>
 
       {/* ══ TREND ══ */}
-      <SectionCard title="Trend" icon={<TrendingUp size={15} />} meta="Letzte 10 Wochen · DMs & Termine">
+      <SectionCard title="Trend" icon={<TrendingUp size={16} />} meta="10 Wochen">
         <PersonalWeeklyChart data={trendWeeks} />
       </SectionCard>
 
       {/* ══ FUNNEL ══ */}
-      <SectionCard title="Funnel" icon={<CalendarCheck size={15} />} meta="DMs → Termine → Abschluss">
+      <SectionCard title="Funnel" icon={<CalendarCheck size={16} />} meta="DM → Termin → Abschluss">
         <PersonalFunnel stages={funnelStages} />
       </SectionCard>
 
       {/* ══ TELEFON ══ */}
       {showPhoneCard && (
-        <SectionCard title="Telefon" icon={<Phone size={15} />} href="/telefon" meta={periodLabel}>
-          <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.875rem" }}>
+        <SectionCard title="Telefon" icon={<Phone size={16} />} href="/telefon" meta={periodLabel}>
+          <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)" }}>
             {[
-              { label: `Anrufe (${periodLabel})`, value: phonePeriod.calls },
-              { label: "Entscheider erreicht (gesamt)", value: phonePeriod.decider },
-              { label: "Termine (gesamt)", value: phonePeriod.appointments },
+              { label: `Anrufe · ${periodLabel}`, value: phonePeriod.calls },
+              { label: "Entscheider erreicht", value: phonePeriod.decider },
+              { label: "Termine gesetzt", value: phonePeriod.appointments },
             ].map((s) => (
-              <div key={s.label} style={{ minWidth: 0 }}>
-                <div style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-subtle)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <div key={s.label} style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+                <div
+                  className="eyebrow eyebrow-muted"
+                  style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                >
                   {s.label}
                 </div>
-                <div style={{ fontSize: "1.375rem", fontWeight: 700, letterSpacing: "-0.02em", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>
+                <div className="kpi-value" style={{ fontSize: "var(--fs-xl)" }}>
                   {s.value.toLocaleString("de-DE")}
                 </div>
               </div>
             ))}
           </div>
+          <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginTop: "var(--sp-6)" }}>
+            Anrufe sind auf den Zeitraum gefiltert, Entscheider und Termine zählen gesamt.
+          </p>
         </SectionCard>
       )}
 

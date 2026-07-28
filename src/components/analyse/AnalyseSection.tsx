@@ -2,8 +2,9 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 
-// Einheitliche Sektions-Karte des Analyse-Bereichs: Titel-Zeile (Icon + Titel +
-// optionaler Meta-Text) über dem Inhalt. Rein serverseitig gerendert.
+// Sektions-Karte des Analyse-Bereichs: Icon + Titel links, Meta rechts.
+// Das Icon sitzt ohne Kasten direkt im Text — ein Icon-Chip pro Sektion waere
+// im Ember-Glass-System zu viel Flaeche fuer zu wenig Information.
 
 export function AnalyseSection({
   title,
@@ -18,42 +19,42 @@ export function AnalyseSection({
 }) {
   return (
     <Card>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
-        {Icon && (
-          <div
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 6,
-              background: "var(--surface-200)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <Icon size={13} color="var(--brand-500)" />
-          </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-7)" }}>
+        {Icon && <Icon size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />}
+        <span
+          style={{
+            fontSize: "var(--fs-md)",
+            fontWeight: 600,
+            letterSpacing: "var(--ls-tight)",
+            color: "var(--text-primary)",
+          }}
+        >
+          {title}
+        </span>
+        {meta && (
+          <span className="eyebrow eyebrow-muted" style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+            {meta}
+          </span>
         )}
-        <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>{title}</span>
-        {meta && <span style={{ marginLeft: "auto", fontSize: "0.6875rem", color: "var(--text-subtle)" }}>{meta}</span>}
       </div>
       {children}
     </Card>
   );
 }
 
-// Info-Karte, wenn eine benötigte DB-Migration noch fehlt.
+// Hinweis-Karte, wenn eine benoetigte DB-Migration noch fehlt.
 export function MigrationHint({ children }: { children: ReactNode }) {
   return (
     <Card
       style={{
-        background: "var(--color-info-bg)",
-        border: "1px solid var(--color-info-border)",
-        color: "var(--color-info-text)",
+        background: "var(--info-bg)",
+        borderColor: "transparent",
+        borderLeft: "2px solid var(--info)",
+        color: "var(--info-fg)",
       }}
+      padding="var(--sp-6) var(--sp-7)"
     >
-      <span style={{ fontSize: "0.8125rem", fontWeight: 600 }}>{children}</span>
+      <span style={{ fontSize: "var(--fs-base)", fontWeight: 500 }}>{children}</span>
     </Card>
   );
 }

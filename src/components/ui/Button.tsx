@@ -2,33 +2,45 @@
 
 import { type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
 
-// Token-gestylter Standard-Button für alle Bereiche.
-// Varianten-Farben inline (Tokens), Hover/Active/Disabled + Touch-Bump
-// über die .ui-btn-Regeln in globals.css.
+// Button-Familie des Ember-Glass-Systems (COMPONENTS.md §2).
+//
+//   primary   → „Signature Pill": Gradient, Pill-Radius, Licht-Lippe.
+//               Genau EINER pro View — nie in Tabellenzeilen oder Listen.
+//   secondary → der Arbeits-Button fuer alles Nicht-Primaere.
+//   ghost     → Inline-Aktionen in Toolbars und Karten-Footern.
+//   danger    → destruktiv; nie Orange.
+//   success   → Bestaetigungen im Gespraechsfluss.
+//
+// Hover/Active/Disabled + Touch-Bump kommen aus den .ui-btn-Regeln
+// in globals.css, damit die Zustaende an einer Stelle liegen.
 
 export type ButtonVariant = "primary" | "secondary" | "danger" | "success" | "ghost";
-export type ButtonSize = "sm" | "md";
+export type ButtonSize = "sm" | "md" | "lg";
 
+// Alle Varianten sind Pills mit Licht von oben (Radius/Lippe kommen aus
+// .ui-btn in globals.css). Unterschieden wird ueber die FUELLUNG:
+// Farbverlauf in Markenfarbe = der eine CTA, Surface-Verlauf = sekundaer,
+// nichts = Ghost. Genau daran haengt die Hierarchie aus DESIGN.md §3.8.
 const VARIANT_STYLES: Record<ButtonVariant, CSSProperties> = {
   primary: {
-    background: "var(--btn-primary-bg)",
-    color: "var(--btn-primary-fg)",
-    border: "1px solid transparent",
+    background: "var(--grad-cta)",
+    color: "var(--text-on-accent)",
+    border: "none",
   },
   secondary: {
-    background: "var(--surface-100)",
+    background: "var(--grad-surface)",
     color: "var(--text-primary)",
-    border: "1px solid var(--border)",
+    border: "1px solid var(--border-default)",
   },
   danger: {
     background: "transparent",
-    color: "var(--color-error-text)",
-    border: "1px solid var(--color-error-border)",
+    color: "var(--danger-fg)",
+    border: "1px solid rgb(214 90 82 / 0.40)",
   },
   success: {
     background: "transparent",
-    color: "var(--color-success-text)",
-    border: "1px solid var(--color-success-border)",
+    color: "var(--success-fg)",
+    border: "1px solid rgb(63 179 127 / 0.40)",
   },
   ghost: {
     background: "transparent",
@@ -37,9 +49,12 @@ const VARIANT_STYLES: Record<ButtonVariant, CSSProperties> = {
   },
 };
 
+// Pills brauchen mehr Seitenluft als Rechtecke, sonst kleben die Labels
+// an der Rundung.
 const SIZE_STYLES: Record<ButtonSize, CSSProperties> = {
-  sm: { minHeight: 32, padding: "0.3125rem 0.75rem", fontSize: "0.8125rem" },
-  md: { minHeight: 38, padding: "0.5rem 1.125rem", fontSize: "0.875rem" },
+  sm: { minHeight: 28, padding: "0 14px", fontSize: "var(--fs-sm)" },
+  md: { minHeight: "var(--h-control)", padding: "0 18px", fontSize: "var(--fs-base)" },
+  lg: { minHeight: "var(--h-control-lg)", padding: "0 24px", fontSize: "var(--fs-base)" },
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -82,6 +97,52 @@ export function Button({
     >
       {loading ? <span className="ui-btn-spinner" aria-hidden="true" /> : icon}
       {children}
+    </button>
+  );
+}
+
+/**
+ * 32x32-Icon-Button im Ghost-Stil (COMPONENTS.md §2.5).
+ * Braucht immer ein `label` — es wird zu aria-label und Tooltip.
+ */
+export function IconButton({
+  label,
+  icon,
+  size = 32,
+  tone = "neutral",
+  className,
+  style,
+  type = "button",
+  ...rest
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & {
+  label: string;
+  icon: ReactNode;
+  size?: number;
+  tone?: "neutral" | "accent" | "danger";
+}) {
+  const color =
+    tone === "accent" ? "var(--orange-300)" : tone === "danger" ? "var(--danger-fg)" : "var(--text-muted)";
+  return (
+    <button
+      {...rest}
+      type={type}
+      aria-label={label}
+      title={label}
+      data-variant="ghost"
+      className={className ? `ui-btn ${className}` : "ui-btn"}
+      style={{
+        width: size,
+        height: size,
+        minHeight: size,
+        padding: 0,
+        flexShrink: 0,
+        background: "transparent",
+        border: "1px solid transparent",
+        color,
+        ...style,
+      }}
+    >
+      {icon}
     </button>
   );
 }

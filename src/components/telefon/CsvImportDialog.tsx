@@ -24,7 +24,7 @@ type ImportResult = {
 const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: "0.75rem",
-  fontWeight: 700,
+  fontWeight: 600,
   textTransform: "uppercase",
   letterSpacing: "0.06em",
   color: "var(--text-muted)",
@@ -118,13 +118,14 @@ export function CsvImportDialog({
           display: "inline-flex",
           alignItems: "center",
           gap: "0.4rem",
-          background: "var(--btn-primary-bg)",
-          color: "var(--btn-primary-fg)",
+          background: "var(--grad-cta)",
+          color: "var(--text-on-accent)",
+          boxShadow: "var(--shadow-btn-primary)",
           border: "none",
-          borderRadius: "var(--radius-md)",
+          borderRadius: "var(--r-full)",
           padding: "0.5rem 0.875rem",
           fontSize: "0.8125rem",
-          fontWeight: 700,
+          fontWeight: 600,
           cursor: "pointer",
         }}
       >
@@ -162,12 +163,13 @@ export function CsvImportDialog({
                   style={{
                     flex: 1,
                     textAlign: "center",
-                    background: "var(--btn-primary-bg)",
-                    color: "var(--btn-primary-fg)",
-                    borderRadius: "var(--radius-md)",
+                    background: "var(--grad-cta)",
+                    color: "var(--text-on-accent)",
+                    boxShadow: "var(--shadow-btn-primary)",
+                    borderRadius: "var(--r-full)",
                     padding: "0.5rem 0.875rem",
                     fontSize: "0.8125rem",
-                    fontWeight: 700,
+                    fontWeight: 600,
                     textDecoration: "none",
                   }}
                 >
@@ -181,7 +183,7 @@ export function CsvImportDialog({
                   background: "var(--surface-150)",
                   color: "var(--text-secondary)",
                   border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-md)",
+                  borderRadius: "var(--r-full)",
                   padding: "0.5rem 0.875rem",
                   fontSize: "0.8125rem",
                   fontWeight: 600,
@@ -215,7 +217,7 @@ export function CsvImportDialog({
             ) : (
               <div>
                 <span style={labelStyle}>Inhaber</span>
-                <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)" }}>
                   Import als: {me.username}
                 </div>
               </div>
@@ -288,13 +290,14 @@ export function CsvImportDialog({
               type="submit"
               disabled={isPending}
               style={{
-                background: "var(--btn-primary-bg)",
-                color: "var(--btn-primary-fg)",
+                background: "var(--grad-cta)",
+                color: "var(--text-on-accent)",
+                boxShadow: "var(--shadow-btn-primary)",
                 border: "none",
-                borderRadius: "var(--radius-md)",
+                borderRadius: "var(--r-full)",
                 padding: "0.5625rem 1.125rem",
                 fontSize: "0.875rem",
-                fontWeight: 700,
+                fontWeight: 600,
                 cursor: isPending ? "default" : "pointer",
                 opacity: isPending ? 0.6 : 1,
               }}

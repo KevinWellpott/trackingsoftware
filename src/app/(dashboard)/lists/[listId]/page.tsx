@@ -9,8 +9,10 @@ import { MultiMetricBarChart, AnswerDonutChart, type MultiMetricDay } from "@/co
 import { StatTile } from "@/components/dashboard/StatTile";
 import { LIST_CONTACT_COLUMNS, type ListContact, type PitchList } from "@/lib/types";
 import { addDaysISO, localDateISO } from "@/lib/dates";
-import { ArrowLeft, Bell, Calendar, CalendarCheck, ChevronRight, FileText, MessageCircle, MessageSquare, TrendingUp } from "lucide-react";
-import Link from "next/link";
+import { VIZ_NEUTRAL } from "@/lib/viz";
+import { BackLink } from "@/components/ui/BackLink";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Bell, Calendar, CalendarCheck, ChevronRight, FileText, MessageCircle, MessageSquare, TrendingUp } from "lucide-react";
 import { notFound } from "next/navigation";
 
 function pct(n: number, t: number) { return t === 0 ? 0 : Math.round((n / t) * 1000) / 10; }
@@ -83,10 +85,15 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   }
 
   const answeredOnly = contacts.filter((c) => c.answered === true && c.appointment_set !== true).length;
+  // Drei sich ausschliessende Buckets ueber ALLE Kontakte der Liste:
+  // Antwort (ohne Termin) · keine Antwort · terminiert. „Keine Antwort" ist
+  // die Abwesenheit eines Ergebnisses und bleibt deshalb neutral — aber im
+  // Mittelgrau der divergierenden Rampe, nicht in einer Surface-Farbe: auf
+  // #151519 war der alte Ton praktisch unsichtbar.
   const donutData = [
-    { name: "Termine", value: appts, color: "var(--brand-500)" },
-    { name: "Beantwortet", value: answeredOnly, color: "var(--color-success-text)" },
-    { name: "Offen", value: total - appts - answeredOnly, color: "var(--surface-300)" },
+    { name: "Antwort", value: answeredOnly, color: "var(--viz-2)" },
+    { name: "Keine Antwort", value: total - appts - answeredOnly, color: VIZ_NEUTRAL },
+    { name: "Terminiert", value: appts, color: "var(--viz-3)" },
   ].filter((d) => d.value > 0);
 
   // Pitch-Sequenz: standardmäßig zu, solange etwas hinterlegt ist — sonst offen,
@@ -96,45 +103,40 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
 
   const fieldLabel: React.CSSProperties = {
     display: "block",
-    fontSize: "0.6875rem",
-    fontWeight: 700,
-    color: "var(--text-muted)",
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    marginBottom: "0.375rem",
+    fontSize: "var(--fs-xs)",
+    fontWeight: 500,
+    color: "var(--text-secondary)",
+    marginBottom: "var(--sp-3)",
   };
 
   return (
-    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       {/* ── Header ── */}
-      <div style={{ marginBottom: "1.5rem" }}>
-        <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "var(--text-subtle)", textDecoration: "none", marginBottom: "0.875rem" }}>
-          <ArrowLeft size={13} /> Dashboard
-        </Link>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "0.25rem" }}>
-              {L.owner_name && (
-                <span style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: L.owner_name === "Kevin" ? "var(--brand-500)" : "var(--color-success-text)", background: L.owner_name === "Kevin" ? "var(--brand-50)" : "var(--color-success-bg)", border: `1px solid ${L.owner_name === "Kevin" ? "var(--brand-200)" : "var(--color-success-border)"}`, padding: "2px 8px", borderRadius: 99 }}>
-                  {L.owner_name}
-                </span>
-              )}
-              {L.archived_at && <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-warning-text)", background: "var(--color-warning-bg)", border: "1px solid var(--color-warning-border)", padding: "2px 8px", borderRadius: 99 }}>Archiviert</span>}
-            </div>
-            <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>{L.name}</h1>
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+      <BackLink href="/" label="Dashboard" />
+      <PageHeader
+        eyebrow="LinkedIn-Liste"
+        title={L.name}
+        meta={
+          // Kein Owner-Badge: die Sidebar zeigt ohnehin nur die eigenen
+          // Listen, die Zuordnung ist damit redundant.
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
+            {L.archived_at && <span className="badge badge-amber">Archiviert</span>}
+            <span className="tnum">{total.toLocaleString("de-DE")} Kontakte</span>
+          </span>
+        }
+        actions={
+          <>
             {!L.archived_at && <ArchiveListButton listId={listId} />}
             <DeleteListButton listId={listId} listName={L.name} contactCount={total} />
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* ── Analytics ── */}
       {total > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem", marginBottom: "1.25rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
           {/* KPI-Kacheln */}
-          <div className="grid-6-stat" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.75rem" }}>
+          <div className="grid-6-stat" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "var(--sp-6)" }}>
             <StatTile
               label="DMs"
               value={total.toLocaleString("de-DE")}
@@ -153,69 +155,103 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
               sub={`Antwort→Termin: ${conversionRate}%`}
               icon={<CalendarCheck size={14} />}
             />
+            {/* Diese beiden Kacheln sind durchgefaerbt: Gruen = erreicht,
+                Rot = zu tun. Das Label bleibt sichtbar, Farbe traegt die
+                Bedeutung also nicht allein. */}
             <StatTile
               label="Termine"
               value={appts.toLocaleString("de-DE")}
-              sub="eingebucht"
-              tone={appts > 0 ? "success" : "neutral"}
+              sub="gelegt"
+              tone="success"
+              filled
               icon={<Calendar size={14} />}
             />
             <StatTile
               label="Offene Follow-ups"
               value={openFU.toLocaleString("de-DE")}
-              sub="Nachfassen ausstehend"
-              tone={openFU > 0 ? "error" : "neutral"}
+              sub="ausstehend"
+              tone="error"
+              filled
               icon={<Bell size={14} />}
             />
           </div>
 
-          {/* Charts */}
-          <div className="chart-grid-2" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "0.75rem" }}>
-            <div className="card" style={{ padding: "1.125rem 1.375rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                <span aria-hidden style={{ display: "inline-flex", color: "var(--text-subtle)", flexShrink: 0 }}>
-                  <TrendingUp size={14} />
-                </span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)" }}>Verlauf</div>
-                  <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)" }}>DMs, Antworten und Termine der letzten 30 Tage</div>
+          {/* ── Verlauf: beide Graphen einklappbar, standardmaessig zu ──
+              Gleiches <details>-Muster wie die Pitch-Sequenz: kein Client-JS,
+              damit die Seite eine Server Component bleibt. */}
+          <details className="card">
+            <summary
+              className="collapse-summary"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--sp-4)",
+                padding: "var(--sp-6) var(--sp-8)",
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              <ChevronRight size={14} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+              <TrendingUp size={14} style={{ color: "var(--orange-500)", flexShrink: 0 }} />
+              <span className="eyebrow">Verlauf</span>
+              <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginLeft: "auto", whiteSpace: "nowrap" }}>
+                Letzte 30 Tage · Antwortverteilung
+              </span>
+            </summary>
+
+            <div
+              className="chart-grid-2"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr",
+                gap: "var(--sp-9)",
+                padding: "0 var(--sp-8) var(--sp-8)",
+              }}
+            >
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-6)" }}>
+                  <TrendingUp size={16} aria-hidden style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, letterSpacing: "var(--ls-tight)", color: "var(--text-primary)" }}>
+                      Verlauf
+                    </div>
+                    <div style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>Letzte 30 Tage</div>
+                  </div>
                 </div>
+                <MultiMetricBarChart data={chartData} />
               </div>
-              <MultiMetricBarChart data={chartData} />
-            </div>
-            <div className="card" style={{ padding: "1.125rem 1.375rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                <span aria-hidden style={{ display: "inline-flex", color: "var(--text-subtle)", flexShrink: 0 }}>
-                  <MessageCircle size={14} />
-                </span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)" }}>Antworten</div>
-                  <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)" }}>Verteilung aller Kontakte</div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-6)" }}>
+                  <MessageCircle size={16} aria-hidden style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, letterSpacing: "var(--ls-tight)", color: "var(--text-primary)" }}>
+                      Antworten
+                    </div>
+                    <div style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>Verteilung aller Kontakte</div>
+                  </div>
                 </div>
+                <AnswerDonutChart data={donutData} />
               </div>
-              <AnswerDonutChart data={donutData} />
             </div>
-          </div>
+          </details>
         </div>
       )}
 
       {/* ── Pitch-Sequenz (Pitch + FU1–3), komplett einklappbar ── */}
-      <details
-        open={sequenceEmpty}
-        style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", marginBottom: "1.25rem" }}
-      >
-        <summary className="collapse-summary" style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.875rem 1.375rem", cursor: "pointer", userSelect: "none" }}>
-          <ChevronRight size={14} className="collapse-chevron" style={{ color: "var(--text-subtle)", flexShrink: 0 }} />
-          <FileText size={13} style={{ color: "var(--brand-500)", flexShrink: 0 }} />
-          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--brand-500)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Pitch-Text &amp; Follow-ups
-          </span>
-          <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", marginLeft: "auto", whiteSpace: "nowrap" }}>
+      <details open={sequenceEmpty} className="card">
+        <summary
+          className="collapse-summary"
+          style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", padding: "var(--sp-6) var(--sp-8)", cursor: "pointer", userSelect: "none" }}
+        >
+          <ChevronRight size={14} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+          <FileText size={14} style={{ color: "var(--orange-500)", flexShrink: 0 }} />
+          <span className="eyebrow">Pitch-Text &amp; Follow-ups</span>
+          <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginLeft: "auto", whiteSpace: "nowrap" }}>
             {sequenceEmpty ? "noch nicht hinterlegt" : `Pitch + ${fuFilled}/3 Follow-ups`}
           </span>
         </summary>
 
-        <form action={updateListPitchForm} style={{ padding: "0 1.375rem 1.125rem" }}>
+        <form action={updateListPitchForm} style={{ padding: "0 var(--sp-8) var(--sp-8)" }}>
           <input type="hidden" name="list_id" value={listId} />
           <input type="hidden" name="name" value={L.name} />
 
@@ -226,7 +262,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
             defaultValue={L.pitch_text ?? ""}
             rows={3}
             className="input"
-            style={{ resize: "vertical", fontSize: "0.875rem", marginBottom: "0.875rem" }}
+            style={{ resize: "vertical", fontSize: "var(--fs-base)", marginBottom: "var(--sp-7)", lineHeight: "var(--lh-base)", padding: "var(--sp-5)" }}
             placeholder="Füge hier die LinkedIn-Nachricht ein, damit du Performance je Pitch-Text tracken kannst."
           />
 
@@ -234,7 +270,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
             <div key={n}>
               <label htmlFor={`fu${n}_text`} style={fieldLabel}>
                 Follow-up {n}
-                <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "var(--text-subtle)", marginLeft: "0.375rem" }}>
+                <span style={{ fontWeight: 400, color: "var(--text-muted)", marginLeft: "var(--sp-3)" }}>
                   {n === 1 ? "+3 Tage nach Pitch" : n === 2 ? "+5 Tage nach FU1" : "+7 Tage nach FU2"}
                 </span>
               </label>
@@ -244,17 +280,14 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
                 defaultValue={(n === 1 ? L.fu1_text : n === 2 ? L.fu2_text : L.fu3_text) ?? ""}
                 rows={2}
                 className="input"
-                style={{ resize: "vertical", fontSize: "0.875rem", marginBottom: "0.875rem" }}
+                style={{ resize: "vertical", fontSize: "var(--fs-base)", marginBottom: "var(--sp-7)", lineHeight: "var(--lh-base)", padding: "var(--sp-5)" }}
                 placeholder={`Nachfass-Nachricht ${n} — {name} wird durch den Vornamen ersetzt.`}
               />
             </div>
           ))}
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            <button type="submit" className="btn-secondary" style={{ fontSize: "0.8125rem" }}>Speichern</button>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>
-              Diese Texte werden im Nachfassen-Board für Kontakte aus dieser Liste vorgeschlagen.
-            </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)", flexWrap: "wrap" }}>
+            <button type="submit" className="btn-secondary">Speichern</button>
           </div>
         </form>
       </details>

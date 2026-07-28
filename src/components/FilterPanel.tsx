@@ -228,7 +228,7 @@ export function FilterPanel({ lists, currentPeriod, currentFrom, currentTo, curr
               border: "none",
               cursor: fromDate && toDate ? "pointer" : "not-allowed",
               fontSize: "0.8125rem",
-              fontWeight: 700,
+              fontWeight: 600,
               background: fromDate && toDate
                 ? "linear-gradient(135deg, var(--brand-500), var(--accent-500))"
                 : "var(--surface-200)",
@@ -265,7 +265,7 @@ export function FilterPanel({ lists, currentPeriod, currentFrom, currentTo, curr
 
       {/* ── Row 3: List filter ── */}
       <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#3f3f46", textTransform: "uppercase", letterSpacing: "0.07em", flexShrink: 0, marginRight: "0.125rem" }}>
+        <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "#3f3f46", textTransform: "uppercase", letterSpacing: "0.07em", flexShrink: 0, marginRight: "0.125rem" }}>
           Listen:
         </span>
 
@@ -340,7 +340,7 @@ function ListPill({
       }}
     >
       {prefix && (
-        <span style={{ fontSize: "0.625rem", fontWeight: 800, opacity: 0.7, flexShrink: 0 }}>
+        <span style={{ fontSize: "0.625rem", fontWeight: 600, opacity: 0.7, flexShrink: 0 }}>
           {prefix}
         </span>
       )}

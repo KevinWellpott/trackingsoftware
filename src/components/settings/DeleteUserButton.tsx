@@ -39,7 +39,7 @@ export function DeleteUserButton({ userId, username }: { userId: string; usernam
         style={{
           background: "var(--color-error-bg)",
           border: "1px solid var(--color-error-border)",
-          borderRadius: 8,
+          borderRadius: "var(--r-full)",
           padding: "6px 10px",
           cursor: isPending ? "default" : "pointer",
           color: "var(--color-error-text)",

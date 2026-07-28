@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { Archive, ArrowLeft, MessageSquare, Phone, RotateCcw } from "lucide-react";
+import { MessageSquare, Phone, RotateCcw } from "lucide-react";
+import { BackLink } from "@/components/ui/BackLink";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { restoreListForm } from "@/app/actions/lists";
@@ -46,27 +47,20 @@ export default async function ArchivPage() {
   const archivedPhoneLists = (phoneLists ?? []) as ArchivedPhoneList[];
 
   return (
-    <div style={{ maxWidth: 800, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      <div>
-        <Link href="/team" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "var(--text-subtle)", textDecoration: "none", marginBottom: "0.875rem" }}>
-          <ArrowLeft size={13} /> Team
-        </Link>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--brand-500)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)" }}>
-            <Archive size={17} color="white" />
-          </div>
-          <div>
-            <h1 style={{ fontSize: "1.375rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>Archiv</h1>
-            <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: 0 }}>Archivierte Listen workspace-weit · wiederherstellen ohne SQL</p>
-          </div>
-        </div>
-      </div>
+    <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
+      <BackLink href="/team" label="Team" />
+      <PageHeader
+        eyebrow="Workspace"
+        title="Archiv"
+        meta="Archivierte Listen workspace-weit · wiederherstellen ohne SQL"
+      />
 
       {/* ── LinkedIn-Listen ── */}
-      <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-        <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <MessageSquare size={14} color="var(--brand-400)" />
-          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>LinkedIn-Listen ({archivedLists.length})</span>
+      <div className="card" style={{ overflow: "hidden" }}>
+        <div style={{ padding: "var(--sp-6) var(--sp-8)", borderBottom: "1px solid var(--border-default)", display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+          <MessageSquare size={16} color="var(--stage-linkedin)" />
+          <span style={{ fontSize: "var(--fs-md)", fontWeight: 600, letterSpacing: "var(--ls-tight)", color: "var(--text-primary)" }}>LinkedIn-Listen</span>
+          <span className="count-pill" style={{ marginLeft: "auto" }}>{archivedLists.length}</span>
         </div>
         {archivedLists.length === 0 ? (
           <p style={{ margin: 0, padding: "0.875rem 1.375rem", fontSize: "0.8125rem", color: "var(--text-subtle)" }}>Keine archivierten Listen.</p>
@@ -78,9 +72,9 @@ export default async function ArchivPage() {
                 <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "0.875rem", padding: "0.875rem 1.375rem", borderBottom: i < archivedLists.length - 1 ? "1px solid var(--border)" : "none" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)" }}>{l.name}</span>
+                      <span style={{ fontSize: "0.9375rem", fontWeight: 600, color: "var(--text-primary)" }}>{l.name}</span>
                       {l.owner_name && oc && (
-                        <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: oc.fg, background: oc.bg, border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`, padding: "1px 8px", borderRadius: 99 }}>
+                        <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: oc.fg, background: oc.bg, border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`, padding: "1px 8px", borderRadius: 99 }}>
                           {l.owner_name}
                         </span>
                       )}
@@ -89,7 +83,7 @@ export default async function ArchivPage() {
                   </div>
                   <form action={restoreListForm}>
                     <input type="hidden" name="list_id" value={l.id} />
-                    <button type="submit" style={{ display: "flex", alignItems: "center", gap: "0.375rem", background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "var(--color-success-text)", fontSize: "0.75rem", fontWeight: 600 }}>
+                    <button type="submit" style={{ display: "flex", alignItems: "center", gap: "0.375rem", background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: "var(--r-full)", padding: "6px 10px", cursor: "pointer", color: "var(--color-success-text)", fontSize: "0.75rem", fontWeight: 600 }}>
                       <RotateCcw size={13} /> Wiederherstellen
                     </button>
                   </form>
@@ -104,7 +98,7 @@ export default async function ArchivPage() {
       <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
         <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Phone size={14} color="var(--brand-400)" />
-          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Telefonlisten ({archivedPhoneLists.length})</span>
+          <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)" }}>Telefonlisten ({archivedPhoneLists.length})</span>
         </div>
         {archivedPhoneLists.length === 0 ? (
           <p style={{ margin: 0, padding: "0.875rem 1.375rem", fontSize: "0.8125rem", color: "var(--text-subtle)" }}>Keine archivierten Listen.</p>
@@ -116,9 +110,9 @@ export default async function ArchivPage() {
                 <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "0.875rem", padding: "0.875rem 1.375rem", borderBottom: i < archivedPhoneLists.length - 1 ? "1px solid var(--border)" : "none" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)" }}>{l.name}</span>
+                      <span style={{ fontSize: "0.9375rem", fontWeight: 600, color: "var(--text-primary)" }}>{l.name}</span>
                       {l.owner_name && oc && (
-                        <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: oc.fg, background: oc.bg, border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`, padding: "1px 8px", borderRadius: 99 }}>
+                        <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: oc.fg, background: oc.bg, border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`, padding: "1px 8px", borderRadius: 99 }}>
                           {l.owner_name}
                         </span>
                       )}
@@ -127,7 +121,7 @@ export default async function ArchivPage() {
                   </div>
                   <form action={restorePhoneListForm}>
                     <input type="hidden" name="list_id" value={l.id} />
-                    <button type="submit" style={{ display: "flex", alignItems: "center", gap: "0.375rem", background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "var(--color-success-text)", fontSize: "0.75rem", fontWeight: 600 }}>
+                    <button type="submit" style={{ display: "flex", alignItems: "center", gap: "0.375rem", background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: "var(--r-full)", padding: "6px 10px", cursor: "pointer", color: "var(--color-success-text)", fontSize: "0.75rem", fontWeight: 600 }}>
                       <RotateCcw size={13} /> Wiederherstellen
                     </button>
                   </form>

@@ -2,41 +2,59 @@
 
 import { ownerColor as ownerColorShared } from "@/lib/ownerColor";
 import {
-  Bar, BarChart, Cell, ComposedChart, Legend, Line, LineChart,
-  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  AXIS_PROPS,
+  BAR_RADIUS,
+  CURSOR_FILL,
+  GRID_PROPS,
+  LEGEND_STYLE,
+  TOOLTIP_LABEL_STYLE,
+  TOOLTIP_STYLE,
+  VIZ,
+  tint,
+} from "@/lib/viz";
+import {
+  Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, LineChart,
+  Pie, PieChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 
-// ── Color tokens (consistent across charts) ─────────────────
+// Charts im Ember-Glass-System (COMPONENTS.md §9):
+// feste Viz-Slot-Reihenfolge, horizontales Grid, achsenlose Achsen,
+// Glass-Tooltip, Balkenradius nur oben, Linienpunkte nur bei Hover.
+
+// Serien in fixer Slot-Reihenfolge: DMs = Slot 1 (Marken-Orange),
+// Antworten = Slot 2, Termine = Slot 3. Nie nach Rang umfaerben.
 export const METRIC_COLORS = {
-  dms:         "var(--brand-500)",
-  answers:     "var(--color-success-text)",
-  appointments:"var(--accent-500)",
-  followups:   "var(--color-warning-text)",
+  dms: VIZ[0],
+  answers: VIZ[1],
+  appointments: VIZ[2],
+  followups: "#d1a24f",
 };
 
-/** Translucent variant of a (possibly var()-based) color. */
-export function tint(color: string, alphaPct: number): string {
-  return `color-mix(in srgb, ${color} ${alphaPct}%, transparent)`;
-}
+export { tint, TOOLTIP_STYLE };
 
 // ── Owner colors (dynamic roster) ────────────────────────────
 // Delegiert an die zentrale Slot-Zuordnung (src/lib/ownerColor.ts).
-// CSS-Variablen funktionieren auch in SVG-Fills (recharts).
 export function ownerColor(name: string): string {
   return ownerColorShared(name).fg;
 }
 
-export const TOOLTIP_STYLE = {
-  background: "var(--surface-100)",
-  border: "1px solid var(--border)",
-  borderRadius: "8px",
-  fontSize: "0.8125rem",
-  boxShadow: "var(--shadow-md)",
-  color: "var(--text-primary)",
-};
+export const AXIS_TICK = AXIS_PROPS.tick;
+export { CURSOR_FILL };
 
-export const AXIS_TICK = { fontSize: 10, fill: "var(--text-subtle)" };
-export const CURSOR_FILL = { fill: "var(--surface-150)" };
+const CHART_MARGIN = { top: 8, right: 4, bottom: 0, left: -20 };
+
+function tooltipProps() {
+  return {
+    contentStyle: TOOLTIP_STYLE,
+    labelStyle: TOOLTIP_LABEL_STYLE,
+    itemStyle: { color: "var(--text-primary)" },
+    cursor: CURSOR_FILL,
+  };
+}
+
+function legendProps() {
+  return { iconType: "circle" as const, iconSize: 8, wrapperStyle: LEGEND_STYLE };
+}
 
 // ── Multi-metric grouped bar chart ──────────────────────────
 export type MultiMetricDay = {
@@ -52,14 +70,15 @@ export function MultiMetricBarChart({ data }: { data: MultiMetricDay[] }) {
   }
   return (
     <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={data} barSize={8} barGap={2} margin={{ top: 8, right: 4, bottom: 0, left: -24 }}>
-        <XAxis dataKey="date" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
-        <Bar dataKey="dms" name="DMs" fill={METRIC_COLORS.dms} radius={[3, 3, 0, 0]} />
-        <Bar dataKey="answers" name="Antworten" fill={METRIC_COLORS.answers} radius={[3, 3, 0, 0]} />
-        <Bar dataKey="appointments" name="Termine" fill={METRIC_COLORS.appointments} radius={[3, 3, 0, 0]} />
+      <BarChart data={data} barSize={8} barGap={2} margin={CHART_MARGIN}>
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="date" {...AXIS_PROPS} />
+        <YAxis allowDecimals={false} {...AXIS_PROPS} />
+        <Tooltip {...tooltipProps()} />
+        <Legend {...legendProps()} />
+        <Bar dataKey="dms" name="DMs" fill={METRIC_COLORS.dms} radius={BAR_RADIUS} />
+        <Bar dataKey="answers" name="Antworten" fill={METRIC_COLORS.answers} radius={BAR_RADIUS} />
+        <Bar dataKey="appointments" name="Termine" fill={METRIC_COLORS.appointments} radius={BAR_RADIUS} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -72,11 +91,12 @@ export function PitchesBarChart({ data }: { data: DailyBar[] }) {
   if (data.every((d) => d.pitches === 0)) return <EmptyState />;
   return (
     <ResponsiveContainer width="100%" height={180}>
-      <BarChart data={data} barSize={18} margin={{ top: 8, right: 4, bottom: 0, left: -24 }}>
-        <XAxis dataKey="date" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
-        <Bar dataKey="pitches" name="DMs" fill={METRIC_COLORS.dms} radius={[4, 4, 0, 0]} />
+      <BarChart data={data} barSize={18} margin={CHART_MARGIN}>
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="date" {...AXIS_PROPS} />
+        <YAxis allowDecimals={false} {...AXIS_PROPS} />
+        <Tooltip {...tooltipProps()} />
+        <Bar dataKey="pitches" name="DMs" fill={METRIC_COLORS.dms} radius={BAR_RADIUS} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -91,11 +111,23 @@ export function AnswerDonutChart({ data }: { data: AnswerDonut[] }) {
   return (
     <ResponsiveContainer width="100%" height={200}>
       <PieChart>
-        <Pie data={data} cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={3} dataKey="value" stroke="var(--surface-100)">
-          {data.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+        <Pie
+          data={data}
+          cx="50%"
+          cy="50%"
+          innerRadius={48}
+          outerRadius={72}
+          paddingAngle={3}
+          dataKey="value"
+          stroke="var(--surface-2)"
+          strokeWidth={2}
+        >
+          {data.map((entry, i) => (
+            <Cell key={i} fill={entry.color} />
+          ))}
         </Pie>
-        <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={{ color: "var(--text-primary)" }} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={{ color: "var(--text-primary)" }} />
+        <Legend {...legendProps()} />
       </PieChart>
     </ResponsiveContainer>
   );
@@ -107,10 +139,11 @@ export type SparkPoint = { date: string; value: number };
 export function SparkLineChart({ data, color }: { data: SparkPoint[]; color: string }) {
   if (data.every((d) => d.value === 0)) return <EmptyState height={60} />;
   return (
+    // Sparkline: 1.5px-Linie, keine Achsen, keine Punkte (COMPONENTS.md §8).
     <ResponsiveContainer width="100%" height={60}>
       <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-        <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} />
+        <Line type="monotone" dataKey="value" stroke={color} strokeWidth={1.5} dot={false} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={{ color: "var(--text-primary)" }} />
       </LineChart>
     </ResponsiveContainer>
   );
@@ -125,14 +158,24 @@ export function PersonalWeeklyChart({ data }: { data: PersonalWeekPoint[] }) {
   }
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <ComposedChart data={data} barSize={18} margin={{ top: 8, right: -16, bottom: 0, left: -24 }}>
-        <XAxis dataKey="week" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <YAxis yAxisId="dms" allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <YAxis yAxisId="appts" orientation="right" allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
-        <Bar yAxisId="dms" dataKey="dms" name="DMs" fill={METRIC_COLORS.dms} radius={[4, 4, 0, 0]} />
-        <Line yAxisId="appts" type="monotone" dataKey="appts" name="Termine" stroke={METRIC_COLORS.answers} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: METRIC_COLORS.answers }} />
+      <ComposedChart data={data} barSize={18} margin={{ top: 8, right: -16, bottom: 0, left: -20 }}>
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="week" {...AXIS_PROPS} />
+        <YAxis yAxisId="dms" allowDecimals={false} {...AXIS_PROPS} />
+        <YAxis yAxisId="appts" orientation="right" allowDecimals={false} {...AXIS_PROPS} />
+        <Tooltip {...tooltipProps()} />
+        <Legend {...legendProps()} />
+        <Bar yAxisId="dms" dataKey="dms" name="DMs" fill={METRIC_COLORS.dms} radius={BAR_RADIUS} />
+        <Line
+          yAxisId="appts"
+          type="monotone"
+          dataKey="appts"
+          name="Termine"
+          stroke={METRIC_COLORS.answers}
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 0, fill: METRIC_COLORS.answers }}
+        />
       </ComposedChart>
     </ResponsiveContainer>
   );
@@ -148,22 +191,31 @@ export function WeeklyDuelChart({ data, series, goal }: { data: WeeklyDuelPoint[
   }
   return (
     <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={data} barSize={8} barGap={2} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
-        <XAxis dataKey="week" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR_FILL} />
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
+      <BarChart data={data} barSize={8} barGap={2} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="week" {...AXIS_PROPS} />
+        <YAxis allowDecimals={false} {...AXIS_PROPS} />
+        <Tooltip {...tooltipProps()} />
+        <Legend {...legendProps()} />
         {series.map((s) => (
           <Bar
             key={s.name}
             dataKey={(d: WeeklyDuelPoint) => d.values[s.name] ?? 0}
             name={s.name}
             fill={s.color}
-            radius={[3, 3, 0, 0]}
+            radius={BAR_RADIUS}
           />
         ))}
-        {/* Goal reference rendered as a separate thin line */}
-        <Bar dataKey={() => goal} name={`Ziel (${goal})`} fill="transparent" stroke="var(--color-warning-text)" strokeWidth={1.5} radius={0} opacity={0} />
+        {/* Ziel als echte Referenzlinie statt als unsichtbarer Balken. */}
+        {goal > 0 && (
+          <ReferenceLine
+            y={goal}
+            stroke={METRIC_COLORS.followups}
+            strokeDasharray="4 4"
+            strokeWidth={1.5}
+            label={{ value: `Ziel ${goal}`, position: "right", fill: METRIC_COLORS.followups, fontSize: 11 }}
+          />
+        )}
       </BarChart>
     </ResponsiveContainer>
   );
@@ -171,7 +223,16 @@ export function WeeklyDuelChart({ data, series, goal }: { data: WeeklyDuelPoint[
 
 function EmptyState({ text = "Noch keine Daten.", height = 120 }: { text?: string; height?: number }) {
   return (
-    <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-subtle)", fontSize: "0.8125rem" }}>
+    <div
+      style={{
+        height,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "var(--text-muted)",
+        fontSize: "var(--fs-sm)",
+      }}
+    >
       {text}
     </div>
   );

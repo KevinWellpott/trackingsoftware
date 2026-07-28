@@ -35,66 +35,60 @@ export function LoginForm() {
   }
 
   return (
+    // Die eine Glaskarte dieser View, mit Fadenkreuz-Marken in den Ecken.
     <div
-      className="w-full max-w-sm"
-      style={{
-        background: "var(--surface-0)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-xl)",
-        boxShadow: "var(--shadow-lg)",
-        padding: "2.5rem",
-      }}
+      className="w-full max-w-sm glass-card glass-sheen corner-ticks"
+      style={{ padding: "var(--sp-11) var(--sp-10)" }}
     >
-      {/* Brand */}
-      <div style={{ marginBottom: "2rem" }}>
+      {/* Brand + Hero-Headline. Genau EIN Wort traegt den Gradient. */}
+      <div style={{ marginBottom: "var(--sp-10)" }}>
+        <div className="wordmark" style={{ fontSize: "var(--fs-md)", marginBottom: "var(--sp-7)" }}>
+          titan
+        </div>
         <h1
           style={{
-            fontSize: "1.375rem",
-            fontWeight: 700,
+            fontSize: "var(--fs-2xl)",
+            fontWeight: 600,
             color: "var(--text-primary)",
+            letterSpacing: "var(--ls-headline)",
+            lineHeight: "var(--lh-tight)",
             margin: 0,
-            lineHeight: 1.2,
           }}
         >
-          Pitch Tracker
+          Pipeline <span className="accent-word">öffnen</span>
         </h1>
-        <p
-          style={{
-            fontSize: "0.875rem",
-            color: "var(--text-muted)",
-            marginTop: "0.375rem",
-          }}
-        >
-          Benutzername + Passwort eingeben.
+        <p style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)", marginTop: "var(--sp-5)" }}>
+          Melde dich mit Benutzername und Passwort an.
         </p>
       </div>
 
       {errMsg && (
         <div
+          role="alert"
           style={{
-            background: "var(--color-error-bg)",
-            border: "1px solid var(--color-error-border)",
-            borderRadius: "var(--radius-sm)",
-            color: "var(--color-error-text)",
-            fontSize: "0.875rem",
-            padding: "0.625rem 0.875rem",
-            marginBottom: "1.25rem",
+            background: "var(--danger-bg)",
+            borderLeft: "2px solid var(--danger)",
+            borderRadius: "var(--r-sm)",
+            color: "var(--danger-fg)",
+            fontSize: "var(--fs-base)",
+            padding: "var(--sp-5) var(--sp-6)",
+            marginBottom: "var(--sp-7)",
           }}
         >
           {errMsg}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-7)" }}>
         <div>
           <label
             htmlFor="username"
             style={{
               display: "block",
-              fontSize: "0.8125rem",
+              fontSize: "var(--fs-xs)",
               fontWeight: 500,
               color: "var(--text-secondary)",
-              marginBottom: "0.375rem",
+              marginBottom: "var(--sp-3)",
             }}
           >
             Benutzername
@@ -117,10 +111,10 @@ export function LoginForm() {
             htmlFor="password"
             style={{
               display: "block",
-              fontSize: "0.8125rem",
+              fontSize: "var(--fs-xs)",
               fontWeight: 500,
               color: "var(--text-secondary)",
-              marginBottom: "0.375rem",
+              marginBottom: "var(--sp-3)",
             }}
           >
             Passwort
@@ -160,17 +154,12 @@ export function LoginForm() {
           </div>
         </div>
 
+        {/* Die Signature Pill — der eine Brand-CTA dieser View. */}
         <button
           type="submit"
           disabled={status === "loading"}
           className="btn-primary"
-          style={{
-            marginTop: "0.5rem",
-            justifyContent: "center",
-            padding: "0.75rem",
-            opacity: status === "loading" ? 0.7 : 1,
-            fontSize: "0.9375rem",
-          }}
+          style={{ marginTop: "var(--sp-3)", width: "100%" }}
         >
           {status === "loading" ? (
             <span>Anmelden…</span>
@@ -182,7 +171,6 @@ export function LoginForm() {
           )}
         </button>
       </form>
-
     </div>
   );
 }

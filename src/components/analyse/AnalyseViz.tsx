@@ -3,9 +3,11 @@
 import type { CSSProperties, ReactNode } from "react";
 import { ArrowDown, Euro, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import {
-  Area, AreaChart, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, AreaChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { AXIS_TICK, TOOLTIP_STYLE } from "@/components/DashboardCharts";
+import {
+  AXIS_PROPS, GRID_PROPS, LEGEND_STYLE, TOOLTIP_LABEL_STYLE, TOOLTIP_STYLE, VIZ_RAMP,
+} from "@/lib/viz";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import { NumberTicker } from "@/components/magicui/number-ticker";
 
@@ -26,9 +28,9 @@ function fmtDelta(delta: number): string {
 }
 
 const TONE_COLOR: Record<Exclude<Tone, "default">, string> = {
-  success: "var(--color-success-text)",
-  warning: "var(--color-warning-text)",
-  error: "var(--color-error-text)",
+  success: "var(--success)",
+  warning: "var(--warning)",
+  error: "var(--danger)",
 };
 
 export type Tone = "default" | "success" | "warning" | "error";
@@ -53,7 +55,7 @@ function EmptyState({ height = 120 }: { height?: number }) {
 // ── 1 · SparkLine ────────────────────────────────────────────
 export function SparkLine({
   values,
-  color = "var(--brand-500)",
+  color = "var(--viz-1)",
   width = 64,
   height = 24,
 }: {
@@ -118,44 +120,34 @@ export function KpiHero({
     delta == null || delta === 0
       ? "var(--text-muted)"
       : delta > 0
-        ? "var(--color-success-text)"
-        : "var(--color-error-text)";
+        ? "var(--success-fg)"
+        : "var(--danger-fg)";
   const DeltaIcon = delta == null || delta === 0 ? Minus : delta > 0 ? TrendingUp : TrendingDown;
 
   return (
+    // KPI-Hero (COMPONENTS.md §8): Eyebrow → Zahl → Delta-Chip → Sparkline.
+    // Der Ton sitzt als 2px-Rail links; die Zahl bleibt immer --text-primary.
     <div
       className="card fade-up"
       style={{
         position: "relative",
-        padding: "0.875rem 1rem",
+        padding: "var(--sp-6) var(--sp-7)",
         animationDelay: `${index * 60}ms`,
-        ...(toneColor ? { borderLeft: `3px solid ${toneColor}` } : null),
+        overflow: "hidden",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.5rem" }}>
-        <span
-          style={{
-            fontSize: "0.6875rem",
-            fontWeight: 600,
-            letterSpacing: "0.07em",
-            textTransform: "uppercase",
-            color: "var(--text-subtle)",
-          }}
-        >
-          {label}
-        </span>
-        {icon && <span style={{ color: "var(--text-subtle)", display: "inline-flex", flexShrink: 0 }}>{icon}</span>}
+      {toneColor && (
+        <span aria-hidden style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 2, background: toneColor }} />
+      )}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--sp-4)" }}>
+        <span className="eyebrow">{label}</span>
+        {icon && <span style={{ color: "var(--orange-500)", display: "inline-flex", flexShrink: 0 }}>{icon}</span>}
       </div>
 
       <div
+        className="kpi-value"
         style={{
-          marginTop: "0.375rem",
-          fontSize: "1.75rem",
-          fontWeight: 800,
-          letterSpacing: "-0.02em",
-          color: "var(--text-primary)",
-          fontVariantNumeric: "tabular-nums",
-          lineHeight: 1.15,
+          marginTop: "var(--sp-3)",
         }}
       >
         {value === null ? (
@@ -176,32 +168,38 @@ export function KpiHero({
       </div>
 
       {delta !== undefined && (
-        <div style={{ display: "flex", alignItems: "baseline", gap: "0.375rem", marginTop: "0.25rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginTop: "var(--sp-4)" }}>
           {delta === null ? (
-            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-subtle)" }}>—</span>
+            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>—</span>
           ) : (
+            // Delta-Chip: Icon + Vorzeichen + Wert — nie Farbe allein.
             <span
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "0.25rem",
-                fontSize: "0.75rem",
-                fontWeight: 600,
+                gap: 3,
+                height: 18,
+                padding: "0 var(--sp-4)",
+                borderRadius: "var(--r-full)",
+                fontSize: "var(--fs-xs)",
+                fontWeight: 500,
                 color: deltaColor,
+                background:
+                  delta === 0 ? "var(--surface-3)" : delta > 0 ? "var(--success-bg)" : "var(--danger-bg)",
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              <DeltaIcon size={12} aria-hidden />
+              <DeltaIcon size={11} aria-hidden />
               {fmtDelta(delta)}
             </span>
           )}
-          <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)" }}>{deltaLabel}</span>
+          <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{deltaLabel}</span>
         </div>
       )}
 
       {spark && spark.length > 0 && (
-        <div style={{ position: "absolute", right: "1rem", bottom: "0.875rem", opacity: 0.9 }}>
-          <SparkLine values={spark} color={toneColor ?? "var(--text-subtle)"} />
+        <div style={{ position: "absolute", right: "var(--sp-7)", bottom: "var(--sp-6)" }}>
+          <SparkLine values={spark} color={toneColor ?? "var(--viz-1)"} />
         </div>
       )}
     </div>
@@ -241,7 +239,7 @@ export function DonutChart({
                 <Cell key={d.name} fill={d.color} />
               ))}
             </Pie>
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={{ color: "var(--text-primary)" }} />
           </PieChart>
         </ResponsiveContainer>
         {(centerLabel || centerSub) && (
@@ -261,7 +259,7 @@ export function DonutChart({
               <span
                 style={{
                   fontSize: "1.375rem",
-                  fontWeight: 800,
+                  fontWeight: 600,
                   letterSpacing: "-0.02em",
                   color: "var(--text-primary)",
                   fontVariantNumeric: "tabular-nums",
@@ -321,11 +319,13 @@ export function CumulativeAreaChart({
   return (
     <ResponsiveContainer width="100%" height={240}>
       <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-        <XAxis dataKey="label" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} />
+        {/* Gridlines nur horizontal (COMPONENTS.md §9). */}
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="label" {...AXIS_PROPS} />
+        <YAxis allowDecimals={false} {...AXIS_PROPS} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={{ color: "var(--text-primary)" }} />
         {seriesNames.length > 1 && (
-          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "0.75rem", color: "var(--text-subtle)" }} />
+          <Legend iconType="circle" iconSize={8} wrapperStyle={LEGEND_STYLE} />
         )}
         {seriesNames.map((name) => {
           const c = ownerColor(name).fg;
@@ -380,7 +380,7 @@ export function WeekdayBars({
               <span
                 style={{
                   fontSize: "0.75rem",
-                  fontWeight: 700,
+                  fontWeight: 600,
                   color: "var(--text-primary)",
                   fontVariantNumeric: "tabular-nums",
                 }}
@@ -394,7 +394,7 @@ export function WeekdayBars({
                     maxWidth: 28,
                     height: barH,
                     borderRadius: "4px 4px 0 0",
-                    background: best ? "var(--color-success-text)" : "var(--brand-500)",
+                    background: best ? "var(--success)" : "var(--viz-1)",
                   }}
                   aria-hidden
                 />
@@ -424,12 +424,14 @@ export function WeekdayBars({
 // Erfolgs-Ton. Layout je Stufe: [Label | Balken | Wert] als festes
 // 3-Spalten-Raster, damit Beschriftungen unabhängig von der Balkenbreite
 // in sauberen Spalten stehen.
-const FUNNEL_RAMP = [100, 80, 60, 45, 32];
+// Ordinale Orange-Rampe statt Regenbogen (COMPONENTS.md §9): eine Hue in
+// Helligkeitsstufen, hell → tief. Nur die letzte Stufe („Gewonnen") kippt in
+// den Erfolgs-Ton, weil sie ein Ergebnis ist und keine Zwischenstufe.
+const FUNNEL_STEPS = [VIZ_RAMP[5], VIZ_RAMP[4], VIZ_RAMP[3], VIZ_RAMP[2], VIZ_RAMP[1]];
 
 function funnelStageColor(index: number, isLast: boolean): string {
-  if (isLast) return "color-mix(in srgb, var(--color-success-text) 82%, var(--surface-150))";
-  const mix = FUNNEL_RAMP[Math.min(index, FUNNEL_RAMP.length - 1)];
-  return `color-mix(in srgb, var(--brand-500) ${mix}%, var(--surface-150))`;
+  if (isLast) return "var(--success)";
+  return FUNNEL_STEPS[Math.min(index, FUNNEL_STEPS.length - 1)];
 }
 
 const FUNNEL_GRID: CSSProperties = {
@@ -488,7 +490,7 @@ export function BarFunnel({
                       padding: "0.0625rem 0.4375rem",
                       borderRadius: 99,
                       fontSize: "0.625rem",
-                      fontWeight: 700,
+                      fontWeight: 600,
                       fontVariantNumeric: "tabular-nums",
                       whiteSpace: "nowrap",
                       color: good ? "var(--color-success-text)" : "var(--text-muted)",
@@ -536,7 +538,7 @@ export function BarFunnel({
                 <span
                   style={{
                     fontSize: "1rem",
-                    fontWeight: 700,
+                    fontWeight: 600,
                     color: "var(--text-primary)",
                     fontVariantNumeric: "tabular-nums",
                     lineHeight: 1.1,
@@ -575,7 +577,7 @@ export function BarFunnel({
             style={{
               marginLeft: "auto",
               fontSize: "1.375rem",
-              fontWeight: 800,
+              fontWeight: 600,
               letterSpacing: "-0.02em",
               color: "var(--color-success-text)",
               fontVariantNumeric: "tabular-nums",
@@ -663,7 +665,7 @@ export function FunnelMatrix({
                     background: oc.bg,
                     color: oc.fg,
                     fontSize: "0.625rem",
-                    fontWeight: 700,
+                    fontWeight: 600,
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -696,7 +698,7 @@ export function FunnelMatrix({
                       <span
                         style={{
                           fontSize: "0.875rem",
-                          fontWeight: 700,
+                          fontWeight: 600,
                           color: "var(--text-primary)",
                           fontVariantNumeric: "tabular-nums",
                         }}
@@ -728,7 +730,7 @@ export function FunnelMatrix({
                 style={{
                   textAlign: "right",
                   fontSize: "0.8125rem",
-                  fontWeight: 700,
+                  fontWeight: 600,
                   color: "var(--color-success-text)",
                   fontVariantNumeric: "tabular-nums",
                 }}
@@ -762,7 +764,7 @@ export function DistBars({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
       {shown.map((it) => {
-        const color = it.color ?? "var(--brand-500)";
+        const color = it.color ?? "var(--viz-1)";
         const widthPct = Math.min((it.value / denom) * 100, 100);
         return (
           <div key={it.label} style={{ display: "flex", flexDirection: "column", gap: "0.1875rem" }}>
@@ -818,10 +820,10 @@ export function GaugeBar({
     value === null
       ? "var(--surface-300)"
       : value < 4
-        ? "var(--color-error-text)"
+        ? "var(--danger)"
         : value <= 7
           ? "var(--color-warning-text)"
-          : "var(--color-success-text)";
+          : "var(--success)";
   const fillPct = value === null ? 0 : Math.min(Math.max((value / max) * 100, 0), 100);
 
   return (
@@ -841,7 +843,7 @@ export function GaugeBar({
         <span
           style={{
             fontSize: "1.25rem",
-            fontWeight: 800,
+            fontWeight: 600,
             color: "var(--text-primary)",
             fontVariantNumeric: "tabular-nums",
             letterSpacing: "-0.02em",

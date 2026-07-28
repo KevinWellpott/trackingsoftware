@@ -35,7 +35,7 @@ function MetricRow({ label, value }: { label: string; value: string }) {
         style={{
           marginLeft: "auto",
           fontSize: "0.875rem",
-          fontWeight: 700,
+          fontWeight: 600,
           color: "var(--text-primary)",
           fontVariantNumeric: "tabular-nums",
           whiteSpace: "nowrap",
@@ -75,7 +75,7 @@ export function TeamMemberCard({
             alignItems: "center",
             justifyContent: "center",
             fontSize: "0.8125rem",
-            fontWeight: 700,
+            fontWeight: 600,
             flexShrink: 0,
           }}
         >
@@ -85,7 +85,7 @@ export function TeamMemberCard({
           <div
             style={{
               fontSize: "0.9375rem",
-              fontWeight: 700,
+              fontWeight: 600,
               color: "var(--text-primary)",
               overflow: "hidden",
               textOverflow: "ellipsis",

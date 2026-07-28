@@ -140,7 +140,7 @@ function InlineToggle({ value, onChange }: { value: boolean; onChange: (v: boole
         background: value ? "#052e16" : "transparent",
         color: value ? "#4ade80" : "#3f3f46",
         fontSize: "0.6875rem",
-        fontWeight: 700,
+        fontWeight: 600,
         cursor: "pointer",
         display: "inline-flex",
         alignItems: "center",
@@ -163,7 +163,7 @@ function FUSelect({ value, onChange }: { value: 1 | 2 | 3 | null; onChange: (v: 
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       {value && (
-        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "0.6875rem", fontWeight: 800, color, zIndex: 1 }}>
+        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "0.6875rem", fontWeight: 600, color, zIndex: 1 }}>
           FU{value}
         </span>
       )}
@@ -193,7 +193,7 @@ function CategorySelect({ value, onChange }: { value: string | null; onChange: (
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       {cfg ? (
-        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "0.6875rem", fontWeight: 700, color: cfg.color, whiteSpace: "nowrap", zIndex: 1 }}>
+        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "0.6875rem", fontWeight: 600, color: cfg.color, whiteSpace: "nowrap", zIndex: 1 }}>
           {value}
         </span>
       ) : (
@@ -383,7 +383,7 @@ function NewRow({ listId }: { listId: string }) {
       </td>
       <td style={{ ...td, borderBottom: "1px solid rgba(99,102,241,0.18)" }}>
         <button form="new-row-form" type="submit" tabIndex={7}
-          style={{ background: "var(--brand-500)", color: "white", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 700, fontSize: "0.75rem", padding: "3px 8px", display: "flex", alignItems: "center" }}>
+          style={{ background: "var(--brand-500)", color: "white", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 600, fontSize: "0.75rem", padding: "3px 8px", display: "flex", alignItems: "center" }}>
           ✓
         </button>
       </td>
@@ -410,7 +410,7 @@ function StatsRow({ contacts }: { contacts: ContactWithStage[] }) {
   for (const c of contacts) if (c.answer_category) catCounts[c.answer_category] = (catCounts[c.answer_category] ?? 0) + 1;
   const topCat = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0];
 
-  const stat: React.CSSProperties = { fontSize: "0.75rem", fontWeight: 700, padding: "6px 12px", borderTop: "2px solid #27272a", background: "#0d0d10", color: "#52525b" };
+  const stat: React.CSSProperties = { fontSize: "0.75rem", fontWeight: 600, padding: "6px 12px", borderTop: "2px solid #27272a", background: "#0d0d10", color: "#52525b" };
 
   return (
     <tr>
@@ -475,7 +475,7 @@ export function ListBoard({ listId, stages, contacts }: {
             <thead>
               <tr style={{ background: "#0d0d10", borderBottom: "1px solid #1c1c1f" }}>
                 {["Datum", "Name", "FU", "Antwort", "Termin", "Kategorie", "Was war die Antwort?", "Notizen", ""].map((h, i) => (
-                  <th key={i} style={{ padding: "7px 12px", textAlign: "left", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#3f3f46", whiteSpace: "nowrap" }}>
+                  <th key={i} style={{ padding: "7px 12px", textAlign: "left", fontSize: "0.6875rem", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "#3f3f46", whiteSpace: "nowrap" }}>
                     {h}
                   </th>
                 ))}

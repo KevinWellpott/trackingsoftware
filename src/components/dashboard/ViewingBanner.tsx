@@ -7,20 +7,21 @@ import { Button } from "@/components/ui/Button";
 
 export function ViewingBanner({ name }: { name: string }) {
   return (
+    // Banner-Muster: linker 2px-Rail in der Semantikfarbe, Icon + Text.
     <div
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "0.625rem",
+        gap: "var(--sp-5)",
         flexWrap: "wrap",
-        background: "var(--color-info-bg)",
-        border: "1px solid var(--color-info-border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "0.625rem 1rem",
+        background: "var(--info-bg)",
+        borderLeft: "2px solid var(--info)",
+        borderRadius: "var(--r-md)",
+        padding: "var(--sp-5) var(--sp-6)",
       }}
     >
-      <Eye size={15} color="var(--color-info-text)" style={{ flexShrink: 0 }} aria-hidden />
-      <span style={{ fontSize: "0.8125rem", color: "var(--color-info-text)", fontWeight: 600, minWidth: 0 }}>
+      <Eye size={15} color="var(--info-fg)" style={{ flexShrink: 0 }} aria-hidden />
+      <span style={{ fontSize: "var(--fs-base)", color: "var(--info-fg)", fontWeight: 500, minWidth: 0 }}>
         Du siehst die Daten von {name}
       </span>
       <form action={setDataViewForm} style={{ marginLeft: "auto", display: "flex", flexShrink: 0 }}>

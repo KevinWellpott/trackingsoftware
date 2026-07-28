@@ -3,8 +3,9 @@ import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
 import type { PitchList } from "@/lib/types";
-import Link from "next/link";
-import { ArrowLeft, Download, FileText } from "lucide-react";
+import { Download, FileText } from "lucide-react";
+import { BackLink } from "@/components/ui/BackLink";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { ExportForm } from "./ExportForm";
 
 export default async function ExportPage({
@@ -78,27 +79,17 @@ export default async function ExportPage({
   const exportUrl = `/api/export?${exportParams.toString()}`;
 
   return (
-    <div style={{ maxWidth: 800, margin: "0 auto" }}>
-      <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", color: "var(--text-subtle)", textDecoration: "none", marginBottom: "1.25rem" }}>
-        <ArrowLeft size={13} /> Dashboard
-      </Link>
+    <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
+      <BackLink href="/" label="Dashboard" />
 
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.75rem" }}>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--brand-500)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)" }}>
-          <Download size={17} color="white" />
-        </div>
-        <div>
-          <h1 style={{ fontSize: "1.375rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>Daten exportieren</h1>
-          <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: 0 }}>CSV-Download · Excel-kompatibel · alle Felder</p>
-        </div>
-      </div>
+      <PageHeader eyebrow="Daten" title="Export" meta="CSV-Download · Excel-kompatibel · alle Felder" />
 
-      <div className="grid-2-col" style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "1.25rem", alignItems: "start" }}>
+      <div className="grid-2-col" style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "var(--sp-7)", alignItems: "start" }}>
         {/* ── Filter Form ── */}
-        <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-          <div style={{ padding: "1rem 1.375rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <FileText size={14} color="var(--brand-500)" />
-            <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Filter</span>
+        <div className="card" style={{ overflow: "hidden" }}>
+          <div style={{ padding: "var(--sp-6) var(--sp-8)", borderBottom: "1px solid var(--border-default)", display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+            <FileText size={16} color="var(--text-muted)" />
+            <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)" }}>Filter</span>
           </div>
           <div style={{ padding: "1.25rem 1.375rem" }}>
             <ExportForm
@@ -116,7 +107,7 @@ export default async function ExportPage({
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           {/* Stats */}
           <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.125rem 1.25rem" }}>
-            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem" }}>Vorschau</div>
+            <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem" }}>Vorschau</div>
             {[
               { label: "Datensätze", value: count, color: "var(--brand-500)" },
               { label: "Antworten", value: answered, color: "var(--color-success-text)" },
@@ -124,7 +115,7 @@ export default async function ExportPage({
             ].map((s) => (
               <div key={s.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.375rem" }}>
                 <span style={{ fontSize: "0.8125rem", color: "var(--text-subtle)" }}>{s.label}</span>
-                <span style={{ fontSize: "1.125rem", fontWeight: 800, color: s.color }}>{s.value}</span>
+                <span style={{ fontSize: "1.125rem", fontWeight: 600, color: s.color }}>{s.value}</span>
               </div>
             ))}
           </div>
@@ -142,7 +133,7 @@ export default async function ExportPage({
               borderRadius: "var(--radius-lg)",
               background: count > 0 ? "var(--brand-500)" : "var(--surface-100)",
               color: count > 0 ? "white" : "var(--text-subtle)",
-              fontWeight: 700,
+              fontWeight: 600,
               fontSize: "0.9375rem",
               textDecoration: "none",
               boxShadow: count > 0 ? "var(--shadow-sm)" : "none",
@@ -164,7 +155,7 @@ export default async function ExportPage({
 
           {/* Field list */}
           <div style={{ background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1rem 1.25rem" }}>
-            <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.625rem" }}>Felder im Export</div>
+            <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.625rem" }}>Felder im Export</div>
             {["Datum", "Name", "Liste", "Owner", "FU-Nummer", "Kategorie", "Antwort erhalten", "Termin gesetzt", "Was war die Antwort?", "Notizen"].map((f) => (
               <div key={f} style={{ fontSize: "0.75rem", color: "var(--text-subtle)", display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.1875rem" }}>
                 <span style={{ color: "var(--color-success-text)", fontSize: "0.625rem" }}>✓</span> {f}
@@ -176,7 +167,7 @@ export default async function ExportPage({
 
       {/* ── Weitere Exporte (Funnel 2.0) ── */}
       <div style={{ marginTop: "1.5rem", background: "var(--surface-100)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.375rem" }}>
-        <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem" }}>Weitere Exporte (vollständig)</div>
+        <div style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "0.875rem" }}>Weitere Exporte (vollständig)</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
           {[
             { label: "Telefon-Leads", source: "telefon" },
@@ -187,7 +178,7 @@ export default async function ExportPage({
               key={x.source}
               href={`/api/export?source=${x.source}`}
               download
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", padding: "0.75rem 1rem", borderRadius: "var(--radius-md)", background: "var(--surface-50)", border: "1px solid var(--border)", color: "var(--text-primary)", fontWeight: 600, fontSize: "0.8125rem", textDecoration: "none" }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", padding: "0.75rem 1rem", borderRadius: "var(--r-full)", background: "var(--surface-50)", border: "1px solid var(--border)", color: "var(--text-primary)", fontWeight: 600, fontSize: "0.8125rem", textDecoration: "none" }}
             >
               <Download size={14} color="var(--brand-500)" /> {x.label}
             </a>

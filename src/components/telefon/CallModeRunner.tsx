@@ -6,6 +6,7 @@ import { AppointmentModal } from "@/components/appointment/AppointmentModal";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { formatTermin } from "@/lib/apptTime";
 import type { PhoneLead, PhoneLeadStatus, PhoneList } from "@/lib/types";
 import {
   Calendar,
@@ -32,7 +33,7 @@ type StatusFilter = PhoneLeadStatus | "alle";
 
 const STATUS_STYLE: Record<PhoneLeadStatus, { label: string; color: string; bg: string; border: string }> = {
   aktiv: { label: "Aktiv", color: "var(--text-muted)", bg: "var(--surface-150)", border: "var(--border)" },
-  rueckruf: { label: "Rückruf", color: "var(--brand-500)", bg: "var(--brand-50)", border: "var(--brand-200)" },
+  rueckruf: { label: "Rückruf", color: "var(--info-fg)", bg: "var(--info-bg)", border: "rgb(78 128 214 / 0.28)" },
   nicht_erreicht: {
     label: "Nicht erreicht",
     color: "var(--color-warning-text)",
@@ -76,7 +77,7 @@ type TextFieldName =
 const fieldLabel: React.CSSProperties = {
   display: "block",
   fontSize: "0.6875rem",
-  fontWeight: 700,
+  fontWeight: 600,
   textTransform: "uppercase",
   letterSpacing: "0.06em",
   color: "var(--text-subtle)",
@@ -113,7 +114,7 @@ function StatusPill({ status }: { status: PhoneLeadStatus }) {
         display: "inline-flex",
         alignItems: "center",
         fontSize: "0.6875rem",
-        fontWeight: 700,
+        fontWeight: 600,
         color: s.color,
         background: s.bg,
         border: `1px solid ${s.border}`,
@@ -149,12 +150,12 @@ function Segmented<T extends string>({
             onClick={() => onChange(active ? null : o.value)}
             style={{
               padding: "0.3rem 0.625rem",
-              borderRadius: "var(--radius-sm)",
+              borderRadius: "var(--r-full)",
               border: `1px solid ${active ? activeColor : "var(--border)"}`,
               background: active ? "var(--brand-50)" : "var(--surface-50)",
               color: active ? activeColor : "var(--text-muted)",
               fontSize: "0.75rem",
-              fontWeight: 700,
+              fontWeight: 600,
               cursor: "pointer",
               transition: "all 0.1s",
             }}
@@ -178,12 +179,12 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
         alignItems: "center",
         gap: "0.4rem",
         padding: "0.3rem 0.625rem",
-        borderRadius: "var(--radius-sm)",
+        borderRadius: "var(--r-full)",
         border: `1px solid ${value ? "var(--color-success-border)" : "var(--border)"}`,
         background: value ? "var(--color-success-bg)" : "var(--surface-50)",
         color: value ? "var(--color-success-text)" : "var(--text-muted)",
         fontSize: "0.75rem",
-        fontWeight: 700,
+        fontWeight: 600,
         cursor: "pointer",
         transition: "all 0.1s",
       }}
@@ -440,7 +441,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
         }}
       >
         <Phone size={26} style={{ color: "var(--text-subtle)", marginBottom: "0.625rem" }} />
-        <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
+        <div style={{ fontSize: "0.9375rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
           Keine Leads in dieser Liste
         </div>
         <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: 0 }}>
@@ -460,7 +461,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
     padding: "0.625rem 0.875rem",
     borderRadius: "var(--radius-md)",
     fontSize: "0.8125rem",
-    fontWeight: 800,
+    fontWeight: 600,
     cursor: isPending ? "default" : "pointer",
     opacity: isPending ? 0.6 : 1,
     transition: "all 0.1s",
@@ -489,12 +490,12 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                 onClick={() => setStatusFilter(f.value)}
                 style={{
                   padding: "0.3rem 0.625rem",
-                  borderRadius: 99,
+                  borderRadius: "var(--r-full)",
                   border: `1px solid ${active ? accent : "var(--border)"}`,
                   background: active ? (f.value === "alle" ? "var(--brand-50)" : STATUS_STYLE[f.value].bg) : "var(--surface-100)",
                   color: active ? accent : "var(--text-muted)",
                   fontSize: "0.75rem",
-                  fontWeight: 700,
+                  fontWeight: 600,
                   cursor: "pointer",
                   transition: "all 0.1s",
                 }}
@@ -566,10 +567,10 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                 gap: "0.25rem",
                 background: "var(--surface-100)",
                 border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
+                borderRadius: "var(--r-full)",
                 padding: "0.3rem 0.5rem",
                 fontSize: "0.75rem",
-                fontWeight: 700,
+                fontWeight: 600,
                 color: currentIndex <= 0 ? "var(--text-subtle)" : "var(--text-secondary)",
                 cursor: currentIndex <= 0 ? "default" : "pointer",
                 opacity: currentIndex <= 0 ? 0.55 : 1,
@@ -577,7 +578,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
             >
               <ChevronLeft size={13} /> Zurück
             </button>
-            <span style={{ flex: 1, textAlign: "center", fontSize: "0.8125rem", fontWeight: 800, color: "var(--text-primary)" }}>
+            <span style={{ flex: 1, textAlign: "center", fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}>
               Lead {filtered.length === 0 ? 0 : currentIndex + 1} / {filtered.length}
               <span style={{ fontWeight: 500, color: "var(--text-subtle)", marginLeft: 8, fontSize: "0.6875rem" }}>← / →</span>
             </span>
@@ -592,10 +593,10 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                 gap: "0.25rem",
                 background: "var(--surface-100)",
                 border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
+                borderRadius: "var(--r-full)",
                 padding: "0.3rem 0.5rem",
                 fontSize: "0.75rem",
-                fontWeight: 700,
+                fontWeight: 600,
                 color: currentIndex >= filtered.length - 1 ? "var(--text-subtle)" : "var(--text-secondary)",
                 cursor: currentIndex >= filtered.length - 1 ? "default" : "pointer",
                 opacity: currentIndex >= filtered.length - 1 ? 0.55 : 1,
@@ -607,7 +608,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
 
           {!current ? (
             <div style={{ padding: "2.5rem 1.5rem", textAlign: "center" }}>
-              <div style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
+              <div style={{ fontSize: "0.9375rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
                 Keine Leads für diesen Filter
               </div>
               <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: 0 }}>
@@ -622,7 +623,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                   <h2
                     style={{
                       fontSize: "1.5rem",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       letterSpacing: "-0.03em",
                       color: "var(--text-primary)",
                       margin: 0,
@@ -692,7 +693,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                       alignItems: "center",
                       gap: "0.625rem",
                       fontSize: "1.375rem",
-                      fontWeight: 800,
+                      fontWeight: 600,
                       letterSpacing: "-0.01em",
                       color: "var(--brand-500)",
                       textDecoration: "none",
@@ -711,11 +712,11 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                       alignItems: "center",
                       gap: "0.3rem",
                       fontSize: "0.75rem",
-                      fontWeight: 700,
+                      fontWeight: 600,
                       color: "var(--brand-500)",
                     }}
                   >
-                    <CalendarClock size={12} /> Rückruf: {current.callback_at.replace("T", " · ").slice(0, 18)}
+                    <CalendarClock size={12} /> Rückruf: {formatTermin(current.callback_at)}
                   </span>
                 )}
               </div>
@@ -798,12 +799,12 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                         alignItems: "center",
                         gap: "0.35rem",
                         padding: "0.3rem 0.875rem",
-                        borderRadius: "var(--radius-sm)",
+                        borderRadius: "var(--r-full)",
                         border: "1px solid var(--color-success-border)",
                         background: "var(--color-success-bg)",
                         color: "var(--color-success-text)",
                         fontSize: "0.75rem",
-                        fontWeight: 700,
+                        fontWeight: 600,
                         cursor: isPending ? "default" : "pointer",
                         opacity: isPending ? 0.6 : 1,
                         transition: "all 0.1s",
@@ -819,7 +820,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                         background: "var(--surface-50)",
                         color: "var(--text-muted)",
                         fontSize: "0.75rem",
-                        fontWeight: 700,
+                        fontWeight: 600,
                       }}
                     >
                       Nein
@@ -831,7 +832,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                           alignItems: "center",
                           gap: "0.3rem",
                           fontSize: "0.6875rem",
-                          fontWeight: 700,
+                          fontWeight: 600,
                           color: "var(--color-success-text)",
                           background: "var(--color-success-bg)",
                           border: "1px solid var(--color-success-border)",
@@ -841,7 +842,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                         }}
                       >
                         <Calendar size={11} /> Termin gebucht
-                        {current.appointment_at ? ` · ${current.appointment_at.replace("T", " · ").slice(0, 18)}` : ""}
+                        {current.appointment_at ? ` · ${formatTermin(current.appointment_at)}` : ""}
                       </span>
                     )}
                   </div>
@@ -1064,7 +1065,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
               padding: "0.625rem 0.875rem",
               borderBottom: "1px solid var(--border)",
               fontSize: "0.6875rem",
-              fontWeight: 700,
+              fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.06em",
               color: "var(--text-subtle)",
@@ -1191,13 +1192,14 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
             disabled={!callbackAt || isPending}
             onClick={() => applyOutcome("rueckruf", callbackAt)}
             style={{
-              background: "var(--btn-primary-bg)",
-              color: "var(--btn-primary-fg)",
+              background: "var(--grad-cta)",
+              color: "var(--text-on-accent)",
+              boxShadow: "var(--shadow-btn-primary)",
               border: "none",
-              borderRadius: "var(--radius-md)",
+              borderRadius: "var(--r-full)",
               padding: "0.5625rem 1.125rem",
               fontSize: "0.875rem",
-              fontWeight: 700,
+              fontWeight: 600,
               cursor: !callbackAt || isPending ? "default" : "pointer",
               opacity: !callbackAt || isPending ? 0.5 : 1,
             }}

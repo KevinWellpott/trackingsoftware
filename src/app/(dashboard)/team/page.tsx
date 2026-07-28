@@ -9,6 +9,7 @@ import { addDaysISO, getISOWeek, localDateISO, weekStart } from "@/lib/dates";
 import { WochenduellSection } from "@/components/dashboard/WochenduellSection";
 import { FunnelSection } from "@/components/dashboard/FunnelSection";
 import { TeamMemberCard, type TeamMemberMetrics } from "@/components/dashboard/TeamMemberCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 // Admin-Team-Dashboard: Wochenduell + Team-Vergleich + Workspace-Funnel.
 // Nur für Owner mit Workspace-Datensicht — alle anderen landen auf "/".
@@ -173,25 +174,19 @@ export default async function TeamPage() {
   });
 
   return (
-    <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
 
       {/* ══ HEADER ══ */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>
-            Team
-          </h1>
-          <p style={{ fontSize: "0.8125rem", color: "var(--text-subtle)", margin: "2px 0 0" }}>
-            Wochenduell · Vergleich · Funnel
-          </p>
-        </div>
-        <Link
-          href="/team/archiv"
-          style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-subtle)", textDecoration: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "0.4rem 0.75rem", background: "var(--surface-100)" }}
-        >
-          <Archive size={13} /> Archiv
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="Workspace"
+        title="Team"
+        meta="Wochenduell · Vergleich · Funnel"
+        actions={
+          <Link href="/team/archiv" className="btn-secondary" style={{ textDecoration: "none" }}>
+            <Archive size={14} /> Archiv
+          </Link>
+        }
+      />
 
       {/* ══ WOCHENDUELL + DUELL-VERLAUF ══ */}
       <WochenduellSection
@@ -208,7 +203,7 @@ export default async function TeamPage() {
         <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Users size={13} color="var(--brand-500)" />
         </div>
-        <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Team-Vergleich</span>
+        <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)" }}>Team-Vergleich</span>
         <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>· {monday} → {sunday}</span>
       </div>
 

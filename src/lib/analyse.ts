@@ -2,6 +2,7 @@
 // und Datums-Auflösung für den Deep-Analytics-Bereich. Kein "use client"/
 // "use server" — überall (Server-Page & Client-Charts) importierbar.
 
+import { berlinDateISO } from "@/lib/apptTime";
 import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 
 export type AnalyseTab = "linkedin" | "telefon" | "setting" | "closing" | "funnel";
@@ -231,24 +232,26 @@ export function bucketOf(day: string, from: string, to: string, g?: Granularity)
   return bucketFor(day, unitOf(from, to, g)).key;
 }
 
-// Bewusste UTC-Kante: `slice(0,10)` schneidet den Datumsanteil eines ISO-
-// Timestamps roh ab (UTC), ohne lokale Zeitzonen-Verschiebung. Konsistent mit
-// den Postgres-`date`-Spalten, die ebenfalls in UTC gespeichert werden.
+// Timestamps werden über ihren Berlin-Kalendertag gebucketet, nicht über den
+// rohen UTC-Datumsanteil — sonst rutschen Termine am Tagesrand (z. B. 00:30
+// Berlin = 22:30 UTC am Vortag) in den Nachbar-Bucket.
+// `setting_calls.call_at` ist dagegen eine echte `date`-Spalte ohne Uhrzeit
+// und wird direkt übernommen.
 export function settingEffDate(
   r: { appointment_at?: string | null; call_at?: string | null; created_at: string },
 ): string {
   return (
-    r.appointment_at?.slice(0, 10) ||
+    berlinDateISO(r.appointment_at) ||
     r.call_at?.slice(0, 10) ||
-    r.created_at.slice(0, 10)
+    berlinDateISO(r.created_at)
   );
 }
 
-/** Analog zu settingEffDate: call_at, sonst created_at (UTC-slice, siehe oben). */
+/** Analog zu settingEffDate — `closing_calls.call_at` ist ein timestamptz. */
 export function closingEffDate(
   r: { call_at?: string | null; created_at: string },
 ): string {
-  return r.call_at?.slice(0, 10) || r.created_at.slice(0, 10);
+  return berlinDateISO(r.call_at) || berlinDateISO(r.created_at);
 }
 
 const EUR_FMT = new Intl.NumberFormat("de-DE", {

@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
+import { berlinInputToIso } from "@/lib/apptTime";
 import { revalidatePath } from "next/cache";
 
 // Termin=Ja → erzeugt automatisch einen Setting-Call-Eintrag und nimmt den Lead
@@ -57,7 +58,8 @@ export async function convertContactToSetting(input: {
   const meeting = normalizeMeeting(input);
   if (meeting.error) return { error: meeting.error };
   const { meetLink, meetingKind } = meeting;
-  const appointmentAt = input.appointmentAt.trim();
+  // Der datetime-local-Wert ist Berlin-Wandzeit; die Spalte will echtes UTC.
+  const appointmentAt = berlinInputToIso(input.appointmentAt);
   if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
   if (!(await canAccessPitchList(input.listId))) {
     return { error: "Keine Berechtigung." };
@@ -138,7 +140,7 @@ export async function createManualSetting(input: {
   const meeting = normalizeMeeting(input);
   if (meeting.error) return { error: meeting.error };
   const { meetLink, meetingKind } = meeting;
-  const appointmentAt = input.appointmentAt.trim();
+  const appointmentAt = berlinInputToIso(input.appointmentAt);
   if (!leadName) return { error: "Name ist erforderlich." };
   if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
 
@@ -203,7 +205,7 @@ export async function convertPhoneLeadToSetting(input: {
   const meeting = normalizeMeeting(input);
   if (meeting.error) return { error: meeting.error };
   const { meetLink, meetingKind } = meeting;
-  const appointmentAt = input.appointmentAt.trim();
+  const appointmentAt = berlinInputToIso(input.appointmentAt);
   if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
   if (!(await canAccessPhoneList(input.listId))) return { error: "Keine Berechtigung." };
 
@@ -255,7 +257,7 @@ export async function convertPhoneLeadToSetting(input: {
 
   revalidatePath(`/telefon/${input.listId}`, "page");
   revalidatePath("/telefon", "page");
-  revalidatePath("/setting", "page");
+  revalidatePath("/termine", "page");
   revalidatePath("/", "layout");
   return { settingCallId: settingCallId ?? undefined };
 }

@@ -5,7 +5,12 @@ import {
 import { getMembership } from "@/lib/workspace";
 import { redirect } from "next/navigation";
 
-export default async function OnboardingPage ({
+// Onboarding teilt den Hero-Moment mit dem Login: Wortmarke, Headline mit
+// genau einem Gradient-Wort, darunter zwei ruhige Solid-Cards. Die Signature
+// Pill gehoert zur primaeren Handlung („Workspace erstellen") — Beitreten
+// bleibt sekundaer.
+
+export default async function OnboardingPage({
   searchParams,
 }: {
   searchParams: Promise<{ err?: string }>;
@@ -16,58 +21,111 @@ export default async function OnboardingPage ({
   const err = q.err;
 
   return (
-    <div className="mx-auto flex min-h-full max-w-lg flex-1 flex-col justify-center px-4 py-16">
-      <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
-        Workspace einrichten
-      </h1>
-      <p className="mt-2 text-sm text-[var(--text-muted)]">
-        Erstes Mal? Lege einen Workspace an. Dein Partner trägt den
-        Einladungs-Code ein (unter Einstellungen sichtbar).
-      </p>
-
-      {err && (
-        <p className="mt-4 rounded-md border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error-text)]">
-          {err}
-        </p>
-      )}
-
-      <section className="mt-10 rounded-xl border border-[var(--border)] bg-[var(--surface-100)] p-6 [box-shadow:var(--shadow-sm)]">
-        <h2 className="text-sm font-medium text-[var(--text-primary)]">
-          Neuen Workspace anlegen
-        </h2>
-        <form action={bootstrapWorkspaceForm} className="mt-4 space-y-3">
-          <input
-            name="name"
-            placeholder="z. B. Titan Sales"
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-150)] px-3 py-2 text-sm text-[var(--text-primary)]"
-          />
-          <button
-            type="submit"
-            className="rounded-lg bg-[var(--btn-primary-bg)] px-4 py-2 text-sm font-medium text-[var(--btn-primary-fg)]"
+    <div
+      className="dot-grid"
+      style={{
+        minHeight: "100dvh",
+        display: "flex",
+        justifyContent: "center",
+        background: "var(--surface-0)",
+        padding: "var(--sp-12) var(--sp-8)",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: 520, display: "flex", flexDirection: "column", gap: "var(--sp-9)" }}>
+        <header>
+          <div className="wordmark" style={{ fontSize: "var(--fs-md)", marginBottom: "var(--sp-7)" }}>
+            titan
+          </div>
+          <h1
+            style={{
+              fontSize: "var(--fs-2xl)",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              letterSpacing: "var(--ls-headline)",
+              lineHeight: "var(--lh-tight)",
+              margin: 0,
+            }}
           >
-            Workspace erstellen
-          </button>
-        </form>
-      </section>
+            Workspace <span className="accent-word">einrichten</span>
+          </h1>
+          <p style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)", marginTop: "var(--sp-5)" }}>
+            Erstes Mal? Leg einen Workspace an. Dein Team tritt danach mit dem Einladungs-Code bei — du findest ihn in
+            den Einstellungen.
+          </p>
+        </header>
 
-      <section className="mt-8 rounded-xl border border-[var(--border)] bg-[var(--surface-100)] p-6 [box-shadow:var(--shadow-sm)]">
-        <h2 className="text-sm font-medium text-[var(--text-primary)]">
-          Mit Einladungs-Code beitreten
-        </h2>
-        <form action={joinWorkspaceForm} className="mt-4 space-y-3">
-          <input
-            name="code"
-            placeholder="Code vom Owner"
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-150)] px-3 py-2 font-mono text-sm text-[var(--text-primary)]"
-          />
-          <button
-            type="submit"
-            className="rounded-lg border border-[var(--border-bright)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)]"
+        {err && (
+          <div
+            role="alert"
+            style={{
+              background: "var(--danger-bg)",
+              borderLeft: "2px solid var(--danger)",
+              borderRadius: "var(--r-sm)",
+              color: "var(--danger-fg)",
+              fontSize: "var(--fs-base)",
+              padding: "var(--sp-5) var(--sp-6)",
+            }}
           >
-            Beitreten
-          </button>
-        </form>
-      </section>
+            {err}
+          </div>
+        )}
+
+        <section className="card" style={{ padding: "var(--sp-8)" }}>
+          <div className="eyebrow" style={{ marginBottom: "var(--sp-3)" }}>
+            Schritt 1
+          </div>
+          <h2
+            style={{
+              fontSize: "var(--fs-md)",
+              fontWeight: 600,
+              letterSpacing: "var(--ls-tight)",
+              color: "var(--text-primary)",
+            }}
+          >
+            Neuen Workspace anlegen
+          </h2>
+          <form
+            action={bootstrapWorkspaceForm}
+            style={{ marginTop: "var(--sp-6)", display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}
+          >
+            <input name="name" placeholder="z. B. Titan Sales" className="ui-input" aria-label="Workspace-Name" />
+            <button type="submit" className="btn-primary" style={{ alignSelf: "flex-start" }}>
+              Workspace erstellen
+            </button>
+          </form>
+        </section>
+
+        <section className="card" style={{ padding: "var(--sp-8)" }}>
+          <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-3)" }}>
+            Alternative
+          </div>
+          <h2
+            style={{
+              fontSize: "var(--fs-md)",
+              fontWeight: 600,
+              letterSpacing: "var(--ls-tight)",
+              color: "var(--text-primary)",
+            }}
+          >
+            Mit Einladungs-Code beitreten
+          </h2>
+          <form
+            action={joinWorkspaceForm}
+            style={{ marginTop: "var(--sp-6)", display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}
+          >
+            <input
+              name="code"
+              placeholder="Code vom Owner"
+              className="ui-input"
+              aria-label="Einladungs-Code"
+              style={{ fontFamily: "var(--font-mono-stack)" }}
+            />
+            <button type="submit" className="btn-secondary" style={{ alignSelf: "flex-start" }}>
+              Beitreten
+            </button>
+          </form>
+        </section>
+      </div>
     </div>
   );
 }

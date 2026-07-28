@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
+import { berlinInputToIso } from "@/lib/apptTime";
 import type { SettingOutcome, SettingStatus } from "@/lib/types";
 import { revalidatePath } from "next/cache";
 
@@ -48,7 +49,7 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
   const { error } = await supabase.from("setting_calls").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath(`/setting/${id}`, "page");
-  revalidatePath("/setting", "page");
+  revalidatePath("/termine", "page");
   return {};
 }
 
@@ -95,7 +96,7 @@ export async function setSettingOutcome(input: {
   if (error) return { error: error.message };
 
   revalidatePath(`/setting/${input.settingId}`, "page");
-  revalidatePath("/setting", "page");
+  revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
   return {};
@@ -104,19 +105,23 @@ export async function setSettingOutcome(input: {
 /**
  * Neuen Termin für einen No-Show setzen: derselbe Datensatz wird wiederverwendet,
  * `no_show_count` bleibt stehen — sonst verschwände der No-Show aus der Show-Quote.
+ *
+ * Setzt den Call bewusst auf 'offen' zurück (neuer Anlauf). Zum reinen
+ * Verschieben eines Termins → `moveSettingAppointment`.
  */
 export async function rescheduleSetting(
   settingId: string,
   appointmentAt: string,
 ): Promise<{ error?: string }> {
-  if (!appointmentAt) return { error: "Bitte einen neuen Termin angeben." };
+  const appointmentIso = berlinInputToIso(appointmentAt);
+  if (!appointmentIso) return { error: "Bitte einen neuen Termin angeben." };
   if (!(await canAccessSettingCall(settingId))) return { error: "Keine Berechtigung." };
 
   const supabase = await createClient();
   const { error } = await supabase
     .from("setting_calls")
     .update({
-      appointment_at: new Date(appointmentAt).toISOString(),
+      appointment_at: appointmentIso,
       status: "offen",
       show_status: null,
       follow_up_due: null,
@@ -124,9 +129,61 @@ export async function rescheduleSetting(
     .eq("id", settingId);
   if (error) return { error: error.message };
 
+  await mirrorAppointmentToSource(settingId, appointmentIso);
+
   revalidatePath(`/setting/${settingId}`, "page");
-  revalidatePath("/setting", "page");
+  revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
+  revalidatePath("/", "layout");
+  return {};
+}
+
+/**
+ * Den Termin am Ursprungs-Datensatz nachziehen, damit LinkedIn-Board und
+ * Telefon-Ansicht dieselbe Uhrzeit zeigen wie der Kalender.
+ */
+async function mirrorAppointmentToSource(settingId: string, appointmentIso: string): Promise<void> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("setting_calls")
+    .select("source_contact_id, source_phone_lead_id")
+    .eq("id", settingId)
+    .maybeSingle();
+  const src = data as { source_contact_id?: string | null; source_phone_lead_id?: string | null } | null;
+  if (src?.source_contact_id) {
+    await supabase.from("contacts").update({ appointment_at: appointmentIso }).eq("id", src.source_contact_id);
+  }
+  if (src?.source_phone_lead_id) {
+    await supabase.from("phone_leads").update({ appointment_at: appointmentIso }).eq("id", src.source_phone_lead_id);
+  }
+}
+
+/**
+ * Termin verschieben (Drag & Drop im Kalender) — ausschließlich der Zeitpunkt.
+ * Status, Show-Status, Wiedervorlage und No-Show-Zähler bleiben unangetastet;
+ * genau darin unterscheidet sich die Action von `rescheduleSetting`.
+ *
+ * `appointmentAt` ist Berlin-Wandzeit ("2026-07-27T10:00") oder bereits ISO-UTC.
+ */
+export async function moveSettingAppointment(
+  settingId: string,
+  appointmentAt: string,
+): Promise<{ error?: string }> {
+  const appointmentIso = appointmentAt.endsWith("Z") ? appointmentAt : berlinInputToIso(appointmentAt);
+  if (!appointmentIso) return { error: "Ungültiger Termin." };
+  if (!(await canAccessSettingCall(settingId))) return { error: "Keine Berechtigung." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("setting_calls")
+    .update({ appointment_at: appointmentIso })
+    .eq("id", settingId);
+  if (error) return { error: error.message };
+
+  await mirrorAppointmentToSource(settingId, appointmentIso);
+
+  revalidatePath(`/setting/${settingId}`, "page");
+  revalidatePath("/termine", "page");
   revalidatePath("/", "layout");
   return {};
 }
@@ -158,8 +215,7 @@ export async function createClosingFromSetting(
     .maybeSingle();
   if (existing) {
     await supabase.from("setting_calls").update(qualifiedPatch).eq("id", settingId);
-    revalidatePath("/setting", "page");
-    revalidatePath("/closing", "page");
+    revalidatePath("/termine", "page");
     revalidatePath("/nachfassen", "page");
     return { closingId: existing.id };
   }
@@ -194,9 +250,53 @@ export async function createClosingFromSetting(
 
   await supabase.from("setting_calls").update(qualifiedPatch).eq("id", settingId);
 
-  revalidatePath("/setting", "page");
-  revalidatePath("/closing", "page");
+  revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
   return { closingId: closing.id };
+}
+
+/**
+ * Setting-Call endgültig löschen.
+ *
+ * Die Fremdschlüssel stehen auf `on delete set null` — ein bereits angelegtes
+ * Closing bleibt also bestehen und verliert nur seinen Setting-Bezug. Genau
+ * darauf weist die Oberfläche vorher hin.
+ *
+ * Wichtig ist das Aufräumen der QUELLE: ohne das bliebe der LinkedIn-Kontakt
+ * bzw. Telefon-Lead als „Termin gesetzt" markiert, obwohl es keinen Termin
+ * mehr gibt — die Listen-Filter und die Terminquote wären damit dauerhaft
+ * falsch.
+ */
+export async function deleteSettingCall(id: string): Promise<{ error?: string }> {
+  if (!(await canAccessSettingCall(id))) return { error: "Keine Berechtigung." };
+
+  const supabase = await createClient();
+  const { data: raw } = await supabase
+    .from("setting_calls")
+    .select("source_contact_id, source_phone_lead_id")
+    .eq("id", id)
+    .maybeSingle();
+  const src = raw as { source_contact_id: string | null; source_phone_lead_id: string | null } | null;
+
+  if (src?.source_contact_id) {
+    await supabase
+      .from("contacts")
+      .update({ appointment_set: false, appointment_at: null, meet_link: null, setting_call_id: null })
+      .eq("id", src.source_contact_id);
+  }
+  if (src?.source_phone_lead_id) {
+    await supabase
+      .from("phone_leads")
+      .update({ appointment_set: false, appointment_at: null, status: "aktiv" })
+      .eq("id", src.source_phone_lead_id);
+  }
+
+  const { error } = await supabase.from("setting_calls").delete().eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/termine", "page");
+  revalidatePath("/nachfassen", "page");
+  revalidatePath("/", "layout");
+  return {};
 }

@@ -24,6 +24,7 @@ Begriffe:
 - **Liste** = `lists` (LinkedIn) bzw. `phone_lists` (Telefon). Kontakte/Leads hängen immer an einer Liste; die Liste bestimmt den Owner.
 - **Setting** = `setting_calls`: gebuchter Termin + Qualifizierungsgespräch (Budget, Pain, Entscheider …).
 - **Closing** = `closing_calls`: Abschlussgespräch, entsteht aus qualifiziertem Setting (verknüpft über `closing_calls.setting_call_id`).
+- **Termine** = `/termine`: gemeinsamer Kalender über beide Tabellen (Monat/Woche/Tag + versteckte Listenansicht). Feste Dauern: Setting 30 min, Closing 60 min. `/setting` und `/closing` leiten dorthin um; die Detailrouten `/setting/[id]` und `/closing/[id]` bleiben. Setting-Calls mit `status in ('dead','unqualifiziert')` sind dort standardmäßig ausgeblendet.
 - **Nachfassen** = zentrale Wiedervorlage (`/nachfassen`), gespeist aus RPC `nachfassen_tasks` (4 Quellen, siehe §5).
 
 ## 2. Workspace- & Sichtbarkeitsmodell
@@ -134,10 +135,10 @@ group by 1 order by 2 desc;
 
 - **`date`-Spalten** (reine Kalendertage, kein TZ-Thema): `pitched_at`, `next_follow_up_at`, `first_call_at`, `setting_calls.call_at`, `follow_up_due`, `contract_start`.
 - **`timestamptz`-Spalten** (UTC in DB): `appointment_at` (contacts/phone_leads/setting_calls), `callback_at`, `closing_at`, `closing_calls.call_at`, alle `created_at`/`updated_at`.
-- **Verdacht: `appointment_at` ist um den UTC-Offset verschoben gespeichert** (Berlin-Wandzeit als UTC). Die Haupt-Terminpfade (`convertContactToSetting`, `convertPhoneLeadToSetting`, `createManualSetting` in `src/app/actions/appointments.ts`) reichen den `datetime-local`-String **ohne Zeitzone** direkt in die `timestamptz`-Spalte durch — Postgres interpretiert ihn in der DB-Zeitzone (Supabase-Default: UTC). Auch `rescheduleSetting` (`settingCalls.ts`) konvertiert serverseitig (Vercel = UTC) und liefert denselben Effekt. Einzige Ausnahme mit echtem UTC: `closing_calls.call_at` via `ClosingCallEditor.localInputToIso` (Client-seitig, Browser-Zeitzone). Anzeige formatiert überall explizit `Europe/Berlin` → falls DB = UTC, erscheinen Termine 2 h zu spät.
-- Konsequenz für Auswertungen: Ein gespeichertes `…T10:00:00Z` in `setting_calls.appointment_at` bedeutet vermutlich **10:00 Uhr Berlin**, nicht 12:00. Vor TZ-Konvertierungen erst verifizieren: `show timezone;` + Stichprobe gegen einen bekannten Termin. `closing_calls.call_at` dagegen ist echtes UTC — bei tabellenübergreifenden Zeitvergleichen aufpassen.
-- Die Analyse-Tabs bucketen Timestamps per UTC-Datumsteil (`slice(0,10)`, `src/lib/analyse.ts`) — Termine nahe Mitternacht können dort auf dem Nachbartag landen (im Code kommentierte, bewusste Inkonsistenz).
-- **Empfehlung für SQL:** Erst Speicher-Semantik verifizieren (s. o.). Bei echtem UTC: `(spalte at time zone 'Europe/Berlin')::date` für Tageszuordnung; bei verschobener Speicherung: Datumsteil direkt nutzen. ISO-Wochen (Montag-basiert) mit `date_trunc('week', …)`.
+- **Alle Termin-Spalten enthalten echtes UTC** — seit Migration `20260404000020_appointment_timezone_fix.sql`. Vorher schrieben die Terminpfade den rohen `datetime-local`-String (Berlin-Wandzeit) direkt in die `timestamptz`-Spalte, wodurch Termine um den UTC-Offset zu spät erschienen; `closing_calls.call_at` war die einzige Ausnahme mit korrektem UTC. Die Migration hat `setting_calls.appointment_at`/`closing_at`, `contacts.appointment_at`, `phone_leads.appointment_at`/`callback_at` DST-genau korrigiert (Sicherung liegt in `public._appt_tz_backup_20260727`).
+- **Einzige Konvertierungsstelle im Code: `src/lib/apptTime.ts`** (`berlinInputToIso` / `isoToBerlinInput` / `berlinDateISO` / `toBerlinSlot` / `slotToIso` / `formatTermin`). Der Offset kommt aus `Intl` mit fester Zone `Europe/Berlin` und hängt damit **nicht** von der Server-Zeitzone ab (Vercel = UTC, lokal = Berlin) — genau daran war die alte Speicherung zerbrochen. Neue Schreibpfade müssen `berlinInputToIso()` verwenden, nie `new Date(input).toISOString()`.
+- Die Analyse-Tabs bucketen über den **Berlin-Kalendertag** (`berlinDateISO`, `src/lib/analyse.ts`); die frühere UTC-Slice-Inkonsistenz an der Tagesgrenze ist damit weg.
+- **Empfehlung für SQL:** `(spalte at time zone 'Europe/Berlin')::date` für die Tageszuordnung von `timestamptz`-Spalten. ISO-Wochen (Montag-basiert) mit `date_trunc('week', …)`.
 
 ## 7. Schema-Drift-Warnung
 

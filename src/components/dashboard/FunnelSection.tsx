@@ -71,7 +71,7 @@ function CardHeader({ href, title, meta }: { href: string; title: string; meta?:
     <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", marginBottom: "0.875rem", flexWrap: "wrap" }}>
       <Link
         href={href}
-        style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.375rem" }}
+        style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.375rem" }}
       >
         {title}
         <span style={{ color: "var(--text-subtle)", fontWeight: 500, fontSize: "0.75rem" }}>→</span>
@@ -85,7 +85,7 @@ function StatusRow({ label, tone, count }: { label: string; tone: BadgeTone; cou
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
       <Badge tone={tone}>{label}</Badge>
-      <span style={{ marginLeft: "auto", fontSize: "0.875rem", fontWeight: 800, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>
+      <span style={{ marginLeft: "auto", fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>
         {count.toLocaleString("de-DE")}
       </span>
     </div>
@@ -158,10 +158,10 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
 
   const stages: { label: string; sub: string; value: string; href: string; color: string }[] = [
     { label: `Anrufe KW ${kw}`, sub: "Telefon, diese Woche", value: weekCalls.toLocaleString("de-DE"), href: "/telefon", color: "var(--brand-500)" },
-    { label: "Termine", sub: `Setting · ${settingCounts.offen.toLocaleString("de-DE")} offen`, value: settingTotal.toLocaleString("de-DE"), href: "/setting", color: "var(--color-info-text)" },
-    { label: "Closings", sub: "offen", value: closingCounts.offen.toLocaleString("de-DE"), href: "/closing", color: "var(--color-warning-text)" },
-    { label: "Gewonnen", sub: "Deals", value: closingCounts.gewonnen.toLocaleString("de-DE"), href: "/closing", color: "var(--color-success-text)" },
-    { label: "Umsatz", sub: "gewonnene Deals", value: EUR.format(revenue), href: "/closing", color: "var(--color-success-text)" },
+    { label: "Termine", sub: `Setting · ${settingCounts.offen.toLocaleString("de-DE")} offen`, value: settingTotal.toLocaleString("de-DE"), href: "/termine", color: "var(--color-info-text)" },
+    { label: "Closings", sub: "offen", value: closingCounts.offen.toLocaleString("de-DE"), href: "/termine", color: "var(--color-warning-text)" },
+    { label: "Gewonnen", sub: "Deals", value: closingCounts.gewonnen.toLocaleString("de-DE"), href: "/termine", color: "var(--color-success-text)" },
+    { label: "Umsatz", sub: "gewonnene Deals", value: EUR.format(revenue), href: "/termine", color: "var(--color-success-text)" },
   ];
 
   return (
@@ -171,7 +171,7 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
         <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--surface-200)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Filter size={13} color="var(--brand-500)" />
         </div>
-        <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>Funnel</span>
+        <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)" }}>Funnel</span>
         <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>· Telefon → Setting → Closing → Umsatz</span>
       </div>
 
@@ -181,10 +181,10 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
           {stages.map((s, i) => (
             <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "0.75rem", flex: "1 1 150px", minWidth: 0 }}>
               <Link href={s.href} style={{ textDecoration: "none", minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-subtle)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-subtle)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {s.label}
                 </div>
-                <div style={{ fontSize: "1.375rem", fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.2, color: s.color, whiteSpace: "nowrap" }}>
+                <div style={{ fontSize: "1.375rem", fontWeight: 600, letterSpacing: "-0.02em", lineHeight: 1.2, color: s.color, whiteSpace: "nowrap" }}>
                   {s.value}
                 </div>
                 <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -192,7 +192,7 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
                 </div>
               </Link>
               {i < stages.length - 1 && (
-                <span aria-hidden style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-subtle)", flexShrink: 0 }}>→</span>
+                <span aria-hidden style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-subtle)", flexShrink: 0 }}>→</span>
               )}
             </div>
           ))}
@@ -215,20 +215,20 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
                   key={o.owner_name}
                   style={{ display: "flex", alignItems: "center", gap: "0.625rem", background: "var(--surface-50)", border: "1px solid var(--border)", borderLeft: `3px solid ${c.fg}`, borderRadius: "var(--radius-md)", padding: "0.5rem 0.875rem 0.5rem 0.625rem" }}
                 >
-                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: c.bg, color: c.fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 800, flexShrink: 0 }}>
+                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: c.bg, color: c.fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6875rem", fontWeight: 600, flexShrink: 0 }}>
                     {ownerInitials(o.owner_name)}
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {o.owner_name}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.6875rem", color: "var(--text-subtle)", whiteSpace: "nowrap" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
                         <Phone size={10} />
-                        <strong style={{ color: c.fg, fontWeight: 800 }}>{o.calls.toLocaleString("de-DE")}</strong> Anrufe
+                        <strong style={{ color: c.fg, fontWeight: 600 }}>{o.calls.toLocaleString("de-DE")}</strong> Anrufe
                       </span>
                       <span>
-                        <strong style={{ color: "var(--color-success-text)", fontWeight: 800 }}>{o.appointments.toLocaleString("de-DE")}</strong> Termine
+                        <strong style={{ color: "var(--color-success-text)", fontWeight: 600 }}>{o.appointments.toLocaleString("de-DE")}</strong> Termine
                       </span>
                     </div>
                   </div>
@@ -242,7 +242,7 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
       {/* Setting-/Closing-Status */}
       <div style={{ display: "flex", gap: "0.875rem", flexWrap: "wrap" }}>
         <Card style={{ flex: "1 1 280px", minWidth: 0 }}>
-          <CardHeader href="/setting" title="Setting-Status" meta={`${settingTotal.toLocaleString("de-DE")} gesamt`} />
+          <CardHeader href="/termine" title="Setting-Status" meta={`${settingTotal.toLocaleString("de-DE")} gesamt`} />
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {SETTING_STATUSES.map((s) => (
               <StatusRow key={s} label={SETTING_LABELS[s].label} tone={SETTING_LABELS[s].tone} count={settingCounts[s]} />
@@ -251,7 +251,7 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
         </Card>
         <Card style={{ flex: "1 1 280px", minWidth: 0 }}>
           <CardHeader
-            href="/closing"
+            href="/termine"
             title="Closing-Status"
             meta={`${CLOSING_STATUSES.reduce((sum, s) => sum + closingCounts[s], 0).toLocaleString("de-DE")} gesamt`}
           />
@@ -261,7 +261,7 @@ export async function FunnelSection({ access }: { access: AccessContext }) {
             ))}
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.25rem", paddingTop: "0.625rem", borderTop: "1px solid var(--border)" }}>
               <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-subtle)" }}>Umsatz (gewonnen)</span>
-              <span style={{ marginLeft: "auto", fontSize: "0.9375rem", fontWeight: 800, color: "var(--color-success-text)", fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ marginLeft: "auto", fontSize: "0.9375rem", fontWeight: 600, color: "var(--color-success-text)", fontVariantNumeric: "tabular-nums" }}>
                 {EUR.format(revenue)}
               </span>
             </div>

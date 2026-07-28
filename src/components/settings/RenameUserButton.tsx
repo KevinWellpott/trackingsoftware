@@ -18,7 +18,7 @@ export function RenameUserButton({ userId, username }: { userId: string; usernam
         style={{
           background: "var(--surface-150)",
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: "var(--r-full)",
           padding: "6px 8px",
           cursor: "pointer",
           color: "var(--text-subtle)",
@@ -69,7 +69,7 @@ export function RenameUserButton({ userId, username }: { userId: string; usernam
         onClick={handleSave}
         disabled={isPending}
         title="Speichern"
-        style={{ background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: 6, padding: "6px", cursor: "pointer", color: "var(--color-success-text)", display: "flex" }}
+        style={{ background: "var(--color-success-bg)", border: "1px solid var(--color-success-border)", borderRadius: "var(--r-full)", padding: "6px", cursor: "pointer", color: "var(--color-success-text)", display: "flex" }}
       >
         <Check size={13} />
       </button>
@@ -78,7 +78,7 @@ export function RenameUserButton({ userId, username }: { userId: string; usernam
         onClick={() => setEditing(false)}
         disabled={isPending}
         title="Abbrechen"
-        style={{ background: "var(--surface-150)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px", cursor: "pointer", color: "var(--text-subtle)", display: "flex" }}
+        style={{ background: "var(--surface-150)", border: "1px solid var(--border)", borderRadius: "var(--r-full)", padding: "6px", cursor: "pointer", color: "var(--text-subtle)", display: "flex" }}
       >
         <X size={13} />
       </button>

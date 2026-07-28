@@ -1,8 +1,9 @@
 "use client";
 
-// 1–10-Bewertungsreihe. Aktiver Wert = Brand-Füllung; erneuter Klick
-// auf den aktiven Wert löscht die Auswahl (null).
-// Touch-Bump (≥44px) via .ui-scale10 button in globals.css.
+// 1–10-Bewertungsreihe (Pain/Warmth in der Qualifizierung).
+// Aktiver Wert = Orange-Fuellung mit dunklem Text (#0A0A0B = 7.1:1, die
+// barrierefreie Variante). Erneuter Klick auf den aktiven Wert loescht
+// die Auswahl. Touch-Bump (≥44px) via .ui-scale10 button in globals.css.
 
 const VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
@@ -34,20 +35,19 @@ export function Scale10({
             aria-pressed={active}
             onClick={() => onChange(active ? null : n)}
             style={{
-              minWidth: 28,
-              minHeight: 28,
-              padding: "0 0.25rem",
-              fontSize: "0.8125rem",
-              fontWeight: active ? 700 : 500,
+              minWidth: 30,
+              minHeight: "var(--h-control)",
+              padding: "0 4px",
+              fontSize: "var(--fs-sm)",
+              fontWeight: active ? 600 : 500,
               fontFamily: "inherit",
               fontVariantNumeric: "tabular-nums",
-              color: active ? "#ffffff" : "var(--text-muted)",
-              background: active ? "var(--brand-500)" : "var(--surface-150)",
+              color: disabled ? "var(--text-disabled)" : active ? "#0a0a0b" : "var(--text-muted)",
+              background: active ? "var(--orange-500)" : "var(--surface-1)",
               border: "1px solid",
-              borderColor: active ? "var(--brand-500)" : "var(--border)",
-              borderRadius: "var(--radius-sm)",
+              borderColor: active ? "var(--orange-500)" : "var(--border-default)",
+              borderRadius: "var(--r-full)",
               cursor: disabled ? "not-allowed" : "pointer",
-              opacity: disabled ? 0.55 : 1,
               transition:
                 "background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast)",
             }}

@@ -51,13 +51,15 @@ const QUELLE_LABEL: Record<QuelleKey, string> = {
 };
 
 const DATE_INPUT_STYLE = {
-  padding: "0.375rem 0.5rem",
-  fontSize: "0.8125rem",
+  height: "var(--h-control)",
+  padding: "0 var(--sp-5)",
+  fontSize: "var(--fs-sm)",
   fontFamily: "inherit",
+  fontVariantNumeric: "tabular-nums",
   color: "var(--text-primary)",
-  background: "var(--surface-100)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-md)",
+  background: "var(--surface-1)",
+  border: "1px solid var(--border-default)",
+  borderRadius: "var(--r-md)",
 } as const;
 
 /** YYYY-MM-DD → DD.MM.YYYY (zeitzonensicher, ohne Date-Parsing). */
@@ -72,25 +74,20 @@ function deDateShort(iso: string): string {
   return `${d}.${m}.`;
 }
 
-/** Small-Caps-Beschriftung vor einer Kontrollgruppe. */
+/** Eyebrow-Beschriftung vor einer Kontrollgruppe. */
 function GroupLabel({ children }: { children: ReactNode }) {
   return (
-    <span
-      style={{
-        fontSize: "0.625rem",
-        fontWeight: 600,
-        letterSpacing: "0.08em",
-        textTransform: "uppercase",
-        color: "var(--text-subtle)",
-        whiteSpace: "nowrap",
-      }}
-    >
+    <span className="eyebrow eyebrow-muted" style={{ whiteSpace: "nowrap" }}>
       {children}
     </span>
   );
 }
 
-/** Entfernbarer Aktiv-Filter-Chip (× am Ende). */
+/**
+ * Aktiver Filter-Chip (COMPONENTS.md §12): 28px-Pill, Akzent-Tint,
+ * Border --border-accent, Text --orange-300, X zum Entfernen.
+ * Aktive Filter sind IMMER sichtbar — nie in Menues versteckt.
+ */
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
     <button
@@ -100,18 +97,19 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: "0.375rem",
-        padding: "0.25rem 0.625rem",
-        fontSize: "0.75rem",
+        gap: "var(--sp-3)",
+        height: 28,
+        padding: "0 var(--sp-5)",
+        fontSize: "var(--fs-sm)",
         fontWeight: 500,
         fontFamily: "inherit",
         cursor: "pointer",
-        borderRadius: 99,
+        borderRadius: "var(--r-full)",
         whiteSpace: "nowrap",
-        background: "var(--surface-150)",
-        color: "var(--text-muted)",
-        border: "1px solid var(--border)",
-        transition: "background var(--transition-fast), color var(--transition-fast)",
+        background: "var(--accent-muted)",
+        color: "var(--orange-300)",
+        border: "1px solid var(--border-accent)",
+        transition: "background var(--transition-fast), border-color var(--transition-fast)",
       }}
     >
       {label}
@@ -236,23 +234,30 @@ export function AnalyseFilterBar({
   const hasActiveFilters = rangeKey === "custom" || selectedUserIds.length > 0 || quelleActive;
 
   return (
+    // Sticky-Toolbar im Glass-Nav-Rezept — eine der drei erlaubten
+    // Glasflaechen dieser View (DESIGN.md §4.3).
     <div
+      className="glass-nav"
       style={{
         position: "sticky",
         top: 0,
         zIndex: 30,
-        padding: "0.625rem 0.125rem 0.75rem",
-        background: "color-mix(in srgb, var(--surface-0) 86%, transparent)",
-        backdropFilter: "blur(8px)",
-        WebkitBackdropFilter: "blur(8px)",
-        borderBottom: "1px solid var(--border)",
+        margin: "0 calc(var(--sp-9) * -1)",
+        padding: "var(--sp-4) var(--sp-9) var(--sp-5)",
         opacity: isPending ? 0.6 : 1,
         transition: "opacity var(--transition-fast)",
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
-        {/* Row 1: Flow-Tabs */}
-        <div style={{ display: "flex", gap: "0.25rem", overflowX: "auto" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
+        {/* Row 1: Flow-Tabs — Text + Orange-Underline (COMPONENTS.md §10.3) */}
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--sp-7)",
+            overflowX: "auto",
+            borderBottom: "1px solid var(--border-subtle)",
+          }}
+        >
           {TAB_OPTIONS.map((t) => {
             const active = t.value === tab;
             return (
@@ -261,20 +266,9 @@ export function AnalyseFilterBar({
                 type="button"
                 aria-pressed={active}
                 onClick={() => selectTab(t.value)}
-                style={{
-                  flexShrink: 0,
-                  padding: "0.375rem 0.875rem",
-                  fontSize: "0.8125rem",
-                  fontWeight: active ? 600 : 500,
-                  fontFamily: "inherit",
-                  cursor: "pointer",
-                  borderRadius: 99,
-                  whiteSpace: "nowrap",
-                  background: active ? "var(--btn-primary-bg)" : "transparent",
-                  color: active ? "var(--btn-primary-fg)" : "var(--text-muted)",
-                  border: active ? "1px solid var(--btn-primary-bg)" : "1px solid var(--border)",
-                  transition: "background var(--transition-fast), color var(--transition-fast)",
-                }}
+                className="ui-tab"
+                data-active={active}
+                style={{ flexShrink: 0, whiteSpace: "nowrap" }}
               >
                 {t.label}
               </button>
@@ -283,9 +277,9 @@ export function AnalyseFilterBar({
         </div>
 
         {/* Row 2: Zeitraum · Granularität · Nutzer · Quelle */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem 1.125rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4) var(--sp-8)", flexWrap: "wrap" }}>
           {/* Zeitraum */}
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
             <GroupLabel>Zeitraum</GroupLabel>
             <Segmented<RangeKey> options={RANGE_OPTIONS} value={rangeKey} onChange={selectRange} size="sm" ariaLabel="Zeitraum" />
             {rangeKey === "custom" && (
@@ -300,7 +294,7 @@ export function AnalyseFilterBar({
                   style={DATE_INPUT_STYLE}
                   aria-label="Von"
                 />
-                <span style={{ color: "var(--text-subtle)" }}>–</span>
+                <span style={{ color: "var(--text-muted)" }}>–</span>
                 <input
                   type="date"
                   value={customBis}
@@ -313,13 +307,13 @@ export function AnalyseFilterBar({
                 />
               </div>
             )}
-            <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
               {deDate(from)} → {deDate(to)}
             </span>
           </div>
 
           {/* Granularität */}
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
             <GroupLabel>Granularität</GroupLabel>
             <Segmented<Granularity>
               options={GRANULARITY_OPTIONS}
@@ -331,25 +325,29 @@ export function AnalyseFilterBar({
           </div>
 
           {/* Nutzer */}
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
             <GroupLabel>Nutzer</GroupLabel>
             {canCompare ? (
-              <div style={{ display: "inline-flex", gap: "0.375rem", flexWrap: "wrap" }}>
+              <div style={{ display: "inline-flex", gap: "var(--sp-3)", flexWrap: "wrap" }}>
+                {/* Filter-Chips: inaktiv surface-1, aktiv Akzent-Tint. Die
+                    Personen-Chips behalten ihre Owner-Farbe als Rahmen —
+                    Identitaet, nicht Status. */}
                 <button
                   type="button"
                   aria-pressed={allActive}
                   onClick={clearUsers}
                   style={{
-                    padding: "0.3125rem 0.75rem",
-                    fontSize: "0.75rem",
-                    fontWeight: allActive ? 700 : 500,
+                    height: 28,
+                    padding: "0 var(--sp-5)",
+                    fontSize: "var(--fs-sm)",
+                    fontWeight: 500,
                     fontFamily: "inherit",
                     cursor: "pointer",
-                    borderRadius: 99,
+                    borderRadius: "var(--r-full)",
                     whiteSpace: "nowrap",
-                    background: allActive ? "var(--btn-primary-bg)" : "transparent",
-                    color: allActive ? "var(--btn-primary-fg)" : "var(--text-muted)",
-                    border: allActive ? "1px solid var(--btn-primary-bg)" : "1px solid var(--border)",
+                    background: allActive ? "var(--accent-muted)" : "var(--surface-1)",
+                    color: allActive ? "var(--orange-300)" : "var(--text-muted)",
+                    border: `1px solid ${allActive ? "var(--border-accent)" : "var(--border-default)"}`,
                   }}
                 >
                   Alle
@@ -366,31 +364,32 @@ export function AnalyseFilterBar({
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: "0.375rem",
-                        padding: "0.25rem 0.625rem 0.25rem 0.25rem",
-                        fontSize: "0.75rem",
-                        fontWeight: selected ? 700 : 500,
+                        gap: "var(--sp-3)",
+                        height: 28,
+                        padding: "0 var(--sp-5) 0 2px",
+                        fontSize: "var(--fs-sm)",
+                        fontWeight: 500,
                         fontFamily: "inherit",
                         cursor: "pointer",
-                        borderRadius: 99,
+                        borderRadius: "var(--r-full)",
                         whiteSpace: "nowrap",
-                        background: selected ? c.bg : "transparent",
+                        background: selected ? c.bg : "var(--surface-1)",
                         color: selected ? "var(--text-primary)" : "var(--text-muted)",
-                        border: selected ? `2px solid ${c.fg}` : "1px solid var(--border)",
+                        border: `1px solid ${selected ? c.fg : "var(--border-default)"}`,
                       }}
                     >
                       <span
                         style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: "50%",
+                          width: 24,
+                          height: 24,
+                          borderRadius: "var(--r-full)",
                           background: c.bg,
                           color: c.fg,
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontSize: "0.625rem",
-                          fontWeight: 800,
+                          fontSize: "var(--fs-2xs)",
+                          fontWeight: 600,
                           flexShrink: 0,
                         }}
                       >
@@ -406,16 +405,18 @@ export function AnalyseFilterBar({
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: "0.375rem",
-                  padding: "0.3125rem 0.75rem",
-                  fontSize: "0.75rem",
+                  gap: "var(--sp-3)",
+                  height: 28,
+                  padding: "0 var(--sp-5)",
+                  fontSize: "var(--fs-sm)",
                   color: "var(--text-muted)",
-                  borderRadius: 99,
-                  border: "1px solid var(--border)",
+                  background: "var(--surface-1)",
+                  borderRadius: "var(--r-full)",
+                  border: "1px solid var(--border-default)",
                   whiteSpace: "nowrap",
                 }}
               >
-                <Lock size={11} />
+                <Lock size={12} />
                 {selfName} · Nur eigene Daten
               </div>
             )}
@@ -423,7 +424,7 @@ export function AnalyseFilterBar({
 
           {/* Quelle */}
           {showQuelle && (
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
               <GroupLabel>Quelle</GroupLabel>
               <Segmented<QuelleKey> options={QUELLE_OPTIONS} value={quelle} onChange={selectQuelle} size="sm" ariaLabel="Quelle" />
             </div>
@@ -432,7 +433,7 @@ export function AnalyseFilterBar({
 
         {/* Row 3: Aktive Filter (entfernbar) */}
         {hasActiveFilters && (
-          <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
             <GroupLabel>Aktive Filter</GroupLabel>
             {rangeKey === "custom" && (
               <FilterChip label={`${deDateShort(from)}–${deDateShort(to)}`} onRemove={resetRange} />
