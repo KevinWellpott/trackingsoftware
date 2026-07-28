@@ -3,6 +3,7 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Lock, X } from "lucide-react";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { Segmented } from "@/components/ui/Segmented";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { AnalyseTab, Granularity, QuelleKey, RangeKey } from "@/lib/analyse";
@@ -284,26 +285,28 @@ export function AnalyseFilterBar({
             <Segmented<RangeKey> options={RANGE_OPTIONS} value={rangeKey} onChange={selectRange} size="sm" ariaLabel="Zeitraum" />
             {rangeKey === "custom" && (
               <div style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem" }}>
-                <input
-                  type="date"
-                  value={customVon}
-                  onChange={(e) => {
-                    setCustomVon(e.target.value);
-                    commitCustom(e.target.value, customBis);
+                <DatePicker
+                  variant="input"
+                  value={customVon || null}
+                  onChange={(v) => {
+                    setCustomVon(v ?? "");
+                    commitCustom(v ?? "", customBis);
                   }}
-                  style={DATE_INPUT_STYLE}
-                  aria-label="Von"
+                  placeholder="Von"
+                  shortFormat
+                  triggerStyle={DATE_INPUT_STYLE}
                 />
                 <span style={{ color: "var(--text-muted)" }}>–</span>
-                <input
-                  type="date"
-                  value={customBis}
-                  onChange={(e) => {
-                    setCustomBis(e.target.value);
-                    commitCustom(customVon, e.target.value);
+                <DatePicker
+                  variant="input"
+                  value={customBis || null}
+                  onChange={(v) => {
+                    setCustomBis(v ?? "");
+                    commitCustom(customVon, v ?? "");
                   }}
-                  style={DATE_INPUT_STYLE}
-                  aria-label="Bis"
+                  placeholder="Bis"
+                  shortFormat
+                  triggerStyle={DATE_INPUT_STYLE}
                 />
               </div>
             )}

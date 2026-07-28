@@ -12,6 +12,7 @@ import { AppointmentModal } from "@/components/appointment/AppointmentModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { DatePicker, formatDateDe } from "@/components/ui/DatePicker";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select, type SelectOption } from "@/components/ui/Select";
 import type { ListContact } from "@/lib/types";
 import { CATEGORY_CONFIG, SELECTABLE_CATEGORIES, categoryStyle, type AnswerCategory, type SelectableCategory } from "@/lib/categories";
 import { addDaysISO, localDateISO } from "@/lib/dates";
@@ -71,19 +72,19 @@ const editInput: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const compactSelect: React.CSSProperties = {
-  background: "transparent",
-  border: "none",
-  color: "inherit",
-  fontSize: "0.75rem",
-  outline: "none",
-  cursor: "pointer",
-  appearance: "none",
-  WebkitAppearance: "none",
-  padding: "2px 4px",
-  borderRadius: 4,
-  maxWidth: 130,
-};
+// Optionslisten der Neu-Zeile — konstant, damit sie nicht bei jedem Tastendruck
+// neu entstehen.
+const FU_OPTIONS: SelectOption[] = [
+  { value: "", label: "—", color: "var(--text-muted)" },
+  { value: "1", label: "FU1" },
+  { value: "2", label: "FU2" },
+  { value: "3", label: "FU3" },
+];
+
+const NEW_ROW_CATEGORY_OPTIONS: SelectOption[] = [
+  { value: "", label: "—", color: "var(--text-muted)" },
+  ...SELECTABLE_CATEGORIES.map((cat) => ({ value: cat, label: cat, color: categoryStyle(cat)?.color })),
+];
 
 // Offene Chance = Kategorie "Positiv", aber noch KEIN Termin. Der Tab ist eine
 // Arbeitsliste, kein Archiv: wer schon terminiert ist, lebt im Kalender und
@@ -279,29 +280,25 @@ function InlineToggle({ value, onChange }: { value: boolean; onChange: (v: boole
 // Neu wählbar: nur Positiv/Neutral/Negativ. Legacy-Werte aus Bestandsdaten
 // werden weiterhin angezeigt (als zusätzliche Option, solange gesetzt).
 function CategorySelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
-  const cfg = categoryStyle(value);
   const isLegacy = Boolean(value) && !SELECTABLE_CATEGORIES.includes(value as SelectableCategory);
+  const options: SelectOption[] = [
+    { value: "", label: "—", color: "var(--text-muted)" },
+    ...SELECTABLE_CATEGORIES.map((cat) => ({ value: cat, label: cat, color: categoryStyle(cat)?.color })),
+    // Bestandsdaten koennen Alt-Kategorien tragen; die bleiben waehlbar,
+    // solange sie gesetzt sind, tauchen aber nicht neu in der Liste auf.
+    ...(isLegacy ? [{ value: value as string, label: `${value} (Alt)`, color: categoryStyle(value)?.color }] : []),
+  ];
   return (
-    <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-      {cfg ? (
-        <span style={{ position: "absolute", left: 4, pointerEvents: "none", fontSize: "var(--fs-xs)", fontWeight: 600, color: cfg.color, whiteSpace: "nowrap", zIndex: 1, maxWidth: 122, overflow: "hidden", textOverflow: "ellipsis" }}>
-          {value}
-        </span>
-      ) : (
-        <span style={{ position: "absolute", left: 4, pointerEvents: "none", color: "var(--text-muted)", fontSize: "0.6875rem" }}>—</span>
-      )}
-      <select
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value || null)}
-        style={{ ...compactSelect, opacity: 0.01, position: "absolute", inset: 0, width: "100%" }}
-        title="Kategorie"
-      >
-        <option value="">—</option>
-        {SELECTABLE_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-        {isLegacy && <option value={value as string}>{value} (Alt)</option>}
-      </select>
-      <span style={{ width: 126, height: 24, display: "block" }} />
-    </div>
+    <Select
+      value={value ?? ""}
+      onChange={(v) => onChange(v || null)}
+      options={options}
+      variant="cell"
+      title="Kategorie"
+      ariaLabel="Kategorie"
+      triggerStyle={{ width: 126 }}
+      width={150}
+    />
   );
 }
 
@@ -652,12 +649,15 @@ function NewRow({ onCreate }: { onCreate: (input: NewContactInput) => void }) {
         />
       </div>
       <div style={cell}>
-        <select value={fu} onChange={(e) => setFu(e.target.value as typeof fu)} style={{ ...editInput, fontSize: "0.75rem", padding: "3px 2px" }} tabIndex={3}>
-          <option value="">—</option>
-          <option value="1">FU1</option>
-          <option value="2">FU2</option>
-          <option value="3">FU3</option>
-        </select>
+        <Select
+          value={fu}
+          onChange={(v) => setFu(v as typeof fu)}
+          options={FU_OPTIONS}
+          variant="cell"
+          ariaLabel="Follow-up-Stufe"
+          triggerStyle={{ ...editInput, fontSize: "0.75rem", padding: "3px 4px" }}
+          width={96}
+        />
       </div>
       <div style={{ ...cell, gridColumn: "span 2" }}>
         <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -665,10 +665,15 @@ function NewRow({ onCreate }: { onCreate: (input: NewContactInput) => void }) {
         </span>
       </div>
       <div style={cell}>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...editInput, fontSize: "0.75rem" }} tabIndex={4}>
-          <option value="">—</option>
-          {SELECTABLE_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-        </select>
+        <Select
+          value={category}
+          onChange={setCategory}
+          options={NEW_ROW_CATEGORY_OPTIONS}
+          variant="cell"
+          ariaLabel="Kategorie"
+          triggerStyle={{ ...editInput, fontSize: "0.75rem" }}
+          width={150}
+        />
       </div>
       <div style={cell}>
         <input value={answerText} onChange={(e) => setAnswerText(e.target.value)} placeholder="Antwort…" style={editInput} tabIndex={5} onKeyDown={submitOnEnter} />

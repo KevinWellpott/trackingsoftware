@@ -3,6 +3,7 @@
 import { deletePhoneLead, setPhoneLeadOutcome, updatePhoneLead, type PhoneLeadInput } from "@/app/actions/phone";
 import { convertPhoneLeadToSetting } from "@/app/actions/appointments";
 import { AppointmentModal } from "@/components/appointment/AppointmentModal";
+import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -1176,12 +1177,11 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
             <label htmlFor="callback-at" style={fieldLabel}>
               Datum + Uhrzeit
             </label>
-            <input
+            <DateTimeField
               id="callback-at"
-              type="datetime-local"
               value={callbackAt}
-              onChange={(e) => setCallbackAt(e.target.value)}
-              style={{ ...fieldInput, padding: "0.5rem 0.75rem", fontSize: "0.875rem" }}
+              onChange={setCallbackAt}
+              ariaLabel="Rückruf"
             />
           </div>
           <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", margin: 0, lineHeight: 1.5 }}>

@@ -4,6 +4,8 @@ import { deleteClosingCall, setClosingOutcome, updateClosingCall, type ClosingCa
 import { AssigneeMultiSelect } from "@/components/assignees/AssigneeMultiSelect";
 import { DangerZone } from "@/components/ui/DangerZone";
 import { ScriptRunner } from "@/components/scripts/ScriptRunner";
+import { DatePicker } from "@/components/ui/DatePicker";
+import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 // Alias: diese Datei hat ein eigenes, privates <Toggle> fuer die Modal-Felder.
@@ -534,15 +536,16 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
       >
       <div>
         <span style={fieldLabel}>Termin</span>
-        <input
-          type="datetime-local"
+        <DateTimeField
           value={callAt}
-          onChange={(e) => setCallAt(e.target.value)}
-          onBlur={() => {
-            if (callAt === isoToLocalInput(call.call_at)) return;
-            save({ call_at: localInputToIso(callAt) }, { refresh: true });
+          onChange={(v) => {
+            setCallAt(v);
+            // DateTimeField liefert nur vollstaendige Werte (Datum gewaehlt bzw.
+            // Uhrzeit bestaetigt) — kein Autosave pro Tastendruck.
+            if (v === isoToLocalInput(call.call_at)) return;
+            save({ call_at: localInputToIso(v) }, { refresh: true });
           }}
-          style={fieldInput}
+          ariaLabel="Termin"
         />
       </div>
 
@@ -844,11 +847,12 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
           </div>
           <div>
             <span style={fieldLabel}>Vertragsstart</span>
-            <input
-              type="date"
-              value={contractStart}
-              onChange={(e) => setContractStart(e.target.value)}
-              style={fieldInput}
+            <DatePicker
+              variant="input"
+              value={contractStart || null}
+              onChange={(v) => setContractStart(v ?? "")}
+              clearable
+              placeholder="Datum wählen"
             />
           </div>
           <div>
@@ -972,11 +976,11 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           <div>
             <span style={fieldLabel}>Wiedervorlage am *</span>
-            <input
-              type="datetime-local"
-              value={followUpDue}
-              onChange={(e) => setFollowUpDue(e.target.value)}
-              style={fieldInput}
+            <DatePicker
+              variant="input"
+              value={followUpDue || null}
+              onChange={(v) => setFollowUpDue(v ?? "")}
+              placeholder="Datum wählen"
             />
           </div>
 
@@ -1000,14 +1004,9 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
             <button
               type="button"
               disabled={isPending || !followUpDue}
-              onClick={() => {
-                const d = new Date(followUpDue);
-                submitOutcome(
-                  "nachfassen",
-                  { followUpDue: Number.isNaN(d.getTime()) ? followUpDue : d.toISOString() },
-                  () => setFollowOpen(false),
-                );
-              }}
+              onClick={() =>
+                submitOutcome("nachfassen", { followUpDue }, () => setFollowOpen(false))
+              }
               style={{
                 ...modalButton("primary", { bg: "var(--color-warning-bg)", fg: "var(--color-warning-text)" }),
                 border: "1px solid var(--color-warning-border)",

@@ -13,7 +13,9 @@ import { DangerZone } from "@/components/ui/DangerZone";
 import { ScriptRunner } from "@/components/scripts/ScriptRunner";
 import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { isoToBerlinInput } from "@/lib/apptTime";
+import { DatePicker } from "@/components/ui/DatePicker";
+import { DateTimeField } from "@/components/ui/DateTimeField";
+import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { LEGACY_SETTING_BLOCKS, SETTING_BLOCKS, SETTING_GOLD_BLOCKS } from "@/lib/scripts";
 import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
@@ -202,6 +204,10 @@ export function SettingCallEditor({
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleAt, setRescheduleAt] = useState(toDatetimeLocal(call.appointment_at));
   const [modalError, setModalError] = useState<string | null>(null);
+  // Closing-Termin: Pflichtangabe beim Anlegen — ohne ihn taucht das Closing
+  // weder im Kalender noch in der Wochenplanung auf.
+  const [closingModalOpen, setClosingModalOpen] = useState(false);
+  const [closingAt, setClosingAt] = useState(toDatetimeLocal(call.closing_at));
 
   useEffect(() => {
     return () => {
@@ -337,14 +343,27 @@ export function SettingCallEditor({
     });
   }
 
+  function openClosingModal() {
+    setModalError(null);
+    setClosingModalOpen(true);
+  }
+
+  /** Legt das Closing an — nur aus dem Modal heraus, also immer mit Termin. */
   function handleCreateClosing() {
+    const iso = berlinInputToIso(closingAt);
+    if (!iso) {
+      setModalError("Bitte einen Termin für das Closing angeben.");
+      return;
+    }
     startTransition(async () => {
-      const res = await createClosingFromSetting(call.id);
+      const res = await createClosingFromSetting(call.id, iso);
       if (res?.error) {
-        setError(res.error);
+        setModalError(res.error);
         return;
       }
+      setModalError(null);
       setError(null);
+      setClosingModalOpen(false);
       setClosingDone(true);
       setStatus("closing_gelegt");
       setShowStatus("show");
@@ -364,6 +383,11 @@ export function SettingCallEditor({
     }
     startTransition(async () => {
       const res = await createClosingFromSetting(call.id);
+      if (res?.needsDate) {
+        // Status sagt „closing_gelegt", es gibt aber keins — dann hier anlegen.
+        openClosingModal();
+        return;
+      }
       if (res?.error) {
         setError(res.error);
         return;
@@ -503,7 +527,7 @@ export function SettingCallEditor({
         ) : (
           <button
             type="button"
-            onClick={handleCreateClosing}
+            onClick={openClosingModal}
             disabled={isPending}
             className="btn-primary"
           >
@@ -803,13 +827,14 @@ export function SettingCallEditor({
           <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
             <div>
               <span style={fieldLabel}>Nachfassen am</span>
-              <input
-                type="date"
-                value={followUpDate}
-                disabled={skipFollowUp}
-                onChange={(e) => setFollowUpDate(e.target.value)}
-                style={{ ...fieldInput, opacity: skipFollowUp ? 0.5 : 1 }}
-              />
+              <div style={{ opacity: skipFollowUp ? 0.5 : 1, pointerEvents: skipFollowUp ? "none" : undefined }}>
+                <DatePicker
+                  variant="input"
+                  value={followUpDate || null}
+                  onChange={(v) => setFollowUpDate(v ?? "")}
+                  placeholder="Datum wählen"
+                />
+              </div>
             </div>
 
             <label
@@ -872,6 +897,51 @@ export function SettingCallEditor({
         )}
       </Modal>
 
+      {/* ── Modal: Closing-Termin (Pflicht) ── */}
+      <Modal
+        open={closingModalOpen}
+        onClose={() => setClosingModalOpen(false)}
+        title="Closing anlegen"
+        subtitle="Wann findet das Abschlussgespräch statt? Ohne Termin taucht das Closing im Kalender nicht auf."
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+          <div>
+            <span style={fieldLabel}>Closing-Termin *</span>
+            <DateTimeField value={closingAt} onChange={setClosingAt} ariaLabel="Closing-Termin" />
+          </div>
+
+          {modalError && (
+            <div
+              style={{
+                background: "var(--color-error-bg)",
+                border: "1px solid var(--color-error-border)",
+                color: "var(--color-error-text)",
+                borderRadius: "var(--radius-sm)",
+                padding: "0.5rem 0.75rem",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+              }}
+            >
+              {modalError}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+            <button
+              type="button"
+              disabled={isPending || !closingAt}
+              onClick={handleCreateClosing}
+              style={{ ...modalButton("primary"), opacity: isPending || !closingAt ? 0.6 : 1 }}
+            >
+              Closing anlegen
+            </button>
+            <button type="button" onClick={() => setClosingModalOpen(false)} style={modalButton("ghost")}>
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {/* ── Modal: Termin verlegen ── */}
       <Modal
         open={rescheduleOpen}
@@ -882,12 +952,7 @@ export function SettingCallEditor({
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           <div>
             <span style={fieldLabel}>Neuer Termin *</span>
-            <input
-              type="datetime-local"
-              value={rescheduleAt}
-              onChange={(e) => setRescheduleAt(e.target.value)}
-              style={fieldInput}
-            />
+            <DateTimeField value={rescheduleAt} onChange={setRescheduleAt} ariaLabel="Neuer Termin" />
           </div>
 
           {modalError && (

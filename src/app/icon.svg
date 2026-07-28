@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="titan.">
+  <!--
+    App-Marke: kleines "t" der Wortmarke plus den orangen Punkt aus
+    .wordmark::after (globals.css). Bei 16 px waere das volle "titan." Brei —
+    der Buchstabe mit Punkt traegt die Marke auch auf Tab-Groesse.
+
+    Das "t" ist bewusst ein PFAD und kein <text>: Favicons laden keine
+    Webfonts, ein font-family="Inter" wuerde also je nach Geraet auf Segoe UI
+    oder SF zurueckfallen. Die Kontur ist an Inter Semi Bold (600) gebaut —
+    Stamm 8.6, Querbalken 6.8, x-Hoehe 27.4, Versalhoehe des t 37.4.
+  -->
+  <rect width="64" height="64" rx="14" fill="#0A0A0B"/>
+  <rect x="0.5" y="0.5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.10"/>
+  <!-- Optisch zentriert und auf 90 % gesetzt: sonst draengt der Punkt bei
+       16 px in die abgerundete Ecke. Bezug ist die Bounding-Box der Marke
+       (x 14–49.9, y 11–48.4), Mittelpunkt (31.95 / 29.7). -->
+  <g transform="translate(32 32.5) scale(0.9) translate(-31.95 -29.7)">
+    <path
+      d="M20 11
+         L28.6 11
+         L28.6 21
+         L34.8 21
+         L34.8 27.8
+         L28.6 27.8
+         L28.6 36.4
+         C28.6 39.8 30.5 41.6 33.8 41.6
+         L37.8 41.6
+         L37.8 48.4
+         L33.4 48.4
+         C25.1 48.4 20 44.2 20 36.4
+         L20 27.8
+         L14 27.8
+         L14 21
+         L20 21
+         Z"
+      fill="#FAFAFA"/>
+    <!-- Der Punkt aus .wordmark::after — sitzt wie ein Satzpunkt auf der
+         Grundlinie (y 48.4). Etwas kraeftiger als der Stamm, damit er auf
+         16 px nicht zum Krumen wird. -->
+    <circle cx="45.3" cy="43.8" r="4.6" fill="#F97316"/>
+  </g>
+</svg>

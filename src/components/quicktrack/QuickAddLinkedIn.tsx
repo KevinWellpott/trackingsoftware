@@ -2,6 +2,7 @@
 
 import { createContact } from "@/app/actions/contacts";
 import { Modal } from "@/components/ui/Modal";
+import { Select } from "@/components/ui/Select";
 import { Check, Zap } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -177,19 +178,16 @@ export function QuickAddLinkedIn({
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div>
               <label htmlFor="qt-list" style={labelStyle}>Liste</label>
-              <select
+              <Select
                 id="qt-list"
-                required
                 value={listId}
-                onChange={(e) => setListId(e.target.value)}
-                style={{ ...inputStyle, cursor: "pointer" }}
-              >
-                {lists.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.owner_name ? `${l.owner_name} — ${l.name}` : l.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setListId}
+                ariaLabel="Liste"
+                options={lists.map((l) => ({
+                  value: l.id,
+                  label: l.owner_name ? `${l.owner_name} — ${l.name}` : l.name,
+                }))}
+              />
             </div>
 
             <div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker } from "@/components/ui/DatePicker";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { ANSWER_CATEGORIES, CATEGORY_CONFIG, type AnswerCategory } from "@/lib/categories";
@@ -30,19 +31,6 @@ const labelStyle: React.CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.06em",
   marginBottom: "0.375rem",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  background: "var(--surface-0)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  padding: "0.4rem 0.625rem",
-  fontSize: "0.8125rem",
-  color: "var(--text-primary)",
-  colorScheme: "light dark",
-  outline: "none",
-  boxSizing: "border-box",
 };
 
 export function ExportForm({ lists, currentFrom, currentTo, currentOwner, currentListIds, currentCategory }: Props) {
@@ -91,11 +79,11 @@ export function ExportForm({ lists, currentFrom, currentTo, currentOwner, curren
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
           <div>
             <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginBottom: 3 }}>Von</div>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={inputStyle} />
+            <DatePicker variant="input" value={from || null} onChange={(v) => setFrom(v ?? "")} placeholder="Von" />
           </div>
           <div>
             <div style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginBottom: 3 }}>Bis</div>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={inputStyle} />
+            <DatePicker variant="input" value={to || null} onChange={(v) => setTo(v ?? "")} placeholder="Bis" />
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.375rem", marginTop: "0.5rem", flexWrap: "wrap" }}>

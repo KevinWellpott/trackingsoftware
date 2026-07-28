@@ -1,6 +1,7 @@
 "use client";
 
 import { createManualSetting } from "@/app/actions/appointments";
+import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
 import { Segmented } from "@/components/ui/Segmented";
 import { Building2, CalendarClock, Tag, User, Video } from "lucide-react";
@@ -150,13 +151,11 @@ export function ManualAppointmentModal({
           <label htmlFor="man-at" style={labelStyle}>
             <CalendarClock size={13} /> Termin
           </label>
-          <input
+          <DateTimeField
             id="man-at"
-            type="datetime-local"
-            required
             value={appointmentAt}
-            onChange={(e) => setAppointmentAt(e.target.value)}
-            style={inputStyle}
+            onChange={setAppointmentAt}
+            ariaLabel="Termin"
           />
         </div>
 

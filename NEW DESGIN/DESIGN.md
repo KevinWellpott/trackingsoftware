@@ -303,6 +303,49 @@ Jedes Control der App teilt dieselbe Materialsprache — daran erkennt man sie a
 
 ---
 
+### 5.3 Selektoren & Datumsfelder
+
+**Grundsatz: keine nativen Auswahl-Controls.** Ein `<select>` lässt sich nur im geschlossenen Zustand gestalten — die aufgeklappte Optionsliste zeichnet das Betriebssystem, ebenso den Kalender von `<input type="date">`. Beides bricht aus dem Branding aus, und zwar genau in dem Moment, in dem der Nutzer hinsieht. Die App nutzt deshalb durchgängig eigene Komponenten:
+
+| Komponente | Ersetzt | Einsatz |
+|---|---|---|
+| `ui/Select` | `<select>` | Alle Dropdowns. `FormSelect` für `<form action>` (schreibt ein `<input type="hidden">`) |
+| `ui/DatePicker` | `<input type="date">` | Reine Kalendertage — Wiedervorlage, Zeitraum, Vertragsstart |
+| `ui/DateTimeField` | `<input type="datetime-local">` | Termine mit Uhrzeit |
+| `ui/CalendarPopover` | — | Der geteilte Monatskalender beider Datums-Komponenten |
+| `ui/AnchoredPopover` | — | Gemeinsamer Unterbau: Portal, Positionierung, Schließen |
+
+**Anatomie:** Trigger im `.field-trigger`-Kasten (identische Box wie `.ui-input`, damit Text-, Auswahl- und Datumsfelder in einer Zeile fluchten) → aufklappende Liste als **Glass-Popover** nach Rezept 4.2. Dropdowns sind Glas, Dialoge solid — der Selektor folgt derselben Regel wie jedes andere Popover.
+
+| Eigenschaft | Wert |
+|---|---|
+| Trigger-Höhe | `--h-control` 32px |
+| Trigger-Radius | `--r-md` |
+| Chevron / Icon | 14px, `--text-muted`, Chevron dreht beim Öffnen 180° |
+| Fokus | `--orange-500` Rand + `0 0 0 3px --accent-muted` |
+| Offen | Rand `--orange-500` (`[aria-expanded="true"]`) |
+| Option gewählt | `--accent-muted` Fläche · `--orange-300` Text · Häkchen 13px |
+| Option aktiv (Tastatur/Hover) | `--surface-2`, kein Orange |
+| Popover | max. 288px hoch, danach scrollt die Liste |
+
+**Warum Orange hier erlaubt ist:** Die Auswahl-Markierung ist ein **UI-Zustand**, kein Status am Datensatz — dieselbe Rolle wie der gewählte Tag im Kalender. Abschnitt 3.5 bleibt unberührt: kein Selektor färbt jemals ein Ergebnis.
+
+**Portal-Pflicht:** Die Popover rendern über ein Portal mit `position: fixed`. Selektoren stehen u. a. in der virtualisierten Kontakt-Tabelle und in Modals; absolut positioniert würden sie am nächsten `overflow`-Container abgeschnitten.
+
+**Tastatur:** Fokus bleibt auf dem Trigger (`aria-activedescendant`-Muster). ↑/↓ bewegen, Enter wählt, Escape schließt, Tab verlässt. Das vermeidet Fokus-Umhängen und funktioniert in Modals ohne Sonderfall.
+
+**Uhrzeit:** `DateTimeField` ist Datum-Button + echtes Textfeld in einer Hülle; der Fokusring liegt auf der Hülle (`:focus-within`), sonst blinkte er beim Wechsel zweimal auf. Das Textfeld schlägt Viertelstunden vor, akzeptiert aber Freitext — `9`, `930` und `9:30` ergeben alle `09:30`. Termine liegen fast immer auf der Viertelstunde, krumme Zeiten müssen trotzdem tippbar bleiben.
+
+**Wertformat:** `DateTimeField` liefert exakt das Format des nativen Inputs (`2026-07-27T10:00`, Berlin-Wandzeit). Umgerechnet wird ausschließlich in `src/lib/apptTime.ts` — nie mit `new Date(input).toISOString()`.
+
+**Do / Don't:** ✅ `DatePicker` für `date`-Spalten, `DateTimeField` nur wo die Uhrzeit fachlich zählt · ❌ nie ein natives `<select>` oder `<input type="date">` neu einbauen · ❌ Auswahl-Orange nie zur Status-Aussage umdeuten.
+
+**Sicherheitsnetz:** `globals.css` §6.5b gestaltet verbliebene native Controls (eigener Chevron, Marken-Flächen, entsättigtes Kalender-Icon). Das ist Absicherung, kein Freibrief — neue Felder nehmen die Komponenten.
+
+**Referenz-Routen:** `/lists/[id]` (Kategorie-Spalte) · `/setting/[id]` (Closing-Termin) · `/analyse` (freier Zeitraum).
+
+---
+
 ## 6. Typografie: Inter
 
 ### 6.1 Laden

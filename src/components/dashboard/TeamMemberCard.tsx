@@ -71,6 +71,10 @@ export function TeamMemberCard({
             borderRadius: "50%",
             background: c.bg,
             color: c.fg,
+            // Markenring um den Avatar. box-sizing, damit der Rand den Kreis
+            // nicht auf 36px aufblaest und die Kopfzeile verspringt.
+            border: "2px solid var(--orange-500)",
+            boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

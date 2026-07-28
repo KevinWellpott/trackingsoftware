@@ -1,5 +1,6 @@
 import { createUserForm, listUsers } from "@/app/actions/workspace";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { FormSelect } from "@/components/ui/Select";
 import { getTargets, setTargetForm } from "@/app/actions/targets";
 import { getFollowupTemplates } from "@/app/actions/templates";
 import {
@@ -188,17 +189,31 @@ export default async function SettingsPage({
               <div style={{ display: "flex", alignItems: "flex-end", gap: "var(--sp-6)", flexWrap: "wrap" }}>
                 <div>
                   <label htmlFor="new-role" style={FIELD_LABEL}>Rolle</label>
-                  <select id="new-role" name="role" defaultValue="member" className="ui-input" style={{ width: "auto" }}>
-                    <option value="member">Member</option>
-                    <option value="owner">Owner</option>
-                  </select>
+                  <FormSelect
+                    id="new-role"
+                    name="role"
+                    defaultValue="member"
+                    ariaLabel="Rolle"
+                    options={[
+                      { value: "member", label: "Member" },
+                      { value: "owner", label: "Owner" },
+                    ]}
+                    triggerStyle={{ width: 176 }}
+                  />
                 </div>
                 <div>
                   <label htmlFor="new-scope" style={FIELD_LABEL}>Datensicht</label>
-                  <select id="new-scope" name="data_scope" defaultValue="workspace" className="ui-input" style={{ width: "auto" }}>
-                    <option value="workspace">Alle Daten</option>
-                    <option value="own">Nur eigene Daten</option>
-                  </select>
+                  <FormSelect
+                    id="new-scope"
+                    name="data_scope"
+                    defaultValue="workspace"
+                    ariaLabel="Datensicht"
+                    options={[
+                      { value: "workspace", label: "Alle Daten" },
+                      { value: "own", label: "Nur eigene Daten" },
+                    ]}
+                    triggerStyle={{ width: 208 }}
+                  />
                 </div>
                 {/* Der eine Primaer-CTA dieser View. */}
                 <button type="submit" className="btn-primary">

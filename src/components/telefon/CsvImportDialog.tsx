@@ -2,6 +2,7 @@
 
 import { importPhoneCsv } from "@/app/actions/phone";
 import { Modal } from "@/components/ui/Modal";
+import { Select } from "@/components/ui/Select";
 import { FileUp, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -201,18 +202,13 @@ export function CsvImportDialog({
                 <label htmlFor="csv-owner" style={labelStyle}>
                   Inhaber
                 </label>
-                <select
+                <Select
                   id="csv-owner"
                   value={ownerUserId}
-                  onChange={(e) => setOwnerUserId(e.target.value)}
-                  style={inputStyle}
-                >
-                  {users.map((u) => (
-                    <option key={u.user_id} value={u.user_id}>
-                      {u.username}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setOwnerUserId}
+                  ariaLabel="Inhaber"
+                  options={users.map((u) => ({ value: u.user_id, label: u.username }))}
+                />
               </div>
             ) : (
               <div>

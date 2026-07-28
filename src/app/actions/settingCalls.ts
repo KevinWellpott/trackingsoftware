@@ -188,15 +188,29 @@ export async function moveSettingAppointment(
   return {};
 }
 
-/** Aus einem qualifizierten Setting einen Closing-Call anlegen (idempotent). */
+/**
+ * Aus einem qualifizierten Setting einen Closing-Call anlegen (idempotent).
+ *
+ * Der Closing-Termin ist PFLICHT. Vorher wurde `call_at` aus
+ * `setting_calls.closing_at` uebernommen — ein Feld, das keine Oberflaeche
+ * befuellt. Praktisch entstand damit jedes Closing ohne Termin und tauchte
+ * weder im Kalender noch in der Wochenplanung auf.
+ *
+ * Ohne Datum wird deshalb nicht angelegt, sondern `needsDate` zurueckgegeben;
+ * die Oberflaeche fragt dann im Modal nach. Das ist zugleich der Weg, auf dem
+ * „Zum Closing →" ein bereits bestehendes Closing aufloest, ohne ein Datum
+ * mitzuschicken.
+ */
 export async function createClosingFromSetting(
   settingId: string,
-): Promise<{ error?: string; closingId?: string }> {
+  closingAtIso?: string | null,
+): Promise<{ error?: string; closingId?: string; needsDate?: boolean }> {
   const access = await getAccessContext();
   if (!access) return { error: "Nicht angemeldet." };
   if (!(await canAccessSettingCall(settingId))) return { error: "Keine Berechtigung." };
 
   const supabase = await createClient();
+  const closingAt = closingAtIso?.trim() || null;
 
   // Qualifiziert heißt: er war da. Wiedervorlage aus einem früheren No-Show/
   // Unqualifiziert entfällt, sonst bliebe der Call im Nachfassen-Board hängen.
@@ -210,37 +224,46 @@ export async function createClosingFromSetting(
   // Bereits vorhandenen Closing-Call wiederverwenden
   const { data: existing } = await supabase
     .from("closing_calls")
-    .select("id")
+    .select("id, call_at")
     .eq("setting_call_id", settingId)
     .maybeSingle();
   if (existing) {
-    await supabase.from("setting_calls").update(qualifiedPatch).eq("id", settingId);
+    // Einen bestehenden Termin NICHT ueberschreiben — nur eine Luecke fuellen.
+    if (closingAt && !existing.call_at) {
+      await supabase.from("closing_calls").update({ call_at: closingAt }).eq("id", existing.id);
+    }
+    await supabase
+      .from("setting_calls")
+      .update(closingAt ? { ...qualifiedPatch, closing_at: closingAt } : qualifiedPatch)
+      .eq("id", settingId);
     revalidatePath("/termine", "page");
     revalidatePath("/nachfassen", "page");
     return { closingId: existing.id };
   }
 
+  // Neu anlegen geht nur mit Termin.
+  if (!closingAt) return { needsDate: true };
+
   const { data: rawSetting } = await supabase
     .from("setting_calls")
-    .select("lead_name, company, closing_at, meet_link")
+    .select("lead_name, company, meet_link")
     .eq("id", settingId)
     .maybeSingle();
   const setting = rawSetting as {
     lead_name?: string | null;
     company?: string | null;
-    closing_at?: string | null;
     meet_link?: string | null;
   } | null;
 
-  // Termin + Meet-Link aus dem Setting vorbefüllen (Closing-Termin, sonst
-  // sinnvoller Default: derselbe Meet-Raum wie beim Setting-Call).
+  // Meet-Link aus dem Setting vorbefüllen — sinnvoller Default ist derselbe
+  // Meet-Raum wie beim Setting-Call.
   const { data: closing, error } = await supabase
     .from("closing_calls")
     .insert({
       setting_call_id: settingId,
       lead_name: setting?.lead_name ?? null,
       company: setting?.company ?? null,
-      call_at: setting?.closing_at ?? null,
+      call_at: closingAt,
       meet_link: setting?.meet_link ?? null,
       status: "offen",
     })
@@ -248,7 +271,10 @@ export async function createClosingFromSetting(
     .single();
   if (error || !closing) return { error: error?.message ?? "Closing anlegen fehlgeschlagen." };
 
-  await supabase.from("setting_calls").update(qualifiedPatch).eq("id", settingId);
+  await supabase
+    .from("setting_calls")
+    .update({ ...qualifiedPatch, closing_at: closingAt })
+    .eq("id", settingId);
 
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
