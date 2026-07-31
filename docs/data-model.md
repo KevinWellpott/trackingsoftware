@@ -43,6 +43,7 @@ Begriffe:
 - `setting_calls` und `closing_calls` haben **kein** `owner_name` — dort ist `created_by_user_id` die Personen-Zuordnung (zusätzlich Multi-Zuweisung über `call_assignees`).
 - Persönliches Dashboard `/` = genau eine Person; Team-Dashboard `/team` = workspace-weit (nur `role='owner'` mit `data_scope='workspace'`). Admins können per Cookie die Datensicht eines Mitglieds einnehmen.
 - **Zwei geschachtelte Umschalter:** Der Org-Umschalter (rot, nur Plattform-Admins) wechselt die *Organisation*, die Datensicht (orange) wechselt die *Person* innerhalb der aktiven Organisation. Rot steht über Orange — äußere Grenze zuerst.
+- **Organisation löschen:** `preview_delete_workspace()` / `platform_delete_workspace()` (Migration 0027, UI unter `/admin/org/[id]`). An `workspaces` hängen **14 Fremdschlüssel mit `on delete cascade`** — ein `delete` nimmt den kompletten Datenbestand der Organisation mit, ohne Undo. Die Funktion verweigert deshalb, solange noch Mitglieder da sind (sonst blieben verwaiste Accounts zurück: Mitgliedschaft kaskadiert weg, Login bleibt), und bei der eigenen Organisation; die UI verlangt zusätzlich das Abtippen des Namens.
 - **Nutzer verschieben:** `preview_move_user()` / `admin_move_user_to_workspace()` (Migration 0026, UI unter `/admin/org/[id]`). Der Umzug stempelt `workspace_id` auf 14 Tabellen um und kappt Kanten, die über die neue Org-Grenze zeigen (Termin ohne Quellkontakt, Closing ohne Setting, Smart View ohne Ordner) — genullt, nicht blockiert, weil `lead_name`/`company` als Snapshot vorliegen. Besitz-Ermittlung ausschließlich in `move_user_scope()`, damit Vorschau und Umzug nie auseinanderlaufen.
 - **Wichtig für MCP-Auswertungen:** `execute_sql` läuft direkt auf Postgres **an RLS vorbei** — man sieht alle Daten. Personenfilter daher immer explizit setzen: über `lists.owner_name` / `phone_lists.owner_name` (Vorrang) bzw. `created_by_user_id` joined auf `profiles.username`.
 
@@ -163,7 +164,7 @@ Konsequenz: Bei Unsicherheit über existierende Spalten das Live-Schema per MCP 
 
 **Nullable-Fallen bei Boolean-Filtern:** `contacts.answered` und `contacts.appointment_set` sind `boolean | null`, und **NULL ist der Normalfall** (frisch gepitcht = noch nichts passiert). Ein `= false` verliert damit die Mehrheit der Zeilen. Die gesamte App liest „nicht true" als Nein — so auch `isDueFollowUp` (`ListBoardV2`), der `nachfassen_tasks`-RPC und `viewFilterOps` (`src/lib/listViews.ts`). In SQL entsprechend `is not true` statt `= false`.
 
-**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes), `…0023` (`list_views`), `…0024` (Schema-Abgleich), `…0025` (`platform_admins`) und `…0026` (Nutzer-Umzug) laufen nicht automatisch — sie müssen im Supabase-SQL-Editor ausgeführt werden.
+**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes), `…0023` (`list_views`), `…0024` (Schema-Abgleich), `…0025` (`platform_admins`), `…0026` (Nutzer-Umzug) und `…0027` (Organisation löschen) laufen nicht automatisch — sie müssen im Supabase-SQL-Editor ausgeführt werden.
 
 ## 8. Mandanten-Invarianten (nach jedem Nutzer-Umzug prüfen)
 
