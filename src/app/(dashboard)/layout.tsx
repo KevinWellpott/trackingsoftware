@@ -3,6 +3,7 @@ import { getAccessContext, listDataViewUsers, buildOwnScope } from "@/lib/access
 import { MobileHeader } from "@/components/MobileHeader";
 import { QuickAddLinkedIn } from "@/components/quicktrack/QuickAddLinkedIn";
 import { SidebarContent } from "@/components/Sidebar";
+import { ForeignOrgBanner } from "@/components/ForeignOrgBanner";
 import { buildViewTree, type ViewRow } from "@/lib/listViews";
 import { redirect } from "next/navigation";
 
@@ -61,6 +62,18 @@ export default async function DashboardLayout({
   // statt die ganze App zu blockieren.
   const viewTree = buildViewTree((viewRows ?? []) as ViewRow[]);
 
+  // Nur Plattform-Admins bekommen den Umschalter — fuer alle anderen bleibt
+  // orgSwitch undefined und die Sidebar rendert exakt wie bisher.
+  const orgSwitch = access.is_platform_admin
+    ? {
+        activeId: access.workspace_id,
+        activeName: access.workspaces.name,
+        homeId: access.home_workspace_id,
+        isForeign: access.is_foreign_org,
+        orgs: access.available_workspaces,
+      }
+    : undefined;
+
   const phoneLists = (phoneListsData ?? []).map((l) => ({
     id: l.id as string,
     name: l.name as string,
@@ -97,6 +110,7 @@ export default async function DashboardLayout({
             activeLabel: access.effective_username ?? "Alle Daten",
             users: dataViewUsers,
           }}
+          orgSwitch={orgSwitch}
         />
       </aside>
 
@@ -118,6 +132,7 @@ export default async function DashboardLayout({
               activeLabel: access.effective_username ?? "Alle Daten",
               users: dataViewUsers,
             }}
+            orgSwitch={orgSwitch}
           />
         </div>
 
@@ -132,6 +147,7 @@ export default async function DashboardLayout({
             padding: "var(--sp-9)",
           }}
         >
+          {access.is_foreign_org && <ForeignOrgBanner name={access.workspaces.name} />}
           {children}
           <QuickAddLinkedIn lists={sidebarLists} />
         </main>

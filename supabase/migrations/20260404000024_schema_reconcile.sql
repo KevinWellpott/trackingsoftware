@@ -1,0 +1,39 @@
+-- Schema-Abgleich: holt manuelles DDL nach, das nur in der Produktion existiert.
+--
+-- Hintergrund (docs/data-model.md §7): der Migrationsordner ist kein getreues
+-- Abbild der Datenbank. Vor dem Mandanten-Umbau wurde das Live-Schema gegen
+-- diesen Ordner abgeglichen (PostgREST-OpenAPI, 18 Tabellen). Ergebnis: genau
+-- zwei Spalten existieren live, aber in keiner Migration.
+--
+-- Diese Migration ist auf der Produktion ein No-Op (alles `if not exists`).
+-- Ihr Zweck ist, dass eine frisch aufgesetzte Datenbank dasselbe Schema
+-- bekommt — sonst laufen die folgenden Migrationen dort ins Leere.
+
+-- ---------------------------------------------------------------------------
+-- 1) lists.owner_name — von der halben App benutzt, nirgends angelegt
+-- ---------------------------------------------------------------------------
+-- Wird gelesen von: 20260404000006 (RLS-Backfill), allen owner_name-RPCs ab
+-- 20260404000015, buildOwnScope() in src/lib/access.ts und der gesamten
+-- Sidebar-/Listen-UI. Stammt aus einer nicht im Repo vorhandenen Alt-Migration.
+-- Bedeutung: Besitzer der Liste, matcht auf profiles.username, hat Vorrang vor
+-- created_by_user_id (siehe list_owned_by_user()).
+alter table public.lists add column if not exists owner_name text;
+
+-- ---------------------------------------------------------------------------
+-- 2) profiles.is_super_admin — verwaist, WIRD NICHT BENUTZT
+-- ---------------------------------------------------------------------------
+-- Existiert live als `boolean not null default false`, wird aber von keiner
+-- Migration angelegt und von keiner Zeile Anwendungscode gelesen (verifiziert
+-- per Volltextsuche ueber das gesamte Repo). Vermutlich ein abgebrochener
+-- frueherer Anlauf fuer genau das Feature, das jetzt gebaut wird.
+--
+-- ACHTUNG: Diese Spalte ist als Berechtigungsflag UNBRAUCHBAR. Die Policy
+-- `profiles_update_own` (20260404000001:59) erlaubt jedem Nutzer ein UPDATE
+-- auf seine eigene Profilzeile — er koennte sich das Flag also selbst setzen.
+-- Deshalb laeuft die Plattform-Admin-Berechtigung ueber die separate Tabelle
+-- public.platform_admins (siehe 20260404000025), auf die niemand schreiben
+-- darf. Migration 0025 haengt zusaetzlich einen Wächter-Trigger an diese
+-- Spalte, damit sie nicht doch noch versehentlich scharf geschaltet wird.
+--
+-- Sie wird hier bewusst NICHT angelegt: eine frische Datenbank soll sie gar
+-- nicht erst bekommen. Der Wächter in 0025 prueft daher auf Existenz.

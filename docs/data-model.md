@@ -29,13 +29,21 @@ Begriffe:
 
 ## 2. Workspace- & Sichtbarkeitsmodell
 
-- Ein **Workspace = ein Team**; ein User hat genau **eine** Mitgliedschaft (`workspace_members`). Praktisch gibt es einen produktiven Workspace.
+- Ein **Workspace = eine Organisation = ein Kunden-Mandant.** Ein User hat genau **eine** Mitgliedschaft (`workspace_members`) — das ist eine harte Annahme: `getAccessContext()` würde bei zwei Mitgliedschaften den Nutzer aussperren (Redirect `/onboarding`, wo `bootstrap_workspace` mit `'Already in a workspace'` abbricht). Die Umzugsfunktion löscht die alte Mitgliedschaft deshalb, statt eine zweite anzulegen.
+- **Plattform-Admins (`platform_admins`, Migration 0025)** stehen *oberhalb* der Organisation: Simon und Kevin dürfen jede Organisation lesen und dort schreiben, sind aber **in keiner Kunden-Organisation Mitglied**. Sonst erschienen sie im Team-Dashboard und in der Datensicht-Auswahl des Kunden — und umgekehrt.
+  - Technisch: `is_platform_admin()` (SECURITY DEFINER, `stable`) + je eine zusätzliche permissive RLS-Policy `<tabelle>_platform_admin` auf 17 Tabellen. Die bestehenden `can_access_*`-Helfer bleiben unangetastet.
+  - Die 8 Metrik-RPCs sind über einen einzigen Zweig in `rpc_effective_user` org-übergreifend — keine RPC musste geändert werden.
+  - **`profiles.is_super_admin` ist NICHT dieses Flag.** Die Spalte existiert live, wird von keiner Zeile Code gelesen und ist als Berechtigung unbrauchbar, weil `profiles_update_own` jedem Nutzer erlaubt, seine eigene Profilzeile zu ändern. Ein Trigger aus Migration 0025 friert sie ein.
+- **Aktive Organisation:** `AccessContext.workspace_id` meint die *aktive* Organisation, nicht zwingend die eigene. Für einen Plattform-Admin steuert der Cookie `pt_active_workspace_id` (8 h, httpOnly) den Wechsel; in fremder Org werden `role='owner'` und `data_scope='workspace'` synthetisiert, damit alle Owner-Gates greifen. `is_foreign_org` schaltet die roten Warnbanner. Ein Org-Wechsel löscht immer den Datensicht-Cookie.
+- **`workspace_id` beim INSERT immer explizit setzen.** Die BEFORE-INSERT-Trigger leiten es sonst aus der Mitgliedschaft ab — was für einen Plattform-Admin in einer Kunden-Org die falsche Organisation wäre. Seit Migration 0025 wirft der Trigger in genau diesem Fall, statt still zu raten. Ausnahme: `contacts` und `phone_leads` erben es korrekt von ihrer Elternliste.
 - Zwei unabhängige Achsen auf `workspace_members`:
   - `role`: `owner` | `member` → Admin-Rechte (Team-Dashboard `/team`, Nutzerverwaltung, Owner-Auswahl beim Import).
   - `data_scope`: `workspace` | `own` → Datensichtbarkeit (`own` sieht nur eigene Daten; RLS + RPCs erzwingen das).
 - **Owner-Zuordnung von Listen: `owner_name` hat Vorrang vor `created_by_user_id`** (`list_owned_by_user()` in SQL, `buildOwnScope()` in `src/lib/access.ts`). Ein Admin kann eine Liste FÜR ein Mitglied anlegen (owner_name = Mitglied, created_by = Admin) — die Zahlen zählen dann beim Mitglied. `owner_name` matcht auf `profiles.username`.
 - `setting_calls` und `closing_calls` haben **kein** `owner_name` — dort ist `created_by_user_id` die Personen-Zuordnung (zusätzlich Multi-Zuweisung über `call_assignees`).
 - Persönliches Dashboard `/` = genau eine Person; Team-Dashboard `/team` = workspace-weit (nur `role='owner'` mit `data_scope='workspace'`). Admins können per Cookie die Datensicht eines Mitglieds einnehmen.
+- **Zwei geschachtelte Umschalter:** Der Org-Umschalter (rot, nur Plattform-Admins) wechselt die *Organisation*, die Datensicht (orange) wechselt die *Person* innerhalb der aktiven Organisation. Rot steht über Orange — äußere Grenze zuerst.
+- **Nutzer verschieben:** `preview_move_user()` / `admin_move_user_to_workspace()` (Migration 0026, UI unter `/admin/org/[id]`). Der Umzug stempelt `workspace_id` auf 14 Tabellen um und kappt Kanten, die über die neue Org-Grenze zeigen (Termin ohne Quellkontakt, Closing ohne Setting, Smart View ohne Ordner) — genullt, nicht blockiert, weil `lead_name`/`company` als Snapshot vorliegen. Besitz-Ermittlung ausschließlich in `move_user_scope()`, damit Vorschau und Umzug nie auseinanderlaufen.
 - **Wichtig für MCP-Auswertungen:** `execute_sql` läuft direkt auf Postgres **an RLS vorbei** — man sieht alle Daten. Personenfilter daher immer explizit setzen: über `lists.owner_name` / `phone_lists.owner_name` (Vorrang) bzw. `created_by_user_id` joined auf `profiles.username`.
 
 ## 3. Tabellen-Glossar
@@ -145,15 +153,51 @@ group by 1 order by 2 desc;
 
 Der Migrationsordner ist fast, aber nicht 100 % vollständig:
 - Migrationen `…000002` und `…000004` fehlen im Repo (Nummerierungslücke).
-- `lists.owner_name` wird überall benutzt (RPCs, RLS-Backfill, UI), wird aber von keiner Repo-Migration angelegt → stammt aus einer fehlenden Alt-Migration bzw. manuellem DDL.
 - Migration 0014 erwähnt explizit einen Alt-CHECK auf `answer_category` „aus der nicht im Repo vorhandenen Alt-Migration".
+
+**Stand des Abgleichs (Juli 2026, vor dem Mandanten-Umbau):** Das Live-Schema wurde vollständig gegen den Migrationsordner geprüft (alle 18 Tabellen). Genau **zwei** Spalten existierten live ohne Migration:
+- `lists.owner_name` — wird überall benutzt (RPCs, RLS-Backfill, UI). Nachgezogen in Migration `…0024_schema_reconcile.sql`.
+- `profiles.is_super_admin` — verwaist, von keiner Zeile Code gelesen. Bewusst **nicht** in den Migrationsordner übernommen (eine frische DB soll sie nicht bekommen); Migration 0025 friert sie per Trigger ein. Siehe §2.
 
 Konsequenz: Bei Unsicherheit über existierende Spalten das Live-Schema per MCP prüfen (`list_tables`), statt allein den Migrationen zu vertrauen.
 
 **Nullable-Fallen bei Boolean-Filtern:** `contacts.answered` und `contacts.appointment_set` sind `boolean | null`, und **NULL ist der Normalfall** (frisch gepitcht = noch nichts passiert). Ein `= false` verliert damit die Mehrheit der Zeilen. Die gesamte App liest „nicht true" als Nein — so auch `isDueFollowUp` (`ListBoardV2`), der `nachfassen_tasks`-RPC und `viewFilterOps` (`src/lib/listViews.ts`). In SQL entsprechend `is not true` statt `= false`.
 
-**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes) und `…0023` (`list_views`) laufen nicht automatisch — sie müssen im Supabase-SQL-Editor ausgeführt werden.
+**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes), `…0023` (`list_views`), `…0024` (Schema-Abgleich), `…0025` (`platform_admins`) und `…0026` (Nutzer-Umzug) laufen nicht automatisch — sie müssen im Supabase-SQL-Editor ausgeführt werden.
 
-## 8. Datenauswertung per MCP
+## 8. Mandanten-Invarianten (nach jedem Nutzer-Umzug prüfen)
+
+Alle Abfragen müssen `0` bzw. eine leere Menge liefern. Sie decken genau die Fehler ab, die ein unvollständiger Umzug hinterlässt.
+
+```sql
+-- Keine Doppelmitgliedschaft (sperrt den Nutzer sonst aus, siehe §2)
+select user_id, count(*) from workspace_members group by 1 having count(*) > 1;
+
+-- Denormalisiertes workspace_id stimmt mit der Elternliste überein
+select count(*) from contacts c join lists l on l.id = c.list_id where c.workspace_id <> l.workspace_id;
+select count(*) from phone_leads p join phone_lists l on l.id = p.list_id where p.workspace_id <> l.workspace_id;
+select count(*) from organic_posts o join organic_lists l on l.id = o.list_id where o.workspace_id <> l.workspace_id;
+
+-- Keine Referenz zeigt über eine Org-Grenze
+select count(*) from closing_calls cc join setting_calls sc on sc.id = cc.setting_call_id
+  where cc.workspace_id <> sc.workspace_id;
+select count(*) from setting_calls sc join contacts c on c.id = sc.source_contact_id
+  where sc.workspace_id <> c.workspace_id;
+select count(*) from setting_calls sc join phone_leads pl on pl.id = sc.source_phone_lead_id
+  where sc.workspace_id <> pl.workspace_id;
+select count(*) from list_views v where v.parent_id is not null
+  and (select workspace_id from list_views p where p.id = v.parent_id) <> v.workspace_id;
+select count(*) from call_assignees ca join workspace_members wm on wm.user_id = ca.user_id
+  where wm.workspace_id <> ca.workspace_id;
+
+-- owner_name zeigt nur auf Mitglieder DERSELBEN Organisation
+select l.workspace_id, l.owner_name from lists l where l.owner_name is not null
+  and not exists (select 1 from workspace_members wm join profiles p on p.user_id = wm.user_id
+                   where wm.workspace_id = l.workspace_id and p.username = l.owner_name);
+```
+
+Zusätzlich als UI-Gegenprobe in der eigenen Organisation: `/team` zeigt nur eigene Mitglieder · Datensicht-Auswahl ohne fremde Namen · `/termine` ohne fremde Termine · Suche nach einem fremden Lead liefert 0 Treffer · Sidebar ohne fremde Listen.
+
+## 9. Datenauswertung per MCP
 
 **Für Datenauswertung: den Supabase-MCP (read-only, `execute_sql` / `list_tables`) nutzen, mit obigem Glossar als Kontext.** RLS greift dort nicht — Personen-/Zeitraumfilter immer explizit in die Query schreiben (§2, §5). Der MCP funktioniert nur, wenn `SUPABASE_ACCESS_TOKEN` vor dem Start von Claude Code in der Umgebung gesetzt ist (siehe README, Abschnitt „Supabase MCP").

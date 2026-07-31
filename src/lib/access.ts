@@ -4,6 +4,10 @@ import type { Workspace } from "@/lib/types";
 
 export const DATA_VIEW_COOKIE = "pt_data_view_user_id";
 
+// Aktive Organisation eines Plattform-Admins. Normale Nutzer haben diesen
+// Cookie nie — fuer sie ist die aktive Organisation immer ihre einzige.
+export const ACTIVE_ORG_COOKIE = "pt_active_workspace_id";
+
 export type DataScope = "workspace" | "own";
 
 export type DataViewUser = {
@@ -12,8 +16,18 @@ export type DataViewUser = {
   data_scope: DataScope;
 };
 
+export type OrgSummary = {
+  id: string;
+  name: string;
+};
+
 export type AccessContext = {
   user: { id: string };
+  // Die AKTIVE Organisation — fuer normale Nutzer identisch mit ihrer
+  // Mitgliedschaft, fuer einen Plattform-Admin ggf. eine fremde. Alle
+  // Abfragen der App filtern hierauf; dadurch wandert der gesamte
+  // Datenbestand beim Org-Wechsel mit, ohne dass die Aufrufstellen etwas
+  // davon wissen muessen.
   workspace_id: string;
   role: "owner" | "member";
   data_scope: DataScope;
@@ -22,6 +36,13 @@ export type AccessContext = {
   effective_user_id: string | null;
   effective_username: string | null;
   can_switch_view: boolean;
+  is_platform_admin: boolean;
+  // Die Organisation, in der der Nutzer wirklich Mitglied ist. Bei einem
+  // Plattform-Admin in fremder Org weicht sie von workspace_id ab.
+  home_workspace_id: string | null;
+  is_foreign_org: boolean;
+  // Nur fuer Plattform-Admins befuellt (Auswahl im Org-Umschalter).
+  available_workspaces: OrgSummary[];
 };
 
 type MemberRow = {
@@ -33,6 +54,18 @@ type MemberRow = {
 
 type ProfileRow = { username: string } | null;
 
+// Vor dem Einspielen von Migration 0025 existiert die RPC noch nicht. Dann
+// ist niemand Plattform-Admin und die App verhaelt sich exakt wie vorher,
+// statt mit einem Fehler stehenzubleiben (gleiche Vorsichtsmassnahme wie beim
+// list_views-Rollout, siehe (dashboard)/layout.tsx).
+async function resolvePlatformAdmin(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("is_platform_admin");
+  if (error) return false;
+  return data === true;
+}
+
 export async function getAccessContext(): Promise<AccessContext | null> {
   const supabase = await createClient();
   const {
@@ -40,44 +73,91 @@ export async function getAccessContext(): Promise<AccessContext | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data: member, error: memberError } = await supabase
-    .from("workspace_members")
-    .select("workspace_id, user_id, role, data_scope")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (memberError || !member) return null;
-  const row = member as MemberRow;
-
-  const [{ data: workspace }, { data: profile }] = await Promise.all([
+  const [{ data: memberRows }, isPlatformAdmin, { data: profile }] = await Promise.all([
+    // Bewusst KEIN .maybeSingle(): zwei Mitgliedschaften wuerden dort einen
+    // PostgREST-Fehler ausloesen, getAccessContext gaebe null zurueck und der
+    // Nutzer landete in einer Endlosschleife auf /onboarding, wo
+    // bootstrap_workspace mit 'Already in a workspace' abbricht.
     supabase
-      .from("workspaces")
-      .select("*")
-      .eq("id", row.workspace_id)
-      .single(),
-    supabase
-      .from("profiles")
-      .select("username")
-      .eq("user_id", user.id)
-      .maybeSingle(),
+      .from("workspace_members")
+      .select("workspace_id, user_id, role, data_scope")
+      .eq("user_id", user.id),
+    resolvePlatformAdmin(supabase),
+    supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle(),
   ]);
+
+  const memberships = (memberRows ?? []) as MemberRow[];
+  const home = memberships[0] ?? null;
+
+  const cookieStore = await cookies();
+  const requestedOrgId = cookieStore.get(ACTIVE_ORG_COOKIE)?.value ?? null;
+
+  // Welche Organisation ist aktiv?
+  let activeWorkspaceId: string | null = null;
+  let role: "owner" | "member" = "member";
+  let dataScope: DataScope = "workspace";
+  let isForeignOrg = false;
+
+  const requestedMembership = requestedOrgId
+    ? memberships.find((m) => m.workspace_id === requestedOrgId)
+    : undefined;
+
+  if (requestedMembership) {
+    activeWorkspaceId = requestedMembership.workspace_id;
+    role = requestedMembership.role;
+    dataScope = requestedMembership.data_scope ?? "workspace";
+  } else if (requestedOrgId && isPlatformAdmin) {
+    // Fremde Organisation. Ein Plattform-Admin arbeitet dort ohne
+    // Mitgliedschaft — Rolle und Datensicht werden synthetisiert, damit alle
+    // bestehenden Owner-Gates (/team, /settings, Sidebar) unveraendert
+    // greifen.
+    const { data: foreign } = await supabase
+      .from("workspaces")
+      .select("id")
+      .eq("id", requestedOrgId)
+      .maybeSingle();
+    if (foreign) {
+      activeWorkspaceId = requestedOrgId;
+      role = "owner";
+      dataScope = "workspace";
+      isForeignOrg = true;
+    }
+  }
+
+  // Kein oder ungueltiges Cookie -> Heim-Organisation. Ein ungueltiges Cookie
+  // wird bewusst nur ignoriert und nicht geloescht: Server Components duerfen
+  // keine Cookies schreiben. Aufgeraeumt wird beim naechsten Org-Wechsel.
+  if (!activeWorkspaceId) {
+    if (!home) return null;
+    activeWorkspaceId = home.workspace_id;
+    role = home.role;
+    dataScope = home.data_scope ?? "workspace";
+  }
+
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("*")
+    .eq("id", activeWorkspaceId)
+    .single();
 
   if (!workspace) return null;
 
-  const dataScope = row.data_scope ?? "workspace";
   const username = ((profile as ProfileRow)?.username ?? workspace.name) as string;
-  const canSwitchView = row.role === "owner" && dataScope === "workspace";
+  const canSwitchView = role === "owner" && dataScope === "workspace";
+
   let effectiveUserId: string | null = dataScope === "own" ? user.id : null;
   let effectiveUsername: string | null = dataScope === "own" ? username : null;
 
   if (canSwitchView) {
-    const cookieStore = await cookies();
     const requestedUserId = cookieStore.get(DATA_VIEW_COOKIE)?.value;
     if (requestedUserId) {
+      // Der Zielnutzer muss in der AKTIVEN Organisation sein. Damit verfaellt
+      // eine Datensicht aus der vorherigen Organisation automatisch, falls
+      // der Cookie den Org-Wechsel ueberlebt hat.
       const { data: target } = await supabase
         .from("workspace_members")
         .select("user_id, data_scope, profiles (username)")
-        .eq("workspace_id", row.workspace_id)
+        .eq("workspace_id", activeWorkspaceId)
         .eq("user_id", requestedUserId)
         .maybeSingle();
 
@@ -96,16 +176,32 @@ export async function getAccessContext(): Promise<AccessContext | null> {
     }
   }
 
+  let availableWorkspaces: OrgSummary[] = [];
+  if (isPlatformAdmin) {
+    // Vor Migration 0025 greift die Plattform-Admin-Policy auf `workspaces`
+    // noch nicht — dann liefert die Abfrage nur die eigene Organisation und
+    // der Umschalter blendet sich mangels Alternativen selbst aus.
+    const { data: orgs } = await supabase
+      .from("workspaces")
+      .select("id, name")
+      .order("name", { ascending: true });
+    availableWorkspaces = (orgs ?? []) as OrgSummary[];
+  }
+
   return {
     user: { id: user.id },
-    workspace_id: row.workspace_id,
-    role: row.role,
+    workspace_id: activeWorkspaceId,
+    role,
     data_scope: dataScope,
     workspaces: workspace as Workspace,
     username,
     effective_user_id: effectiveUserId,
     effective_username: effectiveUsername,
     can_switch_view: canSwitchView,
+    is_platform_admin: isPlatformAdmin,
+    home_workspace_id: home?.workspace_id ?? null,
+    is_foreign_org: isForeignOrg,
+    available_workspaces: availableWorkspaces,
   };
 }
 
@@ -135,13 +231,6 @@ export async function listDataViewUsers(workspaceId: string): Promise<DataViewUs
       data_scope: row.data_scope ?? "workspace",
     }))
     .sort((a, b) => a.username.localeCompare(b.username, "de"));
-}
-
-export function isScopedToUser(access: AccessContext): access is AccessContext & {
-  effective_user_id: string;
-  effective_username: string;
-} {
-  return Boolean(access.effective_user_id);
 }
 
 // created_by_user_id ist "wer hat den DB-Eintrag angelegt" (z.B. ein Owner,

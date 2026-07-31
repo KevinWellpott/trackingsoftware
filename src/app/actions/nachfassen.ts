@@ -190,8 +190,17 @@ function followUpTextFor(
 
 /** LinkedIn-Lead als beantwortet markieren → raus aus dem Follow-up-Flow. */
 export async function markLinkedInAnswered(contactId: string): Promise<{ error?: string }> {
+  // Ohne Org-Filter waere dies fuer einen Plattform-Admin ein Schreibzugriff
+  // auf JEDEN Kontakt der Plattform — RLS laesst dort alles durch.
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
   const supabase = await createClient();
-  const { data: c } = await supabase.from("contacts").select("id, list_id").eq("id", contactId).maybeSingle();
+  const { data: c } = await supabase
+    .from("contacts")
+    .select("id, list_id")
+    .eq("id", contactId)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
   if (!c) return { error: "Kontakt nicht gefunden." };
   const { error } = await supabase
     .from("contacts")
@@ -206,11 +215,14 @@ export async function markLinkedInAnswered(contactId: string): Promise<{ error?:
 
 /** LinkedIn-Follow-up erledigt: nächste Stufe (+3/+5/+7) oder tot nach FU3. */
 export async function advanceLinkedInFollowUp(contactId: string): Promise<{ error?: string }> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
   const supabase = await createClient();
   const { data: c } = await supabase
     .from("contacts")
     .select("id, list_id, follow_up_number")
     .eq("id", contactId)
+    .eq("workspace_id", access.workspace_id)
     .maybeSingle();
   if (!c) return { error: "Kontakt nicht gefunden." };
 

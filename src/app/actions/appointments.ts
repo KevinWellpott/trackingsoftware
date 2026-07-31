@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext, ownScopeFilter } from "@/lib/access";
+import { getAccessContext, ownScopeFilter, type AccessContext } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
 import { revalidatePath } from "next/cache";
 
@@ -26,9 +26,13 @@ function normalizeMeeting(input: {
   return { meetingKind: kind, meetLink: kind === "link" ? link : null };
 }
 
-async function canAccessPitchList(listId: string): Promise<boolean> {
+// Gibt den Zugriffskontext zurueck statt nur true/false: die Aufrufer
+// brauchen daraus workspace_id fuer den Insert. Ohne explizites workspace_id
+// wuerde der Trigger es aus der Mitgliedschaft ableiten — und damit beim
+// Arbeiten in einer fremden Organisation in der Heim-Org des Admins landen.
+async function canAccessPitchList(listId: string): Promise<AccessContext | null> {
   const access = await getAccessContext();
-  if (!access) return false;
+  if (!access) return null;
   const supabase = await createClient();
   let query = supabase
     .from("lists")
@@ -40,7 +44,7 @@ async function canAccessPitchList(listId: string): Promise<boolean> {
     query = query.or(ownScope);
   }
   const { data } = await query.maybeSingle();
-  return Boolean(data);
+  return data ? access : null;
 }
 
 /**
@@ -61,7 +65,8 @@ export async function convertContactToSetting(input: {
   // Der datetime-local-Wert ist Berlin-Wandzeit; die Spalte will echtes UTC.
   const appointmentAt = berlinInputToIso(input.appointmentAt);
   if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
-  if (!(await canAccessPitchList(input.listId))) {
+  const access = await canAccessPitchList(input.listId);
+  if (!access) {
     return { error: "Keine Berechtigung." };
   }
 
@@ -88,6 +93,8 @@ export async function convertContactToSetting(input: {
     const { data: sc, error: scErr } = await supabase
       .from("setting_calls")
       .insert({
+        workspace_id: access.workspace_id,
+        created_by_user_id: access.effective_user_id ?? access.user.id,
         source_type: "linkedin",
         source_contact_id: contact.id,
         lead_name: contact.name,
@@ -173,9 +180,9 @@ export async function createManualSetting(input: {
   return { settingCallId: sc.id };
 }
 
-async function canAccessPhoneList(listId: string): Promise<boolean> {
+async function canAccessPhoneList(listId: string): Promise<AccessContext | null> {
   const access = await getAccessContext();
-  if (!access) return false;
+  if (!access) return null;
   const supabase = await createClient();
   let query = supabase
     .from("phone_lists")
@@ -187,7 +194,7 @@ async function canAccessPhoneList(listId: string): Promise<boolean> {
     query = query.or(ownScope);
   }
   const { data } = await query.maybeSingle();
-  return Boolean(data);
+  return data ? access : null;
 }
 
 /**
@@ -207,7 +214,8 @@ export async function convertPhoneLeadToSetting(input: {
   const { meetLink, meetingKind } = meeting;
   const appointmentAt = berlinInputToIso(input.appointmentAt);
   if (!appointmentAt) return { error: "Termin-Zeitpunkt ist erforderlich." };
-  if (!(await canAccessPhoneList(input.listId))) return { error: "Keine Berechtigung." };
+  const access = await canAccessPhoneList(input.listId);
+  if (!access) return { error: "Keine Berechtigung." };
 
   const supabase = await createClient();
   const { data: lead } = await supabase
@@ -234,6 +242,8 @@ export async function convertPhoneLeadToSetting(input: {
     const { data: sc, error: scErr } = await supabase
       .from("setting_calls")
       .insert({
+        workspace_id: access.workspace_id,
+        created_by_user_id: access.effective_user_id ?? access.user.id,
         source_type: "telefon",
         source_phone_lead_id: lead.id,
         lead_name: (lead as { decider_name?: string | null }).decider_name ?? null,

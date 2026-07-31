@@ -1,6 +1,7 @@
 "use client";
 
 import { setDataViewForm, signOut } from "@/app/actions/workspace";
+import { setActiveOrgForm } from "@/app/actions/platform";
 import { createListForm } from "@/app/actions/lists";
 import { SearchTrigger } from "@/components/search/SearchDialog";
 import { ViewTree } from "@/components/listen/ViewTree";
@@ -8,6 +9,7 @@ import type { ViewNode } from "@/lib/listViews";
 import {
   ArrowRight,
   BarChart2,
+  Building2,
   CalendarDays,
   CalendarPlus,
   ChevronDown,
@@ -17,6 +19,7 @@ import {
   Phone,
   Plus,
   Settings,
+  ShieldCheck,
   Users,
   X,
 } from "lucide-react";
@@ -50,6 +53,19 @@ type DataViewState = {
   users: DataViewUser[];
 };
 
+/**
+ * Organisations-Umschalter — nur fuer Plattform-Admins befuellt. Die aeussere
+ * Grenze: waehrend die Datensicht innerhalb EINER Organisation die Person
+ * wechselt, wechselt dies die Organisation selbst.
+ */
+type OrgSwitchState = {
+  activeId: string;
+  activeName: string;
+  homeId: string | null;
+  isForeign: boolean;
+  orgs: { id: string; name: string }[];
+};
+
 type Props = {
   workspaceName: string;
   username: string;
@@ -60,6 +76,7 @@ type Props = {
   phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
+  orgSwitch?: OrgSwitchState;
   onClose?: () => void;
 };
 
@@ -236,6 +253,76 @@ function TeamViewRow({
   );
 }
 
+/**
+ * Eine Zeile des Organisations-Umschalters. Bewusst dieselbe Bauform wie
+ * TeamViewRow (Formular + sidebar-link), damit sich beide Umschalter gleich
+ * anfuehlen — nur die Semantik unterscheidet sich.
+ */
+function OrgSwitchRow({
+  workspaceId,
+  label,
+  active,
+  isHome,
+}: {
+  workspaceId: string;
+  label: string;
+  active: boolean;
+  isHome: boolean;
+}) {
+  return (
+    <form action={setActiveOrgForm}>
+      <input type="hidden" name="workspace_id" value={workspaceId} />
+      <button
+        type="submit"
+        className={`sidebar-link${active ? " active" : ""}`}
+        style={{
+          width: "100%",
+          border: "none",
+          cursor: "pointer",
+          background: active ? undefined : "none",
+          fontSize: "var(--fs-sm)",
+        }}
+        title={active ? `${label} — aktive Organisation` : `Zu ${label} wechseln`}
+      >
+        <span
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: "var(--r-sm)",
+            background: active ? "var(--accent-muted)" : "var(--surface-3)",
+            color: active ? "var(--orange-300)" : "var(--text-secondary)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <Building2 size={12} />
+        </span>
+        <span
+          style={{
+            flex: 1,
+            textAlign: "left",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
+        {isHome && (
+          <span
+            className="eyebrow eyebrow-muted"
+            style={{ flexShrink: 0, fontSize: "var(--fs-2xs)" }}
+          >
+            eigen
+          </span>
+        )}
+      </button>
+    </form>
+  );
+}
+
 /** Einklappbarer Abschnitt: Eyebrow-Kopf + optionale Aktion rechts. */
 function CollapsibleSection({
   icon,
@@ -343,11 +430,17 @@ export function SidebarContent({
   phoneLists = [],
   dataScope = "workspace",
   dataView,
+  orgSwitch,
   onClose,
 }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const isOwnScope = dataScope === "own";
+  // Der Umschalter erscheint nur, wenn es wirklich etwas zu wechseln gibt.
+  // Normale Nutzer und ein Plattform-Admin mit nur einer Organisation sehen
+  // die Sidebar exakt wie bisher.
+  const canSwitchOrg = (orgSwitch?.orgs.length ?? 0) > 1;
+  const isForeignOrg = Boolean(orgSwitch?.isForeign);
   const [showNewList, setShowNewList] = useState(false);
   const [showManualAppt, setShowManualAppt] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -397,6 +490,61 @@ export function SidebarContent({
           </button>
         )}
       </div>
+
+      {/* Fremde-Organisation-Banner. Steht BEWUSST ueber dem Datensicht-Banner:
+          die Organisation ist die aeussere Grenze, die Person die innere.
+          Farblich rot statt orange — Orange heisst in dieser Datei „aktiv/hier
+          bist du", eine fremde Organisation ist aber kein Modus, sondern ein
+          Gefahrenkontext: hier schreibt man in Kundendaten. */}
+      {isForeignOrg && orgSwitch && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-4)",
+            margin: "var(--sp-5) var(--sp-5) 0",
+            padding: "var(--sp-3) var(--sp-4)",
+            borderRadius: "var(--r-md)",
+            border: "1px solid var(--danger)",
+            background: "var(--danger-bg)",
+            color: "var(--danger-fg)",
+            flexShrink: 0,
+          }}
+        >
+          <Building2 size={13} style={{ flexShrink: 0 }} />
+          <span
+            style={{
+              flex: 1,
+              fontSize: "var(--fs-xs)",
+              fontWeight: 500,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={`Fremde Organisation: ${orgSwitch.activeName}`}
+          >
+            {orgSwitch.activeName}
+          </span>
+          <form action={setActiveOrgForm} style={{ display: "flex", flexShrink: 0 }}>
+            <input type="hidden" name="workspace_id" value="" />
+            <button
+              type="submit"
+              title="Zurück zur eigenen Organisation"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "var(--danger-fg)",
+                padding: 2,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <X size={13} />
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Datensicht-Banner (Impersonation aktiv) */}
       {dataView?.canSwitch && isImpersonating && (
@@ -463,6 +611,28 @@ export function SidebarContent({
           gap: 1,
         }}
       >
+        {/* Organisations-Umschalter ganz oben: er bestimmt, worauf sich ALLES
+            darunter bezieht. Nicht in den Kopf-Block — dort fluchtet die
+            Wortmarke auf Topbar-Hoehe, ein zweites Element braeche die Kante. */}
+        {canSwitchOrg && orgSwitch && (
+          <div style={{ marginBottom: "var(--sp-3)" }}>
+            <CollapsibleSection
+              icon={<Building2 size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />}
+              label="Organisation"
+            >
+              {orgSwitch.orgs.map((o) => (
+                <OrgSwitchRow
+                  key={o.id}
+                  workspaceId={o.id}
+                  label={o.name}
+                  active={o.id === orgSwitch.activeId}
+                  isHome={o.id === orgSwitch.homeId}
+                />
+              ))}
+            </CollapsibleSection>
+          </div>
+        )}
+
         {/* Suche ueber ALLE Listen — ein Name muss nicht mehr in drei, vier
             Listen einzeln gesucht werden. */}
         <SearchTrigger onNavigate={onClose} />
@@ -666,6 +836,10 @@ export function SidebarContent({
         <div style={{ borderTop: "1px solid var(--border-subtle)", marginTop: "var(--sp-4)", paddingTop: "var(--sp-4)" }}>
           <NavLink href="/export" icon={Download} label="Export (CSV)" onClick={onClose} />
           <NavLink href="/settings" icon={Settings} label="Einstellungen" onClick={onClose} />
+          {/* Nur Plattform-Admins: Organisationen anlegen, Nutzer verschieben. */}
+          {orgSwitch && (
+            <NavLink href="/admin" icon={ShieldCheck} label="Organisationen" onClick={onClose} />
+          )}
         </div>
       </nav>
 
@@ -751,6 +925,7 @@ export function MobileDrawer({
   phoneLists,
   dataScope,
   dataView,
+  orgSwitch,
 }: {
   open: boolean;
   onClose: () => void;
@@ -762,6 +937,7 @@ export function MobileDrawer({
   phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
+  orgSwitch?: OrgSwitchState;
 }) {
   if (!open) return null;
   return (
@@ -789,6 +965,7 @@ export function MobileDrawer({
           phoneLists={phoneLists}
           dataScope={dataScope}
           dataView={dataView}
+          orgSwitch={orgSwitch}
           onClose={onClose}
         />
       </div>

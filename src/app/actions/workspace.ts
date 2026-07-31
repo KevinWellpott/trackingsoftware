@@ -53,7 +53,15 @@ export async function joinWorkspaceForm(formData: FormData) {
   redirect("/");
 }
 
-export async function createUser(
+/**
+ * Nutzer in einer BESTIMMTEN Organisation anlegen.
+ *
+ * Erlaubt fuer Plattform-Admins (beliebige Organisation) und fuer Owner ihrer
+ * eigenen aktiven Organisation. Die Pruefung steht in der Funktion selbst,
+ * nicht beim Aufrufer: als Server Action ist sie vom Client erreichbar.
+ */
+export async function createUserInWorkspace(
+  workspaceId: string,
   username: string,
   password: string,
   role: "owner" | "member" = "member",
@@ -62,24 +70,58 @@ export async function createUser(
   if (!username.trim() || !password) {
     return { error: "Benutzername und Passwort sind erforderlich." };
   }
-  const m = await (await import("@/lib/workspace")).getMembership();
-  if (!m || m.role !== "owner") return { error: "Keine Berechtigung." };
+  const access = await getAccessContext();
+  if (!access) return { error: "Keine Berechtigung." };
 
-  const email = usernameToInternalEmail(username);
+  const mayCreate =
+    access.is_platform_admin ||
+    (access.workspace_id === workspaceId && access.role === "owner");
+  if (!mayCreate) return { error: "Keine Berechtigung." };
+
+  const trimmed = username.trim();
+  const email = usernameToInternalEmail(trimmed);
   const admin = createAdminClient();
+
+  if (email === "@pitchtracker.internal") {
+    return { error: "Benutzername enthält keine verwendbaren Zeichen (a–z, 0–9)." };
+  }
+
+  // Benutzernamen sind organisationsuebergreifend eindeutig, weil die
+  // Login-Adresse aus ihnen abgeleitet wird (usernameToInternalEmail).
+  // Ohne diese Vorabpruefung scheitert das Anlegen mit einem rohen
+  // Auth-Fehler, den niemand deuten kann.
+  const { data: clash } = await admin
+    .from("profiles")
+    .select("user_id")
+    .ilike("username", trimmed)
+    .maybeSingle();
+  if (clash) {
+    return {
+      error: `Der Benutzername „${trimmed}" ist bereits vergeben. Benutzernamen gelten organisationsübergreifend.`,
+    };
+  }
 
   const { data, error } = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    // usernameToInternalEmail ist verlustbehaftet: "Anna B" und "Anna.B"
+    // ergeben dieselbe Adresse. Die Namenspruefung oben faengt das nicht.
+    if (/already been registered|already exists/i.test(error.message)) {
+      return {
+        error: `Aus „${trimmed}" ergibt sich die bereits vergebene Login-Adresse ${email}. Bitte einen anderen Benutzernamen wählen.`,
+      };
+    }
+    return { error: error.message };
+  }
 
   const uid = data.user.id;
 
   const { error: profileError } = await admin.from("profiles").insert({
     user_id: uid,
-    username: username.trim(),
+    username: trimmed,
   });
   if (profileError) {
     await admin.auth.admin.deleteUser(uid);
@@ -88,7 +130,7 @@ export async function createUser(
 
   // Direkt zum Workspace hinzufügen
   const { error: memberError } = await admin.from("workspace_members").insert({
-    workspace_id: m.workspace_id,
+    workspace_id: workspaceId,
     user_id: uid,
     role,
     data_scope: dataScope,
@@ -99,20 +141,52 @@ export async function createUser(
   }
 
   revalidatePath("/settings");
+  revalidatePath("/admin");
   return { userId: uid };
 }
 
+/** Nutzer in der AKTIVEN Organisation anlegen (Screen /settings). */
+export async function createUser(
+  username: string,
+  password: string,
+  role: "owner" | "member" = "member",
+  dataScope: DataScope = "workspace",
+) {
+  const access = await getAccessContext();
+  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
+  return createUserInWorkspace(access.workspace_id, username, password, role, dataScope);
+}
+
 export async function deleteUser(userId: string) {
-  const m = await (await import("@/lib/workspace")).getMembership();
-  if (!m || m.role !== "owner") return { error: "Keine Berechtigung." };
+  const access = await getAccessContext();
+  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
 
   // Nicht sich selbst löschen
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (user?.id === userId) return { error: "Du kannst dich nicht selbst löschen." };
+  if (access.user.id === userId) {
+    return { error: "Du kannst dich nicht selbst löschen." };
+  }
 
   const admin = createAdminClient();
-  await admin.from("workspace_members").delete().eq("user_id", userId).eq("workspace_id", m.workspace_id);
+
+  // Zuerst pruefen, ob der Nutzer ueberhaupt zur AKTIVEN Organisation gehoert.
+  // Ohne diese Pruefung wuerde zwar nur die Mitgliedschaft org-gefiltert
+  // geloescht, Profil und Auth-Account aber ungeprueft — ein Owner koennte
+  // damit einen Nutzer einer fremden Organisation aus dem System entfernen.
+  const { data: member } = await admin
+    .from("workspace_members")
+    .select("user_id")
+    .eq("user_id", userId)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  if (!member) {
+    return { error: "Nutzer gehört nicht zu dieser Organisation." };
+  }
+
+  await admin
+    .from("workspace_members")
+    .delete()
+    .eq("user_id", userId)
+    .eq("workspace_id", access.workspace_id);
   await admin.from("profiles").delete().eq("user_id", userId);
   await admin.auth.admin.deleteUser(userId);
 
@@ -159,6 +233,11 @@ export async function setDataViewForm(formData: FormData) {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
+      secure: process.env.NODE_ENV === "production",
+      // Eine fremde Datensicht ist ein Ausnahmezustand. Ohne maxAge waere es
+      // ein Session-Cookie, das bis zum Browser-Neustart aktiv bleibt — man
+      // traegt dann tagelang unbemerkt fremde Zahlen im Dashboard.
+      maxAge: 60 * 60 * 8,
     });
   }
 
@@ -167,13 +246,24 @@ export async function setDataViewForm(formData: FormData) {
 }
 
 export async function renameUser(userId: string, newUsername: string) {
-  const m = await (await import("@/lib/workspace")).getMembership();
-  if (!m || m.role !== "owner") return { error: "Keine Berechtigung." };
+  const access = await getAccessContext();
+  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
 
   const trimmed = newUsername.trim();
   if (!trimmed) return { error: "Name darf nicht leer sein." };
 
   const admin = createAdminClient();
+
+  // Nur Nutzer der aktiven Organisation umbenennen (vgl. deleteUser).
+  const { data: member } = await admin
+    .from("workspace_members")
+    .select("user_id")
+    .eq("user_id", userId)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  if (!member) {
+    return { error: "Nutzer gehört nicht zu dieser Organisation." };
+  }
 
   const { data: profile } = await admin
     .from("profiles")
@@ -183,6 +273,23 @@ export async function renameUser(userId: string, newUsername: string) {
   const oldUsername = (profile as { username?: string } | null)?.username;
   if (!oldUsername) return { error: "Nutzer nicht gefunden." };
   if (oldUsername === trimmed) return {};
+
+  if (usernameToInternalEmail(trimmed) === "@pitchtracker.internal") {
+    return { error: "Benutzername enthält keine verwendbaren Zeichen (a–z, 0–9)." };
+  }
+
+  // Benutzernamen sind organisationsuebergreifend eindeutig (Login-Adresse).
+  const { data: clash } = await admin
+    .from("profiles")
+    .select("user_id")
+    .ilike("username", trimmed)
+    .neq("user_id", userId)
+    .maybeSingle();
+  if (clash) {
+    return {
+      error: `Der Benutzername „${trimmed}" ist bereits vergeben. Benutzernamen gelten organisationsübergreifend.`,
+    };
+  }
 
   // Login-E-Mail wird aus dem Benutzernamen abgeleitet (siehe LoginForm) —
   // muss mit umbenannt werden, sonst kann sich der Nutzer nicht mehr einloggen.
@@ -204,12 +311,19 @@ export async function renameUser(userId: string, newUsername: string) {
   await admin
     .from("lists")
     .update({ owner_name: trimmed })
-    .eq("workspace_id", m.workspace_id)
+    .eq("workspace_id", access.workspace_id)
     .eq("owner_name", oldUsername);
   await admin
     .from("phone_lists")
     .update({ owner_name: trimmed })
-    .eq("workspace_id", m.workspace_id)
+    .eq("workspace_id", access.workspace_id)
+    .eq("owner_name", oldUsername);
+  // list_views tragen ebenfalls owner_name (Migration 0023) — ohne das
+  // Nachziehen verlieren Smart Views nach einer Umbenennung ihren Besitzer.
+  await admin
+    .from("list_views")
+    .update({ owner_name: trimmed })
+    .eq("workspace_id", access.workspace_id)
     .eq("owner_name", oldUsername);
 
   revalidatePath("/settings");
