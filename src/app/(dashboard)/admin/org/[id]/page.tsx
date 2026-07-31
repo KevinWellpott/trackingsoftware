@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRightLeft, Plus, Users } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Plus, Trash2, Users } from "lucide-react";
 import { getAccessContext } from "@/lib/access";
 import {
   createUserInOrgForm,
@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { FormSelect } from "@/components/ui/Select";
 import { MoveUserButton, PullUserPanel } from "@/components/admin/MoveUserButton";
+import { DeleteOrgButton } from "@/components/admin/DeleteOrgButton";
 import { ownerColor } from "@/lib/ownerColor";
 
 // Mitglieder EINER Organisation. Bewusst schlank: Umbenennen, Löschen und
@@ -256,6 +257,32 @@ export default async function AdminOrgPage({
               sonst kann dort niemand weitere Nutzer anlegen.
             </p>
           </form>
+        </div>
+      </div>
+
+      {/* ── Gefahrenzone ── */}
+      {/* Bewusst als eigene Karte ganz unten und optisch abgesetzt: Loeschen
+          ist irreversibel und darf nicht neben harmlosen Aktionen stehen. */}
+      <div
+        className="card"
+        style={{ overflow: "hidden", borderColor: "var(--danger)" }}
+      >
+        <div style={{ ...SECTION_HEAD, borderBottomColor: "var(--danger)" }}>
+          <Trash2 size={16} color="var(--danger-fg)" />
+          <span style={{ ...SECTION_TITLE, color: "var(--danger-fg)" }}>Gefahrenzone</span>
+        </div>
+        <div style={{ padding: "var(--sp-7) var(--sp-8)", display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
+          <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+            Beim Löschen verschwindet die Organisation mitsamt allen Listen,
+            Kontakten, Telefon-Leads und Terminen. Das lässt sich nicht
+            rückgängig machen.
+          </p>
+          <DeleteOrgButton
+            workspaceId={organization.id}
+            workspaceName={organization.name}
+            memberCount={members.length}
+            isHome={organization.id === access.home_workspace_id}
+          />
         </div>
       </div>
     </div>

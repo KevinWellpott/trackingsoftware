@@ -295,6 +295,65 @@ export async function moveUser(
   return { moved: (data as { moved?: Record<string, number> })?.moved };
 }
 
+export type DeletePreview = {
+  workspace_id: string;
+  workspace: string;
+  members: string[];
+  counts: Record<string, number>;
+};
+
+/** Was würde beim Löschen dieser Organisation verschwinden? Reine Leseoperation. */
+export async function previewDeleteOrganization(
+  workspaceId: string,
+): Promise<{ error?: string; preview?: DeletePreview }> {
+  const access = await getAccessContext();
+  if (!access?.is_platform_admin) return { error: "Keine Berechtigung." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("preview_delete_workspace", {
+    p_workspace_id: workspaceId,
+  });
+  if (error) return { error: error.message };
+  return { preview: data as DeletePreview };
+}
+
+/**
+ * Organisation löschen. Irreversibel: an `workspaces` hängen 14
+ * Fremdschlüssel mit `on delete cascade`, es geht also der komplette
+ * Datenbestand der Organisation mit. Die Datenbank verweigert das, solange
+ * noch Mitglieder da sind (siehe Migration 0027).
+ */
+export async function deleteOrganization(
+  workspaceId: string,
+  expected?: Record<string, number>,
+): Promise<{ error?: string; deleted?: DeletePreview }> {
+  const access = await getAccessContext();
+  if (!access?.is_platform_admin) return { error: "Keine Berechtigung." };
+  if (workspaceId === access.home_workspace_id) {
+    return { error: "Die eigene Organisation kann nicht gelöscht werden." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("platform_delete_workspace", {
+    p_workspace_id: workspaceId,
+    p_expected: expected ?? null,
+  });
+  if (error) return { error: error.message };
+
+  // Stand der Admin gerade IN dieser Organisation, zeigt der Cookie jetzt ins
+  // Leere. getAccessContext ignoriert ihn dann zwar, aber sauberer ist es,
+  // ihn direkt wegzuräumen.
+  if (workspaceId === access.workspace_id) {
+    const cookieStore = await cookies();
+    cookieStore.delete(ACTIVE_ORG_COOKIE);
+    cookieStore.delete(DATA_VIEW_COOKIE);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/", "layout");
+  return { deleted: data as DeletePreview };
+}
+
 export async function createUserInOrgForm(formData: FormData) {
   const workspaceId = String(formData.get("workspace_id") ?? "");
   const { createUserInWorkspace } = await import("@/app/actions/workspace");
