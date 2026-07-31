@@ -37,9 +37,20 @@ export type SettingCallPatch = {
   company?: string | null;
 };
 
+// Die Pruefung stuetzt sich nicht mehr allein darauf, dass RLS die Zeile
+// durchgelassen hat: fuer einen Plattform-Admin laesst RLS JEDE Zeile durch.
+// Massgeblich ist die aktive Organisation — sonst koennte eine alte URL aus
+// einer anderen Organisation dort hineinschreiben.
 async function canAccessSettingCall(id: string): Promise<boolean> {
+  const access = await getAccessContext();
+  if (!access) return false;
   const supabase = await createClient();
-  const { data } = await supabase.from("setting_calls").select("id").eq("id", id).maybeSingle();
+  const { data } = await supabase
+    .from("setting_calls")
+    .select("id")
+    .eq("id", id)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
   return Boolean(data);
 }
 
@@ -260,6 +271,8 @@ export async function createClosingFromSetting(
   const { data: closing, error } = await supabase
     .from("closing_calls")
     .insert({
+      workspace_id: access.workspace_id,
+      created_by_user_id: access.effective_user_id ?? access.user.id,
       setting_call_id: settingId,
       lead_name: setting?.lead_name ?? null,
       company: setting?.company ?? null,

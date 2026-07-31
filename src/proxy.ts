@@ -30,9 +30,14 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // /api/ ist hier bewusst offen: API-Routen antworten mit 401 statt mit einem
+  // Redirect auf /login. Der Preis ist, dass jede neue Route unter /api/ ihre
+  // Authentifizierung SELBST machen muss (Vorbild: /api/export ruft
+  // getAccessContext() und gibt sonst 401 zurueck). Wer das vergisst, baut
+  // einen oeffentlichen Endpunkt — genau so entstanden die geloeschten
+  // /api/setup, /api/add-daniel und /api/add-samuel.
   const isAuthRoute =
     request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/join") ||
     request.nextUrl.pathname.startsWith("/auth") ||
     request.nextUrl.pathname.startsWith("/api/");
 

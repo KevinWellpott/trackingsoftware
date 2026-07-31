@@ -283,10 +283,14 @@ export async function importPhoneCsv(
     .single();
   if (listErr || !list) return { error: listErr?.message ?? "Liste anlegen fehlgeschlagen." };
 
-  // Dedup gegen bestehende Telefonnummern des Owners
+  // Dedup gegen bestehende Telefonnummern des Owners — innerhalb der aktiven
+  // Organisation. Ohne den Org-Filter wuerde ein Plattform-Admin gegen die
+  // Nummern ALLER Organisationen entduplizieren und Leads faelschlich als
+  // Dublette verwerfen.
   const { data: existing } = await supabase
     .from("phone_leads")
     .select("phone")
+    .eq("workspace_id", access.workspace_id)
     .eq("created_by_user_id", ownerUserId);
   const seen = new Set(
     (existing ?? []).map((r) => (r.phone ?? "").replace(/[^\d+]/g, "")).filter(Boolean),

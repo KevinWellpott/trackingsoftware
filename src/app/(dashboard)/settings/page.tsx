@@ -10,7 +10,6 @@ import {
   type TargetPeriod,
 } from "@/lib/targets";
 import { getAccessContext } from "@/lib/access";
-import { getMembership } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { ownerColor } from "@/lib/ownerColor";
 import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
@@ -79,22 +78,22 @@ export default async function SettingsPage({
 }: {
   searchParams: Promise<{ userErr?: string; userOk?: string; deleted?: string }>;
 }) {
-  const m = await getMembership();
-  if (!m) return null;
+  // Alles bezieht sich auf die AKTIVE Organisation. Fuer einen Plattform-Admin
+  // in einer Kunden-Org ist das deren Workspace — damit laeuft die
+  // Nutzerverwaltung des Kunden ueber genau diesen Screen, ohne zweite UI.
+  const access = await getAccessContext();
+  if (!access) return null;
 
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
 
   const q = await searchParams;
-  const isOwner = m.role === "owner";
-  const { users } = isOwner ? await listUsers(m.workspace_id) : { users: [] };
+  const isOwner = access.role === "owner";
+  const { users } = isOwner ? await listUsers(access.workspace_id) : { users: [] };
   const targets = isOwner ? await getTargets() : [];
 
   // FU-Vorlagen des eingeloggten Nutzers (bzw. der aktiven Admin-Datensicht)
-  const access = await getAccessContext();
-  const templates = access
-    ? await getFollowupTemplates(access.effective_user_id ?? access.user.id)
-    : [];
+  const templates = await getFollowupTemplates(access.effective_user_id ?? access.user.id);
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
@@ -122,9 +121,9 @@ export default async function SettingsPage({
         {/* Settings-Layout: Label links (COMPONENTS.md §15). */}
         <div style={{ padding: "var(--sp-7) var(--sp-8)", display: "grid", gridTemplateColumns: "160px 1fr", rowGap: "var(--sp-6)", alignItems: "center" }}>
           <span style={ROW_LABEL}>Name</span>
-          <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>{m.workspaces.name}</span>
+          <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>{access.workspaces.name}</span>
           <span style={ROW_LABEL}>Invite-Code</span>
-          <code style={{ width: "fit-content", fontFamily: "var(--font-mono-stack)", fontSize: "var(--fs-sm)", color: "var(--orange-300)", background: "var(--accent-muted)", border: "1px solid var(--border-accent)", borderRadius: "var(--r-sm)", padding: "3px 8px", letterSpacing: "0.08em" }}>{m.workspaces.invite_code}</code>
+          <code style={{ width: "fit-content", fontFamily: "var(--font-mono-stack)", fontSize: "var(--fs-sm)", color: "var(--orange-300)", background: "var(--accent-muted)", border: "1px solid var(--border-accent)", borderRadius: "var(--r-sm)", padding: "3px 8px", letterSpacing: "0.08em" }}>{access.workspaces.invite_code}</code>
           <span style={ROW_LABEL}>Deine Rolle</span>
           <span className={isOwner ? "badge badge-indigo" : "badge badge-gray"} style={{ width: "fit-content" }}>
             {isOwner ? "Owner" : "Member"}

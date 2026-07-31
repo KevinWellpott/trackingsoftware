@@ -10,10 +10,19 @@ import { revalidatePath } from "next/cache";
 export type AssigneeEntity = "setting_call" | "closing_call";
 
 async function canAccessEntity(entity: AssigneeEntity, entityId: string): Promise<boolean> {
+  // RLS allein reicht nicht mehr: fuer einen Plattform-Admin ist jede Zeile
+  // zugreifbar. Massgeblich ist die aktive Organisation.
+  const access = await getAccessContext();
+  if (!access) return false;
   const supabase = await createClient();
   const table = entity === "setting_call" ? "setting_calls" : "closing_calls";
-  const { data } = await supabase.from(table).select("id").eq("id", entityId).maybeSingle();
-  return Boolean(data); // RLS lässt nur zugreifbare Zeilen durch
+  const { data } = await supabase
+    .from(table)
+    .select("id")
+    .eq("id", entityId)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  return Boolean(data);
 }
 
 export type Assignee = { user_id: string; username: string };

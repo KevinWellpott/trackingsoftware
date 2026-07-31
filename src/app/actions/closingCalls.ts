@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 
 // Closing-Call bearbeiten. Terminal: gewonnen (→ CRM), verloren, nachfassen.
@@ -26,9 +27,18 @@ export type ClosingCallPatch = {
   company?: string | null;
 };
 
+// Nicht nur "RLS hat die Zeile durchgelassen": fuer einen Plattform-Admin
+// laesst RLS jede Zeile durch. Die aktive Organisation entscheidet.
 async function canAccessClosingCall(id: string): Promise<boolean> {
+  const access = await getAccessContext();
+  if (!access) return false;
   const supabase = await createClient();
-  const { data } = await supabase.from("closing_calls").select("id").eq("id", id).maybeSingle();
+  const { data } = await supabase
+    .from("closing_calls")
+    .select("id")
+    .eq("id", id)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
   return Boolean(data);
 }
 

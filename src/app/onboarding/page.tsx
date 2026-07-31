@@ -2,7 +2,7 @@ import {
   bootstrapWorkspaceForm,
   joinWorkspaceForm,
 } from "@/app/actions/workspace";
-import { getMembership } from "@/lib/workspace";
+import { getAccessContext } from "@/lib/access";
 import { redirect } from "next/navigation";
 
 // Onboarding teilt den Hero-Moment mit dem Login: Wortmarke, Headline mit
@@ -15,8 +15,8 @@ export default async function OnboardingPage({
 }: {
   searchParams: Promise<{ err?: string }>;
 }) {
-  const m = await getMembership();
-  if (m) redirect("/");
+  const access = await getAccessContext();
+  if (access) redirect("/");
   const q = await searchParams;
   const err = q.err;
 
