@@ -95,6 +95,53 @@ export default async function AdminPage({
         </div>
       )}
 
+      {/* Kurzanleitung: der Ablauf ist zweistufig und ohne Hinweis nicht
+          selbsterklaerend — man legt erst eine leere Organisation an und holt
+          die Person danach hinein. */}
+      <ol
+        style={{
+          margin: 0,
+          padding: "var(--sp-6) var(--sp-7)",
+          listStyle: "none",
+          counterReset: "step",
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--sp-4)",
+          borderRadius: "var(--r-md)",
+          background: "var(--surface-1)",
+          border: "1px solid var(--border-subtle)",
+        }}
+      >
+        {[
+          "Organisation anlegen — unten im Formular. Sie startet leer, ohne Mitglieder.",
+          "Auf den Namen der neuen Organisation klicken.",
+          "Dort unter „Bestehenden Nutzer hierher holen“ die Person wählen, Vorschau ansehen, verschieben. Ihre Listen, Kontakte und Termine ziehen mit.",
+        ].map((text, i) => (
+          <li key={i} style={{ display: "flex", gap: "var(--sp-4)", alignItems: "flex-start" }}>
+            <span
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: "var(--r-full)",
+                background: "var(--accent-muted)",
+                color: "var(--orange-300)",
+                fontSize: "var(--fs-2xs)",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              {i + 1}
+            </span>
+            <span style={{ fontSize: "var(--fs-sm)", color: "var(--text-secondary)", lineHeight: 1.55 }}>
+              {text}
+            </span>
+          </li>
+        ))}
+      </ol>
+
       {/* ── Alle Organisationen ── */}
       <div className="card" style={{ overflow: "hidden" }}>
         <div style={SECTION_HEAD}>
@@ -192,9 +239,10 @@ export default async function AdminPage({
             </button>
           </form>
           <p style={{ margin: "var(--sp-5) 0 0", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
-            Die Organisation startet leer und ohne Mitglieder. Nutzer legst du danach
-            unter <strong style={{ color: "var(--text-muted)" }}>Verwalten</strong> an.
-            Du selbst wirst bewusst <strong style={{ color: "var(--text-muted)" }}>kein</strong> Mitglied —
+            Die Organisation startet leer. Anschließend auf ihren Namen in der
+            Tabelle klicken — dort holst du bestehende Nutzer herein oder legst
+            neue an. Du selbst wirst bewusst{" "}
+            <strong style={{ color: "var(--text-muted)" }}>kein</strong> Mitglied —
             sonst tauchtest du im Team-Dashboard des Kunden auf.
           </p>
         </div>

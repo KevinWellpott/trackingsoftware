@@ -1,17 +1,18 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Plus, Users } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Plus, Users } from "lucide-react";
 import { getAccessContext } from "@/lib/access";
 import {
   createUserInOrgForm,
   listOrganizations,
   listOrgMembers,
+  listUsersOutsideOrg,
   setActiveOrgForm,
 } from "@/app/actions/platform";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { FormSelect } from "@/components/ui/Select";
-import { MoveUserButton } from "@/components/admin/MoveUserButton";
+import { MoveUserButton, PullUserPanel } from "@/components/admin/MoveUserButton";
 import { ownerColor } from "@/lib/ownerColor";
 
 // Mitglieder EINER Organisation. Bewusst schlank: Umbenennen, Löschen und
@@ -58,10 +59,8 @@ export default async function AdminOrgPage({
 
   const { id } = await params;
   const q = await searchParams;
-  const [{ organization, members, error }, { organizations }] = await Promise.all([
-    listOrgMembers(id),
-    listOrganizations(),
-  ]);
+  const [{ organization, members, error }, { organizations }, { users: outsideUsers }] =
+    await Promise.all([listOrgMembers(id), listOrganizations(), listUsersOutsideOrg(id)]);
   if (!organization) redirect("/admin");
 
   const isActive = organization.id === access.workspace_id;
@@ -186,10 +185,24 @@ export default async function AdminOrgPage({
           </div>
         )}
 
+        {/* ── Bestehenden Nutzer hierher holen ── */}
+        {/* Bewusst VOR dem Anlegen-Formular: wer eine Organisation frisch
+            anlegt, will meistens jemanden umziehen, nicht neu erfinden. */}
+        <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-7) var(--sp-8)" }}>
+          <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
+            <ArrowRightLeft size={12} /> Bestehenden Nutzer hierher holen
+          </div>
+          <PullUserPanel
+            workspaceId={organization.id}
+            workspaceName={organization.name}
+            candidates={outsideUsers}
+          />
+        </div>
+
         {/* ── Nutzer anlegen ── */}
         <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-7) var(--sp-8)", background: "var(--surface-1)" }}>
           <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
-            <Plus size={12} /> Nutzer in dieser Organisation anlegen
+            <Plus size={12} /> Neuen Nutzer anlegen
           </div>
           <form action={createUserInOrgForm} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
             <input type="hidden" name="workspace_id" value={organization.id} />
