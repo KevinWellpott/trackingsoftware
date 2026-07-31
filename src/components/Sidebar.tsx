@@ -7,7 +7,6 @@ import { SearchTrigger } from "@/components/search/SearchDialog";
 import { ViewTree } from "@/components/listen/ViewTree";
 import type { ViewNode } from "@/lib/listViews";
 import {
-  ArrowRight,
   BarChart2,
   Building2,
   CalendarDays,
@@ -36,6 +35,9 @@ import { ownerInitials } from "@/lib/ownerColor";
 // FARBREGEL DIESER DATEI: ausschliesslich Graustufen + Orange. Keine Kanal-,
 // Owner- oder Semantikfarben — die Navigation ist die ruhigste Flaeche der
 // App, Orange markiert allein „hier bist du" bzw. „das ist aktiv".
+
+/** Ab wie vielen Listen die Sidebar auf die Uebersichtsseite verweist. */
+const SIDEBAR_LIST_CAP = 7;
 
 type SidebarList = { id: string; name: string; owner_name: string | null };
 type SidebarPhoneList = {
@@ -188,24 +190,165 @@ const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht", { label: string }>
   nicht_erreicht: { label: "NE" },
 };
 
-/** Eine Zeile der Team-Ansicht: Formular, das die Datensicht wechselt. */
-function TeamViewRow({
-  userId,
+// ---------------------------------------------------------------------------
+// Kontext-Umschalter
+// ---------------------------------------------------------------------------
+// Frueher waren das vier Elemente: zwei Banner ("du bist in Org X" / "du siehst
+// die Daten von Y") plus zwei dauerhaft aufgeklappte Listen zum Wechseln. Sie
+// sagen dasselbe, also sind sie jetzt EIN Element pro Achse: eine 36px-Zeile,
+// die den aktiven Kontext zeigt und ihn per Klick aufklappt. Der Zustand steckt
+// in der Faerbung — neutral = Normalfall, Orange = fremde Datensicht,
+// Rot = fremde Organisation.
+
+type ContextTone = "neutral" | "accent" | "danger";
+
+const CONTEXT_PALETTE: Record<
+  ContextTone,
+  { border: string; background: string; fg: string; caption: string }
+> = {
+  neutral: {
+    border: "var(--border-default)",
+    background: "var(--surface-1)",
+    fg: "var(--text-secondary)",
+    caption: "var(--text-muted)",
+  },
+  accent: {
+    border: "var(--border-accent)",
+    background: "var(--accent-muted)",
+    fg: "var(--orange-300)",
+    caption: "var(--orange-300)",
+  },
+  danger: {
+    border: "var(--danger)",
+    background: "var(--danger-bg)",
+    fg: "var(--danger-fg)",
+    caption: "var(--danger-fg)",
+  },
+};
+
+function ContextSwitcher({
+  icon,
+  caption,
   label,
-  pathname,
-  active,
-  isReset,
+  tone,
+  reset,
+  children,
 }: {
-  userId: string;
+  icon: React.ReactNode;
+  caption: string;
   label: string;
-  pathname: string;
+  tone: ContextTone;
+  /** Formular zum Zuruecksetzen — nur wenn ein Nicht-Standard-Kontext aktiv ist. */
+  reset?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const c = CONTEXT_PALETTE[tone];
+  const Chevron = open ? ChevronDown : ChevronRight;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${c.border}`,
+        background: c.background,
+        borderRadius: "var(--r-md)",
+        overflow: "hidden",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          title={`${caption}: ${label} — wechseln`}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-3)",
+            height: 36,
+            padding: "0 var(--sp-4)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: c.fg,
+            fontFamily: "inherit",
+          }}
+        >
+          <span style={{ display: "flex", flexShrink: 0 }}>{icon}</span>
+          <span style={{ flex: 1, minWidth: 0, textAlign: "left", lineHeight: 1.15 }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: "var(--fs-2xs)",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: c.caption,
+                opacity: 0.75,
+              }}
+            >
+              {caption}
+            </span>
+            <span
+              style={{
+                display: "block",
+                fontSize: "var(--fs-sm)",
+                fontWeight: 500,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {label}
+            </span>
+          </span>
+          <Chevron size={12} style={{ flexShrink: 0, opacity: 0.7 }} />
+        </button>
+        {reset}
+      </div>
+      {open && (
+        <div
+          style={{
+            borderTop: `1px solid ${c.border}`,
+            padding: "var(--sp-2)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 1,
+            maxHeight: 240,
+            overflowY: "auto",
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Eine Auswahlzeile innerhalb eines Kontext-Umschalters. */
+function ContextOption({
+  action,
+  fields,
+  label,
+  badge,
+  active,
+  title,
+  avatar,
+}: {
+  action: (formData: FormData) => void | Promise<void>;
+  fields: { name: string; value: string }[];
+  label: string;
+  badge?: string;
   active: boolean;
-  isReset?: boolean;
+  title: string;
+  avatar: React.ReactNode;
 }) {
   return (
-    <form action={setDataViewForm}>
-      <input type="hidden" name="next" value={pathname} />
-      <input type="hidden" name="view_user_id" value={userId} />
+    <form action={action}>
+      {fields.map((f) => (
+        <input key={f.name} type="hidden" name={f.name} value={f.value} />
+      ))}
       <button
         type="submit"
         className={`sidebar-link${active ? " active" : ""}`}
@@ -216,14 +359,14 @@ function TeamViewRow({
           background: active ? undefined : "none",
           fontSize: "var(--fs-sm)",
         }}
-        title={isReset ? "Zur eigenen Datensicht zurückkehren" : `Datensicht von ${label} anzeigen`}
+        title={title}
       >
-        {/* Avatare in der Sidebar bleiben grau — die Owner-Palette lebt in
-            Dashboards und Charts, wo sie Datenreihen unterscheidet. */}
+        {/* Avatare bleiben grau — die Owner-Palette lebt in Dashboards und
+            Charts, wo sie Datenreihen unterscheidet. */}
         <span
           style={{
-            width: 22,
-            height: 22,
+            width: 20,
+            height: 20,
             borderRadius: "var(--r-full)",
             background: active ? "var(--accent-muted)" : "var(--surface-3)",
             color: active ? "var(--orange-300)" : "var(--text-secondary)",
@@ -235,7 +378,7 @@ function TeamViewRow({
             flexShrink: 0,
           }}
         >
-          {isReset ? <Users size={12} /> : ownerInitials(label)}
+          {avatar}
         </span>
         <span
           style={{
@@ -248,76 +391,47 @@ function TeamViewRow({
         >
           {label}
         </span>
+        {badge && (
+          <span className="eyebrow eyebrow-muted" style={{ flexShrink: 0, fontSize: "var(--fs-2xs)" }}>
+            {badge}
+          </span>
+        )}
       </button>
     </form>
   );
 }
 
-/**
- * Eine Zeile des Organisations-Umschalters. Bewusst dieselbe Bauform wie
- * TeamViewRow (Formular + sidebar-link), damit sich beide Umschalter gleich
- * anfuehlen — nur die Semantik unterscheidet sich.
- */
-function OrgSwitchRow({
-  workspaceId,
-  label,
-  active,
-  isHome,
+/** Kleiner X-Knopf rechts in einer Kontext-Zeile (Kontext zuruecksetzen). */
+function ContextReset({
+  action,
+  fields,
+  title,
+  color,
 }: {
-  workspaceId: string;
-  label: string;
-  active: boolean;
-  isHome: boolean;
+  action: (formData: FormData) => void | Promise<void>;
+  fields: { name: string; value: string }[];
+  title: string;
+  color: string;
 }) {
   return (
-    <form action={setActiveOrgForm}>
-      <input type="hidden" name="workspace_id" value={workspaceId} />
+    <form action={action} style={{ display: "flex", flexShrink: 0 }}>
+      {fields.map((f) => (
+        <input key={f.name} type="hidden" name={f.name} value={f.value} />
+      ))}
       <button
         type="submit"
-        className={`sidebar-link${active ? " active" : ""}`}
+        title={title}
         style={{
-          width: "100%",
+          background: "none",
           border: "none",
           cursor: "pointer",
-          background: active ? undefined : "none",
-          fontSize: "var(--fs-sm)",
+          color,
+          padding: "0 var(--sp-4) 0 0",
+          display: "flex",
+          alignItems: "center",
         }}
-        title={active ? `${label} — aktive Organisation` : `Zu ${label} wechseln`}
       >
-        <span
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: "var(--r-sm)",
-            background: active ? "var(--accent-muted)" : "var(--surface-3)",
-            color: active ? "var(--orange-300)" : "var(--text-secondary)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <Building2 size={12} />
-        </span>
-        <span
-          style={{
-            flex: 1,
-            textAlign: "left",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {label}
-        </span>
-        {isHome && (
-          <span
-            className="eyebrow eyebrow-muted"
-            style={{ flexShrink: 0, fontSize: "var(--fs-2xs)" }}
-          >
-            eigen
-          </span>
-        )}
+        <X size={13} />
       </button>
     </form>
   );
@@ -328,26 +442,31 @@ function CollapsibleSection({
   icon,
   label,
   action,
+  headerHref,
+  headerHrefTitle,
+  onHeaderNavigate,
   children,
 }: {
   icon: React.ReactNode;
   label: string;
   action?: (ctx: { open: boolean; setOpen: (open: boolean) => void }) => React.ReactNode;
+  /** Optionales Ziel hinter dem Abschnitts-Titel (z. B. LinkedIn → /listen). */
+  headerHref?: string;
+  headerHrefTitle?: string;
+  onHeaderNavigate?: () => void;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(true);
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-5) var(--sp-3) var(--sp-3)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-6) var(--sp-3) var(--sp-3)" }}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           title={open ? `${label} einklappen` : `${label} ausklappen`}
           style={{
-            flex: 1,
-            minWidth: 0,
             display: "flex",
             alignItems: "center",
             gap: "var(--sp-3)",
@@ -356,15 +475,38 @@ function CollapsibleSection({
             cursor: "pointer",
             padding: "0 var(--sp-2)",
             color: "var(--text-muted)",
+            flexShrink: 0,
           }}
         >
           <Chevron size={12} style={{ flexShrink: 0 }} />
           {icon}
+        </button>
+        {/* Der Titel fuehrt zur Uebersicht des Abschnitts. Das ersetzt die
+            fruehere Extra-Zeile „Alle Listen" — eine Zeile weniger, und der
+            Weg dorthin ist da, wo man ihn sucht. */}
+        {headerHref ? (
+          <Link
+            href={headerHref}
+            onClick={onHeaderNavigate}
+            title={headerHrefTitle ?? label}
+            className="eyebrow eyebrow-muted"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              textDecoration: "none",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {label}
+          </Link>
+        ) : (
           <span
             className="eyebrow eyebrow-muted"
             style={{
               flex: 1,
-              textAlign: "left",
+              minWidth: 0,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -372,7 +514,7 @@ function CollapsibleSection({
           >
             {label}
           </span>
-        </button>
+        )}
         {action?.({ open, setOpen })}
       </div>
       {open && <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>{children}</div>}
@@ -441,12 +583,20 @@ export function SidebarContent({
   // die Sidebar exakt wie bisher.
   const canSwitchOrg = (orgSwitch?.orgs.length ?? 0) > 1;
   const isForeignOrg = Boolean(orgSwitch?.isForeign);
+
+  // Die Sidebar navigiert, sie inventarisiert nicht. Ab hier uebernehmen
+  // /listen bzw. /telefon — beide zeigen ohnehin mehr (Archiv, Zaehler).
+  const visibleLists = lists.slice(0, SIDEBAR_LIST_CAP);
+  const hiddenListCount = lists.length - visibleLists.length;
+  const visiblePhoneLists = phoneLists.slice(0, SIDEBAR_LIST_CAP);
+  const hiddenPhoneCount = phoneLists.length - visiblePhoneLists.length;
   const [showNewList, setShowNewList] = useState(false);
   const [showManualAppt, setShowManualAppt] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const isImpersonating = Boolean(dataView?.activeUserId);
   const teamUsers = (dataView?.users ?? []).filter((u) => u.username !== username);
+  const canSwitchDataView = Boolean(dataView?.canSwitch) && teamUsers.length > 0;
 
   return (
     <div
@@ -491,112 +641,99 @@ export function SidebarContent({
         )}
       </div>
 
-      {/* Fremde-Organisation-Banner. Steht BEWUSST ueber dem Datensicht-Banner:
-          die Organisation ist die aeussere Grenze, die Person die innere.
-          Farblich rot statt orange — Orange heisst in dieser Datei „aktiv/hier
-          bist du", eine fremde Organisation ist aber kein Modus, sondern ein
-          Gefahrenkontext: hier schreibt man in Kundendaten. */}
-      {isForeignOrg && orgSwitch && (
+      {/* Kontext-Block: Organisation (aeussere Grenze) ueber Datensicht
+          (innere). Beide nur, wenn es etwas zu wechseln gibt — ein normales
+          Mitglied sieht hier gar nichts. */}
+      {(canSwitchOrg || canSwitchDataView) && (
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: "var(--sp-4)",
-            margin: "var(--sp-5) var(--sp-5) 0",
-            padding: "var(--sp-3) var(--sp-4)",
-            borderRadius: "var(--r-md)",
-            border: "1px solid var(--danger)",
-            background: "var(--danger-bg)",
-            color: "var(--danger-fg)",
+            flexDirection: "column",
+            gap: "var(--sp-3)",
+            padding: "var(--sp-5)",
+            borderBottom: "1px solid var(--border-subtle)",
             flexShrink: 0,
           }}
         >
-          <Building2 size={13} style={{ flexShrink: 0 }} />
-          <span
-            style={{
-              flex: 1,
-              fontSize: "var(--fs-xs)",
-              fontWeight: 500,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={`Fremde Organisation: ${orgSwitch.activeName}`}
-          >
-            {orgSwitch.activeName}
-          </span>
-          <form action={setActiveOrgForm} style={{ display: "flex", flexShrink: 0 }}>
-            <input type="hidden" name="workspace_id" value="" />
-            <button
-              type="submit"
-              title="Zurück zur eigenen Organisation"
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--danger-fg)",
-                padding: 2,
-                display: "flex",
-                alignItems: "center",
-              }}
+          {canSwitchOrg && orgSwitch && (
+            <ContextSwitcher
+              icon={<Building2 size={14} />}
+              caption="Organisation"
+              label={orgSwitch.activeName}
+              tone={isForeignOrg ? "danger" : "neutral"}
+              reset={
+                isForeignOrg ? (
+                  <ContextReset
+                    action={setActiveOrgForm}
+                    fields={[{ name: "workspace_id", value: "" }]}
+                    title="Zurück zur eigenen Organisation"
+                    color="var(--danger-fg)"
+                  />
+                ) : undefined
+              }
             >
-              <X size={13} />
-            </button>
-          </form>
-        </div>
-      )}
+              {orgSwitch.orgs.map((o) => (
+                <ContextOption
+                  key={o.id}
+                  action={setActiveOrgForm}
+                  fields={[{ name: "workspace_id", value: o.id }]}
+                  label={o.name}
+                  badge={o.id === orgSwitch.homeId ? "eigen" : undefined}
+                  active={o.id === orgSwitch.activeId}
+                  title={o.id === orgSwitch.activeId ? `${o.name} — aktiv` : `Zu ${o.name} wechseln`}
+                  avatar={<Building2 size={11} />}
+                />
+              ))}
+            </ContextSwitcher>
+          )}
 
-      {/* Datensicht-Banner (Impersonation aktiv) */}
-      {dataView?.canSwitch && isImpersonating && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--sp-4)",
-            margin: "var(--sp-5) var(--sp-5) 0",
-            padding: "var(--sp-3) var(--sp-4)",
-            borderRadius: "var(--r-md)",
-            // Fremde Datensicht ist ein AKTIVER Modus, kein Status —
-            // deshalb der Akzent-Tint und nicht Warning-Gold.
-            border: "1px solid var(--border-accent)",
-            background: "var(--accent-muted)",
-            color: "var(--orange-300)",
-            flexShrink: 0,
-          }}
-        >
-          <Users size={13} style={{ flexShrink: 0 }} />
-          <span
-            style={{
-              flex: 1,
-              fontSize: "var(--fs-xs)",
-              fontWeight: 500,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={`Datensicht: ${dataView.activeLabel}`}
-          >
-            {dataView.activeLabel}
-          </span>
-          <form action={setDataViewForm} style={{ display: "flex", flexShrink: 0 }}>
-            <input type="hidden" name="next" value={pathname} />
-            <input type="hidden" name="view_user_id" value="" />
-            <button
-              type="submit"
-              title="Datensicht zurücksetzen"
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--orange-300)",
-                padding: 2,
-                display: "flex",
-                alignItems: "center",
-              }}
+          {canSwitchDataView && dataView && (
+            <ContextSwitcher
+              icon={<Users size={14} />}
+              caption="Datensicht"
+              label={isImpersonating ? dataView.activeLabel : "Alle Daten"}
+              tone={isImpersonating ? "accent" : "neutral"}
+              reset={
+                isImpersonating ? (
+                  <ContextReset
+                    action={setDataViewForm}
+                    fields={[
+                      { name: "next", value: pathname },
+                      { name: "view_user_id", value: "" },
+                    ]}
+                    title="Datensicht zurücksetzen"
+                    color="var(--orange-300)"
+                  />
+                ) : undefined
+              }
             >
-              <X size={13} />
-            </button>
-          </form>
+              <ContextOption
+                action={setDataViewForm}
+                fields={[
+                  { name: "next", value: pathname },
+                  { name: "view_user_id", value: "" },
+                ]}
+                label="Alle Daten"
+                active={!isImpersonating}
+                title="Datensicht zurücksetzen"
+                avatar={<Users size={11} />}
+              />
+              {teamUsers.map((u) => (
+                <ContextOption
+                  key={u.user_id}
+                  action={setDataViewForm}
+                  fields={[
+                    { name: "next", value: pathname },
+                    { name: "view_user_id", value: u.user_id },
+                  ]}
+                  label={u.username}
+                  active={u.user_id === dataView.activeUserId}
+                  title={`Datensicht von ${u.username} anzeigen`}
+                  avatar={ownerInitials(u.username)}
+                />
+              ))}
+            </ContextSwitcher>
+          )}
         </div>
       )}
 
@@ -611,28 +748,6 @@ export function SidebarContent({
           gap: 1,
         }}
       >
-        {/* Organisations-Umschalter ganz oben: er bestimmt, worauf sich ALLES
-            darunter bezieht. Nicht in den Kopf-Block — dort fluchtet die
-            Wortmarke auf Topbar-Hoehe, ein zweites Element braeche die Kante. */}
-        {canSwitchOrg && orgSwitch && (
-          <div style={{ marginBottom: "var(--sp-3)" }}>
-            <CollapsibleSection
-              icon={<Building2 size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />}
-              label="Organisation"
-            >
-              {orgSwitch.orgs.map((o) => (
-                <OrgSwitchRow
-                  key={o.id}
-                  workspaceId={o.id}
-                  label={o.name}
-                  active={o.id === orgSwitch.activeId}
-                  isHome={o.id === orgSwitch.homeId}
-                />
-              ))}
-            </CollapsibleSection>
-          </div>
-        )}
-
         {/* Suche ueber ALLE Listen — ein Name muss nicht mehr in drei, vier
             Listen einzeln gesucht werden. */}
         <SearchTrigger onNavigate={onClose} />
@@ -669,6 +784,9 @@ export function SidebarContent({
         <CollapsibleSection
           icon={<LinkedInIcon size={13} />}
           label="LinkedIn"
+          headerHref="/listen"
+          headerHrefTitle="Alle Listen (inkl. Archiv)"
+          onHeaderNavigate={onClose}
           action={({ open, setOpen }) => (
             <SectionAction
               title="Neue Liste"
@@ -755,11 +873,19 @@ export function SidebarContent({
             </div>
           )}
 
-          {/* Uebersicht aller Listen inkl. Archiv-Reiter. */}
-          <ListRow href="/listen" name="Alle Listen" onClick={onClose} />
-          {lists.map((l) => (
+          {/* Lange Listen kappen: ab SIDEBAR_LIST_CAP uebernimmt /listen.
+              Eine Sidebar mit 20 Zeilen ist keine Navigation mehr. */}
+          {visibleLists.map((l) => (
             <ListRow key={l.id} href={`/lists/${l.id}`} name={l.name} onClick={onClose} />
           ))}
+          {hiddenListCount > 0 && (
+            <ListRow
+              href="/listen"
+              name={`${hiddenListCount} weitere …`}
+              onClick={onClose}
+              title="Alle Listen anzeigen"
+            />
+          )}
           {lists.length === 0 && (
             <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", padding: "var(--sp-2) var(--sp-8)" }}>
               Noch keine Listen.
@@ -767,24 +893,31 @@ export function SidebarContent({
           )}
 
           {/* Gefilterte Ansichten und Ordner — additiv neben den echten
-              Listen, die weiterhin die Heimat der Kontakte sind. */}
-          <div style={{ marginTop: "var(--sp-4)", paddingTop: "var(--sp-4)", borderTop: "1px solid var(--border-subtle)" }}>
-            <ViewTree tree={viewTree} lists={lists} onNavigate={onClose} />
-          </div>
+              Listen, die weiterhin die Heimat der Kontakte sind. Eigene
+              Ueberschrift statt nur einer Trennlinie: sonst verschwimmen
+              Listen und Ansichten zu einem einzigen langen Block. */}
+          {viewTree.length > 0 && (
+            <div style={{ marginTop: "var(--sp-4)" }}>
+              <div
+                className="eyebrow eyebrow-muted"
+                style={{ padding: "0 var(--sp-3) var(--sp-2) var(--sp-8)", fontSize: "var(--fs-2xs)" }}
+              >
+                Ansichten
+              </div>
+              <ViewTree tree={viewTree} lists={lists} onNavigate={onClose} />
+            </div>
+          )}
         </CollapsibleSection>
 
         {/* ── Telefon ── */}
-        <div style={{ borderTop: "1px solid var(--border-subtle)", marginTop: "var(--sp-4)" }} />
         <CollapsibleSection
           icon={<Phone size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />}
           label="Telefon"
-          action={() => (
-            <SectionAction title="Telefon-Übersicht öffnen" href="/telefon" onClick={onClose}>
-              <ArrowRight size={12} />
-            </SectionAction>
-          )}
+          headerHref="/telefon"
+          headerHrefTitle="Telefon-Übersicht öffnen"
+          onHeaderNavigate={onClose}
         >
-          {phoneLists.map((l) => (
+          {visiblePhoneLists.map((l) => (
             <ListRow
               key={l.id}
               href={`/telefon/${l.id}`}
@@ -800,6 +933,14 @@ export function SidebarContent({
               onClick={onClose}
             />
           ))}
+          {hiddenPhoneCount > 0 && (
+            <ListRow
+              href="/telefon"
+              name={`${hiddenPhoneCount} weitere …`}
+              onClick={onClose}
+              title="Telefon-Übersicht öffnen"
+            />
+          )}
           {phoneLists.length === 0 && (
             <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", padding: "var(--sp-2) var(--sp-8)" }}>
               Noch keine Listen.
@@ -807,31 +948,7 @@ export function SidebarContent({
           )}
         </CollapsibleSection>
 
-        <div style={{ flex: 1, minHeight: "var(--sp-6)" }} />
-
-        {/* ── Team-Ansicht (nur Admin/Owner) ── */}
-        {dataView?.canSwitch && teamUsers.length > 0 && (
-          <>
-            <div style={{ borderTop: "1px solid var(--border-subtle)" }} />
-            <CollapsibleSection
-              icon={<Users size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />}
-              label="Team-Ansicht"
-            >
-              {isImpersonating && (
-                <TeamViewRow userId="" label="Meine Daten" pathname={pathname} active={false} isReset />
-              )}
-              {teamUsers.map((u) => (
-                <TeamViewRow
-                  key={u.user_id}
-                  userId={u.user_id}
-                  label={u.username}
-                  pathname={pathname}
-                  active={u.user_id === dataView.activeUserId}
-                />
-              ))}
-            </CollapsibleSection>
-          </>
-        )}
+        <div style={{ flex: 1, minHeight: "var(--sp-7)" }} />
 
         <div style={{ borderTop: "1px solid var(--border-subtle)", marginTop: "var(--sp-4)", paddingTop: "var(--sp-4)" }}>
           <NavLink href="/export" icon={Download} label="Export (CSV)" onClick={onClose} />

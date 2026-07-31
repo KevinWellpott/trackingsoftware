@@ -194,6 +194,53 @@ export async function listOrgMembers(workspaceId: string): Promise<{
   return { organization: org as { id: string; name: string }, members };
 }
 
+export type MovableUser = {
+  user_id: string;
+  username: string;
+  current_workspace_id: string;
+  current_workspace: string;
+};
+
+/**
+ * Alle Nutzer, die NICHT in dieser Organisation sind — Grundlage für
+ * „Nutzer hierher holen". Das ist die Richtung, in der man denkt: erst die
+ * Organisation anlegen, dann jemanden hineinziehen.
+ */
+export async function listUsersOutsideOrg(workspaceId: string): Promise<{
+  error?: string;
+  users: MovableUser[];
+}> {
+  const access = await getAccessContext();
+  if (!access?.is_platform_admin) return { error: "Keine Berechtigung.", users: [] };
+
+  const supabase = await createClient();
+  const [{ data: members, error }, { data: orgs }] = await Promise.all([
+    supabase.from("workspace_members").select("user_id, workspace_id, profiles (username)"),
+    supabase.from("workspaces").select("id, name"),
+  ]);
+  if (error) return { error: error.message, users: [] };
+
+  const orgName = new Map(
+    ((orgs ?? []) as { id: string; name: string }[]).map((o) => [o.id, o.name]),
+  );
+
+  return {
+    users: ((members ?? []) as unknown as {
+      user_id: string;
+      workspace_id: string;
+      profiles: { username: string } | null;
+    }[])
+      .filter((m) => m.workspace_id !== workspaceId)
+      .map((m) => ({
+        user_id: m.user_id,
+        username: m.profiles?.username ?? m.user_id,
+        current_workspace_id: m.workspace_id,
+        current_workspace: orgName.get(m.workspace_id) ?? "—",
+      }))
+      .sort((a, b) => a.username.localeCompare(b.username, "de")),
+  };
+}
+
 export type MovePreview = {
   username: string;
   source_workspace: string;
