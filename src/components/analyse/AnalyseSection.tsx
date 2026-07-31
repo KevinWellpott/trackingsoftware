@@ -19,8 +19,18 @@ export function AnalyseSection({
 }) {
   return (
     <Card>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-7)" }}>
-        {Icon && <Icon size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />}
+      {/* Auf schmalen Viewports rutscht die Meta-Angabe unter den Titel, statt
+          beide auf je zwei Zeilen zu quetschen. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: "var(--sp-3) var(--sp-4)",
+          marginBottom: "var(--sp-7)",
+          flexWrap: "wrap",
+        }}
+      >
+        {Icon && <Icon size={16} color="var(--text-muted)" style={{ flexShrink: 0, alignSelf: "center" }} />}
         <span
           style={{
             fontSize: "var(--fs-md)",

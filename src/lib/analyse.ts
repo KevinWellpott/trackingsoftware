@@ -4,18 +4,40 @@
 
 import { berlinDateISO } from "@/lib/apptTime";
 import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
+import { VIZ_NEUTRAL } from "@/lib/viz";
 
-export type AnalyseTab = "linkedin" | "telefon" | "setting" | "closing" | "funnel";
+export type AnalyseTab =
+  | "uebersicht"
+  | "linkedin"
+  | "followup"
+  | "listen"
+  | "telefon"
+  | "setting"
+  | "closing"
+  | "funnel";
 export type RangeKey = "w" | "m" | "30" | "q" | "j" | "custom";
 export type QuelleKey = "alle" | "linkedin" | "telefon" | "manuell";
 /** Nutzer-wählbare Bucket-Granularität; "auto" = bisherige Spannen-Heuristik. */
 export type Granularity = "auto" | "tag" | "woche" | "monat";
+/**
+ * Kohorten-Reife im Follow-up-Bereich. Ein Kontakt, der vorgestern gepitcht
+ * wurde, KANN noch keine FU3-Antwort haben — er drückt jede Stufen-Quote nach
+ * unten. "reif" blendet solche Kontakte aus (Pitch ≥ FU_MATURITY_DAYS her).
+ */
+export type ReifeKey = "alle" | "reif";
 
-const TABS: readonly AnalyseTab[] = ["linkedin", "telefon", "setting", "closing", "funnel"];
+const TABS: readonly AnalyseTab[] = [
+  "uebersicht", "linkedin", "followup", "listen", "telefon", "setting", "closing", "funnel",
+];
 const QUELLEN: readonly QuelleKey[] = ["alle", "linkedin", "telefon", "manuell"];
 const GRANULARITIES: readonly Granularity[] = ["auto", "tag", "woche", "monat"];
+const REIFEN: readonly ReifeKey[] = ["alle", "reif"];
+const MIN_DMS_OPTIONS: readonly number[] = [0, 10, 25, 50];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SPAN_DAYS = 730;
+
+/** Pitch +3 → FU1 +5 → FU2 +7 → FU3: nach 15 Tagen ist die Sequenz durch. */
+export const FU_MATURITY_DAYS = 15;
 
 export type AnalyseParams = {
   tab: AnalyseTab;
@@ -25,6 +47,9 @@ export type AnalyseParams = {
   userIds: string[];
   quelle: QuelleKey;
   g: Granularity;
+  reife: ReifeKey;
+  /** Mindest-DMs, ab denen eine Liste im Listen-Ranking erscheint. */
+  minDms: number;
 };
 
 /** Erster Tag des Monats, in dem `today` (YYYY-MM-DD) liegt. */
@@ -78,7 +103,7 @@ export function parseAnalyseParams(
   sp: Record<string, string | undefined>,
   today: string,
 ): AnalyseParams {
-  const tab: AnalyseTab = TABS.includes(sp.tab as AnalyseTab) ? (sp.tab as AnalyseTab) : "linkedin";
+  const tab: AnalyseTab = TABS.includes(sp.tab as AnalyseTab) ? (sp.tab as AnalyseTab) : "uebersicht";
 
   const rawRange = sp.range as RangeKey | undefined;
   const validRange =
@@ -119,7 +144,12 @@ export function parseAnalyseParams(
 
   const g: Granularity = GRANULARITIES.includes(sp.g as Granularity) ? (sp.g as Granularity) : "auto";
 
-  return { tab, rangeKey, from, to, userIds, quelle, g };
+  const reife: ReifeKey = REIFEN.includes(sp.reife as ReifeKey) ? (sp.reife as ReifeKey) : "alle";
+
+  const rawMin = Number(sp.min);
+  const minDms = MIN_DMS_OPTIONS.includes(rawMin) ? rawMin : 10;
+
+  return { tab, rangeKey, from, to, userIds, quelle, g, reife, minDms };
 }
 
 /**
@@ -252,6 +282,172 @@ export function closingEffDate(
   r: { call_at?: string | null; created_at: string },
 ): string {
   return berlinDateISO(r.call_at) || berlinDateISO(r.created_at);
+}
+
+// ── Follow-up-Stufen ─────────────────────────────────────────
+// `contacts.follow_up_number` ist die zuletzt GESENDETE Stufe: NULL/0 = nur
+// gepitcht, 1–3 = FU1–FU3. Weil der Flow das Nachfassen bei einer Antwort
+// stoppt, ist die Stufe eines beantworteten Kontakts zugleich die Stufe, auf
+// der die Antwort kam — die einzige Zuordnung, die das Datenmodell hergibt
+// (es gibt kein Ereignis-Log je Follow-up und kein `answered_at`).
+
+export const FU_STAGE_LABELS = ["Pitch", "FU1", "FU2", "FU3"] as const;
+export type FuStage = 0 | 1 | 2 | 3;
+
+/** Stufe eines Kontakts; NULL und 0 sind beide „noch kein Follow-up". */
+export function fuStage(n: number | null | undefined): FuStage {
+  const v = Number(n);
+  if (v === 1 || v === 2 || v === 3) return v;
+  return 0;
+}
+
+export type FuCascadeRow = {
+  stage: FuStage;
+  label: string;
+  /** Kontakte, die diese Stufe erreicht haben (Stufe ≥ k). */
+  reached: number;
+  /** Antworten, die genau auf dieser Stufe kamen. */
+  answers: number;
+  /** Termine, die genau auf dieser Stufe entstanden sind. */
+  appts: number;
+  /** answers / reached — was diese Stufe zusätzlich bringt. */
+  rate: number | null;
+  /** Termine / reached. */
+  apptRate: number | null;
+  /** Alle Antworten bis einschließlich dieser Stufe / alle Pitches. */
+  cumRate: number | null;
+  /** reached / Pitches — wie konsequent überhaupt nachgefasst wird. */
+  coverage: number | null;
+};
+
+/**
+ * Baut die Follow-up-Kaskade aus einer Kontaktmenge: je Stufe, wie viele
+ * Kontakte sie erreicht haben und wie viele davon dort geantwortet haben.
+ */
+export function buildFuCascade(
+  contacts: { follow_up_number: number | null; answered: boolean | null; appointment_set: boolean | null }[],
+): FuCascadeRow[] {
+  const reached = [0, 0, 0, 0];
+  const answers = [0, 0, 0, 0];
+  const appts = [0, 0, 0, 0];
+
+  for (const c of contacts) {
+    const s = fuStage(c.follow_up_number);
+    // Stufe k erreicht heißt: alle Stufen bis k wurden durchlaufen.
+    for (let k = 0; k <= s; k++) reached[k] += 1;
+    if (c.answered === true) answers[s] += 1;
+    if (c.appointment_set === true) appts[s] += 1;
+  }
+
+  const base = reached[0];
+  let running = 0;
+  return FU_STAGE_LABELS.map((label, k) => {
+    running += answers[k];
+    return {
+      stage: k as FuStage,
+      label,
+      reached: reached[k],
+      answers: answers[k],
+      appts: appts[k],
+      rate: pct(answers[k], reached[k]),
+      apptRate: pct(appts[k], reached[k]),
+      cumRate: pct(running, base),
+      coverage: pct(reached[k], base),
+    };
+  });
+}
+
+// ── Antwort-Stimmung ─────────────────────────────────────────
+// `contacts.answer_category` ist Freitext ohne Constraint. Neu wählbar sind
+// nur Positiv/Neutral/Negativ; die Legacy-Werte werden hier auf dieselben drei
+// Töpfe gemappt, damit Zeiträume über den Kategorie-Wechsel hinweg vergleichbar
+// bleiben (Definitionsliste: src/lib/categories.ts).
+
+export type Sentiment = "positiv" | "neutral" | "negativ";
+
+const SENTIMENT_BY_CATEGORY: Record<string, Sentiment> = {
+  positiv: "positiv",
+  interessiert: "positiv",
+  neutral: "neutral",
+  "falsches timing": "neutral",
+  negativ: "negativ",
+  "kein interesse": "negativ",
+  "zu teuer": "negativ",
+  "bereits lösung": "negativ",
+  "kein budget": "negativ",
+  "falsche zielgruppe": "negativ",
+};
+
+/** Kategorie → Stimmung; unbekannte/leere Werte → null (nicht kategorisiert). */
+export function sentimentOf(category: string | null | undefined): Sentiment | null {
+  const key = (category ?? "").trim().toLowerCase();
+  if (!key) return null;
+  return SENTIMENT_BY_CATEGORY[key] ?? null;
+}
+
+// Neutral bewusst über VIZ_NEUTRAL statt über einen Surface-Ton: Surface-Töne
+// verschwinden auf der Karte im Hintergrund (siehe Kommentar in src/lib/viz.ts).
+export const SENTIMENT_META: { key: Sentiment; label: string; color: string }[] = [
+  { key: "positiv", label: "Positiv", color: "var(--success)" },
+  { key: "neutral", label: "Neutral", color: VIZ_NEUTRAL },
+  { key: "negativ", label: "Negativ", color: "var(--danger)" },
+];
+
+export type SentimentCounts = { positiv: number; neutral: number; negativ: number; offen: number };
+
+export const ZERO_SENTIMENT = (): SentimentCounts => ({ positiv: 0, neutral: 0, negativ: 0, offen: 0 });
+
+/** Zählt eine Antwort-Kategorie in den passenden Topf; ohne Zuordnung → offen. */
+export function addSentiment(acc: SentimentCounts, category: string | null | undefined): void {
+  const s = sentimentOf(category);
+  if (s) acc[s] += 1;
+  else acc.offen += 1;
+}
+
+// ── Zeit-Helfer für Vorlauf-/Velocity-Analysen ───────────────
+
+/** Ganze Tage zwischen zwei ISO-Zeitpunkten (b − a), null bei fehlendem Wert. */
+export function daysBetween(a: string | null | undefined, b: string | null | undefined): number | null {
+  if (!a || !b) return null;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  if (Number.isNaN(ta) || Number.isNaN(tb)) return null;
+  return Math.floor((tb - ta) / 86400000);
+}
+
+/** Wochentag eines ISO-Tags als Index Mo=0 … So=6. */
+export function weekdayIndex(day: string): number {
+  const [y, m, d] = day.split("-").map(Number);
+  return (new Date(y, m - 1, d).getDay() + 6) % 7;
+}
+
+/**
+ * Arbeitstage (Mo–Fr) im Fenster, inklusive beider Grenzen. Basis für den
+ * Ziel-Abgleich: `performance_targets` sind Tagesziele, und Akquise findet
+ * werktags statt — ein Monatsziel wäre sonst am Wochenende „verfehlt".
+ */
+export function workdaysBetween(from: string, to: string): number {
+  if (from > to) return 0;
+  let count = 0;
+  let cursor = from;
+  for (let i = 0; i <= MAX_SPAN_DAYS && cursor <= to; i++) {
+    if (weekdayIndex(cursor) < 5) count += 1;
+    cursor = addDaysISO(cursor, 1);
+  }
+  return count;
+}
+
+export const WEEKDAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"] as const;
+
+/**
+ * Ordnet einen Wert dem ersten Bucket zu, dessen Obergrenze er nicht
+ * überschreitet. `bounds` aufsteigend; alles darüber landet im letzten Bucket.
+ */
+export function bucketIndex(value: number, bounds: readonly number[]): number {
+  for (let i = 0; i < bounds.length; i++) {
+    if (value <= bounds[i]) return i;
+  }
+  return bounds.length;
 }
 
 const EUR_FMT = new Intl.NumberFormat("de-DE", {

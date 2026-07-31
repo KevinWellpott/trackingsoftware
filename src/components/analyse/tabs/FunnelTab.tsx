@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
-import { CalendarCheck, Euro, Filter, Handshake, Percent, Users } from "lucide-react";
+import { CalendarCheck, Euro, Filter, GitBranch, Handshake, Percent, Users } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
+import { loadClosingCalls, loadSettingCalls } from "@/lib/analyseData";
 import { NUM, ownerKey, settingEffDate, closingEffDate, eur, pct, type Granularity, type QuelleKey } from "@/lib/analyse";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
-import { BarFunnel, FunnelMatrix, KpiHero } from "@/components/analyse/AnalyseViz";
+import { Footnote, MetricTable, type MetricRow } from "@/components/analyse/AnalyseTables";
+import { BarFunnel, FunnelMatrix, KpiHero, KpiRow } from "@/components/analyse/AnalyseViz";
 
 // End-to-End-Funnel je Quelle: LinkedIn/Telefon-Erstkontakt → Setting-Shows →
 // Closings → Gewonnen → Umsatz. Verknüpft Setting- und Closing-Datensätze über
@@ -37,26 +39,17 @@ type PhoneDayRow = {
   appointments: number | string | null;
 };
 
-type SettingRow = {
-  id: string;
-  created_by_user_id: string | null;
-  source_type: string | null;
-  appointment_at: string | null;
-  call_at: string | null;
-  created_at: string;
-  show_status: "show" | "no_show" | null;
-};
-
-type ClosingRow = {
-  created_by_user_id: string | null;
-  setting_call_id: string | null;
-  call_at: string | null;
-  created_at: string;
-  status: "offen" | "gewonnen" | "verloren" | "nachfassen";
-  deal_volume: number | null;
-};
-
 type Row = { name: string; stages: FunnelStage[]; revenue: number };
+
+const SOURCE_LABELS: Record<string, string> = {
+  linkedin: "LinkedIn",
+  telefon: "Telefon",
+  manuell: "Manuell",
+  inbound: "Inbound",
+  website: "Website",
+  sonstige: "Sonstige",
+  ohne: "Ohne Setting-Bezug",
+};
 
 export async function FunnelTab({
   access,
@@ -79,20 +72,7 @@ export async function FunnelTab({
   const supabase = await createClient();
   const eff = canCompare ? null : access.user.id;
 
-  let settingQuery = supabase
-    .from("setting_calls")
-    .select("id, created_by_user_id, source_type, appointment_at, call_at, created_at, show_status")
-    .eq("workspace_id", access.workspace_id);
-  let closingQuery = supabase
-    .from("closing_calls")
-    .select("created_by_user_id, setting_call_id, call_at, created_at, status, deal_volume")
-    .eq("workspace_id", access.workspace_id);
-  if (!canCompare) {
-    settingQuery = settingQuery.eq("created_by_user_id", access.user.id);
-    closingQuery = closingQuery.eq("created_by_user_id", access.user.id);
-  }
-
-  const [liRes, phoneRes, settingRes, closingRes] = await Promise.all([
+  const [liRes, phoneRes, settingRows, closingRows] = await Promise.all([
     supabase.rpc("rpc_owner_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: from,
@@ -105,8 +85,8 @@ export async function FunnelTab({
       p_to: to,
       p_effective_user_id: eff,
     }),
-    settingQuery,
-    closingQuery,
+    loadSettingCalls(supabase, access, canCompare),
+    loadClosingCalls(supabase, access, canCompare),
   ]);
 
   if (quelle === "telefon" && phoneRes.error) {
@@ -153,7 +133,19 @@ export async function FunnelTab({
     settingShows.set(name, 0);
     settingIds.set(name, new Set());
   }
-  const settingRows = (settingRes.data ?? []) as SettingRow[];
+  // Quellen-Matrix: dieselben Stufen, aber je source_type statt je Person.
+  type SourceCell = { termine: number; shows: number; closings: number; won: number; revenue: number };
+  const sourceCells = new Map<string, SourceCell>();
+  const sourceOfSetting = new Map<string, string>();
+  const cellFor = (key: string): SourceCell => {
+    let c = sourceCells.get(key);
+    if (!c) {
+      c = { termine: 0, shows: 0, closings: 0, won: 0, revenue: 0 };
+      sourceCells.set(key, c);
+    }
+    return c;
+  };
+
   for (const r of settingRows) {
     const day = settingEffDate(r);
     if (day < from || day > to) continue;
@@ -164,6 +156,12 @@ export async function FunnelTab({
     settingTermine.set(name, settingTermine.get(name)! + 1);
     if (r.show_status === "show") settingShows.set(name, settingShows.get(name)! + 1);
     settingIds.get(name)!.add(r.id);
+
+    const srcKey = (r.source_type ?? "").trim() || "sonstige";
+    sourceOfSetting.set(r.id, srcKey);
+    const cell = cellFor(srcKey);
+    cell.termine += 1;
+    if (r.show_status === "show") cell.shows += 1;
   }
 
   // ── Closings: je Mitglied (linkedin/telefon über setting_call_id) ──
@@ -175,13 +173,23 @@ export async function FunnelTab({
     wonCount.set(name, 0);
     revenue.set(name, 0);
   }
-  const closingRows = (closingRes.data ?? []) as ClosingRow[];
   for (const r of closingRows) {
     const day = closingEffDate(r);
     if (day < from || day > to) continue;
     const uid = r.created_by_user_id ?? "";
     if (!selectedIds.has(uid)) continue;
     const name = nameById.get(uid)!;
+
+    // Die Quellen-Matrix folgt IMMER der Setting-Verknüpfung, unabhängig vom
+    // Quellen-Filter — sie ist die Aufschlüsselung, die der Filter ersetzt.
+    const srcKey = (r.setting_call_id ? sourceOfSetting.get(r.setting_call_id) : null) ?? "ohne";
+    const cell = cellFor(srcKey);
+    cell.closings += 1;
+    if (r.status === "gewonnen") {
+      cell.won += 1;
+      cell.revenue += NUM(r.deal_volume);
+    }
+
     if (quelle !== "alle") {
       const ids = settingIds.get(name)!;
       if (!r.setting_call_id || !ids.has(r.setting_call_id)) continue;
@@ -294,10 +302,40 @@ export async function FunnelTab({
     quelle === "linkedin" ? "LinkedIn" : quelle === "telefon" ? "Telefon" : quelle === "manuell" ? "Manuell" : "Alle Quellen";
   const rangeMeta = `${fmtDay(from)} – ${fmtDay(to)} · ${quelleLabel}`;
 
+  // ── Quellen-Matrix (nur ohne Quellen-Filter — sonst bliebe eine Zeile) ──
+  const matrixRows: MetricRow[] = [...sourceCells.entries()]
+    .filter(([, c]) => c.termine > 0 || c.closings > 0)
+    .sort((a, b) => b[1].revenue - a[1].revenue || b[1].termine - a[1].termine)
+    .map(([key, c]) => ({
+      key,
+      label: SOURCE_LABELS[key] ?? "Sonstige",
+      share: termineTotal === 0 ? null : c.termine / termineTotal,
+      values: {
+        termine: c.termine,
+        showRate: pct(c.shows, c.termine),
+        closings: c.closings,
+        closingRate: pct(c.closings, c.shows),
+        won: c.won,
+        winRate: pct(c.won, c.closings),
+        revenue: c.revenue,
+      },
+    }));
+  const matrixTotal = [...sourceCells.values()].reduce(
+    (acc, c) => {
+      acc.termine += c.termine;
+      acc.shows += c.shows;
+      acc.closings += c.closings;
+      acc.won += c.won;
+      acc.revenue += c.revenue;
+      return acc;
+    },
+    { termine: 0, shows: 0, closings: 0, won: 0, revenue: 0 },
+  );
+
   return (
     <>
       {/* ── Wert-Kennzahlen ────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "0.75rem" }}>
+      <KpiRow>
         {kpis.map((k, i) => (
           <KpiHero
             key={k.label}
@@ -309,7 +347,7 @@ export async function FunnelTab({
             index={i}
           />
         ))}
-      </div>
+      </KpiRow>
 
       {/* ── Funnel Gesamt ──────────────────────────────────────── */}
       <div className="fade-up" style={{ animationDelay: "240ms" }}>
@@ -317,6 +355,41 @@ export async function FunnelTab({
           <BarFunnel stages={totalStages} trailing={{ label: "Umsatz", value: eur(totalRevenue) }} />
         </AnalyseSection>
       </div>
+
+      {/* ── Quellen-Matrix ─────────────────────────────────────── */}
+      {quelle === "alle" && matrixRows.length > 0 && (
+        <div className="fade-up" style={{ animationDelay: "270ms" }}>
+          <AnalyseSection title="Je Quelle" icon={GitBranch} meta="derselbe Trichter, aufgeschlüsselt nach Herkunft">
+            <MetricTable
+              label="Quelle"
+              columns={[
+                { key: "termine", label: "Termine", format: "int" },
+                { key: "showRate", label: "Show-Quote", format: "pct" },
+                { key: "closings", label: "Closings", format: "int" },
+                { key: "closingRate", label: "Show → Closing", format: "pct" },
+                { key: "won", label: "Gewonnen", format: "int" },
+                { key: "winRate", label: "Closing → Win", format: "pct" },
+                { key: "revenue", label: "Umsatz", format: "eur", emphasis: true },
+              ]}
+              rows={matrixRows}
+              total={{
+                termine: matrixTotal.termine,
+                showRate: pct(matrixTotal.shows, matrixTotal.termine),
+                closings: matrixTotal.closings,
+                closingRate: pct(matrixTotal.closings, matrixTotal.shows),
+                won: matrixTotal.won,
+                winRate: pct(matrixTotal.won, matrixTotal.closings),
+                revenue: matrixTotal.revenue,
+              }}
+              minWidth={720}
+            />
+            <Footnote>
+              Show-Quote hier gegen alle Termine der Quelle (nicht gegen <code>no_show_count</code> wie im
+              Setting-Tab) — so bleibt die Kette Termin → Show → Closing → Win in einer Zeile durchrechenbar.
+            </Footnote>
+          </AnalyseSection>
+        </div>
+      )}
 
       {/* ── Je Nutzer (nur bei >1 Mitglied — sonst ist Gesamt bereits die
              Einzelsicht) ──────────────────────────────────────── */}

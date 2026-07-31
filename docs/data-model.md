@@ -124,6 +124,19 @@ Kennzahl-Definitionen der UI:
 - **Wochenduell-Sieg** = strikt mehr Pitches als jede andere Person (geteiltes Maximum = Unentschieden).
 - **Funnel je Quelle** (Analyse): DMs/Calls → Antworten/Entscheider → Termine → Setting-Shows (`show_status='show'`) → Closings → Gewonnen; Verknüpfung Setting↔Closing über `setting_call_id`.
 
+### 5.1 Analyse-Bereich (`/analyse`, acht Tabs)
+
+Tabs: Übersicht · LinkedIn · Follow-ups · Listen · Telefon · Setting · Closing · Funnel. Filter in der URL: `tab`, `range`/`von`/`bis`, `g` (Granularität; ausgeblendet auf Follow-ups/Listen/Funnel, die nicht bucketen), `users`, `quelle` (Setting/Funnel), `reife` (nur Follow-ups), `min` (nur Listen, Default 10). Parsing ausschließlich in `parseAnalyseParams` (`src/lib/analyse.ts`), Datenbeschaffung ausschließlich in `src/lib/analyseData.ts` — dort läuft **jede** Abfrage über `fetchAllRows`, weil PostgREST sonst still bei 1000 Zeilen abschneidet.
+
+Abgeleitete Kennzahlen, die es so in keiner RPC gibt:
+- **Follow-up-Kaskade** (`buildFuCascade`): Stufe = `coalesce(follow_up_number, 0)`. *Erreicht Stufe k* = Kontakte mit Stufe ≥ k; *Antwort auf Stufe k* = `answered = true` **und** Stufe = k. Trägt, weil der Flow das Nachfassen bei einer Antwort stoppt — es gibt **kein** Ereignis-Log je Follow-up und kein `answered_at`. Marginalquote = Antworten_k / Erreicht_k, kumuliert = Σ Antworten ≤ k / Pitches.
+- **Kohorten-Reife** (`reife=reif`): nur Pitches, die mindestens `FU_MATURITY_DAYS` (15 = 3+5+7) zurückliegen. Ohne diesen Schnitt drücken frische Pitches jede späte Stufenquote.
+- **Stimmung** (`sentimentOf`): `answer_category` → positiv/neutral/negativ; Legacy-Werte werden gemappt (Interessiert → positiv, Falsches Timing → neutral, Kein Interesse / Zu teuer / Kein Budget / Bereits Lösung / Falsche Zielgruppe → negativ).
+- **Umsatz je Liste**: `contacts.setting_call_id` → `closing_calls` mit `status='gewonnen'`. Manuell gebuchte Termine haben keinen Quellkontakt und tauchen dort nicht auf.
+- **Vorlaufzeit** (Setting) = `appointment_at − created_at` in Tagen, gegen die Show-Quote. **Abschluss-Geschwindigkeit** (Closing) = Closing-Tag − Setting-Tag, gegen die Win-Rate.
+- **Ziel-Abgleich** (Übersicht): `performance_targets` sind TAGES-Ziele. Soll für einen freien Zeitraum = Tagesziel × Arbeitstage (Mo–Fr, `workdaysBetween`), gerechnet nur bis heute — sonst zählte ein laufender Monat seine Zukunft als Rückstand.
+- Personen-Zuordnung folgt überall `list_owned_by_user()`: `owner_name` hat Vorrang, `created_by_user_id` greift nur ohne Namen. `setting_calls`/`closing_calls` haben kein `owner_name` — dort zählt der Ersteller.
+
 Beispiel-Auswertungen (Muster):
 
 ```sql

@@ -1,40 +1,33 @@
 import type { CSSProperties } from "react";
 import {
-  BadgeCheck, BarChart3, CalendarCheck, Eye, Filter, Gauge as GaugeIcon,
-  Handshake, ListChecks, PieChart, Wallet,
+  BadgeCheck, BarChart3, Briefcase, CalendarCheck, CalendarClock, Eye, Filter,
+  Gauge as GaugeIcon, Handshake, ListChecks, PieChart, Timer, Video, Wallet,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { buildBuckets, bucketOf, settingEffDate, pct, type Granularity, type QuelleKey } from "@/lib/analyse";
+import { loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
+import {
+  WEEKDAY_LABELS, buildBuckets, bucketIndex, bucketOf, daysBetween, pct, settingEffDate, weekdayIndex,
+  type Granularity, type QuelleKey,
+} from "@/lib/analyse";
+import { toBerlinSlot } from "@/lib/apptTime";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
+import { Footnote, MetricTable, type MetricRow } from "@/components/analyse/AnalyseTables";
 import { BucketBarChart } from "@/components/analyse/AnalyseCharts";
-import { DistBars, DonutChart, GaugeBar, KpiHero } from "@/components/analyse/AnalyseViz";
+import { DistBars, DonutChart, GaugeBar, KpiHero, QuoteColumns, KpiRow } from "@/components/analyse/AnalyseViz";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import type { SettingStatus } from "@/lib/types";
 
-// Setting-Flow: Termine → Shows → Qualifikation → Closing gelegt, aus
-// setting_calls (JS-Filter nach Effektiv-Datum und optionaler Quelle).
+// Setting-Flow: Termine → Shows → Qualifikation → Closing gelegt.
 // Ein einziger Fetch deckt aktuelles UND Vorperioden-Fenster ab — der Split
 // passiert in JS über settingEffDate.
+//
+// Der zweite Teil des Tabs fragt nicht mehr „wie viele", sondern „woran liegt
+// es": Vorlaufzeit, Termin-Zeitfenster, Termin-Art, Branche und die vier
+// Qualifikations-Kriterien, jeweils gegen Show- bzw. Closing-Quote.
 
 type Member = { user_id: string; username: string };
-
-type SettingRow = {
-  id: string;
-  created_by_user_id: string | null;
-  source_type: string | null;
-  appointment_at: string | null;
-  call_at: string | null;
-  created_at: string;
-  show_status: "show" | "no_show" | null;
-  status: SettingStatus;
-  /** Zählt No-Shows über Neuterminierungen hinweg — show_status kennt nur den letzten Stand. */
-  no_show_count: number | null;
-  has_budget_8k: "ja" | "nein" | "unklar" | null;
-  ist_pain: number | null;
-  warmth: number | null;
-};
 
 const STATUS_META: { key: SettingStatus; label: string; tone: BadgeTone }[] = [
   { key: "offen", label: "Offen", tone: "info" },
@@ -56,7 +49,12 @@ type Totals = {
 
 const ZERO = (): Totals => ({ termine: 0, shows: 0, noShows: 0, quali: 0, closing: 0, dead: 0 });
 
-const INT = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
+const INT = new Intl.NumberFormat("de-DE");
+
+/** Ein Setting gilt als qualifiziert, wenn der Lead da war und weiterging. */
+function isQualified(r: AnalyseSettingCall): boolean {
+  return r.show_status === "show" && (r.status === "qualifiziert" || r.status === "closing_gelegt");
+}
 
 /** %-Änderung vs. Vorperiode für Zähl-KPIs; Vorwert 0 → null. */
 function pctChange(cur: number, prev: number): number | null {
@@ -68,6 +66,51 @@ function pctChange(cur: number, prev: number): number | null {
 function ppDelta(cur: number | null, prev: number | null): number | null {
   if (cur === null || prev === null) return null;
   return Math.round((cur - prev) * 10) / 10;
+}
+
+// Vorlaufzeit: wie viele Tage liegen zwischen Buchung und Termin. Kurzfristige
+// Termine zeigen erfahrungsgemäß bessere Show-Quoten — die Frage ist, wie stark.
+const LEAD_BOUNDS = [0, 1, 3, 7, 14] as const;
+const LEAD_LABELS = ["Selber Tag", "1 Tag", "2–3 Tage", "4–7 Tage", "8–14 Tage", "> 14 Tage"];
+
+// Uhrzeit-Blöcke in Berliner Wandzeit (Minuten ab Mitternacht).
+const HOUR_BOUNDS = [10 * 60 - 1, 12 * 60 - 1, 14 * 60 - 1, 16 * 60 - 1, 18 * 60 - 1] as const;
+const HOUR_LABELS = ["vor 10", "10–12", "12–14", "14–16", "16–18", "ab 18"];
+
+const SOURCE_LABELS: Record<string, string> = {
+  linkedin: "LinkedIn",
+  telefon: "Telefon",
+  manuell: "Manuell",
+  inbound: "Inbound",
+  website: "Website",
+};
+
+const BRANCHE_LABELS: Record<string, string> = {
+  agentur: "Agentur",
+  coach: "Coach",
+  consultant: "Consultant",
+  sonstiges: "Sonstiges",
+};
+
+/** Zähl-Eimer für „Menge + drei Quoten" — die Form fast aller Schnitte hier. */
+type Cell = { n: number; shows: number; noShows: number; quali: number; closing: number };
+const ZERO_CELL = (): Cell => ({ n: 0, shows: 0, noShows: 0, quali: 0, closing: 0 });
+
+function addCell(cell: Cell, r: AnalyseSettingCall): void {
+  cell.n += 1;
+  if (r.show_status === "show") cell.shows += 1;
+  cell.noShows += r.no_show_count ?? 0;
+  if (isQualified(r)) cell.quali += 1;
+  if (r.show_status === "show" && r.status === "closing_gelegt") cell.closing += 1;
+}
+
+function cellValues(cell: Cell) {
+  return {
+    n: cell.n,
+    showRate: pct(cell.shows, cell.shows + cell.noShows),
+    qualiRate: pct(cell.quali, cell.shows),
+    closingRate: pct(cell.closing, cell.shows),
+  };
 }
 
 export async function SettingTab({
@@ -93,15 +136,7 @@ export async function SettingTab({
 }) {
   const supabase = await createClient();
   const hasPrev = Boolean(prevFrom && prevTo);
-
-  let query = supabase
-    .from("setting_calls")
-    .select("id, created_by_user_id, source_type, appointment_at, call_at, created_at, show_status, no_show_count, status, has_budget_8k, ist_pain, warmth")
-    .eq("workspace_id", access.workspace_id);
-  if (!canCompare) query = query.eq("created_by_user_id", access.user.id);
-
-  const res = await query;
-  const allRows = (res.data ?? []) as SettingRow[];
+  const allRows = await loadSettingCalls(supabase, access, canCompare);
   const buckets = buildBuckets(from, to, granularity);
 
   const selectedIds = new Set(selectedMembers.map((m) => m.user_id));
@@ -117,15 +152,39 @@ export async function SettingTab({
     offen: 0, no_show: 0, qualifiziert: 0, closing_gelegt: 0, unqualifiziert: 0, dead: 0,
   };
 
-  // Vorperioden-Summen (nur Gesamtwerte für die Delta-Badges)
   const prev = ZERO();
-  // Sparkline: Termine gesamt je Bucket
   const termineByBucket: Record<string, number> = {};
-  // Quellen-Split (aktuelles Fenster)
   const sourceCounts = { linkedin: 0, telefon: 0, manuell: 0, sonstige: 0 };
-  // Qualität (aktuelles Fenster)
   const budget = { ja: 0, nein: 0, unklar: 0 };
   let painSum = 0, painN = 0, warmthSum = 0, warmthN = 0;
+
+  // Schnitte (jeweils Menge + Quoten)
+  const leadCells = LEAD_LABELS.map(ZERO_CELL);
+  let leadUnknown = 0;
+  const weekdayCells = WEEKDAY_LABELS.map(ZERO_CELL);
+  const hourCells = HOUR_LABELS.map(ZERO_CELL);
+  let timeUnknown = 0;
+  const kindCells = new Map<string, Cell>();
+  const brancheCells = new Map<string, Cell>();
+  const sourceCells = new Map<string, Cell>();
+  const criteria: Record<string, { ja: Cell; nein: Cell }> = {
+    budget: { ja: ZERO_CELL(), nein: ZERO_CELL() },
+    sole_decider: { ja: ZERO_CELL(), nein: ZERO_CELL() },
+    can_decide_now: { ja: ZERO_CELL(), nein: ZERO_CELL() },
+    clear_need: { ja: ZERO_CELL(), nein: ZERO_CELL() },
+  };
+  const painBins = [0, 0, 0, 0, 0];
+  const warmthBins = [0, 0, 0, 0, 0];
+  const noShowRepeat = { einmal: 0, mehrfach: 0 };
+
+  const bucketOfMap = (map: Map<string, Cell>, key: string): Cell => {
+    let c = map.get(key);
+    if (!c) {
+      c = ZERO_CELL();
+      map.set(key, c);
+    }
+    return c;
+  };
 
   for (const r of allRows) {
     const day = settingEffDate(r);
@@ -138,7 +197,7 @@ export async function SettingTab({
       prev.termine += 1;
       if (r.show_status === "show") prev.shows += 1;
       prev.noShows += r.no_show_count ?? 0;
-      if (r.show_status === "show" && (r.status === "qualifiziert" || r.status === "closing_gelegt")) prev.quali += 1;
+      if (isQualified(r)) prev.quali += 1;
       if (r.show_status === "show" && r.status === "closing_gelegt") prev.closing += 1;
       continue;
     }
@@ -153,7 +212,7 @@ export async function SettingTab({
     // Über no_show_count statt show_status: ein neuterminierter No-Show steht auf
     // "offen"/"show", sein Nichterscheinen zählt trotzdem gegen die Show-Quote.
     t.noShows += r.no_show_count ?? 0;
-    if (r.show_status === "show" && (r.status === "qualifiziert" || r.status === "closing_gelegt")) t.quali += 1;
+    if (isQualified(r)) t.quali += 1;
     if (r.show_status === "show" && r.status === "closing_gelegt") t.closing += 1;
     if (r.status === "dead") t.dead += 1;
     statusCounts[r.status] += 1;
@@ -171,8 +230,46 @@ export async function SettingTab({
     else if (r.has_budget_8k === "nein") budget.nein += 1;
     else if (r.has_budget_8k === "unklar") budget.unklar += 1;
 
-    if (r.ist_pain != null) { painSum += Number(r.ist_pain); painN += 1; }
-    if (r.warmth != null) { warmthSum += Number(r.warmth); warmthN += 1; }
+    if (r.ist_pain != null) {
+      painSum += Number(r.ist_pain);
+      painN += 1;
+      painBins[Math.min(Math.floor((Number(r.ist_pain) - 1) / 2), 4)] += 1;
+    }
+    if (r.warmth != null) {
+      warmthSum += Number(r.warmth);
+      warmthN += 1;
+      warmthBins[Math.min(Math.floor((Number(r.warmth) - 1) / 2), 4)] += 1;
+    }
+
+    if ((r.no_show_count ?? 0) === 1) noShowRepeat.einmal += 1;
+    else if ((r.no_show_count ?? 0) > 1) noShowRepeat.mehrfach += 1;
+
+    // Vorlaufzeit Buchung → Termin
+    const lead = daysBetween(r.created_at, r.appointment_at);
+    if (lead === null) leadUnknown += 1;
+    else addCell(leadCells[bucketIndex(Math.max(lead, 0), LEAD_BOUNDS)], r);
+
+    // Wochentag + Uhrzeit des Termins (Berliner Wandzeit)
+    const slot = r.appointment_at ? toBerlinSlot(r.appointment_at) : null;
+    if (slot) {
+      addCell(weekdayCells[weekdayIndex(slot.dayISO)], r);
+      addCell(hourCells[bucketIndex(slot.startMin, HOUR_BOUNDS)], r);
+    } else {
+      timeUnknown += 1;
+    }
+
+    addCell(bucketOfMap(kindCells, r.meeting_kind ?? "offen"), r);
+    addCell(bucketOfMap(brancheCells, (r.branche ?? "").trim() || "ohne"), r);
+    addCell(bucketOfMap(sourceCells, (r.source_type ?? "").trim() || "sonstige"), r);
+
+    if (r.has_budget_8k === "ja") addCell(criteria.budget.ja, r);
+    else if (r.has_budget_8k === "nein") addCell(criteria.budget.nein, r);
+    if (r.sole_decider === true) addCell(criteria.sole_decider.ja, r);
+    else if (r.sole_decider === false) addCell(criteria.sole_decider.nein, r);
+    if (r.can_decide_now === true) addCell(criteria.can_decide_now.ja, r);
+    else if (r.can_decide_now === false) addCell(criteria.can_decide_now.nein, r);
+    if (r.clear_need === true) addCell(criteria.clear_need.ja, r);
+    else if (r.clear_need === false) addCell(criteria.clear_need.nein, r);
   }
 
   const names = selectedMembers.map((m) => m.username);
@@ -227,32 +324,82 @@ export async function SettingTab({
 
   // ── Quellen-Split (Donut) ────────────────────────────────────
   const quellenData = [
-    { name: "LinkedIn", value: sourceCounts.linkedin, color: "var(--brand-500)" },
-    { name: "Telefon", value: sourceCounts.telefon, color: "var(--color-warning-text)" },
-    { name: "Manuell", value: sourceCounts.manuell, color: "var(--color-success-text)" },
-    { name: "Sonstige", value: sourceCounts.sonstige, color: "var(--surface-300)" },
+    { name: "LinkedIn", value: sourceCounts.linkedin, color: "var(--viz-1)" },
+    { name: "Telefon", value: sourceCounts.telefon, color: "var(--viz-2)" },
+    { name: "Manuell", value: sourceCounts.manuell, color: "var(--viz-3)" },
+    { name: "Sonstige", value: sourceCounts.sonstige, color: "var(--viz-6)" },
   ].filter((d) => d.value > 0);
 
   // ── Qualität ─────────────────────────────────────────────────
   const budgetTotal = budget.ja + budget.nein + budget.unklar;
   const budgetItems = [
-    { label: "Ja", value: budget.ja, color: "var(--color-success-text)" },
-    { label: "Nein", value: budget.nein, color: "var(--color-error-text)" },
-    { label: "Unklar", value: budget.unklar, color: "var(--surface-300)" },
+    { label: "Ja", value: budget.ja, color: "var(--success)" },
+    { label: "Nein", value: budget.nein, color: "var(--danger)" },
+    { label: "Unklar", value: budget.unklar, color: "var(--warning)" },
   ];
   const avgPain = painN > 0 ? painSum / painN : null;
   const avgWarmth = warmthN > 0 ? warmthSum / warmthN : null;
 
-  const mutedNote: CSSProperties = {
-    fontSize: "0.6875rem",
-    color: "var(--text-muted)",
-    margin: "0.375rem 0 0",
+  // ── Schnitt-Tabellen ─────────────────────────────────────────
+  const cellRows = (
+    entries: [string, Cell][],
+    labelOf: (key: string) => string,
+    base: number,
+  ): MetricRow[] =>
+    entries
+      .filter(([, c]) => c.n > 0)
+      .sort((a, b) => b[1].n - a[1].n)
+      .map(([key, c]) => ({
+        key,
+        label: labelOf(key),
+        share: base === 0 ? null : c.n / base,
+        values: cellValues(c),
+      }));
+
+  const kindRows = cellRows(
+    [...kindCells.entries()],
+    (k) => (k === "link" ? "Video-Link" : k === "telefon" ? "Telefon" : "Ohne Angabe"),
+    sum.termine,
+  );
+  const brancheRows = cellRows([...brancheCells.entries()], (k) => BRANCHE_LABELS[k] ?? "Ohne Angabe", sum.termine);
+  const sourceRows = cellRows([...sourceCells.entries()], (k) => SOURCE_LABELS[k] ?? "Sonstige", sum.termine);
+
+  const CRITERIA_LABELS: Record<string, string> = {
+    budget: "Budget 8k+",
+    sole_decider: "Alleinentscheider",
+    can_decide_now: "Kann sofort entscheiden",
+    clear_need: "Klarer Bedarf",
   };
+  const criteriaRows: MetricRow[] = Object.entries(criteria)
+    .filter(([, v]) => v.ja.n + v.nein.n > 0)
+    .map(([key, v]) => ({
+      key,
+      label: CRITERIA_LABELS[key],
+      sub: `${INT.format(v.ja.n + v.nein.n)} von ${INT.format(sum.termine)} Terminen beantwortet`,
+      values: {
+        jaN: v.ja.n,
+        jaClosing: pct(v.ja.closing, v.ja.shows),
+        neinN: v.nein.n,
+        neinClosing: pct(v.nein.closing, v.nein.shows),
+        spread:
+          pct(v.ja.closing, v.ja.shows) === null || pct(v.nein.closing, v.nein.shows) === null
+            ? null
+            : Math.round(((pct(v.ja.closing, v.ja.shows) ?? 0) - (pct(v.nein.closing, v.nein.shows) ?? 0)) * 10) / 10,
+      },
+    }));
+
+  const mutedNote: CSSProperties = {
+    fontSize: "var(--fs-xs)",
+    color: "var(--text-muted)",
+    margin: "var(--sp-3) 0 0",
+  };
+
+  const scaleLabels = ["1–2", "3–4", "5–6", "7–8", "9–10"];
 
   return (
     <>
       {/* ── KPI-Heroes ─────────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
+      <KpiRow>
         <KpiHero
           label="Termine"
           value={sum.termine}
@@ -289,7 +436,7 @@ export async function SettingTab({
           icon={<Handshake size={15} />}
           index={3}
         />
-      </div>
+      </KpiRow>
 
       {/* ── Vergleich ──────────────────────────────────────────── */}
       <div className="fade-up" style={{ animationDelay: "240ms" }}>
@@ -308,13 +455,18 @@ export async function SettingTab({
             average={average}
             averageLabel="Gesamt"
           />
+          <Footnote>
+            Die Show-Quote rechnet gegen <code>no_show_count</code> statt gegen den aktuellen Status: ein
+            neuterminierter No-Show steht später auf &bdquo;offen&ldquo;/&bdquo;show&ldquo;, sein Nichterscheinen zählt trotzdem.
+          </Footnote>
         </AnalyseSection>
       </div>
 
       {/* ── Charts-Reihe ───────────────────────────────────────── */}
       <div
-        className="chart-grid-2 fade-up"
-        style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "0.75rem", animationDelay: "300ms" }}
+        className="analyse-row fade-up"
+        data-split="chart"
+        style={{ animationDelay: "300ms" }}
       >
         <AnalyseSection title="Termine im Verlauf" icon={BarChart3}>
           <BucketBarChart buckets={buckets} perUser={perUser} />
@@ -324,35 +476,174 @@ export async function SettingTab({
         </AnalyseSection>
       </div>
 
+      {/* ── Wann erscheinen Leads? ─────────────────────────────────
+             Vorlaufzeit, Wochentag und Uhrzeit sind drei Antworten auf EINE
+             Frage — als drei Karten nebeneinander liest man sie als drei
+             Themen. Deshalb ein Block mit drei Achsen. */}
+      <div className="fade-up" style={{ animationDelay: "340ms" }}>
+        <AnalyseSection
+          title="Wann erscheinen Leads?"
+          icon={Timer}
+          meta="Balken = Termine · Zeile darunter = Show-Quote"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
+            <div>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Vorlauf: Buchung → Termin
+                {leadUnknown > 0 && ` · ${INT.format(leadUnknown)} ohne Termindatum`}
+              </div>
+              <QuoteColumns
+                perDay={LEAD_LABELS.map((label, i) => ({
+                  label,
+                  n: leadCells[i].n,
+                  quote: pct(leadCells[i].shows, leadCells[i].shows + leadCells[i].noShows),
+                }))}
+              />
+            </div>
+            <div>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Wochentag des Termins
+              </div>
+              <QuoteColumns
+                perDay={WEEKDAY_LABELS.map((label, i) => ({
+                  label,
+                  n: weekdayCells[i].n,
+                  quote: pct(weekdayCells[i].shows, weekdayCells[i].shows + weekdayCells[i].noShows),
+                }))}
+              />
+            </div>
+            <div>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Uhrzeit des Termins · Berliner Zeit
+                {timeUnknown > 0 && ` · ${INT.format(timeUnknown)} ohne Uhrzeit`}
+              </div>
+              <QuoteColumns
+                perDay={HOUR_LABELS.map((label, i) => ({
+                  label,
+                  n: hourCells[i].n,
+                  quote: pct(hourCells[i].shows, hourCells[i].shows + hourCells[i].noShows),
+                }))}
+              />
+            </div>
+          </div>
+          <Footnote>
+            Je weiter ein Termin in der Zukunft liegt, desto mehr kann dazwischenkommen. Sackt die Show-Quote im
+            Vorlauf nach hinten ab, ist kürzer terminieren der billigste Hebel — nicht mehr Termine. Der grün
+            hervorgehobene Balken ist jeweils die beste Show-Quote.
+          </Footnote>
+        </AnalyseSection>
+      </div>
+
+      {/* ── Termin-Art + Quelle ────────────────────────────────── */}
+      <div className="analyse-row">
+        <div className="fade-up" style={{ display: "grid", animationDelay: "460ms" }}>
+          <AnalyseSection title="Termin-Art" icon={Video} meta="Video-Link vs. Telefon">
+            <MetricTable
+              label="Art"
+              columns={[
+                { key: "n", label: "Termine", format: "int" },
+                { key: "showRate", label: "Show-Quote", format: "pct", emphasis: true },
+                { key: "qualiRate", label: "Quali-Quote", format: "pct" },
+                { key: "closingRate", label: "Closing-Quote", format: "pct" },
+              ]}
+              rows={kindRows}
+              minWidth={420}
+            />
+          </AnalyseSection>
+        </div>
+        <div className="fade-up" style={{ display: "grid", animationDelay: "500ms" }}>
+          <AnalyseSection title="Quelle → Qualität" icon={CalendarClock} meta="woher kommt der bessere Termin?">
+            <MetricTable
+              label="Quelle"
+              columns={[
+                { key: "n", label: "Termine", format: "int" },
+                { key: "showRate", label: "Show-Quote", format: "pct" },
+                { key: "qualiRate", label: "Quali-Quote", format: "pct", emphasis: true },
+                { key: "closingRate", label: "Closing-Quote", format: "pct" },
+              ]}
+              rows={sourceRows}
+              minWidth={420}
+            />
+          </AnalyseSection>
+        </div>
+      </div>
+
+      {/* ── Branche ────────────────────────────────────────────── */}
+      <div className="fade-up" style={{ animationDelay: "540ms" }}>
+        <AnalyseSection title="Branche" icon={Briefcase} meta="Wo läuft die Qualifikation durch?">
+          <MetricTable
+            label="Branche"
+            columns={[
+              { key: "n", label: "Termine", format: "int" },
+              { key: "showRate", label: "Show-Quote", format: "pct" },
+              { key: "qualiRate", label: "Quali-Quote", format: "pct", emphasis: true },
+              { key: "closingRate", label: "Closing-Quote", format: "pct" },
+            ]}
+            rows={brancheRows}
+            minWidth={480}
+            emptyHint="Keine Branche erfasst."
+          />
+        </AnalyseSection>
+      </div>
+
+      {/* ── Qualifikations-Kriterien ───────────────────────────── */}
+      <div className="fade-up" style={{ animationDelay: "580ms" }}>
+        <AnalyseSection title="Welches Kriterium sagt den Abschluss voraus?" icon={ListChecks} meta="Closing-Quote bei Ja vs. Nein">
+          <MetricTable
+            label="Kriterium"
+            columns={[
+              { key: "jaN", label: "Ja", format: "int" },
+              { key: "jaClosing", label: "Closing bei Ja", format: "pct", emphasis: true },
+              { key: "neinN", label: "Nein", format: "int" },
+              { key: "neinClosing", label: "Closing bei Nein", format: "pct" },
+              { key: "spread", label: "Δ pp", format: "num1" },
+            ]}
+            rows={criteriaRows}
+            minWidth={560}
+            emptyHint="Noch keine Qualifikations-Antworten erfasst."
+          />
+          <Footnote>
+            Δ ist der Abstand der beiden Closing-Quoten in Prozentpunkten — je größer, desto trennschärfer ist die
+            Frage. &bdquo;Unklar&ldquo; beim Budget bleibt außen vor, weil es keine Aussage ist.
+          </Footnote>
+        </AnalyseSection>
+      </div>
+
       {/* ── Qualitäts-Reihe ────────────────────────────────────── */}
       <div
-        className="fade-up"
+        className="analyse-row fade-up"
+        data-split="auto"
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: "0.75rem",
-          animationDelay: "360ms",
+          animationDelay: "620ms",
         }}
       >
         <AnalyseSection title="Budget (8k+)" icon={Wallet} meta={`${INT.format(budgetTotal)} Angaben`}>
           <DistBars items={budgetItems} total={budgetTotal} />
         </AnalyseSection>
+        {/* Durchschnitt und Verteilung gehören zusammen: ein Ø 5,5 kann
+            „alle mittelmäßig" oder „halb heiß, halb kalt" heißen. */}
         <AnalyseSection title="Lead-Qualität" icon={GaugeIcon} meta="Skala 1–10">
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
             <div>
               <GaugeBar label="Ø Pain" value={avgPain} />
               <p style={mutedNote}>aus {INT.format(painN)} Bewertungen</p>
+              <div style={{ marginTop: "var(--sp-5)" }}>
+                <DistBars items={scaleLabels.map((l, i) => ({ label: l, value: painBins[i], color: "var(--viz-1)" }))} />
+              </div>
             </div>
             <div>
               <GaugeBar label="Ø Wärme" value={avgWarmth} />
               <p style={mutedNote}>aus {INT.format(warmthN)} Bewertungen</p>
+              <div style={{ marginTop: "var(--sp-5)" }}>
+                <DistBars items={scaleLabels.map((l, i) => ({ label: l, value: warmthBins[i], color: "var(--viz-2)" }))} />
+              </div>
             </div>
           </div>
         </AnalyseSection>
       </div>
 
       {/* ── Status-Verteilung ──────────────────────────────────── */}
-      <div className="fade-up" style={{ animationDelay: "420ms" }}>
+      <div className="fade-up" style={{ animationDelay: "660ms" }}>
         <AnalyseSection title="Status-Verteilung" icon={ListChecks} meta={`${statusTotal} gesamt`}>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {STATUS_META.map((s) => (
@@ -361,7 +652,7 @@ export async function SettingTab({
                 <span
                   style={{
                     marginLeft: "auto",
-                    fontSize: "0.875rem",
+                    fontSize: "var(--fs-base)",
                     fontWeight: 600,
                     color: "var(--text-primary)",
                     fontVariantNumeric: "tabular-nums",
@@ -372,6 +663,11 @@ export async function SettingTab({
               </div>
             ))}
           </div>
+          <Footnote>
+            {noShowRepeat.mehrfach > 0
+              ? `${INT.format(noShowRepeat.einmal)} Termine hatten genau einen No-Show, ${INT.format(noShowRepeat.mehrfach)} mehr als einen — Letztere sind Kandidaten zum Abhaken statt zum dritten Neu-Terminieren.`
+              : `${INT.format(noShowRepeat.einmal)} Termine hatten einen No-Show im Verlauf.`}
+          </Footnote>
         </AnalyseSection>
       </div>
     </>

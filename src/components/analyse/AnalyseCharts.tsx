@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Inbox } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -28,19 +29,27 @@ export type Bucket = { key: string; label: string };
 // damit sich Objekt-Literale zuweisen lassen (reine Intersection wäre unbrauchbar).
 type SeriesPoint = { label: string; [series: string]: number | string };
 
+/** Leerzustand wie in AnalyseViz (COMPONENTS.md §14.1): Icon + Zustand + Hinweis. */
 function EmptyState({ height = 240 }: { height?: number }) {
   return (
     <div
       style={{
         height,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        color: "var(--text-muted)",
-        fontSize: "var(--fs-sm)",
+        gap: "var(--sp-3)",
+        textAlign: "center",
       }}
     >
-      Noch keine Daten.
+      <Inbox size={20} color="var(--text-muted)" aria-hidden />
+      <span style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)" }}>
+        Für diesen Zeitraum gibt es nichts zu zeigen.
+      </span>
+      <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
+        Wähle einen größeren Zeitraum oder mehr Personen.
+      </span>
     </div>
   );
 }

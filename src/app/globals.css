@@ -1204,6 +1204,24 @@ input:hover::-webkit-calendar-picker-indicator { filter: brightness(0) invert(85
   cursor: pointer;
   transition: color var(--transition-fast);
 }
+/* Tab-Leiste mit mehr Eintraegen, als auf schmale Viewports passen. Der
+   Ausblend-Verlauf rechts ist das einzige Signal, dass es weitergeht — er
+   greift erst, wenn die Leiste wirklich ueberlaeuft (unter 640px). */
+.tab-scroller {
+  display: flex;
+  gap: var(--sp-7);
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tab-scroller::-webkit-scrollbar { display: none; }
+@media (max-width: 640px) {
+  .tab-scroller {
+    -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+  }
+}
+
 .ui-tab:hover { color: var(--text-secondary); }
 .ui-tab[data-active="true"] { color: var(--text-primary); }
 .ui-tab[data-active="true"]::after {
@@ -1358,6 +1376,64 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
   font-size: var(--fs-base);
 }
 .empty-state svg { color: var(--text-muted); }
+
+/* ─── 6.12b Analyse-Raster & Ladeanzeige ───────────────────────
+   KPI-Reihe: DESIGN/COMPONENTS §8 erlaubt 2–4 Kacheln PRO REIHE.
+   Ein `auto-fit`-Raster reisst bei 6 Kennzahlen sechs Spalten auf und macht
+   die Zahlen unlesbar schmal — die Spaltenzahl kommt deshalb aus `data-cols`
+   (die Komponente waehlt sie so, dass die Reihen gleichmaessig aufgehen). */
+.kpi-row {
+  display: grid;
+  gap: var(--sp-6);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (min-width: 700px) {
+  .kpi-row[data-cols="3"],
+  .kpi-row[data-cols="4"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 1080px) {
+  .kpi-row[data-cols="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* Auf Handybreite bleiben zwei Kacheln nebeneinander — dafuer muss die
+   28px-Zahl eine Stufe kleiner werden, sonst bricht "184.500 €" um. */
+@media (max-width: 479px) {
+  .kpi-row .kpi-value { font-size: var(--fs-xl); }
+}
+
+/* Sektions-Raster des Analyse-Bereichs — zwei Karten nebeneinander, auf
+   schmalen Viewports untereinander (Regel in der 767px-Sektion). */
+.analyse-row {
+  display: grid;
+  gap: var(--sp-6);
+  grid-template-columns: 1fr 1fr;
+}
+.analyse-row[data-split="wide-left"] { grid-template-columns: 1.4fr 1fr; }
+.analyse-row[data-split="chart"] { grid-template-columns: 2fr 1fr; }
+.analyse-row[data-split="auto"] { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+/* Nachladen bei Filterwechsel (COMPONENTS §14.4): 2px-Linie an der Oberkante
+   der Toolbar. Kein Spinner — der Inhalt bleibt stehen und dimmt nur. */
+.route-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.route-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 35%;
+  background: var(--orange-500);
+  animation: route-progress 1100ms var(--ease-in-out) infinite;
+}
+@keyframes route-progress {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(340%); }
+}
 
 /* ─── 6.13 Skeleton ────────────────────────────────────────── */
 .skeleton {
@@ -1525,6 +1601,8 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
   .funnel-bar,
   .glow-pulse,
   .skeleton { animation: none; }
+  /* Ladebalken bleibt sichtbar, hoert aber auf zu laufen. */
+  .route-progress::after { animation: none; width: 100%; opacity: 0.5; }
   [style*="modal-enter"], [style*="modal-scrim"] { animation: none !important; }
   html { scroll-behavior: auto; }
 }
@@ -1540,6 +1618,7 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
   .section-header-mobile { flex-direction: column !important; align-items: flex-start !important; gap: var(--sp-5) !important; }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .chart-grid-2 { grid-template-columns: 1fr !important; }
+  .analyse-row { grid-template-columns: 1fr !important; }
   .call-mode-grid { grid-template-columns: 1fr !important; }
   .call-fields-grid { grid-template-columns: 1fr !important; }
   .page-container { max-width: 100% !important; padding: 0 !important; }

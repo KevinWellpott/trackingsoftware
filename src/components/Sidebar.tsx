@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  LineChart,
   LogOut,
   Phone,
   Plus,
@@ -753,6 +754,7 @@ export function SidebarContent({
         <SearchTrigger onNavigate={onClose} />
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
         {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
+        <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} />
         <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
 
         {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).

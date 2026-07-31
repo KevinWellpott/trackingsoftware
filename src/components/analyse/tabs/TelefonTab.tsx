@@ -1,31 +1,29 @@
 import type { ReactNode } from "react";
 import {
-  Activity,
-  Calendar,
-  CalendarCheck,
-  CalendarDays,
-  CalendarX,
-  Filter,
-  Phone,
-  PhoneOff,
-  PieChart,
-  TrendingUp,
-  UserCheck,
-  XCircle,
+  Activity, Calendar, CalendarCheck, CalendarDays, CalendarX, DoorOpen, Filter, Phone, PhoneOff,
+  PieChart, Repeat, Smile, TrendingUp, UserCheck, Voicemail, XCircle,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import { NUM, buildBuckets, bucketOf, ownerKey, pct, type Granularity } from "@/lib/analyse";
+import { loadPhoneLeads, phoneLeadDay, type AnalysePhoneLead } from "@/lib/analyseData";
+import {
+  NUM, SENTIMENT_META, WEEKDAY_LABELS, buildBuckets, bucketOf, ownerKey, pct, weekdayIndex,
+  type Granularity,
+} from "@/lib/analyse";
+import { VIZ_NEUTRAL } from "@/lib/viz";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { FunnelStrip } from "@/components/analyse/FunnelStrip";
+import { Footnote, MetricTable, ShareBar, type MetricRow } from "@/components/analyse/AnalyseTables";
 import { PhoneSeriesChart } from "@/components/analyse/AnalyseCharts";
-import { DistBars, DonutChart, KpiHero, WeekdayBars } from "@/components/analyse/AnalyseViz";
+import { DistBars, DonutChart, KpiHero, QuoteColumns, WeekdayBars, KpiRow } from "@/components/analyse/AnalyseViz";
 
 // Telefon-Flow: Calls → Gatekeeper → Entscheider → Termine, aus
-// rpc_phone_day_metrics (benötigt Migration 0013), plus Vorperioden-Deltas,
-// Outcome-Verteilung und Ablehnungsgründe aus einem schlanken phone_leads-Fetch.
+// rpc_phone_day_metrics (benötigt Migration 0013), plus Vorperioden-Deltas.
+//
+// Die Lead-Ebene (zweiter Teil) beantwortet die Fragen, die die Tages-RPC nicht
+// kennt: Wie oft muss man anrufen? Wie kommt man am Gatekeeper vorbei? Wie
+// klingen die Gespräche?
 
 type Member = { user_id: string; username: string };
 
@@ -40,16 +38,6 @@ type PhoneDayRow = {
   dead: number | string | null;
 };
 
-type PhoneLeadSlim = {
-  status: string | null;
-  first_call_at: string | null;
-  created_at: string;
-  created_by_user_id: string | null;
-  no_transfer_reason: string | null;
-  no_pitch_reason: string | null;
-  no_appointment_reason: string | null;
-};
-
 type Totals = {
   calls: number;
   gatekeeper: number;
@@ -62,22 +50,27 @@ type Totals = {
 const ZERO = (): Totals => ({ calls: 0, gatekeeper: 0, decider: 0, appts: 0, callbacks: 0, dead: 0 });
 const OHNE = "Ohne Zuordnung";
 const INT_FMT = new Intl.NumberFormat("de-DE");
-const WEEKDAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"] as const;
 
-/** Status-Reihenfolge, Labels und Token-Farben der Outcome-Verteilung. */
+/**
+ * Status-Reihenfolge, Labels und Token-Farben der Outcome-Verteilung.
+ * Bewusst SEMANTIK-Töne statt der kategorialen Viz-Palette: die Segmente sind
+ * Zustände, und Markenorange trägt niemals Status (DESIGN.md §3.5). Grün heißt
+ * in der ganzen App „gewonnen/erreicht", Gold „dranbleiben", Rot „tot".
+ */
 const STATUS_META: { key: string; label: string; color: string }[] = [
-  { key: "aktiv", label: "Aktiv", color: "var(--surface-300)" },
-  { key: "rueckruf", label: "Rückruf", color: "var(--brand-500)" },
-  { key: "nicht_erreicht", label: "Nicht erreicht", color: "var(--color-warning-text)" },
-  { key: "termin", label: "Termin", color: "var(--color-success-text)" },
-  { key: "dead", label: "Dead", color: "var(--color-error-text)" },
+  { key: "aktiv", label: "Aktiv", color: VIZ_NEUTRAL },
+  { key: "rueckruf", label: "Rückruf", color: "var(--info)" },
+  { key: "nicht_erreicht", label: "Nicht erreicht", color: "var(--warning)" },
+  { key: "termin", label: "Termin", color: "var(--success)" },
+  { key: "dead", label: "Dead", color: "var(--danger)" },
 ];
 
-/** JS-Wochentag eines ISO-Tags als Index Mo=0 … So=6. */
-function weekdayIndex(day: string): number {
-  const [y, m, d] = day.split("-").map(Number);
-  return (new Date(y, m - 1, d).getDay() + 6) % 7;
-}
+const GATEKEEPER_LABELS: Record<string, string> = {
+  direkt: "Direkt zum Entscheider",
+  ja: "Gatekeeper durchgestellt",
+  nein: "Gatekeeper blockte",
+  ohne: "Ohne Angabe",
+};
 
 /** Prozentuale Veränderung vs. Vorperiode; Vorwert 0 → null (kein Delta). */
 function deltaPct(cur: number, prev: number): number | null {
@@ -95,7 +88,7 @@ function deltaPP(cur: number | null, prev: number | null): number | null {
  * Freitext-Gründe zu DistBars-Items: trimmen, leere überspringen,
  * case-insensitiv deduplizieren (erste Schreibweise gewinnt), absteigend sortiert.
  */
-function reasonItems(rows: PhoneLeadSlim[], field: keyof PhoneLeadSlim): { label: string; value: number }[] {
+function reasonItems(rows: AnalysePhoneLead[], field: keyof AnalysePhoneLead): { label: string; value: number }[] {
   const counts = new Map<string, { label: string; value: number }>();
   for (const r of rows) {
     const trimmed = ((r[field] as string | null) ?? "").trim();
@@ -116,6 +109,9 @@ function Fade({ i, children }: { i: number; children: ReactNode }) {
     </div>
   );
 }
+
+type LeadCell = { n: number; decider: number; appts: number; dead: number };
+const ZERO_LEAD = (): LeadCell => ({ n: 0, decider: 0, appts: 0, dead: 0 });
 
 export async function TelefonTab({
   access,
@@ -154,14 +150,7 @@ export async function TelefonTab({
       p_to: prevTo,
       p_effective_user_id: eff,
     }),
-    fetchAllRows((f, t) => {
-      let q = supabase
-        .from("phone_leads")
-        .select("status, first_call_at, created_at, created_by_user_id, no_transfer_reason, no_pitch_reason, no_appointment_reason")
-        .eq("workspace_id", access.workspace_id);
-      if (!canCompare) q = q.eq("created_by_user_id", access.user.id);
-      return q.order("id").range(f, t);
-    }).catch(() => []),
+    loadPhoneLeads(supabase, access, canCompare),
   ]);
 
   if (res.error) {
@@ -174,13 +163,22 @@ export async function TelefonTab({
 
   const nameByKey = new Map<string, string>();
   for (const m of selectedMembers) nameByKey.set(ownerKey(m.username), m.username);
+  const nameById = new Map(selectedMembers.map((m) => [m.user_id, m.username]));
 
-  // Leads auf Zeitraum (Erstkontakt- bzw. Anlage-Tag) und Mitglieder eingrenzen.
-  const memberIds = new Set(selectedMembers.map((m) => m.user_id));
-  const leads = (leadsRaw as unknown as PhoneLeadSlim[]).filter((r) => {
-    const day = (r.first_call_at ?? r.created_at).slice(0, 10);
+  // Lead-Zuordnung wie in rpc_phone_day_metrics: Gruppierung über
+  // phone_lists.owner_name, Ersteller nur als Fallback ohne Namen.
+  const ownerOf = (l: AnalysePhoneLead): string | null => {
+    const owner = l.phone_lists?.owner_name;
+    if (owner && owner.trim()) return nameByKey.get(ownerKey(owner)) ?? (allSelected ? OHNE : null);
+    const byId = nameById.get(l.created_by_user_id ?? "");
+    if (byId) return byId;
+    return allSelected ? OHNE : null;
+  };
+
+  const leads = leadsRaw.filter((r) => {
+    const day = phoneLeadDay(r);
     if (day < from || day > to) return false;
-    return allSelected || memberIds.has(r.created_by_user_id ?? "");
+    return ownerOf(r) !== null;
   });
 
   // ── Aggregation je Anzeigename (Summen + Buckets) ────────────
@@ -260,18 +258,72 @@ export async function TelefonTab({
 
   const callsSpark = buckets.map((b) => names.reduce((s, name) => s + (perUser[name]?.[b.key]?.calls ?? 0), 0));
 
-  // ── Outcome-Verteilung (phone_leads-Status) ──────────────────
+  // ── Lead-Ebene: Versuche, Gatekeeper, Stimmung ───────────────
+  const attemptCells = [ZERO_LEAD(), ZERO_LEAD(), ZERO_LEAD()];
+  let attemptUnknown = 0;
+  const gatekeeperCells = new Map<string, LeadCell>();
+  const sentiment = { positiv: 0, neutral: 0, negativ: 0, offen: 0 };
+  let mailbox = 0;
+  let mailboxKnown = 0;
   const statusCounts = new Map<string, number>();
+
   for (const l of leads) {
+    const attempt = Number(l.call_attempt);
+    if (attempt >= 1 && attempt <= 3) {
+      const cell = attemptCells[attempt - 1];
+      cell.n += 1;
+      if (l.decider_reached === true) cell.decider += 1;
+      if (l.appointment_set === true) cell.appts += 1;
+      if (l.status === "dead") cell.dead += 1;
+    } else {
+      attemptUnknown += 1;
+    }
+
+    const gk = (l.gatekeeper_reached ?? "").trim() || "ohne";
+    let gkCell = gatekeeperCells.get(gk);
+    if (!gkCell) {
+      gkCell = ZERO_LEAD();
+      gatekeeperCells.set(gk, gkCell);
+    }
+    gkCell.n += 1;
+    if (l.decider_reached === true) gkCell.decider += 1;
+    if (l.appointment_set === true) gkCell.appts += 1;
+    if (l.status === "dead") gkCell.dead += 1;
+
+    if (l.answer_sentiment) sentiment[l.answer_sentiment] += 1;
+    else if (l.decider_reached === true) sentiment.offen += 1;
+
+    if (l.mailbox !== null) {
+      mailboxKnown += 1;
+      if (l.mailbox) mailbox += 1;
+    }
+
     const s = l.status ?? "";
     statusCounts.set(s, (statusCounts.get(s) ?? 0) + 1);
   }
+
   const outcomeData = STATUS_META.map((m) => ({
     name: m.label,
     value: statusCounts.get(m.key) ?? 0,
     color: m.color,
   })).filter((d) => d.value > 0);
   const outcomeTotal = outcomeData.reduce((s, d) => s + d.value, 0);
+
+  const gatekeeperRows: MetricRow[] = ["direkt", "ja", "nein", "ohne"]
+    .map((key) => ({ key, cell: gatekeeperCells.get(key) }))
+    .filter((e): e is { key: string; cell: LeadCell } => Boolean(e.cell && e.cell.n > 0))
+    .map(({ key, cell }) => ({
+      key,
+      label: GATEKEEPER_LABELS[key],
+      share: leads.length === 0 ? null : cell.n / leads.length,
+      values: {
+        n: cell.n,
+        deciderRate: pct(cell.decider, cell.n),
+        appts: cell.appts,
+        apptRate: pct(cell.appts, cell.n),
+        deadRate: pct(cell.dead, cell.n),
+      },
+    }));
 
   // ── Gründe ───────────────────────────────────────────────────
   const noTransfer = reasonItems(leads, "no_transfer_reason");
@@ -312,7 +364,7 @@ export async function TelefonTab({
   return (
     <>
       {/* ══ 1 · KPI-Hero-Reihe ══ */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
+      <KpiRow>
         <KpiHero
           label="Calls"
           value={sum.calls}
@@ -346,13 +398,15 @@ export async function TelefonTab({
           icon={<Calendar size={15} />}
           index={3}
         />
+        <KpiHero label="Ø Calls/Tag" value={avgCallsPerDay} icon={<Activity size={15} />} index={4} />
         <KpiHero
-          label="Ø Calls/Tag"
-          value={avgCallsPerDay}
-          icon={<Activity size={15} />}
-          index={4}
+          label="Mailbox-Quote"
+          value={mailboxKnown === 0 ? null : pct(mailbox, mailboxKnown)}
+          format="pct"
+          icon={<Voicemail size={15} />}
+          index={5}
         />
-      </div>
+      </KpiRow>
 
       {/* ══ 2 · Vergleich ══ */}
       <Fade i={5}>
@@ -373,11 +427,16 @@ export async function TelefonTab({
             average={average}
             averageLabel="Gesamt"
           />
+          <Footnote>
+            Nur &bdquo;Calls&ldquo; ist zeitraumgefiltert (<code>first_call_at</code> im Fenster) — Gatekeeper, Entscheider,
+            Termine und Dead sind der aktuelle Stand derselben Leads. Die Quoten sind damit Kohorten-Quoten, keine
+            Tageswerte.
+          </Footnote>
         </AnalyseSection>
       </Fade>
 
       {/* ══ 3 · Verlauf + Outcome-Verteilung ══ */}
-      <div className="chart-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+      <div className="analyse-row">
         <Fade i={6}>
           <AnalyseSection title="Verlauf" icon={TrendingUp} meta={`${from} – ${to}`}>
             <PhoneSeriesChart buckets={buckets} perUser={perUser} />
@@ -390,27 +449,85 @@ export async function TelefonTab({
         </Fade>
       </div>
 
-      {/* ══ 4 · Gründe ══ */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0.75rem" }}>
-        <Fade i={8}>
+      {/* ══ 4 · Anruf-Versuche ══ */}
+      <Fade i={8}>
+        <AnalyseSection
+          title="Wie oft musst du anrufen?"
+          icon={Repeat}
+          meta={attemptUnknown > 0 ? `${INT_FMT.format(attemptUnknown)} ohne Versuchszähler` : "Leads nach erreichtem Versuch"}
+        >
+          <QuoteColumns
+            perDay={[1, 2, 3].map((n, i) => ({
+              label: `${n}. Versuch`,
+              n: attemptCells[i].n,
+              quote: pct(attemptCells[i].appts, attemptCells[i].n),
+            }))}
+            quoteLabel="Terminquote"
+          />
+          <Footnote>
+            <code>call_attempt</code> ist der zuletzt gezählte Versuch eines Leads, nicht ein Ereignis-Log. Die
+            Spalte &bdquo;3. Versuch&ldquo; enthält also Leads, bei denen dreimal angerufen wurde — bricht die Terminquote dort
+            ein, lohnt der dritte Anruf nicht mehr.
+          </Footnote>
+        </AnalyseSection>
+      </Fade>
+
+      {/* ══ 5 · Gatekeeper + Stimmung ══ */}
+      <div className="analyse-row" data-split="wide-left">
+        <Fade i={9}>
+          <AnalyseSection title="Der Weg zum Entscheider" icon={DoorOpen} meta={`${INT_FMT.format(leads.length)} Leads`}>
+            <MetricTable
+              label="Gatekeeper"
+              columns={[
+                { key: "n", label: "Leads", format: "int" },
+                { key: "deciderRate", label: "Entscheider", format: "pct", emphasis: true },
+                { key: "appts", label: "Termine", format: "int" },
+                { key: "apptRate", label: "Terminquote", format: "pct" },
+                { key: "deadRate", label: "Dead", format: "pct" },
+              ]}
+              rows={gatekeeperRows}
+              minWidth={520}
+              emptyHint="Keine Gatekeeper-Angaben im Zeitraum."
+            />
+          </AnalyseSection>
+        </Fade>
+        <Fade i={10}>
+          <AnalyseSection title="Stimmung im Gespräch" icon={Smile} meta="answer_sentiment">
+            <ShareBar
+              segments={[
+                ...SENTIMENT_META.map((m) => ({ label: m.label, value: sentiment[m.key], color: m.color })),
+                { label: "Ohne Angabe", value: sentiment.offen, color: VIZ_NEUTRAL },
+              ]}
+              height={14}
+            />
+            <Footnote>
+              Gezählt werden Leads mit erreichtem Entscheider — nur dort gibt es überhaupt ein Gespräch zu bewerten.
+            </Footnote>
+          </AnalyseSection>
+        </Fade>
+      </div>
+
+      {/* ══ 6 · Gründe ══ */}
+      <div className="analyse-row" data-split="auto">
+        <Fade i={11}>
           <AnalyseSection title="Warum nicht durchgestellt?" icon={PhoneOff}>
             <DistBars items={noTransfer} max={8} />
           </AnalyseSection>
         </Fade>
-        <Fade i={9}>
+        <Fade i={12}>
           <AnalyseSection title="Warum kein Pitch?" icon={XCircle}>
             <DistBars items={noPitch} max={8} />
           </AnalyseSection>
         </Fade>
-        <Fade i={10}>
+        <Fade i={13}>
           <AnalyseSection title="Warum kein Termin?" icon={CalendarX}>
             <DistBars items={noAppointment} max={8} />
           </AnalyseSection>
         </Fade>
       </div>
 
-      {/* ══ 5 · Wochentag-Analyse ══ */}
-      <Fade i={11}>
+      {/* ══ 7 · Wochentag-Analyse ══ */}
+      <Fade i={14}>
         <AnalyseSection title="Wochentag-Analyse" icon={CalendarDays} meta="Calls je Wochentag">
           <WeekdayBars
             perDay={weekday.map((d) => ({ label: d.label, n: d.calls, quote: pct(d.appts, d.calls) }))}
@@ -419,8 +536,8 @@ export async function TelefonTab({
         </AnalyseSection>
       </Fade>
 
-      {/* ══ 6 · Funnel ══ */}
-      <Fade i={12}>
+      {/* ══ 8 · Funnel ══ */}
+      <Fade i={15}>
         <AnalyseSection title="Funnel" icon={Phone}>
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <FunnelStrip

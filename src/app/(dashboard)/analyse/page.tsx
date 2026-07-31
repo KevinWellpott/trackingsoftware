@@ -3,15 +3,30 @@ import { localDateISO } from "@/lib/dates";
 import { parseAnalyseParams, prevRange } from "@/lib/analyse";
 import { AnalyseFilterBar } from "@/components/analyse/AnalyseFilterBar";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { UebersichtTab } from "@/components/analyse/tabs/UebersichtTab";
 import { LinkedInTab } from "@/components/analyse/tabs/LinkedInTab";
+import { FollowUpTab } from "@/components/analyse/tabs/FollowUpTab";
+import { ListenTab } from "@/components/analyse/tabs/ListenTab";
 import { TelefonTab } from "@/components/analyse/tabs/TelefonTab";
 import { SettingTab } from "@/components/analyse/tabs/SettingTab";
 import { ClosingTab } from "@/components/analyse/tabs/ClosingTab";
 import { FunnelTab } from "@/components/analyse/tabs/FunnelTab";
 
-// Deep-Analytics-Bereich: fünf Flow-Tabs (LinkedIn · Telefon · Setting · Closing
-// · Funnel) mit Zeitraum-, Nutzer- und Quellen-Filter. Owner mit Workspace-Sicht
-// vergleichen Mitglieder; Member sehen nur eigene Daten.
+// Deep-Analytics-Bereich: acht Flow-Tabs mit Zeitraum-, Nutzer- und
+// tab-spezifischen Filtern.
+//
+//   Übersicht   beide Kanäle + Termin-Funnel + Umsatz auf einer Seite
+//   LinkedIn    DMs → Antworten → Termine, Stimmung, Listen-Ranking
+//   Follow-ups  Kaskade: was bringt welche Nachfass-Stufe
+//   Listen      Listen-/Textvarianten-Vergleich inkl. Stufen-Matrix
+//   Telefon     Calls → Gatekeeper → Entscheider → Termine
+//   Setting     Termine → Shows → Qualifikation, inkl. Ursachen-Schnitte
+//   Closing     Abschlüsse, Umsatz, Geschwindigkeit
+//   Funnel      End-to-End je Quelle und je Person
+//
+// Alles läuft gegen die AKTIVE Organisation (access.workspace_id) — für einen
+// Plattform-Admin also gegen die per Org-Umschalter gewählte. Owner mit
+// Workspace-Sicht vergleichen Mitglieder; Member sehen nur eigene Daten.
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +42,8 @@ export default async function AnalysePage({
   if (!access) return null;
 
   const members = await listDataViewUsers(access.workspace_id);
-  const params = parseAnalyseParams(sp, localDateISO());
+  const today = localDateISO();
+  const params = parseAnalyseParams(sp, today);
   const canCompare = access.can_switch_view;
 
   // ── Ausgewählte Mitglieder auflösen ──────────────────────────
@@ -55,10 +71,22 @@ export default async function AnalysePage({
   const showQuelle = params.tab === "setting" || params.tab === "funnel";
   const prev = prevRange(params.from, params.to);
 
+  const common = {
+    access,
+    from: params.from,
+    to: params.to,
+    prevFrom: prev.from,
+    prevTo: prev.to,
+    today,
+    granularity: params.g,
+    selectedMembers: memberProps,
+    canCompare,
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       {/* ══ HEADER ══ */}
-      <PageHeader eyebrow="Auswertung" title="Analyse" meta="Flows · Vergleich · Zeiträume" />
+      <PageHeader eyebrow="Auswertung" title="Analyse" meta={access.workspaces.name} />
 
       {/* ══ FILTER ══ */}
       <AnalyseFilterBar
@@ -70,6 +98,8 @@ export default async function AnalysePage({
         to={params.to}
         quelle={params.quelle}
         granularity={params.g}
+        reife={params.reife}
+        minDms={params.minDms}
         selectedUserIds={selectedUserIds}
         users={members.map((m) => ({ user_id: m.user_id, username: m.username }))}
         canCompare={canCompare}
@@ -78,70 +108,14 @@ export default async function AnalysePage({
       />
 
       {/* ══ FLOW-TAB ══ */}
-      {params.tab === "linkedin" && (
-        <LinkedInTab
-          access={access}
-          from={params.from}
-          to={params.to}
-          prevFrom={prev.from}
-          prevTo={prev.to}
-          granularity={params.g}
-          selectedMembers={memberProps}
-          canCompare={canCompare}
-          allSelected={allSelected}
-        />
-      )}
-      {params.tab === "telefon" && (
-        <TelefonTab
-          access={access}
-          from={params.from}
-          to={params.to}
-          prevFrom={prev.from}
-          prevTo={prev.to}
-          granularity={params.g}
-          selectedMembers={memberProps}
-          canCompare={canCompare}
-          allSelected={allSelected}
-        />
-      )}
-      {params.tab === "setting" && (
-        <SettingTab
-          access={access}
-          from={params.from}
-          to={params.to}
-          prevFrom={prev.from}
-          prevTo={prev.to}
-          granularity={params.g}
-          selectedMembers={memberProps}
-          canCompare={canCompare}
-          quelle={params.quelle}
-        />
-      )}
-      {params.tab === "closing" && (
-        <ClosingTab
-          access={access}
-          from={params.from}
-          to={params.to}
-          prevFrom={prev.from}
-          prevTo={prev.to}
-          granularity={params.g}
-          selectedMembers={memberProps}
-          canCompare={canCompare}
-        />
-      )}
-      {params.tab === "funnel" && (
-        <FunnelTab
-          access={access}
-          from={params.from}
-          to={params.to}
-          prevFrom={prev.from}
-          prevTo={prev.to}
-          granularity={params.g}
-          selectedMembers={memberProps}
-          canCompare={canCompare}
-          quelle={params.quelle}
-        />
-      )}
+      {params.tab === "uebersicht" && <UebersichtTab {...common} allSelected={allSelected} />}
+      {params.tab === "linkedin" && <LinkedInTab {...common} allSelected={allSelected} />}
+      {params.tab === "followup" && <FollowUpTab {...common} allSelected={allSelected} reife={params.reife} />}
+      {params.tab === "listen" && <ListenTab {...common} allSelected={allSelected} minDms={params.minDms} />}
+      {params.tab === "telefon" && <TelefonTab {...common} allSelected={allSelected} />}
+      {params.tab === "setting" && <SettingTab {...common} quelle={params.quelle} />}
+      {params.tab === "closing" && <ClosingTab {...common} />}
+      {params.tab === "funnel" && <FunnelTab {...common} quelle={params.quelle} />}
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { Lock, X } from "lucide-react";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { Segmented } from "@/components/ui/Segmented";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
-import type { AnalyseTab, Granularity, QuelleKey, RangeKey } from "@/lib/analyse";
+import type { AnalyseTab, Granularity, QuelleKey, RangeKey, ReifeKey } from "@/lib/analyse";
 
 // Sticky Client-Filterleiste des Analyse-Bereichs: Flow-Tabs, Zeitraum (Presets
 // + eigener Bereich), Granularität, Nutzer-Vergleich, optionale Quelle und eine
@@ -14,11 +14,26 @@ import type { AnalyseTab, Granularity, QuelleKey, RangeKey } from "@/lib/analyse
 // URL (Mechanik wie PeriodSwitcher).
 
 const TAB_OPTIONS: { value: AnalyseTab; label: string }[] = [
+  { value: "uebersicht", label: "Übersicht" },
   { value: "linkedin", label: "LinkedIn" },
+  { value: "followup", label: "Follow-ups" },
+  { value: "listen", label: "Listen" },
   { value: "telefon", label: "Telefon" },
   { value: "setting", label: "Setting" },
   { value: "closing", label: "Closing" },
   { value: "funnel", label: "Funnel" },
+];
+
+const REIFE_OPTIONS: { value: ReifeKey; label: string }[] = [
+  { value: "alle", label: "Alle Pitches" },
+  { value: "reif", label: "Sequenz durchlaufen" },
+];
+
+const MIN_DMS_OPTIONS: { value: string; label: string }[] = [
+  { value: "0", label: "Alle" },
+  { value: "10", label: "≥ 10" },
+  { value: "25", label: "≥ 25" },
+  { value: "50", label: "≥ 50" },
 ];
 
 const RANGE_OPTIONS: { value: RangeKey; label: string }[] = [
@@ -128,6 +143,8 @@ export function AnalyseFilterBar({
   to,
   quelle,
   granularity,
+  reife,
+  minDms,
   selectedUserIds,
   users,
   canCompare,
@@ -142,6 +159,8 @@ export function AnalyseFilterBar({
   to: string;
   quelle: QuelleKey;
   granularity: Granularity;
+  reife: ReifeKey;
+  minDms: number;
   selectedUserIds: string[];
   users: { user_id: string; username: string }[];
   canCompare: boolean;
@@ -229,10 +248,32 @@ export function AnalyseFilterBar({
     commit((p) => p.delete("quelle"));
   }
 
+  function selectReife(next: ReifeKey) {
+    commit((p) => {
+      if (next === "alle") p.delete("reife");
+      else p.set("reife", next);
+    });
+  }
+
+  function selectMinDms(next: string) {
+    commit((p) => {
+      // 10 ist der Default in parseAnalyseParams — dann gehört nichts in die URL.
+      if (next === "10") p.delete("min");
+      else p.set("min", next);
+    });
+  }
+
   const allActive = selectedUserIds.length === 0;
   const nameById = new Map(users.map((u) => [u.user_id, u.username]));
   const quelleActive = showQuelle && quelle !== "alle";
-  const hasActiveFilters = rangeKey === "custom" || selectedUserIds.length > 0 || quelleActive;
+  const showReife = tab === "followup";
+  const showMinDms = tab === "listen";
+  // Kohorten- und Listensichten haben keinen Verlauf, der Funnel bucketet nicht.
+  const showGranularity = tab !== "followup" && tab !== "listen" && tab !== "funnel";
+  const reifeActive = showReife && reife !== "alle";
+  const minDmsActive = showMinDms && minDms !== 10;
+  const hasActiveFilters =
+    rangeKey === "custom" || selectedUserIds.length > 0 || quelleActive || reifeActive || minDmsActive;
 
   return (
     // Sticky-Toolbar im Glass-Nav-Rezept — eine der drei erlaubten
@@ -245,20 +286,24 @@ export function AnalyseFilterBar({
         zIndex: 30,
         margin: "0 calc(var(--sp-9) * -1)",
         padding: "var(--sp-4) var(--sp-9) var(--sp-5)",
-        opacity: isPending ? 0.6 : 1,
-        transition: "opacity var(--transition-fast)",
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
+      {/* Nachladen (COMPONENTS.md §14.4): 2px-Linie an der Oberkante, der
+          Inhalt darunter bleibt stehen und dimmt nur. Ohne dieses Signal wirkt
+          ein Filterklick bei schweren Abfragen wie ein toter Klick. */}
+      {isPending && <span className="route-progress" aria-hidden />}
+      <div
+        aria-busy={isPending}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--sp-5)",
+          opacity: isPending ? 0.6 : 1,
+          transition: "opacity var(--transition-fast)",
+        }}
+      >
         {/* Row 1: Flow-Tabs — Text + Orange-Underline (COMPONENTS.md §10.3) */}
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--sp-7)",
-            overflowX: "auto",
-            borderBottom: "1px solid var(--border-subtle)",
-          }}
-        >
+        <div className="tab-scroller">
           {TAB_OPTIONS.map((t) => {
             const active = t.value === tab;
             return (
@@ -315,17 +360,22 @@ export function AnalyseFilterBar({
             </span>
           </div>
 
-          {/* Granularität */}
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
-            <GroupLabel>Granularität</GroupLabel>
-            <Segmented<Granularity>
-              options={GRANULARITY_OPTIONS}
-              value={granularity}
-              onChange={selectGranularity}
-              size="sm"
-              ariaLabel="Granularität"
-            />
-          </div>
+          {/* Granularität — nur dort, wo es auch einen Verlauf gibt. Ein
+              Regler, der auf Follow-ups/Listen/Funnel nichts bewegt, ist
+              schlimmer als keiner: man dreht daran und misstraut danach der
+              ganzen Leiste. */}
+          {showGranularity && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
+              <GroupLabel>Granularität</GroupLabel>
+              <Segmented<Granularity>
+                options={GRANULARITY_OPTIONS}
+                value={granularity}
+                onChange={selectGranularity}
+                size="sm"
+                ariaLabel="Granularität"
+              />
+            </div>
+          )}
 
           {/* Nutzer */}
           <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
@@ -432,6 +482,29 @@ export function AnalyseFilterBar({
               <Segmented<QuelleKey> options={QUELLE_OPTIONS} value={quelle} onChange={selectQuelle} size="sm" ariaLabel="Quelle" />
             </div>
           )}
+
+          {/* Kohorten-Reife — nur im Follow-up-Bereich sinnvoll: dort verzerren
+              frisch gepitchte Kontakte die Stufen-Quoten nach unten. */}
+          {showReife && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
+              <GroupLabel>Kohorte</GroupLabel>
+              <Segmented<ReifeKey> options={REIFE_OPTIONS} value={reife} onChange={selectReife} size="sm" ariaLabel="Kohorte" />
+            </div>
+          )}
+
+          {/* Mindestmenge je Liste — unter ~10 DMs ist jede Quote Rauschen. */}
+          {showMinDms && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
+              <GroupLabel>Mindest-DMs</GroupLabel>
+              <Segmented<string>
+                options={MIN_DMS_OPTIONS}
+                value={String(minDms)}
+                onChange={selectMinDms}
+                size="sm"
+                ariaLabel="Mindest-DMs"
+              />
+            </div>
+          )}
         </div>
 
         {/* Row 3: Aktive Filter (entfernbar) */}
@@ -446,6 +519,13 @@ export function AnalyseFilterBar({
             ))}
             {quelleActive && (
               <FilterChip label={`Quelle: ${QUELLE_LABEL[quelle]}`} onRemove={clearQuelle} />
+            )}
+            {reifeActive && <FilterChip label="Nur ausgereifte Pitches" onRemove={() => selectReife("alle")} />}
+            {minDmsActive && (
+              <FilterChip
+                label={minDms === 0 ? "Alle Listen" : `Ab ${minDms} DMs`}
+                onRemove={() => selectMinDms("10")}
+              />
             )}
           </div>
         )}

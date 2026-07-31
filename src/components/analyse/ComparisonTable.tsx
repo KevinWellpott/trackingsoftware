@@ -5,7 +5,8 @@ import { eur, fmtPct } from "@/lib/analyse";
 // Person, formatierte Wertspalten (int/pct/eur), optionale Δ-vs-Ø-Sublabels und
 // eine Ø-Fußzeile. Keine Direktive — rein serverseitig gerendert.
 
-export type ComparisonFormat = "int" | "pct" | "eur";
+/** "num1" = blanke Zahl mit einer Nachkommastelle (Skalen, Mittelwerte). */
+export type ComparisonFormat = "int" | "pct" | "eur" | "num1";
 
 export type ComparisonColumn = {
   key: string;
@@ -30,6 +31,7 @@ function formatValue(v: number | null, format: ComparisonFormat): string {
   if (v === null) return "—";
   if (format === "pct") return fmtPct(v);
   if (format === "eur") return eur(v);
+  if (format === "num1") return DELTA_FMT.format(v);
   return INT_FMT.format(v);
 }
 

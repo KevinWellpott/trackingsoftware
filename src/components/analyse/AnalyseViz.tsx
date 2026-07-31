@@ -1,7 +1,7 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
-import { ArrowDown, Euro, Minus, TrendingDown, TrendingUp } from "lucide-react";
+import { Children, type CSSProperties, type ReactNode } from "react";
+import { ArrowDown, Euro, Inbox, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -35,19 +35,53 @@ const TONE_COLOR: Record<Exclude<Tone, "default">, string> = {
 
 export type Tone = "default" | "success" | "warning" | "error";
 
-function EmptyState({ height = 120 }: { height?: number }) {
+/**
+ * Leerzustand nach COMPONENTS.md §14.1: Icon → ein Satz Zustand → ein Hinweis,
+ * was hilft. „Noch keine Daten" allein lässt offen, ob der Zeitraum leer ist
+ * oder etwas kaputt — der zweite Satz beantwortet das.
+ */
+function EmptyState({
+  height = 120,
+  text = "Für diesen Zeitraum gibt es nichts zu zeigen.",
+  hint = "Wähle einen größeren Zeitraum oder mehr Personen.",
+}: {
+  height?: number;
+  text?: string;
+  hint?: string | null;
+}) {
   return (
     <div
       style={{
-        height,
+        minHeight: height,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        color: "var(--text-subtle)",
-        fontSize: "0.8125rem",
+        gap: "var(--sp-3)",
+        textAlign: "center",
+        padding: "var(--sp-6)",
       }}
     >
-      Noch keine Daten.
+      <Inbox size={20} color="var(--text-muted)" aria-hidden />
+      <span style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)" }}>{text}</span>
+      {hint && <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{hint}</span>}
+    </div>
+  );
+}
+
+// ── 0 · KpiRow ───────────────────────────────────────────────
+/**
+ * Kachel-Reihe für KPI-Heroes. Spaltenzahl kommt NICHT aus `auto-fit`: bei
+ * sechs Kennzahlen risse das sechs Spalten auf und presste 28px-Zahlen in
+ * 150px-Kacheln. Stattdessen wird die Spaltenzahl so gewählt, dass die Reihen
+ * möglichst gleichmäßig aufgehen — und nie mehr als vier werden (COMPONENTS §8).
+ */
+export function KpiRow({ children }: { children: ReactNode }) {
+  const count = Children.count(children);
+  const cols = count <= 2 ? 2 : count <= 4 ? 4 : count <= 6 ? 3 : 4;
+  return (
+    <div className="kpi-row" data-cols={cols}>
+      {children}
     </div>
   );
 }
@@ -107,7 +141,8 @@ export function KpiHero({
 }: {
   label: string;
   value: number | null;
-  format?: "int" | "pct" | "eur";
+  /** "num1" = blanke Zahl mit einer Nachkommastelle (Skalen, Mittelwerte). */
+  format?: "int" | "pct" | "eur" | "num1";
   delta?: number | null;
   deltaLabel?: string;
   spark?: number[];
@@ -162,13 +197,25 @@ export function KpiHero({
             <NumberTicker value={value} decimalPlaces={0} />
             {" €"}
           </>
+        ) : format === "num1" ? (
+          <NumberTicker value={value} decimalPlaces={1} />
         ) : (
           <NumberTicker value={value} decimalPlaces={0} />
         )}
       </div>
 
       {delta !== undefined && (
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginTop: "var(--sp-4)" }}>
+        // flexWrap, damit auf schmalen Kacheln die Zeile umbricht statt der
+        // Chip selbst ("+12,5" / "%" untereinander sah aus wie zwei Werte).
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-3) var(--sp-4)",
+            marginTop: "var(--sp-4)",
+            flexWrap: "wrap",
+          }}
+        >
           {delta === null ? (
             <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>—</span>
           ) : (
@@ -187,6 +234,8 @@ export function KpiHero({
                 background:
                   delta === 0 ? "var(--surface-3)" : delta > 0 ? "var(--success-bg)" : "var(--danger-bg)",
                 fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
               }}
             >
               <DeltaIcon size={11} aria-hidden />
@@ -348,23 +397,32 @@ export function CumulativeAreaChart({
   );
 }
 
-// ── 5 · WeekdayBars ──────────────────────────────────────────
+// ── 5 · WeekdayBars / QuoteColumns ───────────────────────────
+// Spalten mit Menge (Balkenhöhe) UND Quote (Fußzeile) — die Kombination, die
+// „viel, aber schlecht" von „wenig, aber gut" unterscheidbar macht. Trotz des
+// Namens nicht auf Wochentage festgelegt: jede geordnete Kategorie (Stunden-
+// blöcke, Vorlaufzeit-Buckets, Anruf-Versuche) passt hier hinein.
 export function WeekdayBars({
   perDay,
   quoteLabel,
+  highlightBest = true,
 }: {
   perDay: { label: string; n: number; quote: number | null }[];
   quoteLabel?: string;
+  /** Hebt die beste Quote hervor. Bei „je kleiner desto besser" abschalten. */
+  highlightBest?: boolean;
 }) {
   if (perDay.length === 0 || perDay.every((d) => d.n === 0)) return <EmptyState height={140} />;
 
   const maxN = Math.max(...perDay.map((d) => d.n));
   // Bester Quoten-Tag (höchste nicht-null-Quote) wird hervorgehoben.
   let bestIdx = -1;
-  for (let i = 0; i < perDay.length; i++) {
-    const q = perDay[i].quote;
-    if (q === null) continue;
-    if (bestIdx === -1 || q > (perDay[bestIdx].quote ?? -Infinity)) bestIdx = i;
+  if (highlightBest) {
+    for (let i = 0; i < perDay.length; i++) {
+      const q = perDay[i].quote;
+      if (q === null || perDay[i].n === 0) continue;
+      if (bestIdx === -1 || q > (perDay[bestIdx].quote ?? -Infinity)) bestIdx = i;
+    }
   }
 
   const BAR_AREA = 88;
@@ -399,7 +457,14 @@ export function WeekdayBars({
                   aria-hidden
                 />
               </div>
-              <span style={{ fontSize: "0.6875rem", fontWeight: best ? 700 : 500, color: best ? "var(--text-primary)" : "var(--text-muted)" }}>
+              <span
+                style={{
+                  fontSize: "var(--fs-xs)",
+                  // Nie 700 (DESIGN.md §6.2) — Hervorhebung über 600 + Farbe.
+                  fontWeight: best ? 600 : 500,
+                  color: best ? "var(--text-primary)" : "var(--text-muted)",
+                }}
+              >
                 {d.label}
               </span>
               <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", fontVariantNumeric: "tabular-nums" }}>
@@ -417,6 +482,9 @@ export function WeekdayBars({
     </div>
   );
 }
+
+/** Sprechender Alias für nicht-Wochentag-Kategorien (identische Darstellung). */
+export const QuoteColumns = WeekdayBars;
 
 // ── 6 · BarFunnel ────────────────────────────────────────────
 // Tiefen-Rampe statt Regenbogen: eine Brand-Farbe, die pro Stufe in die

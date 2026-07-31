@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import {
-  Activity,
+  Ban,
   Calendar,
   CalendarCheck,
   CalendarDays,
@@ -10,23 +10,29 @@ import {
   MessageSquare,
   MessagesSquare,
   PieChart,
+  Smile,
   TrendingUp,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import { NUM, buildBuckets, bucketOf, ownerKey, pct, type Granularity } from "@/lib/analyse";
+import { loadContacts, type AnalyseContact } from "@/lib/analyseData";
+import {
+  NUM, SENTIMENT_META, ZERO_SENTIMENT, addSentiment, buildBuckets, bucketOf, ownerKey, pct,
+  type Granularity,
+} from "@/lib/analyse";
 import { categoryStyle } from "@/lib/categories";
 import { ownerColor } from "@/lib/ownerColor";
+import { VIZ_NEUTRAL } from "@/lib/viz";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { FunnelStrip } from "@/components/analyse/FunnelStrip";
+import { Footnote, ShareBar } from "@/components/analyse/AnalyseTables";
 import { LinkedInSeriesChart } from "@/components/analyse/AnalyseCharts";
-import { CumulativeAreaChart, DistBars, DonutChart, KpiHero, WeekdayBars, type Tone } from "@/components/analyse/AnalyseViz";
+import { CumulativeAreaChart, DistBars, DonutChart, KpiHero, WeekdayBars, type Tone, KpiRow } from "@/components/analyse/AnalyseViz";
 
 // LinkedIn-Flow: DMs → Antworten → Termine je Mitglied, aus rpc_owner_day_metrics,
-// plus Vorperioden-Deltas, Antwort-Kategorien und Listen-Ranking aus einem
-// schlanken contacts-Fetch.
+// plus Vorperioden-Deltas, Antwort-Kategorien und Listen-Ranking aus den
+// Kontakten desselben Zeitraums.
 
 type Member = { user_id: string; username: string };
 
@@ -36,14 +42,6 @@ type OwnerDayRow = {
   dms: number | string | null;
   answers: number | string | null;
   appts: number | string | null;
-};
-
-type ContactSlim = {
-  answer_category: string | null;
-  answered: boolean | null;
-  pitched_at: string | null;
-  list_id: string;
-  lists: { name: string | null; owner_name: string | null; created_by_user_id: string | null } | null;
 };
 
 type Totals = { dms: number; answers: number; appts: number };
@@ -73,7 +71,9 @@ function deltaPP(cur: number | null, prev: number | null): number | null {
 /** Donut-/Balkenfarbe je Antwort-Kategorie (Neu-Werte fest, Legacy gedämpft). */
 function categoryColor(name: string): string {
   if (name === "Positiv") return "var(--color-success-text)";
-  if (name === "Neutral") return "var(--surface-300)";
+  // Surface-Töne verschwinden auf der Karte — Neutral kommt aus der
+  // divergierenden Rampe (siehe Kommentar in src/lib/viz.ts).
+  if (name === "Neutral") return VIZ_NEUTRAL;
   if (name === "Negativ") return "var(--color-error-text)";
   if (name === "Sonstige") return "var(--text-subtle)";
   return categoryStyle(name)?.color ?? "var(--text-muted)";
@@ -125,16 +125,7 @@ export async function LinkedInTab({
       p_to: prevTo,
       p_effective_user_id: eff,
     }),
-    fetchAllRows((f, t) => {
-      let q = supabase
-        .from("contacts")
-        .select("answer_category, answered, pitched_at, list_id, lists!inner(name, owner_name, created_by_user_id)")
-        .eq("workspace_id", access.workspace_id)
-        .gte("pitched_at", from)
-        .lte("pitched_at", to);
-      if (!canCompare) q = q.eq("lists.created_by_user_id", access.user.id);
-      return q.order("id").range(f, t);
-    }).catch(() => []),
+    loadContacts(supabase, access, canCompare, from, to),
   ]);
 
   const rows: OwnerDayRow[] = res.error ? [] : ((res.data ?? []) as OwnerDayRow[]);
@@ -144,11 +135,19 @@ export async function LinkedInTab({
   // Namens-Index: ownerKey(username) → Anzeigename
   const nameByKey = new Map<string, string>();
   for (const m of selectedMembers) nameByKey.set(ownerKey(m.username), m.username);
+  const nameById = new Map(selectedMembers.map((m) => [m.user_id, m.username]));
 
-  // Kontakte auf gewählte Mitglieder eingrenzen (Owner-Name der Liste).
-  const contacts = (contactsRaw as unknown as ContactSlim[]).filter(
-    (c) => allSelected || nameByKey.has(ownerKey(c.lists?.owner_name)),
-  );
+  // Kontakte auf gewählte Mitglieder eingrenzen — owner_name der Liste hat
+  // Vorrang, der Ersteller greift nur ohne Namen (wie list_owned_by_user()).
+  function ownerOf(c: AnalyseContact): string | null {
+    const owner = c.lists?.owner_name;
+    if (owner && owner.trim()) return nameByKey.get(ownerKey(owner)) ?? (allSelected ? OHNE : null);
+    const byId = nameById.get(c.lists?.created_by_user_id ?? "");
+    if (byId) return byId;
+    return allSelected ? OHNE : null;
+  }
+
+  const contacts = contactsRaw.filter((c) => ownerOf(c) !== null);
 
   // ── Aggregation je Anzeigename (Summen + Buckets) ────────────
   const totals = new Map<string, Totals>();
@@ -227,13 +226,20 @@ export async function LinkedInTab({
     for (const [bk, t] of Object.entries(perUser[name] ?? {})) dmsPerUser[name][bk] = t.dms;
   }
 
-  // ── Antwort-Kategorien (contacts) ────────────────────────────
+  // ── Antwort-Kategorien + Stimmung (contacts) ─────────────────
   const catCounts = new Map<string, number>();
+  const sentiment = ZERO_SENTIMENT();
+  let blocked = 0;
   for (const c of contacts) {
+    if (c.blocked_at) blocked += 1;
+    if (c.answered === true) addSentiment(sentiment, c.answer_category);
     const cat = (c.answer_category ?? "").trim();
     if (!cat) continue;
     catCounts.set(cat, (catCounts.get(cat) ?? 0) + 1);
   }
+  const sentimentTotal = sentiment.positiv + sentiment.neutral + sentiment.negativ;
+  const positiveShare = pct(sentiment.positiv, sentimentTotal);
+  const blockedRate = pct(blocked, contacts.length);
   const catSorted = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
   const catTop = catSorted.slice(0, 6);
   const catRest = catSorted.slice(6).reduce((s, [, n]) => s + n, 0);
@@ -293,7 +299,7 @@ export async function LinkedInTab({
   return (
     <>
       {/* ══ 1 · KPI-Hero-Reihe ══ */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
+      <KpiRow>
         <KpiHero
           label="DMs"
           value={sum.dms}
@@ -328,12 +334,22 @@ export async function LinkedInTab({
           index={3}
         />
         <KpiHero
-          label="Ø DMs/Tag"
-          value={avgDmsPerDay}
-          icon={<Activity size={15} />}
+          label="Positiv-Anteil"
+          value={positiveShare}
+          format="pct"
+          tone={positiveShare === null ? "default" : positiveShare >= 50 ? "success" : "default"}
+          icon={<Smile size={15} />}
           index={4}
         />
-      </div>
+        <KpiHero
+          label="Blockiert-Quote"
+          value={blockedRate}
+          format="pct"
+          tone={blockedRate !== null && blockedRate >= 5 ? "error" : "default"}
+          icon={<Ban size={15} />}
+          index={5}
+        />
+      </KpiRow>
 
       {/* ══ 2 · Vergleich ══ */}
       <Fade i={5}>
@@ -354,9 +370,13 @@ export async function LinkedInTab({
       </Fade>
 
       {/* ══ 3 · Verlauf + Kumuliert ══ */}
-      <div className="chart-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+      <div className="analyse-row">
         <Fade i={6}>
-          <AnalyseSection title="Verlauf" icon={TrendingUp} meta={rangeMeta}>
+          <AnalyseSection
+            title="Verlauf"
+            icon={TrendingUp}
+            meta={avgDmsPerDay === null ? rangeMeta : `Ø ${INT_FMT.format(avgDmsPerDay)} DMs an aktiven Tagen`}
+          >
             <LinkedInSeriesChart buckets={buckets} perUser={perUser} />
           </AnalyseSection>
         </Fade>
@@ -368,7 +388,7 @@ export async function LinkedInTab({
       </div>
 
       {/* ══ 4 · Antwort-Kategorien + Wochentag ══ */}
-      <div className="chart-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+      <div className="analyse-row">
         <Fade i={8}>
           <AnalyseSection
             title="Antwort-Kategorien"
@@ -378,7 +398,24 @@ export async function LinkedInTab({
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               <DonutChart data={catData} centerLabel={INT_FMT.format(catTotal)} centerSub="Kategorisiert" />
               <DistBars items={catData.map((d) => ({ label: d.name, value: d.value, color: d.color }))} />
+              <div>
+                <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-4)" }}>
+                  Stimmung zusammengefasst
+                </div>
+                <ShareBar
+                  segments={[
+                    ...SENTIMENT_META.map((m) => ({ label: m.label, value: sentiment[m.key], color: m.color })),
+                    { label: "Ohne Kategorie", value: sentiment.offen, color: VIZ_NEUTRAL },
+                  ]}
+                  height={12}
+                />
+              </div>
             </div>
+            <Footnote>
+              Der Balken fasst Alt- und Neu-Kategorien auf Positiv / Neutral / Negativ zusammen; &bdquo;Ohne Kategorie&ldquo;
+              sind beantwortete Kontakte, bei denen niemand eine Kategorie gesetzt hat. Die Aufschlüsselung nach
+              Follow-up-Stufe steht im Tab &bdquo;Follow-ups&ldquo;.
+            </Footnote>
           </AnalyseSection>
         </Fade>
         <Fade i={9}>
