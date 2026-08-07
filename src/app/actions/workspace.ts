@@ -194,6 +194,36 @@ export async function deleteUser(userId: string) {
   return {};
 }
 
+/** Datensicht eines bestehenden Nutzers der AKTIVEN Organisation ändern. */
+export async function updateUserScope(userId: string, scope: DataScope) {
+  const access = await getAccessContext();
+  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
+
+  const admin = createAdminClient();
+
+  // Nur Nutzer der aktiven Organisation umstellen (vgl. deleteUser/renameUser).
+  const { data: member } = await admin
+    .from("workspace_members")
+    .select("user_id")
+    .eq("user_id", userId)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  if (!member) {
+    return { error: "Nutzer gehört nicht zu dieser Organisation." };
+  }
+
+  const { error } = await admin
+    .from("workspace_members")
+    .update({ data_scope: scope })
+    .eq("user_id", userId)
+    .eq("workspace_id", access.workspace_id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/settings");
+  revalidatePath("/", "layout");
+  return {};
+}
+
 export async function createUserForm(formData: FormData) {
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");

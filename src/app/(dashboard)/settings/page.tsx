@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ownerColor } from "@/lib/ownerColor";
 import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
 import { RenameUserButton } from "@/components/settings/RenameUserButton";
+import { DataScopeSelect } from "@/components/settings/DataScopeSelect";
 import { FollowupTemplatesEditor } from "@/components/settings/FollowupTemplatesEditor";
 import { MessageSquareText, Plus, Shield, Target, UserCheck, Users } from "lucide-react";
 
@@ -158,10 +159,11 @@ export default async function SettingsPage({
                       {isMe && <span className="badge badge-gray">Du</span>}
                     </div>
                     <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-                      {u.role === "owner" ? "Owner" : "Mitglied"} · {u.data_scope === "own" ? "Nur eigene Daten" : "Alle Daten"}
+                      {u.role === "owner" ? "Owner" : "Mitglied"}
                     </span>
                   </div>
-                  {/* Rename + Delete (not self) */}
+                  {/* Datensicht (editierbar) + Rename + Delete (not self) */}
+                  <DataScopeSelect userId={u.user_id} dataScope={u.data_scope} />
                   <RenameUserButton userId={u.user_id} username={u.username} />
                   {!isMe && <DeleteUserButton userId={u.user_id} username={u.username} />}
                 </div>
