@@ -257,22 +257,31 @@ export async function createClosingFromSetting(
 
   const { data: rawSetting } = await supabase
     .from("setting_calls")
-    .select("lead_name, company, meet_link")
+    .select("lead_name, company, meet_link, assigned_user_id")
     .eq("id", settingId)
     .maybeSingle();
   const setting = rawSetting as {
     lead_name?: string | null;
     company?: string | null;
     meet_link?: string | null;
+    assigned_user_id?: string | null;
   } | null;
 
   // Meet-Link aus dem Setting vorbefüllen — sinnvoller Default ist derselbe
   // Meet-Raum wie beim Setting-Call.
+  //
+  // Die Zuweisung erbt vom Setting, weil ein Closing ausschliesslich hier
+  // entsteht: Wer auf „Qualifiziert" klickt, ist damit sonst Eigentuemer jedes
+  // Closings im Team — genau daran zerbrach die Personen-Zuordnung vorher.
+  // In fremder Organisation faellt der Fallback weg: Ein Plattform-Admin ist
+  // dort kein Mitglied und darf nicht ueber die Org-Grenze zugewiesen werden.
+  const fallbackAssignee = access.is_foreign_org ? null : access.user.id;
   const { data: closing, error } = await supabase
     .from("closing_calls")
     .insert({
       workspace_id: access.workspace_id,
-      created_by_user_id: access.effective_user_id ?? access.user.id,
+      created_by_user_id: access.user.id,
+      assigned_user_id: setting?.assigned_user_id ?? fallbackAssignee,
       setting_call_id: settingId,
       lead_name: setting?.lead_name ?? null,
       company: setting?.company ?? null,

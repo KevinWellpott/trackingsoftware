@@ -9,6 +9,13 @@ import { ownerColor } from "@/lib/ownerColor";
 // Sortierung der eigentliche Analyse-Vorgang ist: „welche Liste ist bei DIESER
 // Kennzahl vorn" beantwortet man durch Umsortieren, nicht durch Nachladen.
 // Die Zeilen kommen fertig gerechnet vom Server — hier wird nur sortiert.
+//
+// Steht seit dem Wegfall des Listen-Tabs im LinkedIn-Tab. Die Auftraggeber-
+// Vorgabe dort lautet „simpel und übersichtlich": von zehn Wertspalten sind
+// fünf geblieben (Antwortquote, Terminquote, Umsatz + ihre Absolutwerte).
+// Positiv-Anteil, FU-Quote, Ø Stufe und Blockiert-Quote sind entfallen — sie
+// beantworten Fragen, die der Tab daneben schon je Person beantwortet, und
+// zwangen die Tabelle in horizontales Scrollen.
 
 export type ListPerfRow = {
   id: string;
@@ -20,19 +27,12 @@ export type ListPerfRow = {
   dms: number;
   answers: number;
   answerRate: number | null;
-  positive: number;
-  positiveShare: number | null;
   appts: number;
   apptRate: number | null;
-  fuUsage: number | null;
-  avgFu: number | null;
-  blockedRate: number | null;
   revenue: number;
 };
 
-type SortKey =
-  | "name" | "dms" | "answers" | "answerRate" | "positive" | "positiveShare"
-  | "appts" | "apptRate" | "fuUsage" | "avgFu" | "blockedRate" | "revenue";
+type SortKey = "name" | "dms" | "answers" | "answerRate" | "appts" | "apptRate" | "revenue";
 
 type Column = {
   key: SortKey;
@@ -41,18 +41,17 @@ type Column = {
   title?: string;
 };
 
-// Elf Spalten wären zu viel zum Scannen: die reine Positiv-ANZAHL steckt
-// bereits in „Antw." × „Positiv-Anteil" und fliegt deshalb raus.
 const COLUMNS: Column[] = [
   { key: "dms", label: "DMs", format: "int" },
   { key: "answers", label: "Antw.", format: "int" },
   { key: "answerRate", label: "Antwortquote", format: "pct" },
-  { key: "positiveShare", label: "Positiv-Anteil", format: "pct", title: "Positiv / alle kategorisierten Antworten" },
-  { key: "appts", label: "Termine", format: "int" },
+  {
+    key: "appts",
+    label: "Termine",
+    format: "int",
+    title: "Kontakte dieser Liste mit Termin — Kohorte des gewählten Pitch-Zeitraums",
+  },
   { key: "apptRate", label: "Terminquote", format: "pct" },
-  { key: "fuUsage", label: "FU-Quote", format: "pct", title: "Anteil der Pitches, bei denen mindestens einmal nachgefasst wurde" },
-  { key: "avgFu", label: "Ø Stufe", format: "num1", title: "Durchschnittliche Follow-up-Stufe der Kontakte" },
-  { key: "blockedRate", label: "Blockiert", format: "pct", title: "Anteil Kontakte, die uns blockiert haben" },
   { key: "revenue", label: "Umsatz", format: "eur", title: "Gewonnene Deals, die auf einen Kontakt dieser Liste zurückgehen" },
 ];
 
@@ -75,9 +74,9 @@ const HEAD_CELL = {
   whiteSpace: "nowrap" as const,
 };
 
-// Elf Spalten passen auf keinen Bildschirm. Die Namensspalte bleibt deshalb
-// beim horizontalen Scrollen stehen — sonst weiss man in Spalte 9 nicht mehr,
-// welche Liste man liest. Eigene Fläche, damit nichts durchscheint.
+// Auf schmalen Viewports scrollt die Tabelle weiterhin horizontal. Die
+// Namensspalte bleibt dabei stehen — sonst weiss man in der Umsatz-Spalte nicht
+// mehr, welche Liste man liest. Eigene Fläche, damit nichts durchscheint.
 const STICKY_HEAD = {
   ...HEAD_CELL,
   position: "sticky" as const,
@@ -225,7 +224,7 @@ export function ListPerformanceTable({
           Keine Liste erreicht die Mindestmenge im gewählten Zeitraum.
         </span>
         <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-          Setz &bdquo;Mindest-DMs&ldquo; auf &bdquo;Alle&ldquo; oder wähle einen größeren Zeitraum.
+          Wähle einen größeren Zeitraum oder hebe den Listen-Filter auf.
         </span>
       </div>
     );
@@ -233,7 +232,7 @@ export function ListPerformanceTable({
 
   return (
     <div className="table-scroll" style={{ overflowX: "auto" }}>
-      <table style={{ minWidth: 880, width: "100%", borderCollapse: "collapse" }}>
+      <table style={{ minWidth: 700, width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
             <th

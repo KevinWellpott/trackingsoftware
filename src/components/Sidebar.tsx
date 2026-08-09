@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  GitCompare,
   LineChart,
   LogOut,
   Phone,
@@ -25,7 +26,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { AnchoredPopover, useAnchor } from "@/components/ui/AnchoredPopover";
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { ownerInitials } from "@/lib/ownerColor";
 
@@ -106,15 +108,21 @@ function NavLink({
   icon: Icon,
   label,
   onClick,
+  exact = false,
 }: {
   href: string;
   icon: React.ElementType;
   label: string;
   onClick?: () => void;
+  /** Nur die Route selbst faerbt aktiv — noetig, wenn eine Unterseite eine
+      eigene Zeile hat (/analyse vs. /analyse/vergleich), sonst leuchten beide. */
+  exact?: boolean;
 }) {
   const pathname = usePathname();
   // Aktiv auch auf Unterseiten (/setting/abc → „Setting"); "/" nur exakt.
-  const isActive = pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
+  const isActive = exact
+    ? pathname === href
+    : pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
   return (
     <Link href={href} onClick={onClick} className={`sidebar-link${isActive ? " active" : ""}`}>
       <Icon size={16} style={{ flexShrink: 0 }} />
@@ -200,6 +208,14 @@ const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht", { label: string }>
 // die den aktiven Kontext zeigt und ihn per Klick aufklappt. Der Zustand steckt
 // in der Faerbung — neutral = Normalfall, Orange = fremde Datensicht,
 // Rot = fremde Organisation.
+//
+// Die Auswahlliste liegt bewusst NICHT im Textfluss der Sidebar. Als Kind des
+// Kontext-Blocks wuchs sie beim Aufklappen um bis zu 240px und schob die
+// komplette Navigation darunter nach unten — bei zwei Umschaltern uebereinander
+// sprang sie zweimal, und der Eintrag, auf den man gerade zielte, war weg.
+// Sie rendert deshalb als Portal-Popover (position: fixed) ueber der Seite,
+// genau wie Select, DatePicker und CalendarPopover. Aufklappen veraendert das
+// Layout der Sidebar damit gar nicht mehr.
 
 type ContextTone = "neutral" | "accent" | "danger";
 
@@ -227,6 +243,17 @@ const CONTEXT_PALETTE: Record<
   },
 };
 
+/**
+ * Mindestbreite des Popovers. Der Trigger misst in der 248px-Sidebar rund
+ * 224px; weil das Popover als Overlay ueber der Seite liegt, darf es die
+ * Sidebar-Kante ueberragen — lange Organisations- und Nutzernamen bleiben so
+ * lesbar, statt sofort in die Ellipse zu laufen. AnchoredPopover haelt es
+ * ausserdem immer im Viewport (Rand-Clamping), auch im Mobil-Panel.
+ */
+const CONTEXT_POPOVER_WIDTH = 264;
+/** Danach scrollt die Liste — DESIGN.md §5.3: Popover max. 288px hoch. */
+const CONTEXT_POPOVER_MAX_HEIGHT = 288;
+
 function ContextSwitcher({
   icon,
   caption,
@@ -241,26 +268,60 @@ function ContextSwitcher({
   tone: ContextTone;
   /** Formular zum Zuruecksetzen — nur wenn ein Nicht-Standard-Kontext aktiv ist. */
   reset?: React.ReactNode;
-  children: React.ReactNode;
+  /** Render-Prop wie bei CollapsibleSection: die Zeilen brauchen `close`,
+      um das Popover nach ihrer Auswahl wieder zuzuklappen. */
+  children: (ctx: { close: () => void }) => React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  // Gleiche Mechanik wie Select/DatePicker: Trigger-Rect merken, zweiter Klick
+  // schliesst. AnchoredPopover uebernimmt Aussenklick, Escape, Scroll, Resize.
+  const { anchor, ref, toggle, close } = useAnchor();
+  const isOpen = Boolean(anchor);
   const c = CONTEXT_PALETTE[tone];
-  const Chevron = open ? ChevronDown : ChevronRight;
+  const Chevron = isOpen ? ChevronDown : ChevronRight;
+  // useId statt einer aus `caption` gebauten ID: Desktop-Sidebar und
+  // Mobil-Panel koennen gleichzeitig im DOM stehen — die ID muss trotzdem
+  // eindeutig bleiben.
+  const panelId = `ctx-panel-${useId()}`;
+  // AnchoredPopover schliesst bereits beim mousedown AUSSERHALB des Popovers —
+  // und der Trigger liegt ausserhalb. Der darauffolgende click wuerde den
+  // Umschalter also sofort wieder aufklappen; per Klick liesse er sich nie
+  // schliessen. Wir merken uns deshalb beim Druecken, ob er offen war, und
+  // verschlucken genau diesen einen click. Die Tastatur loest kein mousedown
+  // aus, dort bleibt es beim normalen Umschalten.
+  const wasOpenOnPress = useRef(false);
 
   return (
-    <div
-      style={{
-        border: `1px solid ${c.border}`,
-        background: c.background,
-        borderRadius: "var(--r-md)",
-        overflow: "hidden",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center" }}>
+    <>
+      {/* Kein `overflow: hidden` mehr: das brauchte frueher nur die Liste im
+          Fluss (fuer die runden Ecken). Jetzt sitzt hier allein der Trigger —
+          und der globale Fokusring ist ein Box-Shadow, den ein Overflow-Clip
+          abgeschnitten haette. */}
+      <div
+        style={{
+          border: `1px solid ${c.border}`,
+          background: c.background,
+          borderRadius: "var(--r-md)",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
         <button
+          ref={ref as React.RefObject<HTMLButtonElement>}
           type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
+          onMouseDown={() => {
+            wasOpenOnPress.current = isOpen;
+          }}
+          onKeyDown={() => {
+            wasOpenOnPress.current = false;
+          }}
+          onClick={() => {
+            const swallow = wasOpenOnPress.current;
+            wasOpenOnPress.current = false;
+            if (!swallow) toggle();
+          }}
+          aria-haspopup="dialog"
+          aria-expanded={isOpen}
+          aria-controls={isOpen ? panelId : undefined}
           title={`${caption}: ${label} — wechseln`}
           style={{
             flex: 1,
@@ -308,22 +369,31 @@ function ContextSwitcher({
         </button>
         {reset}
       </div>
-      {open && (
-        <div
+
+      {anchor && (
+        <AnchoredPopover
+          anchor={anchor}
+          onClose={close}
+          id={panelId}
+          label={`${caption} wechseln`}
+          width={Math.max(Math.round(anchor.width), CONTEXT_POPOVER_WIDTH)}
+          maxHeight={CONTEXT_POPOVER_MAX_HEIGHT}
           style={{
-            borderTop: `1px solid ${c.border}`,
             padding: "var(--sp-2)",
             display: "flex",
             flexDirection: "column",
             gap: 1,
-            maxHeight: 240,
-            overflowY: "auto",
+            // Der Umschalter traegt seinen Zustand in der Kante (rot = fremde
+            // Organisation, orange = fremde Datensicht). Das Popover erbt sie,
+            // sonst wirkte die Liste wie ein fremdes, neutrales Element —
+            // ausgerechnet im gefaehrlichsten Zustand der App.
+            borderColor: tone === "neutral" ? undefined : c.border,
           }}
         >
-          {children}
-        </div>
+          {children({ close })}
+        </AnchoredPopover>
       )}
-    </div>
+    </>
   );
 }
 
@@ -336,6 +406,7 @@ function ContextOption({
   active,
   title,
   avatar,
+  onDone,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   fields: { name: string; value: string }[];
@@ -344,9 +415,22 @@ function ContextOption({
   active: boolean;
   title: string;
   avatar: React.ReactNode;
+  /** Popover schliessen. Siehe Kommentar an der `action`-Huelle unten. */
+  onDone?: () => void;
 }) {
   return (
-    <form action={action}>
+    // Das Schliessen haengt bewusst HIER und nicht am onClick des Buttons:
+    // React spielt Zustandsaenderungen aus einem Klick-Handler noch vor der
+    // Standardaktion des Klicks aus — das Formular waere aus dem DOM, bevor
+    // der Browser es abschickt, und der Wechsel liefe ins Leere. Erst die
+    // Server-Action anstossen, dann zuklappen.
+    <form
+      action={(fd) => {
+        const running = action(fd);
+        onDone?.();
+        return running;
+      }}
+    >
       {fields.map((f) => (
         <input key={f.name} type="hidden" name={f.name} value={f.value} />
       ))}
@@ -399,6 +483,64 @@ function ContextOption({
         )}
       </button>
     </form>
+  );
+}
+
+/**
+ * Aktionszeile am Fuss eines Kontext-Umschalters.
+ *
+ * Der Org-Umschalter war reine Auswahl: man konnte wechseln, aber nichts tun.
+ * Verwalten und Anlegen lagen auf /admin — einer Seite, die man nur ueber den
+ * Fuss der Navigation findet. Diese Zeilen schliessen die Luecke genau dort,
+ * wo die Frage aufkommt. Optisch bewusst leiser als eine Auswahlzeile: sie
+ * fuehren weg, statt den Kontext zu wechseln.
+ */
+function ContextAction({
+  href,
+  icon,
+  label,
+  onClick,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      className="sidebar-link"
+      style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)" }}
+      title={label}
+    >
+      <span
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: "var(--r-full)",
+          background: "var(--surface-3)",
+          color: "var(--text-secondary)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </span>
+      <span
+        style={{
+          flex: 1,
+          textAlign: "left",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </span>
+    </Link>
   );
 }
 
@@ -579,10 +721,11 @@ export function SidebarContent({
   const pathname = usePathname();
   const router = useRouter();
   const isOwnScope = dataScope === "own";
-  // Der Umschalter erscheint nur, wenn es wirklich etwas zu wechseln gibt.
-  // Normale Nutzer und ein Plattform-Admin mit nur einer Organisation sehen
-  // die Sidebar exakt wie bisher.
-  const canSwitchOrg = (orgSwitch?.orgs.length ?? 0) > 1;
+  // Der Umschalter gehoert allein den Plattform-Admins (fuer alle anderen ist
+  // orgSwitch undefined, siehe (dashboard)/layout.tsx). Er erscheint jetzt auch
+  // bei nur EINER Organisation: seit er Verwalten und Anlegen anbietet, ist er
+  // nicht mehr nur Auswahl — und die zweite Organisation entsteht genau hier.
+  const canSwitchOrg = Boolean(orgSwitch);
   const isForeignOrg = Boolean(orgSwitch?.isForeign);
 
   // Die Sidebar navigiert, sie inventarisiert nicht. Ab hier uebernehmen
@@ -673,18 +816,42 @@ export function SidebarContent({
                 ) : undefined
               }
             >
-              {orgSwitch.orgs.map((o) => (
-                <ContextOption
-                  key={o.id}
-                  action={setActiveOrgForm}
-                  fields={[{ name: "workspace_id", value: o.id }]}
-                  label={o.name}
-                  badge={o.id === orgSwitch.homeId ? "eigen" : undefined}
-                  active={o.id === orgSwitch.activeId}
-                  title={o.id === orgSwitch.activeId ? `${o.name} — aktiv` : `Zu ${o.name} wechseln`}
-                  avatar={<Building2 size={11} />}
-                />
-              ))}
+              {({ close }) => (
+                <>
+                  {orgSwitch.orgs.map((o) => (
+                    <ContextOption
+                      key={o.id}
+                      action={setActiveOrgForm}
+                      fields={[{ name: "workspace_id", value: o.id }]}
+                      label={o.name}
+                      badge={o.id === orgSwitch.homeId ? "eigen" : undefined}
+                      active={o.id === orgSwitch.activeId}
+                      title={o.id === orgSwitch.activeId ? `${o.name} — aktiv` : `Zu ${o.name} wechseln`}
+                      avatar={<Building2 size={11} />}
+                      onDone={close}
+                    />
+                  ))}
+                  <div style={{ height: 1, background: "var(--border-subtle)", margin: "var(--sp-2) var(--sp-3)" }} />
+                  <ContextAction
+                    href="/admin"
+                    icon={<ShieldCheck size={11} />}
+                    label="Organisationen verwalten"
+                    onClick={() => {
+                      close();
+                      onClose?.();
+                    }}
+                  />
+                  <ContextAction
+                    href="/admin#neue-organisation"
+                    icon={<Plus size={11} />}
+                    label="Neue Organisation"
+                    onClick={() => {
+                      close();
+                      onClose?.();
+                    }}
+                  />
+                </>
+              )}
             </ContextSwitcher>
           )}
 
@@ -708,31 +875,37 @@ export function SidebarContent({
                 ) : undefined
               }
             >
-              <ContextOption
-                action={setDataViewForm}
-                fields={[
-                  { name: "next", value: pathname },
-                  { name: "view_user_id", value: "" },
-                ]}
-                label="Alle Daten"
-                active={!isImpersonating}
-                title="Datensicht zurücksetzen"
-                avatar={<Users size={11} />}
-              />
-              {teamUsers.map((u) => (
-                <ContextOption
-                  key={u.user_id}
-                  action={setDataViewForm}
-                  fields={[
-                    { name: "next", value: pathname },
-                    { name: "view_user_id", value: u.user_id },
-                  ]}
-                  label={u.username}
-                  active={u.user_id === dataView.activeUserId}
-                  title={`Datensicht von ${u.username} anzeigen`}
-                  avatar={ownerInitials(u.username)}
-                />
-              ))}
+              {({ close }) => (
+                <>
+                  <ContextOption
+                    action={setDataViewForm}
+                    fields={[
+                      { name: "next", value: pathname },
+                      { name: "view_user_id", value: "" },
+                    ]}
+                    label="Alle Daten"
+                    active={!isImpersonating}
+                    title="Datensicht zurücksetzen"
+                    avatar={<Users size={11} />}
+                    onDone={close}
+                  />
+                  {teamUsers.map((u) => (
+                    <ContextOption
+                      key={u.user_id}
+                      action={setDataViewForm}
+                      fields={[
+                        { name: "next", value: pathname },
+                        { name: "view_user_id", value: u.user_id },
+                      ]}
+                      label={u.username}
+                      active={u.user_id === dataView.activeUserId}
+                      title={`Datensicht von ${u.username} anzeigen`}
+                      avatar={ownerInitials(u.username)}
+                      onDone={close}
+                    />
+                  ))}
+                </>
+              )}
             </ContextSwitcher>
           )}
         </div>
@@ -754,8 +927,15 @@ export function SidebarContent({
         <SearchTrigger onNavigate={onClose} />
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
         {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
-        <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} />
+        {/* „Analyse" bewusst exakt: /analyse/vergleich hat eine eigene Zeile,
+            sonst leuchteten dort beide gleichzeitig aktiv. */}
+        <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} exact />
+        <NavLink href="/analyse/vergleich" icon={GitCompare} label="Vergleich" onClick={onClose} />
         <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
+        {/* ACHTUNG: Hier stand die einzige Verlinkung auf /nachfassen. Sie ist
+            auf Wunsch entfernt; die Route und ihre Funktion bleiben bestehen,
+            sind aber nur noch per direkter URL erreichbar (die fruehere
+            Dashboard-Kachel ist ebenfalls entfallen). */}
 
         {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).
             Ghost-Akzent: die einzige Orange-Textaktion in der Navigation. */}

@@ -19,10 +19,21 @@ import type { DragState } from "./useDragReschedule";
 //     .cal-col in globals.css), nicht eine Ebene darunter. Sonst verdecken die
 //     getönten Wochenend-/Heute-Spalten sie und das Raster wirkt löchrig.
 
-/** 78 px pro Stunde — ein 30-Minuten-Setting bekommt damit 39 px, genug für Zeit + Name. */
-const PX_PER_MIN = 1.3;
-const TIME_COL_PX = 52;
-const HEADER_PX = 46;
+/**
+ * 60 px pro Stunde (vorher 78). Zusammen mit dem gestrafften Tagesfenster
+ * (08–19 Uhr, siehe layout.ts) und der entfallenen zweiten Filterzeile passt
+ * eine Woche damit ohne Scrollen auf einen üblichen Laptop-Viewport:
+ * 11 h × 60 px + Kopfzeile = 700 px.
+ *
+ * Untergrenze der Straffung ist der kleinste Chip: Ein 30-Minuten-Setting
+ * bekommt 30 px (abzüglich 2 px Luft = 28) und fällt damit auf die
+ * einzeilige xs-Variante — Uhrzeit, Name und Owner-Avatar bleiben lesbar,
+ * der Typ steht in der Füllfarbe. Weniger als 60 px/Stunde würde den Avatar
+ * unter 13 px drücken; dort hört Erkennbarkeit auf.
+ */
+const PX_PER_MIN = 1.0;
+const TIME_COL_PX = 46;
+const HEADER_PX = 38;
 
 const WEEKDAY_FMT = new Intl.DateTimeFormat("de-DE", { weekday: "short" });
 
@@ -126,7 +137,9 @@ export function CalendarTimeGrid({
       }}
     >
       <div className="cal-scroll-x-inner">
-        <div ref={scrollRef} style={{ maxHeight: "calc(100vh - 268px)", overflowY: "auto" }}>
+        {/* 208px = Topbar + PageHeader + die eine verbliebene Filterzeile.
+            Vorher 268px — die zweite Filterzeile ist ersatzlos entfallen. */}
+        <div ref={scrollRef} style={{ maxHeight: "calc(100vh - 208px)", overflowY: "auto" }}>
           {/* Kopfzeile — klebt oben IM Scroll-Container, teilt sich das Template
               mit dem Raster darunter. */}
           <div

@@ -5,7 +5,8 @@ import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
 import { revalidatePath } from "next/cache";
 import { parsePhoneCsv } from "@/lib/phone-csv";
-import type { PhoneListKind } from "@/lib/types";
+import { logCallAttempt } from "@/app/actions/phoneAttempts";
+import type { PhoneCallKind, PhoneListKind } from "@/lib/types";
 
 // Telefonakquise: Listen, Routing (Rückruf/Nicht erreicht = echte separate Listen),
 // Lead-CRUD und CSV-Import. Personenbezogen über created_by_user_id/owner_name.
@@ -30,6 +31,21 @@ async function canAccessPhoneList(listId: string): Promise<boolean> {
   }
   const { data } = await query.maybeSingle();
   return Boolean(data);
+}
+
+/**
+ * Freitext-Gruppierungswert normalisieren (Branche, Skript-Label).
+ *
+ * Trimmen + Mehrfach-Leerzeichen einkochen ist hier kein Kosmetik-Schritt: Die
+ * Auswertung gruppiert nach genau diesen Werten, und „ Handwerk" / „Handwerk "
+ * / „Hand  werk" wären sonst drei Testarme mit je zu kleiner Fallzahl. Die
+ * Gross-/Kleinschreibung bleibt bewusst erhalten (die Auswertung dedupliziert
+ * case-insensitiv) — sonst müsste die App entscheiden, ob „SaaS" oder „saas"
+ * die richtige Schreibweise ist.
+ */
+function cleanGroupValue(raw: FormDataEntryValue | string | null | undefined): string | null {
+  const s = String(raw ?? "").trim().replace(/\s+/g, " ");
+  return s || null;
 }
 
 /** Telefonliste archivieren/wiederherstellen (Admin-Archiv-Ansicht). */
@@ -121,6 +137,62 @@ export async function createPhoneList(input: {
   return { id: data.id };
 }
 
+/**
+ * Skript, Testarm und Ziel-Branche einer Telefonliste pflegen (Migration 0029).
+ *
+ * Warum an der LISTE und nicht am Lead: `phone_leads.script` existiert zwar,
+ * ist aber pro Zeile und damit als Testachse unbrauchbar. Die Liste ist die
+ * kleinste Einheit, die ein Setter tatsächlich am Stück abtelefoniert.
+ *
+ * `script_label` ist dabei das Wichtigste: Jeder CSV-Import legt eine neue
+ * Liste an — ohne ein gemeinsames Label zerfällt der Test in so viele Arme wie
+ * es Importe gab, jeder mit einer Fallzahl, aus der sich nichts ableiten lässt.
+ *
+ * Berechtigung: `canAccessPhoneList` prüft Organisation UND Personenscope; ein
+ * Mitglied mit Datensicht „nur eigene Daten" kann damit keine fremde Liste
+ * umschreiben.
+ */
+export async function updatePhoneListScript(
+  listId: string,
+  patch: { script_text?: string | null; script_label?: string | null; target_group?: string | null },
+): Promise<{ error?: string }> {
+  if (!(await canAccessPhoneList(listId))) return { error: "Keine Berechtigung." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("phone_lists").update(patch).eq("id", listId);
+  if (error) return { error: error.message };
+
+  // Testarm auf die Leads durchstempeln, die noch in dieser Liste liegen
+  // (Migration 0030). Maßgeblich für die Auswertung ist der Wert AM LEAD, weil
+  // er den Umzug in eine Routing-Liste überlebt. Wer das Label nachträglich
+  // setzt, erwartet zu Recht, dass die bereits importierten Leads dazugehören.
+  // Bereits abgewanderte Leads bleiben bewusst außen vor: Sie liegen nicht mehr
+  // in dieser Liste, und ihr Arm ist nicht mehr zweifelsfrei feststellbar.
+  if (patch.script_label !== undefined) {
+    await supabase
+      .from("phone_leads")
+      .update({ script_label: patch.script_label })
+      .eq("list_id", listId);
+  }
+
+  revalidatePath(`/telefon/${listId}`, "page");
+  revalidatePath("/telefon", "page");
+  revalidatePath("/analyse", "page");
+  return {};
+}
+
+/** Formular-Variante für die Telefonlisten-Seite (progressive enhancement, kein Client-State). */
+export async function updatePhoneListScriptForm(formData: FormData) {
+  const listId = String(formData.get("list_id") ?? "");
+  if (!listId) return;
+  await updatePhoneListScript(listId, {
+    // Leerer Text = Feld geleert, deshalb explizit null statt "" — sonst stünde
+    // in der Auswertung ein Testarm namens "".
+    script_text: String(formData.get("script_text") ?? "").trim() || null,
+    script_label: cleanGroupValue(formData.get("script_label")),
+    target_group: cleanGroupValue(formData.get("target_group")),
+  });
+}
+
 export type PhoneLeadInput = {
   list_id: string;
   decider_name?: string | null;
@@ -135,6 +207,8 @@ export type PhoneLeadInput = {
   gatekeeper_attempts?: number | null;
   script?: string | null;
   decider_reached?: boolean | null;
+  /** Der Pitch kam durch — seit Migration 0028 getrennt von `decider_reached`. */
+  pitch_delivered?: boolean | null;
   callback_at?: string | null;
   answer_sentiment?: "positiv" | "neutral" | "negativ" | null;
   objection_notes?: string | null;
@@ -180,13 +254,19 @@ export async function updatePhoneLead(
 /**
  * Ergebnis eines Anrufs setzen. Rückruf/Nicht-erreicht verschieben den Lead
  * physisch in die jeweilige Routing-Liste des Owners. Rückruf braucht callback_at.
+ *
+ * Die vier Outcome-Buttons im Call-Modus SIND das Anruf-Ereignis: jeder Klick
+ * ist genau eine Anwahl und wird in `phone_call_attempts` protokolliert
+ * (Migration 0028). `attemptNo`/`kind` kommen aus dem Log zurück, damit die UI
+ * den Versuchszähler anzeigen kann, ohne ihn selbst zu führen — beides ist
+ * optional, weil das Protokollieren fail-soft ist (siehe unten).
  */
 export async function setPhoneLeadOutcome(input: {
   leadId: string;
   listId: string;
   outcome: "aktiv" | "rueckruf" | "nicht_erreicht" | "dead";
   callbackAt?: string | null;
-}): Promise<{ error?: string }> {
+}): Promise<{ error?: string; attemptNo?: number; kind?: PhoneCallKind }> {
   if (!(await canAccessPhoneList(input.listId))) return { error: "Keine Berechtigung." };
   if (input.outcome === "rueckruf" && !input.callbackAt) {
     return { error: "Für einen Rückruf ist Datum + Uhrzeit erforderlich." };
@@ -196,7 +276,7 @@ export async function setPhoneLeadOutcome(input: {
   // Lead + Quell-Liste laden (Owner/Workspace für Routing)
   const { data: lead } = await supabase
     .from("phone_leads")
-    .select("id, list_id, first_call_at, phone_lists!inner(workspace_id, created_by_user_id, owner_name)")
+    .select("id, list_id, status, first_call_at, phone_lists!inner(workspace_id, created_by_user_id, owner_name)")
     .eq("id", input.leadId)
     .maybeSingle();
   if (!lead) return { error: "Lead nicht gefunden." };
@@ -219,11 +299,31 @@ export async function setPhoneLeadOutcome(input: {
 
   const { error } = await supabase.from("phone_leads").update(patch).eq("id", input.leadId);
   if (error) return { error: error.message };
+
+  // Anwahl protokollieren — NACH dem Update, weil logCallAttempt den Lead-Stand
+  // als Snapshot liest (Status entscheidet über den Topf, mailbox/gatekeeper/
+  // pitch_delivered werden eingefroren). Das Ergebnis ist bewusst nur
+  // Zusatzinformation: schlägt der Log-Eintrag fehl (Migration 0028 noch nicht
+  // eingespielt, RLS, Netz), bleibt das Outcome trotzdem gespeichert — der
+  // Setter sitzt im Telefonat und darf hier nicht vor einer Fehlermeldung landen.
+  // 'aktiv' hat im Log keine Entsprechung (CHECK-Constraint) und wird zu
+  // 'kein_ergebnis': angerufen wurde trotzdem.
+  const logged = await logCallAttempt({
+    leadId: input.leadId,
+    outcome: input.outcome === "aktiv" ? "kein_ergebnis" : input.outcome,
+    // Status VOR dem Update: Der Topf beschreibt, was dieser Anruf WAR, nicht
+    // was er ausgeloest hat. Ohne das wuerde der Anruf, in dem ein Rueckruf
+    // VEREINBART wird, als 'rueckruf' zaehlen — und der spaeter tatsaechlich
+    // gefuehrte Rueckruf als 'folgeanruf'. Genau die beiden Toepfe, die
+    // "Nachfassen oder neue Leads?" gegeneinander stellt.
+    statusBefore: (lead as { status?: string | null }).status ?? null,
+  });
+
   revalidatePath(`/telefon/${input.listId}`, "page");
   revalidatePath("/telefon", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
-  return {};
+  return { attemptNo: logged.attemptNo, kind: logged.kind };
 }
 
 /** Ganze Telefonliste löschen (Leads hängen per ON DELETE CASCADE dran). */
@@ -262,12 +362,17 @@ export async function importPhoneCsv(
     String(formData.get("list_name") ?? "").trim() ||
     file.name.replace(/\.csv$/i, "").trim() ||
     "Telefonliste";
+  // Branche des Imports. Wird als Listen-Default gespeichert UND auf jeden Lead
+  // gestempelt: Die Auswertung liest den Lead-Wert (er bleibt maßgeblich, wenn
+  // jemand einen Lead später umsortiert), die Liste trägt ihn nur als Vorgabe.
+  const targetGroup = cleanGroupValue(formData.get("target_group"));
 
   const text = await file.text();
   const { rows, totalDataRows } = parsePhoneCsv(text);
   if (rows.length === 0) return { error: "Keine verwertbaren Zeilen (Firma/Telefon) gefunden.", total: totalDataRows };
 
   const supabase = await createClient();
+  const scriptLabel = cleanGroupValue(formData.get("script_label"));
 
   // Akquise-Liste anlegen
   const { data: list, error: listErr } = await supabase
@@ -278,6 +383,8 @@ export async function importPhoneCsv(
       owner_name: ownerName,
       name: listName,
       list_kind: "akquise",
+      target_group: targetGroup,
+      script_label: scriptLabel,
     })
     .select("id")
     .single();
@@ -311,6 +418,16 @@ export async function importPhoneCsv(
       company: r.company,
       phone: r.phone,
       website: r.website,
+      // Zeilenwert schlägt den Dialog-Wert: Eine gemischte Datei mit
+      // `branche`-Spalte soll je Zeile korrekt landen, eine sortenreine Datei
+      // ohne Spalte bekommt durchgängig den im Dialog gewählten Wert.
+      target_group: cleanGroupValue(r.targetGroup) ?? targetGroup,
+      // Testarm am LEAD festschreiben, nicht nur an der Liste (Migration 0030).
+      // Der Lead wandert bei „Rückruf"/„Nicht erreicht" physisch in eine
+      // Routing-Liste ohne Label — waere der Arm nur an der Liste, fielen
+      // ausgerechnet die schlechten Ausgaenge aus dem Test und jedes Skript
+      // saehe besser aus als es ist.
+      script_label: scriptLabel,
       status: "aktiv",
     });
   }

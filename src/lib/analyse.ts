@@ -3,20 +3,36 @@
 // "use server" — überall (Server-Page & Client-Charts) importierbar.
 
 import { berlinDateISO } from "@/lib/apptTime";
+import { FILTERABLE_CHANNEL_KEYS, type FilterableChannelKey } from "@/lib/channels";
 import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 import { VIZ_NEUTRAL } from "@/lib/viz";
 
+/**
+ * Flow-Tabs des Analyse-Bereichs.
+ *
+ * „followup" und „listen" sind entfallen: Follow-up-Kaskade und Listen-Ranking
+ * stehen jetzt im LinkedIn-Tab, wo sie hingehören (beides sind LinkedIn-
+ * Kennzahlen). Ein `?tab=followup`/`?tab=listen` aus einem alten Lesezeichen
+ * fällt über `parseAnalyseParams` still auf „uebersicht" zurück — es bricht
+ * also nichts, es landet nur woanders.
+ */
 export type AnalyseTab =
   | "uebersicht"
   | "linkedin"
-  | "followup"
-  | "listen"
   | "telefon"
   | "setting"
   | "closing"
   | "funnel";
 export type RangeKey = "w" | "m" | "30" | "q" | "j" | "custom";
-export type QuelleKey = "alle" | "linkedin" | "telefon" | "manuell";
+/**
+ * Quellen-Filter des Analyse-Bereichs.
+ *
+ * Der Wertebereich kommt aus der Kanal-Registry (`filterable` in
+ * src/lib/channels.ts) statt aus einer eigenen Literal-Liste — vorher stand
+ * dieselbe Aufzählung fünfmal im Code. Typ UND Laufzeit-Liste hängen am selben
+ * Flag; ein zusätzlicher Kanal ist dort ein `filterable: true`, hier nichts.
+ */
+export type QuelleKey = "alle" | FilterableChannelKey;
 /** Nutzer-wählbare Bucket-Granularität; "auto" = bisherige Spannen-Heuristik. */
 export type Granularity = "auto" | "tag" | "woche" | "monat";
 /**
@@ -25,15 +41,36 @@ export type Granularity = "auto" | "tag" | "woche" | "monat";
  * unten. "reif" blendet solche Kontakte aus (Pitch ≥ FU_MATURITY_DAYS her).
  */
 export type ReifeKey = "alle" | "reif";
+/**
+ * Zählweise des Funnel-Tabs.
+ *
+ * "kohorte" — Closings folgen ihrem Setting: gezeigt wird, was aus den TERMINEN
+ *   dieses Zeitraums geworden ist, egal wann das Closing stattfand. Nur so
+ *   hängen die Stufen zusammen und die Durchlassquoten sind echte Quoten.
+ * "periode" — jede Stufe zählt auf ihrem eigenen Stichtag: was ist IN diesem
+ *   Zeitraum passiert. Termine und Closings stammen dann aus verschiedenen
+ *   Mengen; "Show → Closing" kann rechnerisch über 100 % gehen.
+ *
+ * Default ist "kohorte" — ein Funnel, dessen Stufen nicht zusammenhängen, ist
+ * keiner.
+ */
+export type FunnelModus = "kohorte" | "periode";
 
 const TABS: readonly AnalyseTab[] = [
-  "uebersicht", "linkedin", "followup", "listen", "telefon", "setting", "closing", "funnel",
+  "uebersicht", "linkedin", "telefon", "setting", "closing", "funnel",
 ];
-const QUELLEN: readonly QuelleKey[] = ["alle", "linkedin", "telefon", "manuell"];
+/**
+ * Gültige Werte des `quelle`-Parameters — „alle" plus die filterbaren Kanäle
+ * aus der Registry. Ist die Registry die Quelle, kann die Liste hier nicht mehr
+ * gegen das Termin-Formular auseinanderlaufen.
+ */
+const QUELLEN: readonly string[] = ["alle", ...FILTERABLE_CHANNEL_KEYS];
 const GRANULARITIES: readonly Granularity[] = ["auto", "tag", "woche", "monat"];
 const REIFEN: readonly ReifeKey[] = ["alle", "reif"];
-const MIN_DMS_OPTIONS: readonly number[] = [0, 10, 25, 50];
+const MODI: readonly FunnelModus[] = ["kohorte", "periode"];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** Listen-IDs sind uuids (`lists.id`) — alles andere ist Müll aus der URL. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SPAN_DAYS = 730;
 
 /** Pitch +3 → FU1 +5 → FU2 +7 → FU3: nach 15 Tagen ist die Sequenz durch. */
@@ -41,15 +78,33 @@ export const FU_MATURITY_DAYS = 15;
 
 export type AnalyseParams = {
   tab: AnalyseTab;
+  /**
+   * Der GEWÄHLTE Zeitraum-Modus — bleibt "custom", auch wenn noch keine Daten
+   * eingetragen sind. Daran hängt allein, ob die Datumsfelder erscheinen.
+   */
   rangeKey: RangeKey;
+  /**
+   * Ob "custom" auch mit gültigen von/bis-Daten kam. Daran hängen der aktive
+   * Filter-Chip und die "aktive Filter"-Erkennung — nicht am `rangeKey`.
+   * Ohne diese Trennung wäre "Eigener" ein toter Klick: `rangeKey` fiele
+   * serverseitig auf "m" zurück, die Datumsfelder erschienen nie, und ohne
+   * Felder kann niemand Daten eintragen (Henne-Ei).
+   */
+  hasCustomDates: boolean;
   from: string;
   to: string;
   userIds: string[];
+  /**
+   * Listen-Filter (URL-Parameter `listen`, kommasepariert). Leer = alle Listen.
+   * Nur syntaktisch geprüft — der Abgleich gegen die real sichtbaren Listen
+   * gehört auf die Seite, die sie ohnehin lädt.
+   */
+  listIds: string[];
   quelle: QuelleKey;
   g: Granularity;
   reife: ReifeKey;
-  /** Mindest-DMs, ab denen eine Liste im Listen-Ranking erscheint. */
-  minDms: number;
+  /** Zählweise des Funnel-Tabs (Kohorte vs. Periode). */
+  modus: FunnelModus;
 };
 
 /** Erster Tag des Monats, in dem `today` (YYYY-MM-DD) liegt. */
@@ -109,10 +164,11 @@ export function parseAnalyseParams(
   const validRange =
     rawRange === "w" || rawRange === "m" || rawRange === "30" ||
     rawRange === "q" || rawRange === "j" || rawRange === "custom";
-  let rangeKey: RangeKey = validRange ? (rawRange as RangeKey) : "m";
+  const rangeKey: RangeKey = validRange ? (rawRange as RangeKey) : "m";
 
   let from: string;
   let to: string;
+  let hasCustomDates = false;
 
   if (rangeKey === "custom") {
     let von = sp.von;
@@ -126,9 +182,11 @@ export function parseAnalyseParams(
       }
       from = von;
       to = bis;
+      hasCustomDates = true;
     } else {
-      // Ungültige Custom-Eingabe → auf Preset "m" zurückfallen.
-      rangeKey = "m";
+      // Custom OHNE gültige Daten: nur das Zeitfenster fällt auf den laufenden
+      // Monat zurück — `rangeKey` bleibt "custom", damit die Datumsfelder
+      // erscheinen und überhaupt etwas eingetragen werden kann.
       ({ from, to } = presetRange("m", today));
     }
   } else {
@@ -140,16 +198,30 @@ export function parseAnalyseParams(
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const quelle: QuelleKey = QUELLEN.includes(sp.quelle as QuelleKey) ? (sp.quelle as QuelleKey) : "alle";
+  const quelle: QuelleKey = QUELLEN.includes(sp.quelle ?? "") ? (sp.quelle as QuelleKey) : "alle";
+
+  // Listen-Filter (LinkedIn-Tab). Wie `users` nur SYNTAKTISCH geprüft — ob die
+  // ID zu einer existierenden, sichtbaren Liste gehört, entscheidet die Seite;
+  // hier fehlt dafür der Datenbankzugriff. Die UUID-Prüfung ist trotzdem kein
+  // Luxus: ein Freitext-Rest aus einer manipulierten URL ginge sonst roh in
+  // einen `in.(…)`-Filter und ließe PostgREST die ganze Abfrage abweisen.
+  // Duplikate fliegen raus, damit ein Chip nicht doppelt erscheint.
+  const listIds = [
+    ...new Set(
+      (sp.listen ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => UUID.test(s)),
+    ),
+  ];
 
   const g: Granularity = GRANULARITIES.includes(sp.g as Granularity) ? (sp.g as Granularity) : "auto";
 
   const reife: ReifeKey = REIFEN.includes(sp.reife as ReifeKey) ? (sp.reife as ReifeKey) : "alle";
 
-  const rawMin = Number(sp.min);
-  const minDms = MIN_DMS_OPTIONS.includes(rawMin) ? rawMin : 10;
+  const modus: FunnelModus = MODI.includes(sp.modus as FunnelModus) ? (sp.modus as FunnelModus) : "kohorte";
 
-  return { tab, rangeKey, from, to, userIds, quelle, g, reife, minDms };
+  return { tab, rangeKey, hasCustomDates, from, to, userIds, listIds, quelle, g, reife, modus };
 }
 
 /**

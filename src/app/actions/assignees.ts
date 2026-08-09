@@ -4,8 +4,14 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 
-// Flexibles Multi-Select: Setter/Closer einem Setting-/Closing-Call zuweisen.
-// call_assignees ist RLS-gescoped; wir prüfen zusätzlich Zugriff auf die Entität.
+// Fachliche Zuordnung eines Setting-/Closing-Calls: genau EINE Person.
+//
+// Geschrieben wird direkt auf `assigned_user_id`. Die alte Tabelle
+// `call_assignees` bleibt bestehen (Migration 0026/0027 fassen sie an), wird
+// aber nicht mehr beschrieben: Sie ist polymorph (entity_type/entity_id) und
+// hat deshalb keinen Fremdschluessel, den PostgREST einbetten koennte — jede
+// Auswertung braeuchte einen zweiten Volldurchlauf plus JS-Join
+// (Migration 0028 §1).
 
 export type AssigneeEntity = "setting_call" | "closing_call";
 
@@ -25,63 +31,53 @@ async function canAccessEntity(entity: AssigneeEntity, entityId: string): Promis
   return Boolean(data);
 }
 
-export type Assignee = { user_id: string; username: string };
-
-export async function getAssignees(entity: AssigneeEntity, entityId: string): Promise<Assignee[]> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("call_assignees")
-    .select("user_id, profiles ( username )")
-    .eq("entity_type", entity)
-    .eq("entity_id", entityId);
-  return ((data ?? []) as unknown as { user_id: string; profiles: { username: string } | null }[]).map((r) => ({
-    user_id: r.user_id,
-    username: r.profiles?.username ?? r.user_id,
-  }));
-}
-
-/** Zuweisungen setzen (Diff: fehlende einfügen, entfernte löschen). */
-export async function setAssignees(
+/**
+ * Zuweisung setzen — `null` bedeutet „Niemand"; die Auswertungen fallen dann
+ * auf `created_by_user_id` zurueck (`personOf`, src/lib/personResolution.ts).
+ *
+ * Umverteilen ist Admin-Sache (Owner mit workspace-weiter Datensicht). Die
+ * Pruefung steht hier und nicht nur in der Oberflaeche: Server Actions sind
+ * per direktem POST erreichbar. Sie ist zugleich ein Selbstschutz — wer sich
+ * mit `data_scope='own'` einen Termin wegnimmt, verliert durch RLS den Zugriff
+ * darauf und koennte ihn nicht zurueckholen.
+ */
+export async function setAssignee(
   entity: AssigneeEntity,
   entityId: string,
-  userIds: string[],
+  userId: string | null,
 ): Promise<{ error?: string }> {
   const access = await getAccessContext();
   if (!access) return { error: "Nicht angemeldet." };
+  if (!access.can_switch_view) return { error: "Keine Berechtigung." };
   if (!(await canAccessEntity(entity, entityId))) return { error: "Keine Berechtigung." };
 
   const supabase = await createClient();
-  const desired = new Set(userIds);
-  const { data: current } = await supabase
-    .from("call_assignees")
-    .select("user_id")
-    .eq("entity_type", entity)
-    .eq("entity_id", entityId);
-  const existing = new Set((current ?? []).map((r) => r.user_id));
 
-  const toAdd = [...desired].filter((u) => !existing.has(u));
-  const toRemove = [...existing].filter((u) => !desired.has(u));
-
-  if (toAdd.length > 0) {
-    const rows = toAdd.map((user_id) => ({
-      workspace_id: access.workspace_id,
-      entity_type: entity,
-      entity_id: entityId,
-      user_id,
-    }));
-    const { error } = await supabase.from("call_assignees").insert(rows);
-    if (error) return { error: error.message };
-  }
-  if (toRemove.length > 0) {
-    const { error } = await supabase
-      .from("call_assignees")
-      .delete()
-      .eq("entity_type", entity)
-      .eq("entity_id", entityId)
-      .in("user_id", toRemove);
-    if (error) return { error: error.message };
+  // Der DB-Guard aus Migration 0028 §11 greift bewusst nur beim Org-Umzug.
+  // Ohne diese Pruefung koennte hier eine Zuweisung ueber die Org-Grenze
+  // entstehen — die Zeile waere danach fuer niemanden mehr auffindbar.
+  if (userId) {
+    const { data: member } = await supabase
+      .from("workspace_members")
+      .select("user_id")
+      .eq("workspace_id", access.workspace_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!member) return { error: "Nutzer gehört nicht zu dieser Organisation." };
   }
 
+  const table = entity === "setting_call" ? "setting_calls" : "closing_calls";
+  const { error } = await supabase
+    .from(table)
+    .update({ assigned_user_id: userId })
+    .eq("id", entityId)
+    .eq("workspace_id", access.workspace_id);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/${entity === "setting_call" ? "setting" : "closing"}/${entityId}`, "page");
   revalidatePath("/termine", "page");
+  // Die Zuweisung ist die Personenachse aller Auswertungen — Dashboards und
+  // Nachfassen zeigen sonst weiter die alte Verteilung.
+  revalidatePath("/", "layout");
   return {};
 }

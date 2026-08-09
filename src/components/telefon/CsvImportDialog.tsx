@@ -9,9 +9,14 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 // CSV-Import (Google-Maps-Export) für Telefonlisten: Datei hochladen,
-// optionaler Listenname. Nur Firma/Telefon/Website werden gemappt.
+// optionaler Listenname, Branche. Nur Firma/Telefon/Website werden gemappt.
 // Import ist immer personenbezogen: Nicht-Admins importieren als sie selbst,
 // nur Admins mit mehreren Nutzern können den Inhaber wählen.
+//
+// Die Branche ist der Moment, an dem sie überhaupt bekannt ist: Wer eine Liste
+// scrapt, weiß, wonach er gesucht hat — hinterher steht sie in keiner Zeile
+// mehr. Ohne dieses Feld bleibt die Auswertung „welche Branche konvertiert"
+// für immer leer, weil niemand 400 Leads einzeln nachpflegt.
 
 type UserOption = { user_id: string; username: string };
 
@@ -48,10 +53,20 @@ export function CsvImportDialog({
   users,
   me,
   isAdmin,
+  targetGroups = [],
+  scriptLabels = [],
 }: {
   users: UserOption[];
   me: UserOption;
   isAdmin: boolean;
+  /**
+   * Bereits vergebene Branchen als Vorschlagsliste. Das ist der Anti-Chaos-
+   * Mechanismus: Ohne sichtbare Vorschläge entstehen „Handwerk", „handwerker"
+   * und „Handwerks-Betriebe" als drei Gruppen, und die Auswertung zerfällt.
+   */
+  targetGroups?: string[];
+  /** Bereits vergebene Skript-Testarme — gleiche Anti-Chaos-Logik wie oben. */
+  scriptLabels?: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -61,6 +76,8 @@ export function CsvImportDialog({
     users.some((u) => u.user_id === me.user_id) || !showOwnerSelect ? me.user_id : users[0].user_id,
   );
   const [listName, setListName] = useState("");
+  const [targetGroup, setTargetGroup] = useState("");
+  const [scriptLabel, setScriptLabel] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -69,6 +86,8 @@ export function CsvImportDialog({
   function reset() {
     setFile(null);
     setListName("");
+    setTargetGroup("");
+    setScriptLabel("");
     setError(null);
     setResult(null);
   }
@@ -90,6 +109,8 @@ export function CsvImportDialog({
     fd.set("owner_name", owner.username);
     fd.set("owner_user_id", owner.user_id);
     if (listName.trim()) fd.set("list_name", listName.trim());
+    if (targetGroup.trim()) fd.set("target_group", targetGroup.trim());
+    if (scriptLabel.trim()) fd.set("script_label", scriptLabel.trim());
 
     startTransition(async () => {
       const res = await importPhoneCsv(fd);
@@ -244,6 +265,64 @@ export function CsvImportDialog({
                 placeholder="Standard: Dateiname"
                 style={inputStyle}
               />
+            </div>
+
+            <div>
+              <label htmlFor="csv-target-group" style={labelStyle}>
+                Branche / Zielgruppe
+              </label>
+              {/* Freitext MIT Vorschlagsliste statt Dropdown: Ein geschlossenes
+                  Set müsste jede neue Branche als Migration nachziehen, ein
+                  reines Freitextfeld erzeugt fünf Schreibweisen. `list` gibt
+                  beides — tippen erlaubt, Bestehendes steht zur Auswahl. */}
+              <input
+                id="csv-target-group"
+                type="text"
+                list="csv-target-group-options"
+                value={targetGroup}
+                onChange={(e) => setTargetGroup(e.target.value)}
+                placeholder="z. B. Webdesigner, Handwerk"
+                style={inputStyle}
+              />
+              <datalist id="csv-target-group-options">
+                {targetGroups.map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+              <p style={{ margin: "0.375rem 0 0", fontSize: "0.6875rem", color: "var(--text-subtle)", lineHeight: 1.5 }}>
+                Wird auf alle Leads dieses Imports gestempelt und macht den
+                Branchen-Vergleich in der Analyse möglich. Eine CSV-Spalte
+                <strong> branche</strong> bzw. <strong>zielgruppe</strong> hat pro Zeile Vorrang.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="csv-script-label" style={labelStyle}>
+                Testarm des Skripts
+              </label>
+              {/* Gleiche Begruendung wie bei der Branche: Freitext mit
+                  Vorschlagsliste. Wer denselben Arm ein zweites Mal importiert,
+                  waehlt ihn hier aus — nur so buendeln sich mehrere Importe zu
+                  einem Arm mit tragfaehiger Fallzahl. */}
+              <input
+                id="csv-script-label"
+                type="text"
+                list="csv-script-label-options"
+                value={scriptLabel}
+                onChange={(e) => setScriptLabel(e.target.value)}
+                placeholder="z. B. V1, Hard Opener"
+                style={inputStyle}
+              />
+              <datalist id="csv-script-label-options">
+                {scriptLabels.map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+              <p style={{ margin: "0.375rem 0 0", fontSize: "0.6875rem", color: "var(--text-subtle)", lineHeight: 1.5 }}>
+                Wird auf jeden Lead gestempelt und bleibt dort, auch wenn er
+                später in &bdquo;Rückruf&ldquo; oder &bdquo;Nicht erreicht&ldquo; wandert.
+                Ohne diesen Stempel fielen genau die schlechten Ausgänge aus dem Test.
+              </p>
             </div>
 
             <div

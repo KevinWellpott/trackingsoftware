@@ -10,10 +10,27 @@ import { PageHeader } from "@/components/ui/PageHeader";
 // clientseitig gefiltert — Navigation und Ansichtswechsel bleiben dadurch ohne
 // Server-Roundtrip. (Für größere Datenmengen existieren die Range-Indizes
 // idx_setting_calls_ws_appt / idx_closing_calls_ws_call_at.)
+//
+// Die Personen-Zuordnung kommt seit Migration 0028 als `assigned_user_id` mit
+// dem normalen Select mit. Vorher liefen dafür zwei zusätzliche Volldurchläufe
+// über `call_assignees` (polymorph, ohne Fremdschlüssel → nicht einbettbar),
+// deren Ergebnis im Speicher gruppiert wurde. Den Namen liefert die ohnehin
+// geladene Mitgliederliste.
 
 export const dynamic = "force-dynamic";
 
-type AssigneeRow = { entity_id: string; user_id: string; profiles: { username: string } | null };
+/**
+ * Datensicht-Filter: „zugewiesen ODER (nicht zugewiesen UND selbst angelegt)".
+ *
+ * Dieselbe Reihenfolge wie `personOf()` (src/lib/personResolution.ts) und
+ * `buildOwnScope()` für Listen. Ein reiner `created_by_user_id`-Filter würde
+ * jeden Termin, den jemand FÜR eine andere Person gelegt hat, aus der Sicht des
+ * Zuständigen verschwinden lassen — er stünde nur beim Ersteller, der ihn gar
+ * nicht bearbeitet. Deckungsgleich mit den RLS-Policies aus Migration 0028 §5.
+ */
+function personScope(userId: string): string {
+  return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId})`;
+}
 
 export default async function TerminePage() {
   const access = await getAccessContext();
@@ -22,28 +39,10 @@ export default async function TerminePage() {
   const supabase = await createClient();
 
   // fetchAllRows: ohne order/range cappt PostgREST bei 1000 Zeilen.
-  // try/catch bei den Assignees: ohne FK auf profiles soll die Seite trotzdem
-  // rendern (nur ohne Avatare).
-  const loadAssignees = (entityType: "setting_call" | "closing_call") =>
-    fetchAllRows((from, to) =>
-      supabase
-        .from("call_assignees")
-        .select("entity_id, user_id, profiles ( username )")
-        .eq("entity_type", entityType)
-        .eq("workspace_id", access.workspace_id)
-        .order("id", { ascending: true })
-        .range(from, to),
-    )
-      .then((rows) => rows as unknown as AssigneeRow[])
-      .catch((e) => {
-        console.error(`${entityType} assignees:`, e instanceof Error ? e.message : e);
-        return [] as AssigneeRow[];
-      });
-
-  const [settings, closings, settingRows, closingRows, members] = await Promise.all([
+  const [settings, closings, members] = await Promise.all([
     fetchAllRows<SettingCall>((from, to) => {
       let q = supabase.from("setting_calls").select("*").eq("workspace_id", access.workspace_id);
-      if (access.effective_user_id) q = q.eq("created_by_user_id", access.effective_user_id);
+      if (access.effective_user_id) q = q.or(personScope(access.effective_user_id));
       return q
         .order("appointment_at", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false })
@@ -52,28 +51,15 @@ export default async function TerminePage() {
     }),
     fetchAllRows<ClosingCall>((from, to) => {
       let q = supabase.from("closing_calls").select("*").eq("workspace_id", access.workspace_id);
-      if (access.effective_user_id) q = q.eq("created_by_user_id", access.effective_user_id);
+      if (access.effective_user_id) q = q.or(personScope(access.effective_user_id));
       return q
         .order("call_at", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false })
         .order("id", { ascending: true })
         .range(from, to);
     }),
-    loadAssignees("setting_call"),
-    loadAssignees("closing_call"),
     listDataViewUsers(access.workspace_id).catch(() => []),
   ]);
-
-  const group = (rows: AssigneeRow[]): Record<string, { user_id: string; username: string }[]> => {
-    const out: Record<string, { user_id: string; username: string }[]> = {};
-    for (const row of rows) {
-      (out[row.entity_id] ??= []).push({
-        user_id: row.user_id,
-        username: row.profiles?.username ?? row.user_id,
-      });
-    }
-    return out;
-  };
 
   const offen =
     settings.filter((c) => c.status === "offen").length + closings.filter((c) => c.status === "offen").length;
@@ -95,8 +81,6 @@ export default async function TerminePage() {
       <TermineBoard
         settings={settings}
         closings={closings}
-        settingAssignees={group(settingRows)}
-        closingAssignees={group(closingRows)}
         members={members.map((m) => ({ user_id: m.user_id, username: m.username }))}
         canFilterPersons={!access.effective_user_id}
       />

@@ -66,11 +66,17 @@ export function packEvents(events: TerminEvent[]): PlacedEvent[] {
 }
 
 /**
- * Sichtbarer Zeitbereich einer Ansicht. Basis 07:00–21:00, wird aber gedehnt,
- * damit Randtermine (früher Morgen / später Abend) nie unsichtbar sind.
+ * Sichtbarer Zeitbereich einer Ansicht.
+ *
+ * Basis 08:00–19:00 (11 h) statt der früheren 07:00–21:00 (14 h). Das ist der
+ * größte Hebel für die Vorgabe „Kalender soll auf einen Viewport passen":
+ * Stundenhöhe zu drücken macht die Chips unlesbar, drei leere Randstunden
+ * wegzulassen kostet nichts. Das Fenster wird ohnehin gedehnt, sobald ein
+ * Termin davor oder danach liegt — es geht kein Termin verloren, die frühen
+ * und späten Stunden erscheinen nur nicht mehr auf Vorrat.
  */
-export const DEFAULT_DAY_START = 7 * 60;
-export const DEFAULT_DAY_END = 21 * 60;
+export const DEFAULT_DAY_START = 8 * 60;
+export const DEFAULT_DAY_END = 19 * 60;
 
 export function visibleRange(events: TerminEvent[]): { start: number; end: number } {
   let start = DEFAULT_DAY_START;

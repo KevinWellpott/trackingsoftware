@@ -157,6 +157,24 @@ export async function createUser(
   return createUserInWorkspace(access.workspace_id, username, password, role, dataScope);
 }
 
+/**
+ * Alle Tabellen, die eine `owner_name`-Kopie tragen.
+ *
+ * `owner_name` ist ein Namens-Snapshot, kein Fremdschluessel — die Datenbank
+ * raeumt ihn beim Loeschen eines Nutzers nicht mit auf. Wer hier eine Tabelle
+ * vergisst, hinterlaesst einen Geist: der Name ueberlebt in allen
+ * owner_name-basierten Auswertungen (Wochenduell, Team-Dashboard, Analyse) und
+ * steht dort mit 0 DMs als Dauerverlierer.
+ */
+const OWNER_NAME_TABLES = [
+  "lists",
+  "phone_lists",
+  "list_views",
+  "csv_imports",
+  "organic_lists",
+  "organic_posts",
+] as const;
+
 export async function deleteUser(userId: string) {
   const access = await getAccessContext();
   if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
@@ -182,6 +200,15 @@ export async function deleteUser(userId: string) {
     return { error: "Nutzer gehört nicht zu dieser Organisation." };
   }
 
+  // Benutzernamen VOR dem Loeschen des Profils lesen — danach gibt es keine
+  // Bruecke mehr von der user_id zum owner_name auf den Listen.
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("username")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const oldUsername = (profile as { username?: string } | null)?.username ?? null;
+
   await admin
     .from("workspace_members")
     .delete()
@@ -190,7 +217,30 @@ export async function deleteUser(userId: string) {
   await admin.from("profiles").delete().eq("user_id", userId);
   await admin.auth.admin.deleteUser(userId);
 
+  // owner_name-Kopien entwaisen (Gegenstueck zum Nachziehen in renameUser).
+  // Auf null setzen, nicht umhaengen: die Daten bleiben erhalten und tauchen
+  // in den Auswertungen unter „—" auf, statt unter einem Namen, zu dem es
+  // keinen Nutzer mehr gibt.
+  //
+  // Wie ueberall in dieser Datei laeuft das ueber den Service-Role-Client
+  // (workspace_members hat keine passende Policy) — deshalb IMMER mit
+  // explizitem Workspace-Filter: RLS greift hier nicht, die
+  // Organisationsgrenze traegt allein der Code. Benutzernamen sind zwar
+  // organisationsuebergreifend eindeutig, doch nach einem Nutzer-Umzug
+  // (Migration 0026) koennen Alt-Listen desselben Namens in einer anderen
+  // Organisation liegen.
+  if (oldUsername) {
+    for (const table of OWNER_NAME_TABLES) {
+      await admin
+        .from(table)
+        .update({ owner_name: null })
+        .eq("workspace_id", access.workspace_id)
+        .eq("owner_name", oldUsername);
+    }
+  }
+
   revalidatePath("/settings");
+  revalidatePath("/", "layout");
   return {};
 }
 
@@ -220,6 +270,67 @@ export async function updateUserScope(userId: string, scope: DataScope) {
   if (error) return { error: error.message };
 
   revalidatePath("/settings");
+  revalidatePath("/", "layout");
+  return {};
+}
+
+/**
+ * Rolle eines bestehenden Nutzers der AKTIVEN Organisation ändern.
+ *
+ * Gegenstück zu updateUserScope: die beiden Achsen sind unabhängig
+ * (`role` = Admin-Rechte, `data_scope` = Datensichtbarkeit, docs §2). Bis
+ * hierher liess sich die Rolle nur beim Anlegen setzen — wer sie ändern
+ * wollte, musste den Nutzer löschen und neu anlegen.
+ */
+export async function updateUserRole(userId: string, role: "owner" | "member") {
+  const access = await getAccessContext();
+  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
+  if (role !== "owner" && role !== "member") return { error: "Unbekannte Rolle." };
+
+  // Sich selbst degradieren heisst: im selben Moment die Nutzerverwaltung
+  // verlieren, mit der man es zuruecknehmen koennte.
+  if (userId === access.user.id) {
+    return { error: "Du kannst deine eigene Rolle nicht ändern." };
+  }
+
+  const admin = createAdminClient();
+
+  // Nur Nutzer der aktiven Organisation umstellen (vgl. deleteUser/renameUser).
+  const { data: member } = await admin
+    .from("workspace_members")
+    .select("user_id, role")
+    .eq("user_id", userId)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  if (!member) {
+    return { error: "Nutzer gehört nicht zu dieser Organisation." };
+  }
+  if ((member as { role: "owner" | "member" }).role === role) return {};
+
+  // Der letzte Owner darf nicht zum Mitglied werden: danach koennte in dieser
+  // Organisation niemand mehr Nutzer anlegen oder Rechte vergeben. Ein
+  // Plattform-Admin zaehlt hier NICHT mit — er ist in einer Kunden-Org kein
+  // Mitglied und waere nach seinem Weggang keine Rettung.
+  if ((member as { role: "owner" | "member" }).role === "owner" && role === "member") {
+    const { count } = await admin
+      .from("workspace_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("workspace_id", access.workspace_id)
+      .eq("role", "owner");
+    if ((count ?? 0) <= 1) {
+      return { error: "Die Organisation braucht mindestens einen Owner." };
+    }
+  }
+
+  const { error } = await admin
+    .from("workspace_members")
+    .update({ role })
+    .eq("user_id", userId)
+    .eq("workspace_id", access.workspace_id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/settings");
+  revalidatePath("/admin");
   revalidatePath("/", "layout");
   return {};
 }
@@ -338,23 +449,17 @@ export async function renameUser(userId: string, newUsername: string) {
   // owner_name-Kopien auf Bestandslisten nachziehen — sonst greift der
   // owner_name-Fallback (ownScopeFilter in access.ts) nach der Umbenennung
   // nicht mehr und Listen 404en wie im "Neukundengewinnung A"-Fall.
-  await admin
-    .from("lists")
-    .update({ owner_name: trimmed })
-    .eq("workspace_id", access.workspace_id)
-    .eq("owner_name", oldUsername);
-  await admin
-    .from("phone_lists")
-    .update({ owner_name: trimmed })
-    .eq("workspace_id", access.workspace_id)
-    .eq("owner_name", oldUsername);
-  // list_views tragen ebenfalls owner_name (Migration 0023) — ohne das
-  // Nachziehen verlieren Smart Views nach einer Umbenennung ihren Besitzer.
-  await admin
-    .from("list_views")
-    .update({ owner_name: trimmed })
-    .eq("workspace_id", access.workspace_id)
-    .eq("owner_name", oldUsername);
+  // Dieselbe Tabellenliste wie beim Loeschen: Vorher wurden nur lists,
+  // phone_lists und list_views nachgezogen — csv_imports, organic_lists und
+  // organic_posts behielten den alten Namen und wurden damit unauffindbar,
+  // sobald jemand nach dem neuen filtert.
+  for (const table of OWNER_NAME_TABLES) {
+    await admin
+      .from(table)
+      .update({ owner_name: trimmed })
+      .eq("workspace_id", access.workspace_id)
+      .eq("owner_name", oldUsername);
+  }
 
   revalidatePath("/settings");
   revalidatePath("/", "layout");

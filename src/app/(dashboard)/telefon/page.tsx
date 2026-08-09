@@ -64,6 +64,27 @@ export default async function TelefonPage() {
   ]);
 
   const lists = (rawLists ?? []) as PhoneList[];
+
+  // Bereits vergebene Branchen als Vorschläge für den Import-Dialog.
+  // Case-insensitiv dedupliziert, erste Schreibweise gewinnt — dieselbe Regel
+  // wie in der Auswertung, sonst schlägt der Dialog eine Schreibweise vor, die
+  // dort als eigene Gruppe geführt wird.
+  const distinctValues = (pick: (l: PhoneList) => string | null) => {
+    const byKey = new Map<string, string>();
+    for (const l of lists) {
+      const v = (pick(l) ?? "").trim();
+      if (!v) continue;
+      const key = v.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, v);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, "de"));
+  };
+  const targetGroups = distinctValues((l) => l.target_group);
+  // Dieselbe Vorschlagslogik für den Skript-Testarm: Nur wenn derselbe Arm bei
+  // mehreren Importen exakt gleich heißt, bündeln sich seine Listen in der
+  // Auswertung zu einer tragfähigen Fallzahl.
+  const scriptLabels = distinctValues((l) => l.script_label);
+
   const users = (access.data_scope === "own"
     ? allUsers.filter((u) => u.user_id === access.user.id)
     : allUsers
@@ -112,6 +133,8 @@ export default async function TelefonPage() {
               users={users}
               me={{ user_id: access.user.id, username: access.username }}
               isAdmin={access.role === "owner"}
+              targetGroups={targetGroups}
+              scriptLabels={scriptLabels}
             />
           </>
         }

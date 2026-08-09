@@ -7,7 +7,7 @@ import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { formatTermin } from "@/lib/apptTime";
+import { berlinInputToIso, formatTermin, isoToBerlinInput } from "@/lib/apptTime";
 import type { PhoneLead, PhoneLeadStatus, PhoneList } from "@/lib/types";
 import {
   Calendar,
@@ -95,6 +95,14 @@ const reasonLabel: React.CSSProperties = {
   color: "var(--text-subtle)",
 };
 
+/** Kleine erklärende Zeile unter einem Feld (warum es so zählt / warum gesperrt). */
+const fieldHint: React.CSSProperties = {
+  marginTop: "0.35rem",
+  fontSize: "0.6875rem",
+  color: "var(--text-subtle)",
+  lineHeight: 1.4,
+};
+
 const fieldInput: React.CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
@@ -169,11 +177,22 @@ function Segmented<T extends string>({
   );
 }
 
-function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) {
+function Toggle({
+  value,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       className="ui-toggle"
+      disabled={disabled}
       onClick={() => onChange(!value)}
       style={{
         display: "inline-flex",
@@ -186,7 +205,8 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
         color: value ? "var(--color-success-text)" : "var(--text-muted)",
         fontSize: "0.75rem",
         fontWeight: 600,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
         transition: "all 0.1s",
       }}
     >
@@ -399,7 +419,16 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
         return;
       }
       setError(null);
-      setField(id, { status: outcome, ...(callbackAtVal ? { callback_at: callbackAtVal } : {}) });
+      // callback_at hält in der DB echtes UTC; der Dialog liefert Berlin-Wandzeit.
+      // Der optimistische Override muss dieselbe Einheit tragen wie die Serverzeile,
+      // sonst zeigt formatTermin() den Rückruf bis zum nächsten Refresh verschoben an.
+      // attemptNo kommt aus dem Anruf-Log — fehlt es (fail-soft), bleibt der
+      // bisherige Zähler stehen, statt eine Zahl zu erfinden.
+      setField(id, {
+        status: outcome,
+        ...(callbackAtVal ? { callback_at: berlinInputToIso(callbackAtVal) } : {}),
+        ...(res.attemptNo != null ? { call_attempt: res.attemptNo } : {}),
+      });
       setCallbackOpen(false);
       setCallbackAt("");
       advance();
@@ -762,16 +791,47 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                   />
                 </div>
 
-                {/* 3. Entscheider gepitcht? */}
+                {/* 3. Entscheider erreicht? — bis Migration 0028 lag hier EIN
+                    Schalter mit der Beschriftung „Entscheider gepitcht?", der
+                    auf decider_reached schrieb. Deshalb waren „Entscheider
+                    erreicht" und „Pitch kam durch" in jeder Auswertung
+                    zwangsläufig dieselbe Zahl. */}
                 <div>
-                  <label style={fieldLabel}>Entscheider gepitcht?</label>
+                  <label style={fieldLabel}>Entscheider erreicht?</label>
                   <Toggle
                     value={current.decider_reached === true}
                     onChange={(v) => {
-                      setAndSave(current.id, { decider_reached: v }, { decider_reached: v });
+                      // Kein Entscheider am Apparat ⇒ es kann auch kein Pitch
+                      // durchgekommen sein. Wird der Schalter zurückgenommen,
+                      // fällt der Pitch mit — sonst bliebe eine unmögliche
+                      // Kombination stehen, die niemand mehr nachträglich sieht.
+                      if (v) {
+                        setAndSave(current.id, { decider_reached: true }, { decider_reached: true });
+                      } else {
+                        setAndSave(
+                          current.id,
+                          { decider_reached: false, pitch_delivered: false },
+                          { decider_reached: false, pitch_delivered: false },
+                        );
+                      }
                     }}
                     label={current.decider_reached === true ? "Ja" : "Nein"}
                   />
+                </div>
+                {/* 3b. Pitch gekommen? — nur sinnvoll, wenn der Entscheider dran war. */}
+                <div style={{ paddingLeft: "0.875rem", borderLeft: "2px solid var(--border)" }}>
+                  <label style={reasonLabel}>Pitch gekommen?</label>
+                  <Toggle
+                    value={current.pitch_delivered === true}
+                    disabled={current.decider_reached !== true}
+                    onChange={(v) => {
+                      setAndSave(current.id, { pitch_delivered: v }, { pitch_delivered: v });
+                    }}
+                    label={current.pitch_delivered === true ? "Ja" : "Nein"}
+                  />
+                  {current.decider_reached !== true && (
+                    <p style={fieldHint}>Erst aktiv, wenn der Entscheider erreicht wurde.</p>
+                  )}
                 </div>
                 {/* 4. Warum kein Pitch? */}
                 <div style={{ paddingLeft: "0.875rem", borderLeft: "2px solid var(--border)" }}>
@@ -865,20 +925,32 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
 
               {/* ── Weitere Tracking-Felder ── */}
               <div className="call-fields-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem 1rem", marginBottom: "1rem" }}>
+                {/* Anzeige statt Eingabe: Der Versuchszähler wurde bis
+                    Migration 0028 von Hand gesetzt — mitten im Telefonat, mit
+                    entsprechender Verlässlichkeit. Jetzt zählt das Anruf-Log
+                    (phone_call_attempts) mit, sobald unten ein Ergebnis fällt;
+                    hier steht nur noch, der wievielte Anruf gerade läuft. Der
+                    Bedienfluss verliert dadurch einen Klick. */}
                 <div>
                   <label style={fieldLabel}>Anruf-Versuch</label>
-                  <Segmented
-                    value={current.call_attempt != null ? (String(current.call_attempt) as "1" | "2" | "3") : null}
-                    options={[
-                      { value: "1", label: "1" },
-                      { value: "2", label: "2" },
-                      { value: "3", label: "3" },
-                    ]}
-                    onChange={(v) => {
-                      const n = v ? Number(v) : null;
-                      setAndSave(current.id, { call_attempt: n }, { call_attempt: n });
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                      padding: "0.3rem 0.625rem",
+                      borderRadius: "var(--r-full)",
+                      border: "1px solid var(--border)",
+                      background: "var(--surface-50)",
+                      color: "var(--text-secondary)",
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
                     }}
-                  />
+                  >
+                    <Phone size={12} style={{ opacity: 0.7 }} />
+                    {(current.call_attempt ?? 0) + 1}. Anruf
+                  </span>
+                  <p style={fieldHint}>Zählt automatisch, sobald du unten ein Ergebnis wählst.</p>
                 </div>
                 <div>
                   <label style={fieldLabel}>Reaktion</label>
@@ -1001,7 +1073,9 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                   type="button"
                   disabled={isPending}
                   onClick={() => {
-                    setCallbackAt(current.callback_at ?? "");
+                    // callback_at ist echtes UTC mit Offset und Sekunden — das
+                    // Eingabefeld erwartet Berlin-Wandzeit ("2026-08-09T10:00").
+                    setCallbackAt(isoToBerlinInput(current.callback_at));
                     setCallbackOpen(true);
                   }}
                   style={{
@@ -1145,14 +1219,18 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
         </div>
       </div>
 
-      {/* ── Termin-Modal ── */}
+      {/* ── Termin-Modal ──
+          defaultAppointmentAt: `appointment_at` ist echtes UTC. Roh
+          durchgereicht ("2026-08-09T08:00:00+00:00") liest das Eingabefeld den
+          Wert als Berliner Wandzeit und schiebt den Termin beim Speichern um
+          den UTC-Offset — deshalb über isoToBerlinInput (docs §6). */}
       {current && (
         <AppointmentModal
           open={apptOpen}
           onClose={() => setApptOpen(false)}
           leadName={current.company ?? current.decider_name ?? undefined}
           defaultMeetLink={current.meet_link ?? undefined}
-          defaultAppointmentAt={current.appointment_at ?? undefined}
+          defaultAppointmentAt={isoToBerlinInput(current.appointment_at) || undefined}
           onSubmit={({ meetLink, meetingKind, appointmentAt }) =>
             convertPhoneLeadToSetting({ phoneLeadId: current.id, listId: list.id, meetLink, meetingKind, appointmentAt })
           }

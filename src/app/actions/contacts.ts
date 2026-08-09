@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
+import { nextFollowUpAfter } from "@/lib/followup";
 
 // Bewusst KEIN revalidatePath in diesen Actions: alle Zielrouten sind dynamisch
 // (Cookies) und rendern beim nächsten Besuch ohnehin frisch. Ein revalidatePath
@@ -38,6 +39,17 @@ export type ContactInput = {
 
 /**
  * Berechnet next_follow_up_at automatisch aus follow_up_number.
+ *
+ * Der Rhythmus selbst steht in `nextFollowUpAfter` (src/lib/followup.ts) — eine
+ * Quelle für dieses Listen-Board UND für advanceLinkedInFollowUp im
+ * Nachfassen-Board. Vorher rechneten beide Pfade eigene daysMaps und kamen für
+ * denselben Kontakt auf verschiedene Wiedervorlagen.
+ *
+ * Der Schlüssel ist immer die gerade ABGESCHLOSSENE Stufe, nicht die nächste:
+ * `follow_up_number` dokumentiert, welches Follow-up bereits raus ist. Steht
+ * dort eine 1, ist FU1 verschickt und FU2 folgt laut docs/data-model.md §4 in
+ * +5 Tagen (nicht +3 — das war der Abstand Pitch → FU1).
+ *
  * anchor="pitch": Anker = pitched_at (Erst-Terminierung / pitch-Korrektur).
  * anchor="today": Anker = heute — wenn ein FU gerade als erledigt eingetragen
  * wird, muss die nächste Stufe von HEUTE aus zählen (sonst landet sie bei
@@ -50,21 +62,12 @@ function calcNextFollowUp(
   answered: boolean | null | undefined,
   anchor: "pitch" | "today" = "pitch",
 ): string | null {
-  // Wenn geantwortet oder letztes FU erledigt → kein weiteres Follow-up
-  if (answered === true || fuNumber === 3) return null;
-  let base: Date;
-  if (anchor === "today") {
-    const [y, m, d] = todayLocal().split("-").map(Number);
-    base = new Date(y, m - 1, d);
-  } else {
-    if (!pitchedAt) return null;
-    const [y, m, d] = pitchedAt.split("-").map(Number);
-    base = new Date(y, m - 1, d);
-  }
-  const daysMap: Record<number, number> = { 0: 3, 1: 5, 2: 7 };
-  const days = daysMap[fuNumber ?? 0] ?? 3;
-  base.setDate(base.getDate() + days);
-  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+  // Geantwortet → raus aus dem Follow-up-Flow (§4). Das Ende nach FU3
+  // entscheidet nextFollowUpAfter selbst (liefert dort null).
+  if (answered === true) return null;
+  const base = anchor === "today" ? todayLocal() : pitchedAt ?? null;
+  if (!base) return null;
+  return nextFollowUpAfter(fuNumber, base);
 }
 
 function todayLocal(): string {

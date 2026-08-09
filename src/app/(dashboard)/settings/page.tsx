@@ -2,7 +2,6 @@ import { createUserForm, listUsers } from "@/app/actions/workspace";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { FormSelect } from "@/components/ui/Select";
 import { getTargets, setTargetForm } from "@/app/actions/targets";
-import { getFollowupTemplates } from "@/app/actions/templates";
 import {
   resolveTarget,
   type TargetChannel,
@@ -15,8 +14,8 @@ import { ownerColor } from "@/lib/ownerColor";
 import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
 import { RenameUserButton } from "@/components/settings/RenameUserButton";
 import { DataScopeSelect } from "@/components/settings/DataScopeSelect";
-import { FollowupTemplatesEditor } from "@/components/settings/FollowupTemplatesEditor";
-import { MessageSquareText, Plus, Shield, Target, UserCheck, Users } from "lucide-react";
+import { RoleSelect } from "@/components/settings/RoleSelect";
+import { Plus, Shield, Target, UserCheck, Users } from "lucide-react";
 
 const TARGET_FIELDS: {
   label: string;
@@ -93,9 +92,6 @@ export default async function SettingsPage({
   const { users } = isOwner ? await listUsers(access.workspace_id) : { users: [] };
   const targets = isOwner ? await getTargets() : [];
 
-  // FU-Vorlagen des eingeloggten Nutzers (bzw. der aktiven Admin-Datensicht)
-  const templates = await getFollowupTemplates(access.effective_user_id ?? access.user.id);
-
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
 
@@ -159,10 +155,11 @@ export default async function SettingsPage({
                       {isMe && <span className="badge badge-gray">Du</span>}
                     </div>
                     <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-                      {u.role === "owner" ? "Owner" : "Mitglied"}
+                      {isMe ? "Eigene Rolle nicht änderbar" : "Rolle · Datensicht"}
                     </span>
                   </div>
-                  {/* Datensicht (editierbar) + Rename + Delete (not self) */}
+                  {/* Rolle + Datensicht (beide editierbar) + Rename + Delete (not self) */}
+                  <RoleSelect userId={u.user_id} role={u.role} disabled={isMe} />
                   <DataScopeSelect userId={u.user_id} dataScope={u.data_scope} />
                   <RenameUserButton userId={u.user_id} username={u.username} />
                   {!isMe && <DeleteUserButton userId={u.user_id} username={u.username} />}
@@ -291,17 +288,12 @@ export default async function SettingsPage({
         </div>
       )}
 
-      {/* ── Follow-up-Vorlagen ── */}
-      <div className="card" style={{ overflow: "hidden" }}>
-        <div style={SECTION_HEAD}>
-          <MessageSquareText size={16} color="var(--text-muted)" />
-          <span style={SECTION_TITLE}>Follow-up-Vorlagen</span>
-          <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>FU1–FU3</span>
-        </div>
-        <div style={{ padding: "var(--sp-7) var(--sp-8)" }}>
-          <FollowupTemplatesEditor initial={templates} />
-        </div>
-      </div>
+      {/* Die Karte „Follow-up-Vorlagen (FU1–FU3)" ist hier bewusst entfernt.
+          Der Datenpfad bleibt unangetastet: `followup_templates` wirkt weiter
+          als Fallback, wenn eine Liste keinen eigenen Nachfass-Text hat
+          (Vorrang: lists.fuN_text > followup_templates > Standardtext, siehe
+          followUpTextFor in actions/nachfassen.ts). Gepflegt wird der Text
+          dort, wo er benutzt wird — an der Liste. */}
 
       {/* ── Passwort-Info ── */}
       <div style={{ background: "var(--warning-bg)", borderLeft: "2px solid var(--warning)", borderRadius: "var(--r-md)", padding: "var(--sp-6) var(--sp-7)" }}>

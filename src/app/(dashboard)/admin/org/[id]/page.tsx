@@ -47,6 +47,19 @@ const FEEDBACK_BASE: React.CSSProperties = {
   fontSize: "var(--fs-base)",
   padding: "var(--sp-5) var(--sp-6)",
 };
+// Ein Raster fuer alle Formularfelder: Text- und Auswahlfelder stehen damit in
+// denselben Spalten und fluchten an derselben Kante — vorher gaben feste
+// Trigger-Breiten (176/208 px) den Selects eine eigene, zufaellige Rasterung.
+// auto-fit klappt das Raster auf schmalen Karten von selbst einspaltig.
+const FIELD_GRID: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+  gap: "var(--sp-6)",
+};
+// Danger-Rahmen bei 40 % (COMPONENTS.md §15, wie in ui/DangerZone): die
+// Gefahrenzone soll klar abgesetzt sein, aber nicht schreien. Voll deckendes
+// --danger zog vorher eine Alarmlinie um die halbe Seite.
+const DANGER_BORDER = "color-mix(in srgb, var(--danger) 40%, transparent)";
 
 export default async function AdminOrgPage({
   params,
@@ -91,6 +104,19 @@ export default async function AdminOrgPage({
           eyebrow="Organisation"
           title={organization.name}
           meta={`${members.length} ${members.length === 1 ? "Mitglied" : "Mitglieder"}`}
+          // Der Org-Wechsel ist die Aktion DIESER Seite und gehoert damit in den
+          // Aktionsbereich des Seitenkopfs — als loser Knopf zwischen Meldung und
+          // erster Karte hing er vorher ohne Bezug im Raum.
+          actions={
+            isActive ? undefined : (
+              <form action={setActiveOrgForm}>
+                <input type="hidden" name="workspace_id" value={organization.id} />
+                <Button type="submit" variant="secondary">
+                  In diese Organisation wechseln
+                </Button>
+              </form>
+            )
+          }
         />
       </div>
 
@@ -109,15 +135,6 @@ export default async function AdminOrgPage({
         >
           {q.err ?? error}
         </div>
-      )}
-
-      {!isActive && (
-        <form action={setActiveOrgForm}>
-          <input type="hidden" name="workspace_id" value={organization.id} />
-          <Button type="submit" variant="secondary" size="sm">
-            In diese Organisation wechseln
-          </Button>
-        </form>
       )}
 
       {/* ── Mitglieder ── */}
@@ -142,7 +159,10 @@ export default async function AdminOrgPage({
                   key={u.user_id}
                   style={{
                     display: "flex",
-                    alignItems: "flex-start",
+                    // Mittig statt oben: Avatar (36 px), Namensblock und
+                    // Zeilenaktion sind unterschiedlich hoch — oben gebunden
+                    // saessen sie sichtbar versetzt zueinander.
+                    alignItems: "center",
                     gap: "var(--sp-6)",
                     padding: "var(--sp-6) var(--sp-8)",
                     borderBottom: i < members.length - 1 ? "1px solid var(--border-subtle)" : "none",
@@ -188,8 +208,17 @@ export default async function AdminOrgPage({
 
         {/* ── Bestehenden Nutzer hierher holen ── */}
         {/* Bewusst VOR dem Anlegen-Formular: wer eine Organisation frisch
-            anlegt, will meistens jemanden umziehen, nicht neu erfinden. */}
-        <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-7) var(--sp-8)" }}>
+            anlegt, will meistens jemanden umziehen, nicht neu erfinden.
+            Beide Formularbloecke liegen auf --surface-1: die Karte trennt so
+            Bestand (oben) von Eingabe (unten) — vorher trug nur der zweite
+            Block die Tiefstufe und wirkte wie versehentlich eingefaerbt. */}
+        <div
+          style={{
+            borderTop: "1px solid var(--border-default)",
+            padding: "var(--sp-7) var(--sp-8)",
+            background: "var(--surface-1)",
+          }}
+        >
           <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
             <ArrowRightLeft size={12} /> Bestehenden Nutzer hierher holen
           </div>
@@ -201,13 +230,13 @@ export default async function AdminOrgPage({
         </div>
 
         {/* ── Nutzer anlegen ── */}
-        <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-7) var(--sp-8)", background: "var(--surface-1)" }}>
+        <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "var(--sp-7) var(--sp-8)", background: "var(--surface-1)" }}>
           <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
             <Plus size={12} /> Neuen Nutzer anlegen
           </div>
           <form action={createUserInOrgForm} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
             <input type="hidden" name="workspace_id" value={organization.id} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--sp-6)" }}>
+            <div style={FIELD_GRID}>
               <div>
                 <label htmlFor="org-username" style={FIELD_LABEL}>Benutzername</label>
                 <input id="org-username" name="username" required placeholder="z. B. Thomas" className="ui-input" />
@@ -217,7 +246,7 @@ export default async function AdminOrgPage({
                 <input id="org-password" name="password" type="text" required placeholder="Frei wählbar" className="ui-input" />
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: "var(--sp-6)", flexWrap: "wrap" }}>
+            <div style={FIELD_GRID}>
               <div>
                 <label htmlFor="org-role" style={FIELD_LABEL}>Rolle</label>
                 <FormSelect
@@ -229,7 +258,6 @@ export default async function AdminOrgPage({
                     { value: "owner", label: "Owner" },
                     { value: "member", label: "Member" },
                   ]}
-                  triggerStyle={{ width: 176 }}
                 />
               </div>
               <div>
@@ -243,19 +271,24 @@ export default async function AdminOrgPage({
                     { value: "workspace", label: "Alle Daten" },
                     { value: "own", label: "Nur eigene Daten" },
                   ]}
-                  triggerStyle={{ width: 208 }}
                 />
               </div>
-              <button type="submit" className="btn-primary">
-                <Plus size={15} /> Anlegen
-              </button>
             </div>
-            <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--text-subtle)" }}>
+            <p style={{ margin: 0, fontSize: "var(--fs-xs)", color: "var(--text-subtle)", lineHeight: "var(--lh-base)" }}>
               Benutzernamen gelten <strong style={{ color: "var(--text-muted)" }}>organisationsübergreifend</strong> —
               die Login-Adresse wird aus ihnen abgeleitet. Der erste Nutzer einer
               Kunden-Organisation sollte <strong style={{ color: "var(--text-muted)" }}>Owner</strong> sein,
               sonst kann dort niemand weitere Nutzer anlegen.
             </p>
+            {/* Der Absende-Knopf steht in einer eigenen Fusszeile statt in der
+                Feldzeile: als rohe .btn-primary war er 40 px hoch neben 32 px
+                hohen Feldern und ueberragte deren Zeile. Rechtsbuendig wie in
+                jedem Dialog-Footer — die Aktion schliesst das Formular ab. */}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Button type="submit" variant="primary" icon={<Plus size={15} />}>
+                Anlegen
+              </Button>
+            </div>
           </form>
         </div>
       </div>
@@ -265,23 +298,49 @@ export default async function AdminOrgPage({
           ist irreversibel und darf nicht neben harmlosen Aktionen stehen. */}
       <div
         className="card"
-        style={{ overflow: "hidden", borderColor: "var(--danger)" }}
+        style={{ overflow: "hidden", borderColor: DANGER_BORDER }}
       >
-        <div style={{ ...SECTION_HEAD, borderBottomColor: "var(--danger)" }}>
+        <div style={{ ...SECTION_HEAD, borderBottomColor: DANGER_BORDER }}>
           <Trash2 size={16} color="var(--danger-fg)" />
           <span style={{ ...SECTION_TITLE, color: "var(--danger-fg)" }}>Gefahrenzone</span>
         </div>
-        <div style={{ padding: "var(--sp-7) var(--sp-8)", display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
-          <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+        {/* Erklaerung links, Knopf rechts — dieselbe Anordnung wie in
+            ui/DangerZone, damit jede Gefahrenzone der App gleich aussieht.
+            In der frueheren Spalte (flexDirection: column) streckte
+            align-items: stretch den Loesch-Knopf ueber die volle Kartenbreite;
+            eine randlose Pille quer durch die Karte las sich wie ein Banner,
+            nicht wie eine Schaltflaeche. */}
+        <div
+          style={{
+            padding: "var(--sp-7) var(--sp-8)",
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-7)",
+            flexWrap: "wrap",
+          }}
+        >
+          <p
+            style={{
+              flex: "1 1 280px",
+              minWidth: 0,
+              margin: 0,
+              fontSize: "var(--fs-sm)",
+              color: "var(--text-muted)",
+              lineHeight: "var(--lh-base)",
+            }}
+          >
             Beim Löschen verschwindet die Organisation mitsamt allen Listen,
             Kontakten, Telefon-Leads und Terminen. Das lässt sich nicht
             rückgängig machen.
           </p>
+          {/* Kein membersHref: die Mitgliederliste steht auf dieser Seite. */}
           <DeleteOrgButton
             workspaceId={organization.id}
             workspaceName={organization.name}
             memberCount={members.length}
             isHome={organization.id === access.home_workspace_id}
+            afterDeleteHref="/admin"
+            size="lg"
           />
         </div>
       </div>

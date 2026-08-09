@@ -1,4 +1,3 @@
-import { getAssignees } from "@/app/actions/assignees";
 import { ClosingCallEditor } from "@/components/closing/ClosingCallEditor";
 import type { SettingContext } from "@/components/closing/SettingMirror";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
@@ -11,8 +10,9 @@ import { CalendarClock } from "lucide-react";
 import { notFound } from "next/navigation";
 
 // Closing-Detail: Header + Script-Runner-Editor. Lädt den Call (workspace-
-// und personen-gescoped), Zuweisungen, Nutzerliste und den verlinkten
-// Setting-Call als read-only Kontext für den Closer.
+// und personen-gescoped), die Nutzerliste und den verlinkten Setting-Call als
+// read-only Kontext für den Closer. Die Zuweisung steht als Spalte am Call
+// selbst und wird direkt mitgelesen.
 
 const STATUS_META: Record<ClosingCall["status"], { label: string; color: string; bg: string; border: string }> = {
   offen: { label: "Offen", color: "var(--text-secondary)", bg: "var(--surface-3)", border: "var(--border-default)" },
@@ -49,20 +49,26 @@ export default async function ClosingCallPage({ params }: { params: Promise<{ ca
     .eq("id", callId)
     .eq("workspace_id", access.workspace_id);
   if (access.effective_user_id) {
-    callQuery = callQuery.eq("created_by_user_id", access.effective_user_id);
+    // Zugewiesen ODER angelegt — dieselbe Bedingung wie die RLS-Policy aus
+    // Migration 0028 §5. Ein Closing entsteht immer beim Qualifizieren des
+    // Settings; ohne den Zuweisungs-Zweig saehe der zustaendige Closer sein
+    // eigenes Gespraech nicht.
+    callQuery = callQuery.or(
+      `created_by_user_id.eq.${access.effective_user_id},assigned_user_id.eq.${access.effective_user_id}`,
+    );
   }
   const { data: rawCall } = await callQuery.maybeSingle();
   if (!rawCall) notFound();
   const call = rawCall as ClosingCall;
 
-  const [assignees, allUsers] = await Promise.all([
-    getAssignees("closing_call", call.id),
-    listDataViewUsers(access.workspace_id),
-  ]);
-  const users = (access.data_scope === "own"
-    ? allUsers.filter((u) => u.user_id === access.user.id)
-    : allUsers
-  ).map((u) => ({ user_id: u.user_id, username: u.username }));
+  // Ungefiltert: Die Auswahl erscheint nur fuer Owner mit workspace-weiter
+  // Datensicht (can_switch_view), und die Namensaufloesung unten braucht auch
+  // fremde Nutzer — sonst bliebe die Zeile fuer ein Mitglied leer.
+  const allUsers = await listDataViewUsers(access.workspace_id);
+  const users = allUsers.map((u) => ({ user_id: u.user_id, username: u.username }));
+  const assignedName = allUsers.find((u) => u.user_id === call.assigned_user_id)?.username ?? null;
+  const creatorName =
+    allUsers.find((u) => u.user_id === call.created_by_user_id)?.username ?? null;
 
   // Verlinkter Setting-Call (read-only Kontext für den Closer)
   let settingContext: SettingContext | null = null;
@@ -113,7 +119,14 @@ export default async function ClosingCallPage({ params }: { params: Promise<{ ca
         }
       />
 
-      <ClosingCallEditor call={call} assignees={assignees} users={users} settingContext={settingContext} />
+      <ClosingCallEditor
+        call={call}
+        canAssign={access.can_switch_view}
+        assignedName={assignedName}
+        creatorName={creatorName}
+        users={users}
+        settingContext={settingContext}
+      />
     </div>
   );
 }

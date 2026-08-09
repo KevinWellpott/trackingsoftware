@@ -8,6 +8,13 @@ export type ParsedPhoneRow = {
   company: string | null;
   phone: string | null;
   website: string | null;
+  /**
+   * Branche/Zielgruppe aus einer optionalen CSV-Spalte `branche` bzw.
+   * `zielgruppe`. Nur für GEMISCHTE Dateien gedacht — der Normalfall ist eine
+   * Datei pro Branche, dort wird der Wert im Import-Dialog einmal gesetzt.
+   * `null` = Spalte fehlt oder Zelle leer; dann greift der Dialog-Wert.
+   */
+  targetGroup: string | null;
 };
 
 export type PhoneCsvResult = {
@@ -45,6 +52,13 @@ function isNoise(cell: string): boolean {
   return false;
 }
 
+/**
+ * Header-Namen, unter denen eine Branchen-Spalte akzeptiert wird.
+ * Bewusst klein geschrieben — der Abgleich läuft case-insensitiv, weil solche
+ * Dateien von Hand entstehen und „Branche"/„BRANCHE" gleich gemeint sind.
+ */
+const TARGET_GROUP_HEADERS = ["branche", "zielgruppe", "target_group", "targetgroup"];
+
 export function parsePhoneCsv(text: string): PhoneCsvResult {
   const parsed = Papa.parse<string[]>(text, {
     skipEmptyLines: true,
@@ -58,6 +72,7 @@ export function parsePhoneCsv(text: string): PhoneCsvResult {
   const idxCompany = header.indexOf("qBF1Pd");
   const idxPhone = header.indexOf("UsdlK");
   const idxWebsite = header.indexOf("lcr4fd href");
+  const idxTargetGroup = header.findIndex((h) => TARGET_GROUP_HEADERS.includes(h.toLowerCase()));
 
   const dataRows = table.slice(1);
   const rows: ParsedPhoneRow[] = [];
@@ -83,18 +98,28 @@ export function parsePhoneCsv(text: string): PhoneCsvResult {
       if (hit) website = hit;
     }
 
-    // Firma: Header-Hint, sonst erste "echte" Textzelle
+    // Branche: ausschliesslich per Header-Hint. Eine Heuristik gibt es hier
+    // bewusst nicht — „Handwerk" sieht wie jede andere Textzelle aus, und ein
+    // falsch geratener Wert landet als eigene Testgruppe in der Auswertung.
+    const targetGroup =
+      idxTargetGroup >= 0 && cells[idxTargetGroup] ? cells[idxTargetGroup] : null;
+
+    // Firma: Header-Hint, sonst erste "echte" Textzelle. Die Branchen-Spalte
+    // wird dabei uebersprungen: sonst wuerde in einer Datei ohne Google-Header
+    // die Branche als Firmenname landen.
     let company: string | null = null;
     if (idxCompany >= 0 && cells[idxCompany] && !isNoise(cells[idxCompany])) {
       company = cells[idxCompany];
     } else {
-      const hit = cells.find((c) => c !== "" && !isNoise(c) && !c.startsWith("category-list"));
+      const hit = cells.find(
+        (c, i) => i !== idxTargetGroup && c !== "" && !isNoise(c) && !c.startsWith("category-list"),
+      );
       if (hit) company = hit;
     }
 
     // Nur verwertbare Zeilen behalten
     if (phone || company) {
-      rows.push({ company, phone, website });
+      rows.push({ company, phone, website, targetGroup });
     }
   }
 

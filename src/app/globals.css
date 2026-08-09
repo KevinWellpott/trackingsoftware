@@ -301,35 +301,27 @@
   --organic-accent:    var(--viz-4);
   --organic-accent-bg: rgb(217 70 239 / 0.14);
 
-  /* Termin-Chips: die Farbe kodiert den STATUS, nicht den Typ. Damit heisst
-     Gruen in der ganzen App „gewonnen" — derselbe Ton wie auf den Ergebnis-
-     Buttons. Setting vs. Closing steht als Text im Chip.
-     Der Normalfall „offen" ist bewusst neutral: Farbe erscheint erst, wenn
-     an einem Termin etwas passiert ist. */
-  --event-neutral-bg:     var(--surface-3);
-  --event-neutral-border: var(--border-default);
-  --event-neutral-text:   var(--text-secondary);
-  --event-neutral-accent: var(--text-disabled);
+  /* Termin-Chips: FUELLUNG = TYP, RAHMEN = STATUS.
+     Umkehrung der frueheren Doktrin — seit die Typ-Chips aus der Kopfleiste
+     raus sind, muss der Typ aus dem Chip selbst kommen. Er ist die stabilere
+     Eigenschaft: ein Termin wechselt seinen Status, nie seinen Typ.
 
-  --event-success-bg:     rgb(63 179 127 / 0.14);
-  --event-success-border: rgb(63 179 127 / 0.38);
-  --event-success-text:   #7ed9ac;
-  --event-success-accent: var(--success);
+     Der Auftraggeber verlangte fuer Closings „Weiss". Reinweiss auf dem
+     Canvas #0a0a0b waere ~19:1 und blendete in einem Raster mit dutzenden
+     Chips; #dedee2 (die untere Stufe von --grad-neutral) haelt den
+     Typ-Kontrast, ohne die Woche zum Leuchtkasten zu machen. Dunkler Text
+     darauf — dieselbe Regel wie beim orangen Heute-Badge. */
+  --event-setting-bg:     #24242b;
+  --event-setting-fg:     #ededef;   /* 12.4:1 auf #24242b */
+  --event-closing-bg:     #dedee2;
+  --event-closing-fg:     #16161a;   /* 14.6:1 auf #dedee2 */
 
-  --event-danger-bg:      rgb(214 90 82 / 0.14);
-  --event-danger-border:  rgb(214 90 82 / 0.38);
-  --event-danger-text:    #ec9a93;
-  --event-danger-accent:  var(--danger);
-
-  --event-warning-bg:     rgb(209 162 79 / 0.14);
-  --event-warning-border: rgb(209 162 79 / 0.38);
-  --event-warning-text:   #e4c687;
-  --event-warning-accent: var(--warning);
-
-  --event-info-bg:        rgb(78 128 214 / 0.14);
-  --event-info-border:    rgb(78 128 214 / 0.38);
-  --event-info-text:      #9db9ea;
-  --event-info-accent:    var(--info);
+  /* Rahmenfarben je Status-Ton. Volltoene statt der frueheren 0.38-Alpha-
+     Werte: die muessen jetzt auch auf der HELLEN Closing-Fuellung tragen. */
+  --event-outline-success: var(--success);
+  --event-outline-danger:  var(--danger);
+  --event-outline-warning: var(--warning);
+  --event-outline-info:    var(--info);
 
   --event-now:            var(--orange-500);
   --cal-line-soft:        rgb(255 255 255 / 0.045);
@@ -1314,6 +1306,36 @@ details[open] > .collapse-summary {
   margin-bottom: var(--sp-6);
 }
 
+/* Zeilen-Aktionen einer Tabelle: erscheinen beim Ueberfahren der Zeile.
+   Nur optisch ausgeblendet, nie aus dem Fokus-Fluss — `:focus-within` holt sie
+   beim Tabben zurueck, und auf Geraeten ohne Hover stehen sie dauerhaft, sonst
+   waeren sie auf Touch schlicht unerreichbar. `visibility` bleibt bewusst
+   sichtbar: Die Spalte behaelt ihre Breite, die Zeile springt beim Ueberfahren
+   also nicht. */
+.row-actions { opacity: 0; transition: opacity var(--transition-fast); }
+tr:hover .row-actions,
+tr:focus-within .row-actions,
+.row-actions:focus-within { opacity: 1; }
+@media (hover: none) {
+  .row-actions { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-actions { transition: none; }
+}
+
+/* Zuklappbare Analyse-Sektion. Bewusst ohne Hover-Flaeche und ohne Trennlinie:
+   Die Sektion IST bereits eine Karte — ein zweites Karten-Rezept im Kartenkopf
+   waere doppelt gerahmt. Nur der Pfeil dreht. */
+.analyse-section > summary::-webkit-details-marker { display: none; }
+.analyse-section > summary .section-chevron { transition: transform var(--transition-fast); }
+.analyse-section[open] > summary .section-chevron { transform: rotate(180deg); }
+.analyse-section > summary:hover .section-chevron { color: var(--text-secondary); }
+.analyse-section > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--r-sm);
+}
+
 /* Gruppen-Kopf innerhalb einer Liste (<details>/<summary>).
    Bewusst leichter als .collapse-summary: das ist ein Karten-Rezept mit
    Hover-Flaeche und Trennlinie und wuerde eine Zwischenueberschrift zur
@@ -1406,6 +1428,12 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
   display: grid;
   gap: var(--sp-6);
   grid-template-columns: 1fr 1fr;
+  /* Karten behalten ihre eigene Hoehe. Mit dem Grid-Default (stretch) haelt
+     eine zugeklappte Sektion die Hoehe ihrer offenen Nachbarin und steht als
+     leere Flaeche da — seit die Sektionen zuklappbar sind, ist das der
+     Normalfall und nicht die Ausnahme. Gleich hohe Karten waren nur solange
+     ein Gewinn, wie beide immer offen waren. */
+  align-items: start;
 }
 .analyse-row[data-split="wide-left"] { grid-template-columns: 1.4fr 1fr; }
 .analyse-row[data-split="chart"] { grid-template-columns: 2fr 1fr; }
@@ -1449,7 +1477,8 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
 
 /* ═════════════════════════════════════════════════════════════
    7  TERMINE-KALENDER
-   Grundfarbe kodiert den Typ, linker Balken den Status.
+   Fuellung kodiert den TYP, der Rahmen den STATUS.
+   Gestrichelt = Ergebnis steht fest · durchgezogen = steht noch an.
    ═════════════════════════════════════════════════════════════ */
 
 .cal-event {
@@ -1461,10 +1490,11 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
   width: 100%;
   box-sizing: border-box;
   text-align: left;
-  border: 1px solid var(--event-border);
-  border-left: 2px solid var(--event-accent);
-  background: var(--event-bg);
-  color: var(--event-text);
+  /* Rahmenbreite bleibt in JEDEM Zustand 1.5px — nur der Stil wechselt.
+     Sonst springt das Layout beim Statuswechsel um einen Pixel. */
+  border: 1.5px solid var(--event-outline);
+  background: var(--event-fill);
+  color: var(--event-fg);
   border-radius: var(--r-xs);
   padding: 2px 5px;
   font-family: inherit;
@@ -1475,8 +1505,30 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
   overflow: hidden;
   cursor: pointer;
   touch-action: none;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
 }
+
+/* ── Fuellung = Typ ── */
+.cal-event[data-kind="setting"] {
+  --event-fill: var(--event-setting-bg);
+  --event-fg:   var(--event-setting-fg);
+  /* Neutral-Rahmen je Fuellung: auf dunkel eine helle Hairline … */
+  --event-outline: var(--border-strong);
+}
+.cal-event[data-kind="closing"] {
+  --event-fill: var(--event-closing-bg);
+  --event-fg:   var(--event-closing-fg);
+  /* … auf hell eine dunkle, sonst waere sie unsichtbar. */
+  --event-outline: rgb(0 0 0 / 0.24);
+}
+
+/* ── Rahmen = Status ── */
+.cal-event[data-tone="success"] { --event-outline: var(--event-outline-success); }
+.cal-event[data-tone="danger"]  { --event-outline: var(--event-outline-danger); }
+.cal-event[data-tone="warning"] { --event-outline: var(--event-outline-warning); }
+.cal-event[data-tone="info"]    { --event-outline: var(--event-outline-info); }
+.cal-event[data-dashed="true"]  { border-style: dashed; }
+
 /* Jede Zeile bleibt einzeilig und kuerzt mit Ellipse. */
 .cal-event > * {
   min-height: 0;
@@ -1489,18 +1541,17 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
   flex-direction: row;
   align-items: center;
   gap: 4px;
-  padding: 1px 5px;
+  padding: 0 4px;
 }
-.cal-event:hover { border-color: var(--event-accent); filter: brightness(1.25); }
+/* Hover als Ring statt brightness(): ein Helligkeitsfilter wuerde die helle
+   Closing-Fuellung nach Reinweiss ziehen. */
+.cal-event:hover { box-shadow: 0 0 0 2px var(--event-outline); }
 .cal-event[data-terminal="true"] { cursor: pointer; opacity: 0.7; }
 .cal-event[data-past="true"]     { opacity: 0.5; }
-.cal-event[data-hidden="true"] {
-  background: repeating-linear-gradient(
-    -45deg, var(--event-bg), var(--event-bg) 5px,
-    transparent 5px, transparent 10px
-  );
-  opacity: 0.65;
-}
+/* Tote Leads: maximal zurueckgenommen, aber SICHTBAR. Der frueher hier
+   stehende „Versteckt"-Schalter liess sie lautlos verschwinden — genau das
+   war die Falle. Steht nach data-terminal, damit diese Regel gewinnt. */
+.cal-event[data-dimmed="true"]   { opacity: 0.42; }
 .cal-event[data-dragging="true"] { opacity: 0.35; }
 .cal-event-ghost {
   position: fixed;

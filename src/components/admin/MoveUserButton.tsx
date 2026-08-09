@@ -10,6 +10,7 @@ import {
   type MovePreview,
 } from "@/app/actions/platform";
 import { Button } from "@/components/ui/Button";
+import { Select } from "@/components/ui/Select";
 
 // Nutzer zwischen Organisationen verschieben — immer zweistufig: erst Vorschau
 // (reine Leseoperation), dann Bestaetigung. Der Umzug beruehrt bis zu 14
@@ -115,11 +116,11 @@ function PreviewPanel({
         </div>
       )}
 
-      <div style={{ display: "flex", gap: "var(--sp-4)" }}>
-        <Button type="button" variant="danger" size="sm" onClick={onConfirm} disabled={isPending}>
+      <div style={{ display: "flex", gap: "var(--sp-4)", flexWrap: "wrap" }}>
+        <Button type="button" variant="danger" onClick={onConfirm} disabled={isPending}>
           {isPending ? "Verschiebe …" : confirmLabel}
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={isPending}>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={isPending}>
           Abbrechen
         </Button>
       </div>
@@ -166,38 +167,37 @@ export function MoveUserButton({
 
   if (!open) {
     return (
-      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
-        <ArrowRightLeft size={13} /> Verschieben
+      <Button type="button" variant="ghost" onClick={() => setOpen(true)}>
+        <ArrowRightLeft size={14} /> Verschieben
       </Button>
     );
   }
 
   return (
     <div style={{ flexBasis: "100%", display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
+      {/* Alle Controls dieser Zeile sind --h-control hoch (Select-Trigger wie
+          Buttons) — gemischte 28/32 px liessen die Zeile ausfransen. */}
       <div style={{ display: "flex", gap: "var(--sp-4)", alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
           {username} verschieben nach
         </span>
-        <select
+        {/* Brand-Select statt nativem <select>: dessen aufgeklappte Liste malt
+            das Betriebssystem — sie fiel als einziges Element hier aus dem
+            Design. Die id haelt die Popover-/Options-Ids je Zeile eindeutig. */}
+        <Select
+          id={`move-target-${userId}`}
           value={targetId}
-          onChange={(e) => {
-            setTargetId(e.target.value);
+          onChange={(v) => {
+            setTargetId(v);
             setPreview(null);
           }}
-          aria-label={`Zielorganisation für ${username}`}
-          className="ui-input"
-          style={{ width: 200 }}
-        >
-          {targets.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+          options={targets.map((t) => ({ value: t.id, label: t.name }))}
+          ariaLabel={`Zielorganisation für ${username}`}
+          triggerStyle={{ width: 200 }}
+        />
         <Button
           type="button"
           variant="secondary"
-          size="sm"
           disabled={isPending}
           onClick={() => {
             setError(null);
@@ -213,7 +213,6 @@ export function MoveUserButton({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
           disabled={isPending}
           onClick={() => {
             setOpen(false);
@@ -270,7 +269,7 @@ export function PullUserPanel({
 
   if (candidates.length === 0) {
     return (
-      <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--text-subtle)" }}>
+      <p style={{ margin: 0, fontSize: "var(--fs-xs)", color: "var(--text-subtle)" }}>
         Es gibt keine Nutzer in anderen Organisationen, die du hierher holen könntest.
       </p>
     );
@@ -278,6 +277,9 @@ export function PullUserPanel({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
+      {/* Feld und Knopf teilen sich eine Zeile: beide --h-control hoch und an
+          der Unterkante gebunden, damit sie auf einer Linie sitzen. Der Knopf
+          war vorher 28 px hoch und stand 4 px zu tief im Feld. */}
       <div style={{ display: "flex", gap: "var(--sp-5)", alignItems: "flex-end", flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 240 }}>
           <label
@@ -292,27 +294,24 @@ export function PullUserPanel({
           >
             Nutzer
           </label>
-          <select
+          {/* Brand-Select statt nativem <select> — siehe MoveUserButton. */}
+          <Select
             id="pull-user"
             value={userId}
-            onChange={(e) => {
-              setUserId(e.target.value);
+            onChange={(v) => {
+              setUserId(v);
               setPreview(null);
             }}
-            className="ui-input"
-            style={{ width: "100%" }}
-          >
-            {candidates.map((u) => (
-              <option key={u.user_id} value={u.user_id}>
-                {u.username} — aktuell in {u.current_workspace}
-              </option>
-            ))}
-          </select>
+            options={candidates.map((u) => ({
+              value: u.user_id,
+              label: `${u.username} — aktuell in ${u.current_workspace}`,
+            }))}
+            ariaLabel="Nutzer"
+          />
         </div>
         <Button
           type="button"
           variant="secondary"
-          size="sm"
           disabled={isPending}
           onClick={() => {
             setError(null);
@@ -323,7 +322,7 @@ export function PullUserPanel({
             });
           }}
         >
-          <ArrowRightLeft size={13} /> Vorschau
+          <ArrowRightLeft size={14} /> Vorschau
         </Button>
       </div>
 
@@ -350,7 +349,7 @@ export function PullUserPanel({
         />
       )}
 
-      <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--text-subtle)", display: "flex", gap: "var(--sp-3)", alignItems: "flex-start" }}>
+      <p style={{ margin: 0, fontSize: "var(--fs-xs)", color: "var(--text-subtle)", lineHeight: "var(--lh-base)", display: "flex", gap: "var(--sp-3)", alignItems: "flex-start" }}>
         <UserPlus size={13} style={{ flexShrink: 0, marginTop: 2 }} />
         <span>
           Die Person wechselt mitsamt ihren Listen, Kontakten, Leads und Terminen

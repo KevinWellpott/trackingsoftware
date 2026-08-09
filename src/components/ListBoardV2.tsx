@@ -15,6 +15,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import type { ListContact } from "@/lib/types";
 import { CATEGORY_CONFIG, SELECTABLE_CATEGORIES, categoryStyle, type AnswerCategory, type SelectableCategory } from "@/lib/categories";
+import { isoToBerlinInput } from "@/lib/apptTime";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Ban, Calendar, CheckCircle, ExternalLink, Search, Trash2, Undo2 } from "lucide-react";
@@ -1663,16 +1664,33 @@ export function ListBoardV2({ listId, contacts }: {
         </p>
       )}
 
-      {/* Ein einziges Termin-Modal, gesteuert über den ausgewählten Kontakt */}
+      {/* Ein einziges Termin-Modal, gesteuert über den ausgewählten Kontakt.
+
+          defaultAppointmentAt: `appointment_at` ist echtes UTC. Ein einfach
+          abgeschnittener ISO-String ("2026-07-27T08:00:00+00:00" → "…T08:00")
+          wird vom Eingabefeld als Berliner Wandzeit gelesen und beim Speichern
+          erneut nach UTC gerechnet — jedes Öffnen+Speichern eines bereits
+          terminierten Kontakts schöbe den Termin um den UTC-Offset nach hinten
+          (im Sommer 2 h). isoToBerlinInput konvertiert DST-genau. */}
       <AppointmentModal
         open={apptContact !== null}
         onClose={() => setApptContact(null)}
         leadName={apptContact?.name}
         defaultMeetLink={apptContact?.meet_link ?? undefined}
-        defaultAppointmentAt={apptContact?.appointment_at?.slice(0, 16) ?? undefined}
-        onSubmit={async ({ meetLink, meetingKind, appointmentAt }) => {
+        defaultAppointmentAt={isoToBerlinInput(apptContact?.appointment_at) || undefined}
+        onSubmit={async ({ meetLink, phone, meetingKind, appointmentAt }) => {
           if (!apptContact) return { error: "Kein Kontakt ausgewählt." };
-          return convertContactToSetting({ contactId: apptContact.id, listId: apptContact.list_id, meetLink, meetingKind, appointmentAt });
+          // `phone` ist bei Termin-Art „Telefon" Pflicht (im Dialog erzwungen)
+          // und landet sowohl am Termin (`setting_calls.phone`) als auch am
+          // Kontakt — wer einspringt, hat damit alle Kontaktinfos beisammen.
+          return convertContactToSetting({
+            contactId: apptContact.id,
+            listId: apptContact.list_id,
+            meetLink,
+            phone,
+            meetingKind,
+            appointmentAt,
+          });
         }}
         onSaved={() => router.refresh()}
       />

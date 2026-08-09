@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
+import { CLOSING_LOST_REASON_CODES, type ClosingLostReasonCode } from "@/lib/types";
 import { revalidatePath } from "next/cache";
 
 // Closing-Call bearbeiten. Terminal: gewonnen (→ CRM), verloren, nachfassen.
@@ -16,6 +17,8 @@ export type ClosingCallPatch = {
   signature_received?: boolean | null;
   contract_start?: string | null;
   lost_reason?: string | null;
+  /** Zählbarer Verlustgrund (Migration 0029) — die Statistik hängt daran. */
+  lost_reason_code?: ClosingLostReasonCode | null;
   follow_up_due?: string | null;
   recording_link?: string | null;
   objections_handled?: string | null;
@@ -56,8 +59,21 @@ export async function updateClosingCall(id: string, patch: ClosingCallPatch): Pr
 }
 
 /**
+ * Prüft einen Verlustgrund-Code gegen die Liste aus Migration 0029.
+ *
+ * Server Actions sind per direktem POST erreichbar — ohne diese Prüfung ginge
+ * ein beliebiger String an die Datenbank und liefe dort in den CHECK; der
+ * Nutzer sähe eine rohe Postgres-Meldung statt einer Ansage, und ein Tippfehler
+ * im Client würde eine neue Kategorie in die Statistik schmuggeln.
+ */
+function isLostReasonCode(v: unknown): v is ClosingLostReasonCode {
+  return typeof v === "string" && (CLOSING_LOST_REASON_CODES as readonly string[]).includes(v);
+}
+
+/**
  * Terminal-Ergebnis setzen. gewonnen → closed=true (+ Deal-Daten), erscheint im CRM;
- * verloren → closed=false + lost_reason; nachfassen → follow_up_due Pflicht.
+ * verloren → closed=false + lost_reason_code (Pflicht) + optionaler Freitext;
+ * nachfassen → follow_up_due Pflicht.
  */
 export async function setClosingOutcome(input: {
   closingId: string;
@@ -66,15 +82,27 @@ export async function setClosingOutcome(input: {
   paymentType?: string | null;
   contractStart?: string | null;
   signatureReceived?: boolean | null;
+  /** Freitext zum Verlust — Kontext, seit 0029 NICHT mehr erzwungen. */
   lostReason?: string | null;
+  /** Zählbarer Verlustgrund. Pflicht bei `outcome = 'verloren'`. */
+  lostReasonCode?: ClosingLostReasonCode | null;
   followUpDue?: string | null;
 }): Promise<{ error?: string }> {
+  // Berechtigung IMMER als erste Anweisung — vor jeder Validierung, sonst
+  // verrieten die Fehlermeldungen einem Fremden etwas über die Zeile.
   if (!(await canAccessClosingCall(input.closingId))) return { error: "Keine Berechtigung." };
   if (input.outcome === "nachfassen" && !input.followUpDue) {
     return { error: "Für „Nachfassen“ ist ein Wiedervorlage-Datum erforderlich." };
   }
-  if (input.outcome === "verloren" && !input.lostReason?.trim()) {
-    return { error: "Bitte einen Verlustgrund angeben." };
+  // Validiert wird jetzt der CODE, nicht mehr der Freitext: gezählt werden kann
+  // nur der Code, und ein erzwungener Freitext hat die Auswertung jahrelang mit
+  // Einzelfällen gefüllt (jede Zeile Häufigkeit 1).
+  let lostReasonCode: ClosingLostReasonCode | null = null;
+  if (input.outcome === "verloren") {
+    if (!isLostReasonCode(input.lostReasonCode)) {
+      return { error: "Bitte einen Verlustgrund auswählen." };
+    }
+    lostReasonCode = input.lostReasonCode;
   }
 
   const patch: ClosingCallPatch = { status: input.outcome };
@@ -87,13 +115,34 @@ export async function setClosingOutcome(input: {
     patch.follow_up_due = null;
   } else if (input.outcome === "verloren") {
     patch.closed = false;
-    patch.lost_reason = input.lostReason ?? null;
+    patch.lost_reason_code = lostReasonCode;
+    // Leerer Freitext wird zu NULL statt zu "" — sonst steht in der Detailseite
+    // eine leere Kontextzeile, die wie eine Angabe aussieht.
+    patch.lost_reason = input.lostReason?.trim() || null;
     patch.follow_up_due = null;
   } else {
     patch.follow_up_due = input.followUpDue ?? null;
   }
 
   const supabase = await createClient();
+
+  // Show-Status ableiten statt auf Erfassungsdisziplin zu hoffen: Ein Ergebnis
+  // (gewonnen/verloren/nachfassen) kann es nur geben, wenn das Gespräch
+  // stattgefunden hat. Ohne diese Ableitung blieb show_status meist NULL und
+  // die Closing-Show-Quote maß, wer das Häkchen gesetzt hat — es gab gewonnene
+  // Deals ohne Show. (Dasselbe Muster wie in setSettingOutcome.)
+  //
+  // Nur schreiben, wenn bisher NICHTS erfasst ist: ein bewusst gesetztes
+  // 'no_show' gehört dem Nutzer und darf hier nicht überschrieben werden.
+  const { data: current } = await supabase
+    .from("closing_calls")
+    .select("show_status")
+    .eq("id", input.closingId)
+    .maybeSingle();
+  if ((current as { show_status: string | null } | null)?.show_status == null) {
+    patch.show_status = "show";
+  }
+
   const { error } = await supabase.from("closing_calls").update(patch).eq("id", input.closingId);
   if (error) return { error: error.message };
   revalidatePath(`/closing/${input.closingId}`, "page");

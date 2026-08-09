@@ -5,11 +5,12 @@ import { getAccessContext } from "@/lib/access";
 import {
   createOrganizationForm,
   listOrganizations,
-  renameOrganizationForm,
-  setActiveOrgForm,
+  listPlatformUsers,
 } from "@/app/actions/platform";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
+import { OrgRowActions } from "@/components/admin/OrgRowActions";
+import { PlatformUsersCard } from "@/components/admin/PlatformUsersCard";
 
 // Plattform-Ebene: alle Organisationen. Nur fuer Plattform-Admins erreichbar
 // (Kevin, Simon). Der Gate-Pfad ist derselbe wie bei /team — Pruefung im
@@ -52,7 +53,10 @@ export default async function AdminPage({
   if (!access?.is_platform_admin) redirect("/");
 
   const q = await searchParams;
-  const { organizations, error } = await listOrganizations();
+  const [{ organizations, error }, { groups, error: usersError }] = await Promise.all([
+    listOrganizations(),
+    listPlatformUsers(),
+  ]);
 
   const dateFmt = new Intl.DateTimeFormat("de-DE", {
     day: "2-digit",
@@ -61,7 +65,7 @@ export default async function AdminPage({
   });
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
+    <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       <PageHeader
         eyebrow="Plattform"
         title="Organisationen"
@@ -81,7 +85,7 @@ export default async function AdminPage({
           {q.ok === "org" ? "Organisation angelegt." : "Organisation umbenannt."}
         </div>
       )}
-      {(q.err || error) && (
+      {(q.err || error || usersError) && (
         <div
           role="alert"
           style={{
@@ -91,7 +95,7 @@ export default async function AdminPage({
             color: "var(--danger-fg)",
           }}
         >
-          {q.err ?? error}
+          {q.err ?? error ?? usersError}
         </div>
       )}
 
@@ -187,29 +191,21 @@ export default async function AdminPage({
                       {dateFmt.format(new Date(o.created_at))}
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: "var(--sp-4)", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap" }}>
-                        <form action={renameOrganizationForm} style={{ display: "flex", gap: "var(--sp-3)", alignItems: "center" }}>
-                          <input type="hidden" name="workspace_id" value={o.id} />
-                          <input
-                            name="name"
-                            defaultValue={o.name}
-                            aria-label={`Name von ${o.name}`}
-                            className="ui-input"
-                            style={{ width: 160 }}
-                          />
-                          <Button type="submit" variant="ghost" size="sm">
-                            Umbenennen
-                          </Button>
-                        </form>
-                        {!isActive && (
-                          <form action={setActiveOrgForm}>
-                            <input type="hidden" name="workspace_id" value={o.id} />
-                            <Button type="submit" variant="secondary" size="sm">
-                              Wechseln
-                            </Button>
-                          </form>
-                        )}
-                      </div>
+                      {/* Umbenennen, Wechseln und Loeschen liegen als
+                          eingeblendete Icons in der Zeile. Vorher stand hier in
+                          JEDER Zeile ein Namensfeld plus drei beschriftete
+                          Knoepfe — die Aktionsspalte war breiter als die Daten,
+                          die sie begleitet. Loeschen sitzt bewusst hier und
+                          nicht erst eine Ebene tiefer: Wer aufraeumen will,
+                          sucht die Organisation in dieser Tabelle. */}
+                      <OrgRowActions
+                        workspaceId={o.id}
+                        workspaceName={o.name}
+                        memberCount={o.member_count}
+                        isActive={isActive}
+                        isHome={isHome}
+                        membersHref={`/admin/org/${o.id}`}
+                      />
                     </td>
                   </tr>
                 );
@@ -219,7 +215,17 @@ export default async function AdminPage({
         </div>
 
         {/* ── Neue Organisation ── */}
-        <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-7) var(--sp-8)", background: "var(--surface-1)" }}>
+        {/* Die id ist das Ziel des Sidebar-Eintrags „Neue Organisation";
+            scrollMarginTop haelt die Ueberschrift unter der Topbar frei. */}
+        <div
+          id="neue-organisation"
+          style={{
+            borderTop: "1px solid var(--border-default)",
+            padding: "var(--sp-7) var(--sp-8)",
+            background: "var(--surface-1)",
+            scrollMarginTop: "var(--h-topbar)",
+          }}
+        >
           <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
             <Plus size={12} /> Neue Organisation anlegen
           </div>
@@ -234,11 +240,15 @@ export default async function AdminPage({
                 className="ui-input"
               />
             </div>
-            <button type="submit" className="btn-primary">
-              <Plus size={15} /> Anlegen
-            </button>
+            {/* Button-Komponente statt roher .btn-primary-Klasse: die war
+                40 px hoch und ueberragte das 32 px hohe Namensfeld in
+                derselben Zeile. In der Feldzeile gilt die Toolbar-Hoehe
+                --h-control (COMPONENTS.md §2.1). */}
+            <Button type="submit" variant="primary" icon={<Plus size={15} />}>
+              Anlegen
+            </Button>
           </form>
-          <p style={{ margin: "var(--sp-5) 0 0", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
+          <p style={{ margin: "var(--sp-5) 0 0", fontSize: "var(--fs-xs)", color: "var(--text-subtle)", lineHeight: "var(--lh-base)" }}>
             Die Organisation startet leer. Anschließend auf ihren Namen in der
             Tabelle klicken — dort holst du bestehende Nutzer herein oder legst
             neue an. Du selbst wirst bewusst{" "}
@@ -247,6 +257,16 @@ export default async function AdminPage({
           </p>
         </div>
       </div>
+
+      {/* ── Alle Nutzer der Plattform ── */}
+      {/* Bewusst hier statt in /settings: dort saehe ein Kunden-Owner fremde
+          Mandanten. Diese Liste haengt an is_platform_admin, nicht an der
+          Owner-Rolle einer Organisation. */}
+      <PlatformUsersCard
+        groups={groups}
+        currentUserId={access.user.id}
+        activeWorkspaceId={access.workspace_id}
+      />
 
       <div
         style={{

@@ -1,9 +1,10 @@
 "use client";
 
 import { formatTermin } from "@/lib/apptTime";
+import { channelColor, channelLabel } from "@/lib/channels";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import { DURATION_MIN, type TerminEvent } from "@/lib/termine";
-import { EUR_FMT, SOURCE_META } from "@/lib/terminMeta";
+import { EUR_FMT } from "@/lib/terminMeta";
 import { ArrowRight, Phone, Video, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
@@ -15,6 +16,40 @@ import { createPortal } from "react-dom";
 
 const WIDTH = 280;
 const EST_HEIGHT = 230;
+
+function Owner({ username }: { username: string }) {
+  const oc = ownerColor(username);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--sp-4)",
+        marginBottom: "0.625rem",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 22,
+          height: 22,
+          flexShrink: 0,
+          borderRadius: "var(--r-full)",
+          background: oc.bg,
+          color: oc.fg,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "0.5625rem",
+          fontWeight: 600,
+        }}
+      >
+        {ownerInitials(username)}
+      </span>
+      <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{username}</span>
+    </div>
+  );
+}
 
 export function EventPopover({
   event,
@@ -54,7 +89,11 @@ export function EventPopover({
   const top = below ? anchor.bottom + 6 : anchor.top - 6 - EST_HEIGHT;
   const left = Math.max(8, Math.min(anchor.left, window.innerWidth - WIDTH - 8));
 
-  const source = event.sourceType ? SOURCE_META[event.sourceType] : null;
+  // Quelle über die Kanal-Registry statt über eine eigene Tabelle: SOURCE_META
+  // kannte die seit Migration 0029 wählbaren Kanäle (Social Media, Ads,
+  // Sonstige) nicht — ein Social-Media-Termin rendert dort ohne Label und
+  // ohne Farbpunkt. Ein neuer Kanal ist jetzt ein Registry-Eintrag, sonst nichts.
+  const sourceLabel = event.kind === "setting" ? channelLabel(event.sourceType) : null;
   const typLabel = event.kind === "setting" ? "Setting" : "Closing";
 
   return createPortal(
@@ -121,8 +160,9 @@ export function EventPopover({
         >
           {event.statusPill.label}
         </span>
-        {source && (
+        {sourceLabel && (
           <span
+            title={event.sourceDetail ? `Quelle: ${event.sourceDetail}` : undefined}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -133,9 +173,14 @@ export function EventPopover({
           >
             <span
               aria-hidden
-              style={{ width: 6, height: 6, borderRadius: "var(--r-full)", background: source.dot }}
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "var(--r-full)",
+                background: channelColor(event.sourceType),
+              }}
             />
-            {source.label}
+            {sourceLabel}
           </span>
         )}
         {event.dealVolume != null && event.status === "gewonnen" && (
@@ -148,35 +193,9 @@ export function EventPopover({
         )}
       </div>
 
-      {event.assignees.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", marginBottom: "0.625rem" }}>
-          {event.assignees.slice(0, 5).map((a, i) => {
-            const oc = ownerColor(a.username);
-            return (
-              <span
-                key={a.user_id}
-                title={a.username}
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: "50%",
-                  background: oc.bg,
-                  color: oc.fg,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "0.5625rem",
-                  fontWeight: 600,
-                  border: "2px solid var(--surface-100)",
-                  marginLeft: i === 0 ? 0 : -7,
-                }}
-              >
-                {ownerInitials(a.username)}
-              </span>
-            );
-          })}
-        </div>
-      )}
+      {/* Zuständige Person: genau eine. Im Popover ist Platz für den
+          ausgeschriebenen Namen — im Chip muss die Farbe allein tragen. */}
+      {event.assignee && <Owner username={event.assignee.username} />}
 
       <div style={{ display: "flex", gap: "0.5rem" }}>
         <Link
@@ -221,24 +240,32 @@ export function EventPopover({
             <Video size={13} /> Meet
           </button>
         )}
+        {/* Telefon-Termin: die NUMMER ist der Knopf. Genau dafür gibt es
+            `setting_calls.phone` (Migration 0029) — wer kurzfristig für einen
+            Kollegen einspringt, hatte hier bisher nur das Wort „Telefon".
+            Ohne Nummer bleibt der stille Hinweis, damit die Lücke auffällt. */}
         {!event.meetLink && event.meetingKind === "telefon" && (
-          <span
-            title="Termin findet telefonisch statt"
+          <a
+            href={event.phone ? `tel:${event.phone.replace(/[^\d+]/g, "")}` : undefined}
+            title={event.phone ? "Anrufen" : "Telefon-Termin ohne hinterlegte Nummer"}
+            className={event.phone ? "tnum" : undefined}
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: "0.3rem",
               padding: "0.4rem 0.75rem",
               borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border)",
+              border: `1px solid ${event.phone ? "var(--border-strong)" : "var(--border)"}`,
               background: "var(--surface-50)",
-              color: "var(--text-muted)",
+              color: event.phone ? "var(--text-primary)" : "var(--text-muted)",
               fontSize: "0.8125rem",
               fontWeight: 600,
+              textDecoration: "none",
+              whiteSpace: "nowrap",
             }}
           >
-            <Phone size={13} /> Telefon
-          </span>
+            <Phone size={13} /> {event.phone ?? "Nummer fehlt"}
+          </a>
         )}
       </div>
     </div>,

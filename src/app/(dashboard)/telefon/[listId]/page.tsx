@@ -1,16 +1,22 @@
 import { CallModeRunner } from "@/components/telefon/CallModeRunner";
 import { DeletePhoneListButton } from "@/components/telefon/DeletePhoneListButton";
+import { updatePhoneListScriptForm } from "@/app/actions/phone";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { ownerColor } from "@/lib/ownerColor";
 import type { PhoneLead, PhoneList, PhoneListKind } from "@/lib/types";
-import { ArrowLeft, Phone, PhoneMissed, Voicemail } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileText, Phone, PhoneMissed, Voicemail } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 // Telefonliste im Call-Mode: Liste + Leads laden, Guard über Workspace +
 // Personenscope, dann durchtelefonieren via CallModeRunner.
+//
+// Zusätzlich die Skript-Pflege (Migration 0029): Gesprächsleitfaden, Testarm
+// und Ziel-Branche hängen an der Liste, weil sie die kleinste Einheit ist, die
+// jemand am Stück abtelefoniert — und weil `phone_leads.script` pro Lead als
+// Testachse unbrauchbar ist.
 
 const KIND_META: Record<PhoneListKind, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
   akquise: {
@@ -56,19 +62,75 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
   if (!rawList) notFound();
   const list = rawList as PhoneList;
 
-  const rawLeads = await fetchAllRows<PhoneLead>((from, to) =>
-    supabase
-      .from("phone_leads")
-      .select("*")
-      .eq("list_id", listId)
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, to),
-  );
+  // Leads + bereits vergebene Testarme/Branchen parallel: die Vorschlagsliste
+  // hängt an keiner Lead-Zeile, ein zweiter serieller Roundtrip vor dem großen
+  // Lead-Fetch wäre reine Wartezeit.
+  //
+  // Warum es die Vorschläge überhaupt gibt: Ohne sie entstehen „V1", „v1 " und
+  // „Variante 1" als drei Testarme mit je zu kleiner Fallzahl — genau das, was
+  // das Label verhindern soll. Bewusst über den ganzen (sichtbaren) Bestand,
+  // nicht nur über diese Liste: der Test läuft über mehrere Listen und Setter.
+  const [rawLeads, metaRows] = await Promise.all([
+    fetchAllRows<PhoneLead>((from, to) =>
+      supabase
+        .from("phone_leads")
+        .select("*")
+        .eq("list_id", listId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows<{ script_label: string | null; target_group: string | null }>((from, to) => {
+      let q = supabase
+        .from("phone_lists")
+        .select("script_label, target_group")
+        .eq("workspace_id", access.workspace_id);
+      if (ownScope) q = q.or(ownScope);
+      return q.order("id").range(from, to);
+    }).catch(() => []),
+  ]);
   const leads = rawLeads as PhoneLead[];
+
+  /** Trim + case-insensitiv dedupliziert, erste Schreibweise gewinnt (wie in der Analyse). */
+  const distinct = (field: "script_label" | "target_group"): string[] => {
+    const byKey = new Map<string, string>();
+    for (const row of metaRows) {
+      const v = (row[field] ?? "").trim();
+      if (!v) continue;
+      const key = v.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, v);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, "de"));
+  };
+  const scriptLabels = distinct("script_label");
+  const targetGroups = distinct("target_group");
 
   const kind = KIND_META[list.list_kind];
   const oc = list.owner_name ? ownerColor(list.owner_name) : null;
+
+  // Standardmäßig offen, solange nichts hinterlegt ist — ein leeres Skript darf
+  // nicht hinter einem zugeklappten Deckel unsichtbar bleiben.
+  const scriptEmpty = !(list.script_text ?? "").trim() && !(list.script_label ?? "").trim();
+  const scriptSummary = [
+    (list.script_label ?? "").trim() ? `Arm „${list.script_label}"` : null,
+    (list.target_group ?? "").trim() || null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const fieldLabel: React.CSSProperties = {
+    display: "block",
+    fontSize: "var(--fs-xs)",
+    fontWeight: 500,
+    color: "var(--text-secondary)",
+    marginBottom: "var(--sp-3)",
+  };
+  const fieldHint: React.CSSProperties = {
+    margin: "0 0 var(--sp-7)",
+    fontSize: "var(--fs-xs)",
+    color: "var(--text-subtle)",
+    lineHeight: 1.5,
+  };
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto" }}>
@@ -135,6 +197,118 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
           {list.name}
         </h1>
       </div>
+
+      {/* ── Skript, Testarm & Branche (Migration 0029) ── */}
+      <details open={scriptEmpty} className="card" style={{ marginBottom: "1.25rem" }}>
+        <summary
+          className="collapse-summary"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-4)",
+            padding: "var(--sp-6) var(--sp-8)",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <ChevronRight size={14} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+          <FileText size={14} style={{ color: "var(--orange-500)", flexShrink: 0 }} />
+          <span className="eyebrow">Skript &amp; A/B-Test</span>
+          <span
+            style={{
+              fontSize: "var(--fs-xs)",
+              color: "var(--text-muted)",
+              marginLeft: "auto",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {scriptSummary || "noch nicht hinterlegt"}
+          </span>
+        </summary>
+
+        <form action={updatePhoneListScriptForm} style={{ padding: "0 var(--sp-8) var(--sp-8)" }}>
+          <input type="hidden" name="list_id" value={listId} />
+
+          <label htmlFor="script_text" style={fieldLabel}>
+            Gesprächsleitfaden
+          </label>
+          <textarea
+            id="script_text"
+            name="script_text"
+            defaultValue={list.script_text ?? ""}
+            rows={5}
+            className="input"
+            style={{
+              resize: "vertical",
+              fontSize: "var(--fs-base)",
+              marginBottom: "var(--sp-3)",
+              lineHeight: "var(--lh-base)",
+              padding: "var(--sp-5)",
+            }}
+            placeholder="Opener, Einwandbehandlung, Terminfrage — der Text, der bei dieser Liste tatsächlich gesprochen wird."
+          />
+          <p style={fieldHint}>Arbeitstext für den Call-Mode. Ausgewertet wird nicht er, sondern das Label darunter.</p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--sp-6)" }}>
+            <div>
+              <label htmlFor="script_label" style={fieldLabel}>
+                Testarm (Skript-Label)
+              </label>
+              {/* Freitext mit Vorschlagsliste: ein geschlossenes Set bräuchte
+                  eine Migration pro Testvariante, reiner Freitext erzeugt
+                  Schreibweisen-Chaos. `list` erlaubt beides. */}
+              <input
+                id="script_label"
+                name="script_label"
+                type="text"
+                list="script-label-options"
+                defaultValue={list.script_label ?? ""}
+                className="input"
+                placeholder='z. B. „V1" oder „Hard Opener"'
+              />
+              <datalist id="script-label-options">
+                {scriptLabels.map((l) => (
+                  <option key={l} value={l} />
+                ))}
+              </datalist>
+              <p style={fieldHint}>
+                Die Gruppierungsachse des A/B-Tests. Jeder Import legt eine neue Liste an — erst dasselbe Label in
+                mehreren Listen ergibt eine Fallzahl, aus der sich etwas ablesen lässt.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="target_group" style={fieldLabel}>
+                Branche / Zielgruppe
+              </label>
+              <input
+                id="target_group"
+                name="target_group"
+                type="text"
+                list="target-group-options"
+                defaultValue={list.target_group ?? ""}
+                className="input"
+                placeholder="z. B. Webdesigner, Handwerk"
+              />
+              <datalist id="target-group-options">
+                {targetGroups.map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+              <p style={fieldHint}>
+                Beim Import wird die Branche auf jeden Lead gestempelt. Dieser Wert hier greift für alle Leads, bei
+                denen sie fehlt — nachträglich gesetzt, ordnet er also auch Altbestand zu.
+              </p>
+            </div>
+          </div>
+
+          <button type="submit" className="btn-secondary">
+            Speichern
+          </button>
+        </form>
+      </details>
 
       {/* ── Call-Mode ── */}
       <CallModeRunner list={list} leads={leads} />

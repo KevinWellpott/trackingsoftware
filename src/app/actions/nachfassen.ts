@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 import { localDateISO, addDaysISO } from "@/lib/dates";
+import { FU_MAX_STAGE, nextFollowUpAfter } from "@/lib/followup";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 
 // Nachfassen-Union (LinkedIn-FU + Telefon-Rückruf + Closing-Nachfassen +
@@ -213,7 +214,10 @@ export async function markLinkedInAnswered(contactId: string): Promise<{ error?:
   return {};
 }
 
-/** LinkedIn-Follow-up erledigt: nächste Stufe (+3/+5/+7) oder tot nach FU3. */
+/**
+ * LinkedIn-Follow-up erledigt: Stufe hochzählen und die nächste Wiedervorlage
+ * setzen (nach FU1 +5, nach FU2 +7, nach FU3 keine mehr — der Flow endet).
+ */
 export async function advanceLinkedInFollowUp(contactId: string): Promise<{ error?: string }> {
   const access = await getAccessContext();
   if (!access) return { error: "Nicht angemeldet." };
@@ -227,13 +231,22 @@ export async function advanceLinkedInFollowUp(contactId: string): Promise<{ erro
   if (!c) return { error: "Kontakt nicht gefunden." };
 
   const current = (c as { follow_up_number: number | null }).follow_up_number ?? 0;
-  const next = current + 1;
-  const daysMap: Record<number, number> = { 0: 3, 1: 5, 2: 7 };
-  const nextDate = next <= 3 && daysMap[current] ? addDaysISO(localDateISO(), daysMap[current]) : null;
+  // `done` ist die Stufe, die mit diesem Klick ABGESCHLOSSEN wird — und genau
+  // nach ihr ist der Rhythmus geschlüsselt: nach FU1 folgt FU2 in +5 Tagen,
+  // nicht in +3 (das ist der Abstand Pitch → FU1). Vorher rechnete dieser Pfad
+  // mit `current`, der Stufe DAVOR, und lag damit systematisch zwei Tage vor
+  // dem Listen-Board (calcNextFollowUp in actions/contacts.ts).
+  const done = Math.min(current + 1, FU_MAX_STAGE);
+  // Anker ist HEUTE, nicht das Pitch-Datum: bei älteren Leads läge die nächste
+  // Stufe sonst sofort in der Vergangenheit und bliebe überfällig hängen.
+  // Nach FU3 liefert nextFollowUpAfter null — der Flow endet dort wirklich
+  // (vorher wurde noch +7 gesetzt; das fiel nur nicht auf, weil die RPCs
+  // Stufe 3 ohnehin ausschließen).
+  const nextDate = nextFollowUpAfter(done, localDateISO());
 
   const { error } = await supabase
     .from("contacts")
-    .update({ follow_up_number: Math.min(next, 3), next_follow_up_at: nextDate })
+    .update({ follow_up_number: done, next_follow_up_at: nextDate })
     .eq("id", contactId);
   if (error) return { error: error.message };
   revalidatePath("/nachfassen", "page");

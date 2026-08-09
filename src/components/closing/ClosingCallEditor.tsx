@@ -1,7 +1,7 @@
 "use client";
 
 import { deleteClosingCall, setClosingOutcome, updateClosingCall, type ClosingCallPatch } from "@/app/actions/closingCalls";
-import { AssigneeMultiSelect } from "@/components/assignees/AssigneeMultiSelect";
+import { AssigneeSelect } from "@/components/assignees/AssigneeSelect";
 import { DangerZone } from "@/components/ui/DangerZone";
 import { ScriptRunner } from "@/components/scripts/ScriptRunner";
 import { DatePicker } from "@/components/ui/DatePicker";
@@ -13,7 +13,12 @@ import { Toggle as UiToggle } from "@/components/ui/Toggle";
 import { SettingMirror, type SettingContext } from "@/components/closing/SettingMirror";
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { CLOSING_BLOCKS, LEGACY_CLOSING_BLOCKS } from "@/lib/scripts";
-import type { ClosingCall } from "@/lib/types";
+import {
+  CLOSING_LOST_REASON_CODES,
+  CLOSING_LOST_REASON_LABELS,
+  type ClosingCall,
+  type ClosingLostReasonCode,
+} from "@/lib/types";
 import { CalendarClock, Check, ChevronRight, FileText, RotateCcw, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -38,8 +43,17 @@ type UserOption = { user_id: string; username: string };
 
 type Props = {
   call: ClosingCall;
-  assignees: UserOption[];
   users: UserOption[];
+  /**
+   * Nur Admins duerfen umverteilen — identisch zum Setting. Vorher stand das
+   * Widget hier fuer jeden offen; mit genau EINER Zuweisung ist das gefaehrlich
+   * geworden: Wer sich selbst herausnimmt, verliert durch RLS den Zugriff.
+   */
+  canAssign?: boolean;
+  /** Name zu call.assigned_user_id — aufgeloest auf der Seite. */
+  assignedName?: string | null;
+  /** Wer den Closing-Eintrag angelegt hat — Anzeige-Fallback ohne Zuweisung. */
+  creatorName?: string | null;
   settingContext: SettingContext | null;
 };
 
@@ -207,7 +221,14 @@ function modalButton(kind: "primary" | "ghost", accent?: { bg: string; fg: strin
   };
 }
 
-export function ClosingCallEditor({ call, assignees, users, settingContext }: Props) {
+export function ClosingCallEditor({
+  call,
+  users,
+  canAssign = false,
+  assignedName = null,
+  creatorName = null,
+  settingContext,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [savedTick, setSavedTick] = useState(false);
@@ -237,6 +258,11 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
   const [paymentType, setPaymentType] = useState(call.payment_type ?? "Einmal");
   const [contractStart, setContractStart] = useState(call.contract_start ? call.contract_start.slice(0, 10) : "");
   const [signatureReceived, setSignatureReceived] = useState<boolean>(Boolean(call.signature_received));
+  // Verlustgrund: Code = Statistik (Pflicht), Freitext = Gedaechtnis (optional).
+  // Beide werden aus dem Call vorbelegt, damit ein bereits verlorenes Closing
+  // nachtraeglich korrigiert werden kann — genau das braucht der Bestand, der
+  // durch Migration 0029 pauschal auf "Sonstiges" steht.
+  const [lostReasonCode, setLostReasonCode] = useState<ClosingLostReasonCode | null>(call.lost_reason_code);
   const [lostReason, setLostReason] = useState(call.lost_reason ?? "");
   const [followUpDue, setFollowUpDue] = useState("");
 
@@ -329,6 +355,7 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
     setPaymentType("Einmal");
     setContractStart("");
     setSignatureReceived(false);
+    setLostReasonCode(null);
     setLostReason("");
     setFollowUpDue("");
     save(
@@ -341,6 +368,7 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
         contract_start: null,
         signature_received: false,
         lost_reason: null,
+        lost_reason_code: null,
         follow_up_due: null,
       },
       { refresh: true },
@@ -495,7 +523,18 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
         <span className="eyebrow eyebrow-muted">Zuweisung</span>
       </span>
       <div style={{ flex: "1 1 240px", minWidth: 0 }}>
-        <AssigneeMultiSelect entityType="closing_call" entityId={call.id} users={users} initial={assignees} />
+        {canAssign ? (
+          <AssigneeSelect
+            entityType="closing_call"
+            entityId={call.id}
+            users={users}
+            value={call.assigned_user_id}
+          />
+        ) : (
+          <span style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)" }}>
+            {assignedName ?? creatorName ?? "—"}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -677,12 +716,19 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
             Wiedervorlage {followUpLabel}
           </span>
         )}
-        {status === "verloren" && call.lost_reason?.trim() && (
+        {/* Zuerst der CODE, dann der Freitext: Die Kategorie ist die Aussage,
+            der Freitext nur ihr Beleg. Vorher stand hier ausschliesslich der
+            Freitext — bei einem leeren Feld war ueberhaupt nichts zu sehen. */}
+        {status === "verloren" && (call.lost_reason_code || call.lost_reason?.trim()) && (
           <span
-            style={{ ...metaText, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-            title={call.lost_reason}
+            className="tnum"
+            style={{ ...metaText, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            title={[call.lost_reason_code ? CLOSING_LOST_REASON_LABELS[call.lost_reason_code] : null, call.lost_reason?.trim() || null]
+              .filter(Boolean)
+              .join(" · ")}
           >
-            {call.lost_reason}
+            {call.lost_reason_code ? CLOSING_LOST_REASON_LABELS[call.lost_reason_code] : "Ohne Grund"}
+            {call.lost_reason?.trim() ? ` · ${call.lost_reason.trim()}` : ""}
           </span>
         )}
 
@@ -913,16 +959,37 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
         open={lostOpen}
         onClose={() => setLostOpen(false)}
         title="Deal verloren"
-        subtitle="Bitte den Verlustgrund festhalten."
+        subtitle="Grund auswählen — Freitext optional. Auch nachträglich änderbar."
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+          {/* Auswahl statt Freitext: Als Textfeld hatte in der Auswertung jeder
+              Grund die Haeufigkeit 1 („zu teuer", „Preis", „Budget nicht da" =
+              drei Zeilen). Erst der feste Code macht sichtbar, an welchem
+              Einwand die Closings wirklich haengen. */}
           <div>
             <span style={fieldLabel}>Verlustgrund *</span>
+            <Segmented
+              value={lostReasonCode}
+              options={CLOSING_LOST_REASON_CODES.map((code) => ({
+                value: code,
+                label: CLOSING_LOST_REASON_LABELS[code],
+                color: "var(--color-error-text)",
+                bg: "var(--color-error-bg)",
+                border: "var(--color-error-border)",
+              }))}
+              onChange={setLostReasonCode}
+            />
+          </div>
+          {/* Der Freitext bleibt — nur nicht mehr als Pflicht. Neun Codes
+              koennen „will erst nach der Messe" nicht abbilden; Code =
+              Statistik, Freitext = Gedaechtnis. */}
+          <div>
+            <span style={fieldLabel}>Notiz (optional)</span>
             <textarea
               value={lostReason}
               onChange={(e) => setLostReason(e.target.value)}
-              placeholder="Warum ist der Deal verloren gegangen?"
-              rows={4}
+              placeholder="Kontext, den die Kategorie nicht trägt — z. B. „will erst nach der Messe“"
+              rows={3}
               style={{ ...fieldInput, resize: "vertical", lineHeight: 1.5 }}
             />
           </div>
@@ -946,15 +1013,19 @@ export function ClosingCallEditor({ call, assignees, users, settingContext }: Pr
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
-              disabled={isPending || !lostReason.trim()}
+              disabled={isPending || !lostReasonCode}
               onClick={() =>
-                submitOutcome("verloren", { lostReason: lostReason.trim() }, () => setLostOpen(false))
+                submitOutcome(
+                  "verloren",
+                  { lostReasonCode, lostReason: lostReason.trim() || null },
+                  () => setLostOpen(false),
+                )
               }
               style={{
                 ...modalButton("primary", { bg: "var(--color-error-bg)", fg: "var(--color-error-text)" }),
                 border: "1px solid var(--color-error-border)",
-                opacity: isPending || !lostReason.trim() ? 0.6 : 1,
-                cursor: isPending || !lostReason.trim() ? "default" : "pointer",
+                opacity: isPending || !lostReasonCode ? 0.6 : 1,
+                cursor: isPending || !lostReasonCode ? "default" : "pointer",
               }}
             >
               Als verloren markieren

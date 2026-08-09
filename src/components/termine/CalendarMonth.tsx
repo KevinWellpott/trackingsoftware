@@ -80,7 +80,9 @@ export function CalendarMonth({
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(7, 1fr)",
-          gridAutoRows: "minmax(108px, 1fr)",
+          // 92 statt 108 px: 6 Wochen × 16 px = ein knapper Bildschirm weniger.
+          // Drei Chips à ~17 px + Datumszeile + „+N weitere" passen weiterhin.
+          gridAutoRows: "minmax(92px, 1fr)",
         }}
       >
         {cells.map((cell, i) => {

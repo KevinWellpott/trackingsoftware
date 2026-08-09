@@ -125,9 +125,14 @@ export function SettingMirror({ setting }: { setting: SettingContext }) {
           }}
         >
           <span className="eyebrow">Aus dem Setting</span>
-          <span className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-            {answeredCount} / {ALL_SETTING_BLOCKS.length}
-          </span>
+          {/* Zaehler nur, wenn ueberhaupt Notizen existieren. Das Setting-Skript
+              sammelt seit dem Umbau keine Antworten mehr — ein festes „0 / 9"
+              haette dauerhaft einen Mangel gemeldet, den es nicht gibt. */}
+          {answeredCount > 0 && (
+            <span className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
+              {answeredCount} Notizen
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
           {termin && <span className="badge badge-gray">{termin}</span>}
@@ -179,11 +184,15 @@ export function SettingMirror({ setting }: { setting: SettingContext }) {
       )}
 
       {/* ── Script-Blöcke ──
-          Verlauf und Gold Standards bleiben vollstaendig stehen, auch
-          unbeantwortete — nur so steht Block 3 links neben Block 3 rechts,
-          und genau das ist der Zweck der Ansicht. Alt-Bloecke frueherer
-          Skript-Versionen haengen hinten dran, aber nur wenn beantwortet. */}
-      {[...ALL_SETTING_BLOCKS, ...LEGACY_SETTING_BLOCKS.filter((b) => (answers[b.key] ?? "").trim())].map((block, idx) => {
+          Frueher standen hier ALLE Bloecke, auch unbeantwortete: Block 3 links
+          sollte neben Block 3 rechts stehen. Seit das Setting-Skript auf reine
+          Ueberschriften reduziert ist, sammelt es keine Antworten mehr — die
+          Ansicht bestuende dann aus neun Zeilen „nicht beantwortet" und einem
+          Zaehler, der fuer immer auf 0 steht. Deshalb jetzt: nur zeigen, was
+          tatsaechlich beantwortet wurde (Bestandsdaten aus der Zeit davor). */}
+      {[...ALL_SETTING_BLOCKS, ...LEGACY_SETTING_BLOCKS]
+        .filter((b) => (answers[b.key] ?? "").trim())
+        .map((block, idx) => {
         const value = (answers[block.key] ?? "").trim();
         const hasContent = value.length > 0;
         return (
@@ -250,9 +259,7 @@ export function SettingMirror({ setting }: { setting: SettingContext }) {
                 >
                   {value}
                 </p>
-              ) : (
-                <span style={{ fontSize: "0.8125rem", color: "var(--text-disabled)" }}>nicht beantwortet</span>
-              )}
+              ) : null}
             </div>
           </section>
         );

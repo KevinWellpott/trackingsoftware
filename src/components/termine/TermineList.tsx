@@ -1,35 +1,64 @@
 "use client";
 
-import { formatTermin } from "@/lib/apptTime";
+import { channelColor, channelLabel } from "@/lib/channels";
+import { formatTerminParts } from "@/lib/apptTime";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { TerminEvent } from "@/lib/termine";
-import { EUR_FMT, SOURCE_META } from "@/lib/terminMeta";
-import { addDaysISO, weekStart } from "@/lib/dates";
-import { CalendarClock, CalendarX2, ChevronRight, Phone, Video } from "lucide-react";
+import { EUR_FMT } from "@/lib/terminMeta";
+import { ArrowDown, ArrowUp, CalendarClock, CalendarX2, Phone, Video } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
-import { eventVars, kindLabel } from "./EventChip";
-import {
-  GRUPPEN_LABEL,
-  GRUPPEN_ORDER,
-  gruppeFor,
-  type TerminGruppe,
-  type TerminZeit,
-} from "./viewState";
+import { kindLabel } from "./EventChip";
+import type { SortDir, TerminSort, TerminZeit } from "./viewState";
 
-// Die „versteckte" Listenansicht — ersetzt die früheren getrennten Queues für
-// Setting und Closing. Kartenlayout und Verhalten bleiben wie gewohnt, ergänzt
-// um eine Typ-Markierung in Event-Farbe und den Abschnitt „Ohne Termin".
+// Die Arbeitsliste — vorher eine zweite, größere Ausgabe des Kalenders.
+//
+// Sie war als Kartenstapel eine reine Dublette: dieselben Chips, nur breiter,
+// chronologisch gruppiert. Alles, was sie zeigte, zeigt der Kalender besser.
+// Der eine Grund, sie NICHT zu löschen: Termine ohne gesetzten Zeitpunkt haben
+// im Raster keinen Platz und tauchen ausschließlich hier auf — ohne die Liste
+// wären sie unerreichbar.
+//
+// Also wird sie das, was der Kalender nicht kann: eine dichte, sortierbare
+// Tabelle über ALLE Termine, mit den vier Spalten, nach denen man wirklich
+// sucht — Person, Quelle, Status, Ergebnis. Eine Zeile pro Termin statt einer
+// Karte; auf einen Bildschirm passen damit rund fünfmal so viele.
 
-// Hinweis zur Farblogik: Der linke Balken einer Zeile traegt den STATUS-Ton
-// (gruen = gewonnen, rot = verloren/No-Show, gold = nachfassen, neutral =
-// offen) — dieselbe Bedeutung wie im Kalender und auf den Ergebnis-Buttons.
-// Typ und Quelle stehen als stiller Text, die Quelle mit ihrem Kanal-Dot.
+/** Zeilen ohne Zeitpunkt sortieren immer nach oben — sie sind unerledigt. */
+const NO_DATE_KEY = "0000-00-00";
 
-/** Chronologisch; innerhalb eines Tages nach Uhrzeit. */
-function byTime(a: TerminEvent, b: TerminEvent): number {
-  const d = (a.dayISO ?? "").localeCompare(b.dayISO ?? "");
-  return d !== 0 ? d : a.startMin - b.startMin;
+type Column = {
+  key: TerminSort;
+  label: string;
+  /** Spaltenbreite; leer = flexibel. */
+  width?: number;
+  align?: "left" | "right";
+};
+
+const COLUMNS: readonly Column[] = [
+  { key: "zeit", label: "Termin", width: 148 },
+  { key: "lead", label: "Lead / Firma" },
+  { key: "person", label: "Person", width: 132 },
+  { key: "quelle", label: "Quelle", width: 132 },
+  { key: "status", label: "Status", width: 138 },
+];
+
+/** Sortierschlüssel je Spalte — immer ein String, damit localeCompare reicht. */
+function sortKey(e: TerminEvent, sort: TerminSort): string {
+  switch (sort) {
+    case "lead":
+      return `${e.title} ${e.company ?? ""}`.toLowerCase();
+    case "person":
+      // Ohne Zuweisung ans Ende, egal in welche Richtung sortiert wird —
+      // „niemand zuständig" ist kein Name, sondern eine Lücke.
+      return e.assignee?.username.toLowerCase() ?? "￿";
+    case "quelle":
+      return channelLabel(e.sourceType, e.kind === "closing" ? "—" : "Sonstige").toLowerCase();
+    case "status":
+      return e.statusPill.label.toLowerCase();
+    default:
+      return `${e.dayISO ?? NO_DATE_KEY}T${String(e.startMin).padStart(4, "0")}`;
+  }
 }
 
 export function TermineList({
@@ -37,166 +66,181 @@ export function TermineList({
   ohneTermin,
   zeit,
   today,
+  sort,
+  dir,
+  onSort,
 }: {
   events: TerminEvent[];
   ohneTermin: TerminEvent[];
   zeit: TerminZeit;
   today: string;
+  sort: TerminSort;
+  dir: SortDir;
+  onSort: (col: TerminSort) => void;
 }) {
-  const weekEnd = useMemo(() => addDaysISO(weekStart(today), 6), [today]);
+  const rows = useMemo(() => {
+    // „Erledigt" heißt: das Ergebnis ist eingetragen. Nur ein noch OFFENER
+    // Termin in der Vergangenheit ist wirklich liegen geblieben.
+    const isPast = (e: TerminEvent) => e.dayISO != null && e.dayISO < today;
 
-  const sections = useMemo(() => {
-    const buckets = new Map<TerminGruppe, TerminEvent[]>();
-    const push = (g: TerminGruppe, e: TerminEvent) => {
-      const arr = buckets.get(g);
-      if (arr) arr.push(e);
-      else buckets.set(g, [e]);
-    };
+    // Termine ohne Zeitpunkt sind per Definition unerledigt und gehören in
+    // jedes Fenster außer „Vergangen" — sonst hätten sie gar keinen Ort.
+    const pool =
+      zeit === "vergangen"
+        ? events.filter((e) => isPast(e) && e.status !== "offen")
+        : zeit === "anstehend"
+          ? [...events.filter((e) => !isPast(e) || e.status === "offen"), ...ohneTermin]
+          : [...events, ...ohneTermin];
 
-    // „Erledigt" heisst hier: das Ergebnis ist eingetragen. Nur ein noch
-    // OFFENER Termin in der Vergangenheit ist wirklich liegen geblieben —
-    // sonst waere die dringendste Gruppe voller abgehakter Altlasten.
-    for (const e of events) push(gruppeFor(e.dayISO, e.status !== "offen", today, weekEnd), e);
-    for (const e of ohneTermin) push("ohne", e);
+    const factor = dir === "asc" ? 1 : -1;
+    return [...pool].sort((a, b) => {
+      const cmp = sortKey(a, sort).localeCompare(sortKey(b, sort), "de", { numeric: true });
+      // Gleichstand immer chronologisch auflösen — sonst springen Zeilen bei
+      // jedem Re-Render, weil Array.sort nicht garantiert stabil gefüllt wird.
+      return cmp !== 0 ? cmp * factor : sortKey(a, "zeit").localeCompare(sortKey(b, "zeit"));
+    });
+  }, [events, ohneTermin, today, zeit, sort, dir]);
 
-    // Zeitfenster. „Ohne Termin" bleibt in jedem Fenster ausser „vergangen"
-    // sichtbar: der Eintrag ist per Definition unerledigt und haette sonst
-    // keinen Ort.
-    const allowed: readonly TerminGruppe[] =
-      zeit === "anstehend"
-        ? ["ueberfaellig", "heute", "woche", "spaeter", "ohne"]
-        : zeit === "vergangen"
-          ? ["vergangen"]
-          : GRUPPEN_ORDER;
-
-    return GRUPPEN_ORDER.filter((g) => allowed.includes(g))
-      .map((g) => {
-        const items = [...(buckets.get(g) ?? [])].sort(byTime);
-        // Vergangenes von neu nach alt — das Letzte interessiert zuerst.
-        if (g === "vergangen") items.reverse();
-        return { key: g, label: GRUPPEN_LABEL[g], items };
-      })
-      .filter((s) => s.items.length > 0);
-  }, [events, ohneTermin, today, weekEnd, zeit]);
-
-  if (sections.length === 0) return <EmptyState />;
+  if (rows.length === 0) return <EmptyState />;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-7)" }}>
-      {sections.map((s) => (
-        // Vergangenes startet zugeklappt — es ist Nachschlagewerk, kein Arbeitsvorrat.
-        <details key={s.key} open={s.key !== "vergangen"}>
-          <summary
-            className="group-summary"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              marginBottom: "0.625rem",
-            }}
-          >
-            <ChevronRight size={13} className="group-chevron" style={{ color: "var(--text-subtle)" }} />
-            {s.key === "ohne" && <CalendarX2 size={13} style={{ color: "var(--text-subtle)" }} />}
-            <span
-              className="eyebrow"
-              style={{
-                // Nur „Überfällig" traegt Warnfarbe — die eine Gruppe, die eine
-                // Handlung verlangt. Alles andere bleibt still.
-                color: s.key === "ueberfaellig" ? "var(--warning-fg)" : "var(--text-subtle)",
-              }}
-            >
-              {s.label}
-            </span>
-            <span className="count-pill" data-tone={s.key === "ueberfaellig" ? "overdue" : undefined}>
-              {s.items.length}
-            </span>
-          </summary>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
-            {s.items.map((e) => (
-              <EventRow key={e.id} event={e} />
-            ))}
-          </div>
-        </details>
-      ))}
+    <div
+      className="table-scroll"
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-md)",
+        overflow: "hidden",
+        background: "var(--surface-100)",
+      }}
+    >
+      <table className="data-table">
+        <thead>
+          <tr>
+            {COLUMNS.map((c) => {
+              const active = sort === c.key;
+              const Arrow = dir === "asc" ? ArrowUp : ArrowDown;
+              return (
+                <th key={c.key} style={{ width: c.width }} aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button
+                    type="button"
+                    onClick={() => onSort(c.key)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "var(--sp-2)",
+                      border: "none",
+                      background: "transparent",
+                      padding: 0,
+                      font: "inherit",
+                      letterSpacing: "inherit",
+                      textTransform: "inherit",
+                      color: active ? "var(--text-primary)" : "inherit",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {c.label}
+                    {active && <Arrow size={11} />}
+                  </button>
+                </th>
+              );
+            })}
+            {/* Ergebnis ist eine Mischspalte (Umsatz, Wiedervorlage, Kontaktweg)
+                und deshalb bewusst nicht sortierbar. */}
+            <th style={{ width: 190 }}>Ergebnis</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((e) => (
+            <Row key={e.id} event={e} today={today} />
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function EventRow({ event }: { event: TerminEvent }) {
-  const source = event.sourceType ? SOURCE_META[event.sourceType] : null;
-  const termin = formatTermin(event.at);
+function Row({ event, today }: { event: TerminEvent; today: string }) {
+  const termin = formatTerminParts(event.at);
+  const overdue = event.dayISO != null && event.dayISO < today && event.status === "offen";
+  const source = event.kind === "setting" ? channelLabel(event.sourceType) : null;
 
   return (
-    <Link href={event.href} style={{ textDecoration: "none" }} className="organic-list-card-link">
-      <div
-        className="organic-list-card"
-        style={{
-          ...eventVars(event.statusPill.tone),
-          display: "flex",
-          alignItems: "center",
-          gap: "0.875rem",
-          flexWrap: "wrap",
-          background: "var(--surface-100)",
-          border: "1px solid var(--border)",
-          borderLeft: "3px solid var(--event-accent)",
-          borderRadius: "var(--radius-md)",
-          padding: "0.875rem 1.125rem",
-          transition: "border-color 0.15s, box-shadow 0.15s",
-          opacity: event.hidden ? 0.7 : 1,
-        }}
-      >
-        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.2rem" }}>
-            <span
-              style={{
-                fontSize: "0.9375rem",
-                fontWeight: 600,
-                letterSpacing: "-0.01em",
-                color: "var(--text-primary)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {event.title}
+    <tr>
+      {/* ── Termin ── */}
+      <td>
+        {termin ? (
+          <span
+            className="tnum"
+            style={{
+              display: "inline-flex",
+              alignItems: "baseline",
+              gap: "var(--sp-3)",
+              color: overdue ? "var(--warning-fg)" : "var(--text-secondary)",
+            }}
+            title={overdue ? "Liegt in der Vergangenheit und ist noch offen" : undefined}
+          >
+            {overdue && <CalendarClock size={12} style={{ alignSelf: "center", flexShrink: 0 }} />}
+            {termin.date}
+            <span style={{ color: overdue ? "inherit" : "var(--text-primary)", fontWeight: 500 }}>
+              {termin.time}
             </span>
-            {/* Typ und Quelle sind Kategorien, keine Zustaende — sie laufen
-                deshalb als stiller Text mit Kanal-Dot, nicht als Pill.
-                Der einzige farbige Pill der Zeile ist der Status. */}
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "var(--sp-3)",
-                fontSize: "var(--fs-xs)",
-                color: "var(--text-muted)",
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-              {kindLabel(event.kind)}
-              {source && (
-                <>
-                  <span aria-hidden>·</span>
-                  <span
-                    aria-hidden
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: "var(--r-full)",
-                      background: source.dot,
-                      flexShrink: 0,
-                    }}
-                  />
-                  {source.label}
-                </>
-              )}
-            </span>
-          </div>
+          </span>
+        ) : (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "var(--sp-3)",
+              color: "var(--text-muted)",
+            }}
+          >
+            <CalendarX2 size={12} style={{ flexShrink: 0 }} /> Kein Termin
+          </span>
+        )}
+      </td>
+
+      {/* ── Lead / Firma — mit dem Typ-Marker in der Chip-Fuellfarbe, damit
+             Liste und Kalender dieselbe Sprache sprechen. ── */}
+      <td>
+        <Link
+          href={event.href}
+          className="listen-name"
+          style={{
+            display: "inline-flex",
+            alignItems: "baseline",
+            gap: "var(--sp-4)",
+            color: "inherit",
+            textDecoration: "none",
+            maxWidth: "100%",
+          }}
+        >
+          <span
+            aria-hidden
+            title={kindLabel(event.kind)}
+            style={{
+              alignSelf: "center",
+              flexShrink: 0,
+              width: 18,
+              textAlign: "center",
+              borderRadius: "var(--r-xs)",
+              padding: "1px 0",
+              fontSize: "var(--fs-2xs)",
+              fontWeight: 600,
+              background:
+                event.kind === "setting" ? "var(--event-setting-bg)" : "var(--event-closing-bg)",
+              color: event.kind === "setting" ? "var(--event-setting-fg)" : "var(--event-closing-fg)",
+              border: "1px solid var(--border-default)",
+            }}
+          >
+            {kindLabel(event.kind, true)}
+          </span>
+          <span style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {event.title}
+          </span>
           {event.company && (
-            <div
+            <span
               style={{
-                fontSize: "0.75rem",
+                fontSize: "var(--fs-xs)",
                 color: "var(--text-muted)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -204,150 +248,143 @@ function EventRow({ event }: { event: TerminEvent }) {
               }}
             >
               {event.company}
-            </div>
+            </span>
           )}
-          {event.sourceDetail && (
-            <div
-              style={{
-                fontSize: "0.6875rem",
-                color: "var(--text-subtle)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-              title={`Quelle: ${event.sourceDetail}`}
-            >
-              Quelle: {event.sourceDetail}
-            </div>
-          )}
-        </div>
+        </Link>
+      </td>
 
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.35rem",
-            fontSize: "0.75rem",
-            fontWeight: 600,
-            color: termin ? "var(--text-secondary)" : "var(--text-subtle)",
-            flexShrink: 0,
-          }}
-        >
-          <CalendarClock size={13} style={{ color: "var(--text-subtle)" }} />
-          {termin ?? "Kein Termin"}
-        </div>
+      {/* ── Person ── */}
+      <td>
+        {event.assignee ? (
+          <OwnerCell username={event.assignee.username} />
+        ) : (
+          <span style={{ color: "var(--text-disabled)" }}>—</span>
+        )}
+      </td>
 
+      {/* ── Quelle ── */}
+      <td>
+        {source ? (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "var(--sp-3)",
+              fontSize: "var(--fs-sm)",
+              color: "var(--text-secondary)",
+            }}
+            title={event.sourceDetail ? `Quelle: ${event.sourceDetail}` : undefined}
+          >
+            <span
+              aria-hidden
+              className="stage-dot"
+              style={{ background: channelColor(event.sourceType) }}
+            />
+            {source}
+          </span>
+        ) : (
+          // Closings erben die Quelle nicht — sie haben keine eigene Spalte.
+          <span style={{ color: "var(--text-disabled)" }}>—</span>
+        )}
+      </td>
+
+      {/* ── Status ── */}
+      <td>
         <span
           className="badge"
           style={{
             color: event.statusPill.color,
             backgroundColor: event.statusPill.bg,
             border: `1px solid ${event.statusPill.border}`,
-            flexShrink: 0,
           }}
         >
           {event.statusPill.label}
         </span>
+      </td>
 
-        {/* Betrag als Zahl, nicht als Pill — er ist ein Wert, kein Zustand. */}
-        {event.dealVolume != null && event.status === "gewonnen" && (
-          <span
-            className="tnum"
-            style={{
-              fontSize: "var(--fs-sm)",
-              fontWeight: 500,
-              color: "var(--success-fg)",
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-            }}
-          >
-            {EUR_FMT.format(event.dealVolume)}
-          </span>
-        )}
-
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-          {event.assignees.slice(0, 4).map((a, i) => {
-            const oc = ownerColor(a.username);
-            return (
-              <span
-                key={a.user_id}
-                title={a.username}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: "50%",
-                  background: oc.bg,
-                  color: oc.fg,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "0.625rem",
-                  fontWeight: 600,
-                  border: "2px solid var(--surface-100)",
-                  marginLeft: i === 0 ? 0 : -7,
-                }}
-              >
-                {ownerInitials(a.username)}
-              </span>
-            );
-          })}
-          {event.assignees.length > 4 && (
-            <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", marginLeft: 4, fontWeight: 600 }}>
-              +{event.assignees.length - 4}
+      {/* ── Ergebnis: Umsatz, sonst der Kontaktweg für den Termin ── */}
+      <td>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
+          {event.dealVolume != null && event.status === "gewonnen" && (
+            <span className="tnum" style={{ fontWeight: 500, color: "var(--success-fg)" }}>
+              {EUR_FMT.format(event.dealVolume)}
             </span>
           )}
-        </div>
+          {event.meetLink && (
+            <a
+              href={event.meetLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="badge"
+              style={{
+                textDecoration: "none",
+                color: "var(--orange-300)",
+                backgroundColor: "var(--accent-muted)",
+                border: "1px solid var(--border-accent)",
+              }}
+            >
+              <Video size={11} /> Meet
+            </a>
+          )}
+          {/* Die Nummer ist der Grund, warum es das Feld gibt: Wer kurzfristig
+              einspringt, muss sie ohne Umweg über die Detailseite sehen. */}
+          {event.phone && (
+            <a
+              href={`tel:${event.phone.replace(/[^\d+]/g, "")}`}
+              className="badge badge-gray tnum"
+              style={{ textDecoration: "none" }}
+              title="Anrufen"
+            >
+              <Phone size={11} /> {event.phone}
+            </a>
+          )}
+          {!event.meetLink && !event.phone && event.meetingKind === "telefon" && (
+            <span className="badge badge-gray" title="Telefon-Termin ohne hinterlegte Nummer">
+              <Phone size={11} /> Nummer fehlt
+            </span>
+          )}
+        </span>
+      </td>
+    </tr>
+  );
+}
 
-        {event.meetLink && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              window.open(event.meetLink as string, "_blank", "noopener,noreferrer");
-            }}
-            title="Meet öffnen"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.3rem",
-              padding: "0.3rem 0.625rem",
-              borderRadius: "var(--r-full)",
-              border: "1px solid var(--border-accent)",
-              background: "var(--accent-muted)",
-              color: "var(--orange-300)",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            <Video size={12} /> Meet
-          </button>
-        )}
-
-        {!event.meetLink && event.meetingKind === "telefon" && (
-          <span
-            title="Termin findet telefonisch statt"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.3rem",
-              padding: "0.3rem 0.625rem",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border)",
-              background: "var(--surface-50)",
-              color: "var(--text-muted)",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              flexShrink: 0,
-            }}
-          >
-            <Phone size={12} /> Telefon
-          </span>
-        )}
-      </div>
-    </Link>
+/** Zuständige Person einer Zeile. Avatar für den Wiedererkennungswert, Name für die Suche. */
+function OwnerCell({ username }: { username: string }) {
+  const oc = ownerColor(username);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)", minWidth: 0 }}>
+      <span
+        aria-hidden
+        style={{
+          width: 20,
+          height: 20,
+          flexShrink: 0,
+          borderRadius: "var(--r-full)",
+          background: oc.bg,
+          color: oc.fg,
+          boxShadow: `inset 0 0 0 1px ${oc.fg}`,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "var(--fs-2xs)",
+          fontWeight: 600,
+        }}
+      >
+        {ownerInitials(username)}
+      </span>
+      <span
+        style={{
+          fontSize: "var(--fs-sm)",
+          color: "var(--text-secondary)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {username}
+      </span>
+    </span>
   );
 }
 

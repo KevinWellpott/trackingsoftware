@@ -8,7 +8,7 @@ import {
   deleteSettingCall,
   type SettingCallPatch,
 } from "@/app/actions/settingCalls";
-import { AssigneeMultiSelect } from "@/components/assignees/AssigneeMultiSelect";
+import { AssigneeSelect } from "@/components/assignees/AssigneeSelect";
 import { DangerZone } from "@/components/ui/DangerZone";
 import { ScriptRunner } from "@/components/scripts/ScriptRunner";
 import { Modal } from "@/components/ui/Modal";
@@ -16,6 +16,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
+import { channelLabel } from "@/lib/channels";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { LEGACY_SETTING_BLOCKS, SETTING_BLOCKS, SETTING_GOLD_BLOCKS } from "@/lib/scripts";
 import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
@@ -39,11 +40,12 @@ type UserOption = { user_id: string; username: string };
 
 type Props = {
   call: SettingCall;
-  assignees: UserOption[];
   users: UserOption[];
-  /** Nur Admins duerfen umverteilen; alle anderen sehen den Ersteller fest. */
+  /** Nur Admins duerfen umverteilen; alle anderen sehen die Zuordnung fest. */
   canAssign?: boolean;
-  /** Wer den Termin angelegt hat — die Zuordnung ohne Zuweisungs-Recht. */
+  /** Name zu call.assigned_user_id — aufgeloest auf der Seite. */
+  assignedName?: string | null;
+  /** Wer den Termin angelegt hat — Anzeige-Fallback ohne Zuweisung. */
   creatorName?: string | null;
   sourceNotes?: { label: string; text: string }[];
 };
@@ -171,9 +173,9 @@ const fieldInput: React.CSSProperties = {
 
 export function SettingCallEditor({
   call,
-  assignees,
   users,
   canAssign = false,
+  assignedName = null,
   creatorName = null,
   sourceNotes,
 }: Props) {
@@ -621,35 +623,54 @@ export function SettingCallEditor({
           <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}>Zuweisung</span>
         </div>
         <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-          {/* Umverteilen ist Admin-Sache. Alle anderen sehen fest, wer den
-              Termin angelegt hat — sonst zeigt die Zeile schlicht nichts. */}
+          {/* Umverteilen ist Admin-Sache. Alle anderen sehen fest, wem der
+              Termin gehoert — sonst zeigt die Zeile schlicht nichts. */}
           {canAssign ? (
-            <AssigneeMultiSelect entityType="setting_call" entityId={call.id} users={users} initial={assignees} />
+            <AssigneeSelect
+              entityType="setting_call"
+              entityId={call.id}
+              users={users}
+              value={call.assigned_user_id}
+            />
           ) : (
             <span style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)" }}>
-              {assignees[0]?.username ?? creatorName ?? "—"}
+              {assignedName ?? creatorName ?? "—"}
             </span>
           )}
         </div>
       </div>
 
-      {/* ── Kontext aus der Quelle (read-only) ── */}
+      {/* ── Kontext aus der Quelle ──
+          Die frühere blaue Karte ist weg (Vorgabe: „Antwort aus LinkedIn auch
+          raus"). Die LinkedIn-Antwort des Leads wird gar nicht mehr geladen —
+          sie stand doppelt: einmal hier und einmal in der Listenzeile, aus der
+          der Termin entstand.
+
+          Was bleibt, sind Notizen und Einwände aus dem TELEFON-Lead: die
+          stehen sonst nirgends und wären für den, der den Call übernimmt, ein
+          echter Verlust. Sie liegen deshalb still und eingeklappt hier statt
+          in einer Karte, die durch ihre Farbe wichtiger wirkte als das
+          Gespräch selbst. */}
       {sourceNotes && sourceNotes.length > 0 && (
-        <div
+        <details
           style={{
-            background: "var(--color-info-bg)",
-            border: "1px solid var(--color-info-border)",
+            background: "var(--surface-100)",
+            border: "1px solid var(--border)",
             borderRadius: "var(--radius-lg)",
-            padding: "1rem 1.125rem",
+            padding: "0.75rem 1.125rem",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.625rem" }}>
-            <MessageSquareQuote size={14} style={{ color: "var(--color-info-text)" }} />
-            <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--color-info-text)" }}>
-              Aus {call.source_type === "telefon" ? "Telefon" : "LinkedIn"}
+          <summary
+            className="collapse-summary"
+            style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", cursor: "pointer", userSelect: "none" }}
+          >
+            <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+            <MessageSquareQuote size={14} style={{ color: "var(--text-muted)" }} />
+            <span className="eyebrow eyebrow-muted">
+              Kontext aus {channelLabel(call.source_type, "der Quelle")} ({sourceNotes.length})
             </span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          </summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "0.75rem" }}>
             {sourceNotes.map((n) => (
               <div key={n.label}>
                 <span style={{ ...fieldLabel, marginBottom: "0.2rem" }}>{n.label}</span>
@@ -668,10 +689,13 @@ export function SettingCallEditor({
               </div>
             ))}
           </div>
-        </div>
+        </details>
       )}
 
-      {/* ── Script ── */}
+      {/* ── Gesprächsgerüst ──
+          Nur noch Überschriften (mode="outline"). Hinweistexte und Notizfelder
+          je Block sind entfallen; vorhandene Antworten stehen weiter in
+          `script_answers` und lassen sich am jeweiligen Block aufklappen. */}
       <div
         style={{
           background: "var(--surface-100)",
@@ -681,7 +705,11 @@ export function SettingCallEditor({
           boxShadow: "var(--shadow-sm)",
         }}
       >
+        <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-6)" }}>
+          Gesprächsverlauf
+        </div>
         <ScriptRunner
+          mode="outline"
           blocks={SETTING_BLOCKS}
           highlight={{ title: "Gold Standards", blocks: SETTING_GOLD_BLOCKS }}
           initial={call.script_answers ?? {}}

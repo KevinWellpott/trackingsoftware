@@ -2,33 +2,50 @@ import { addDaysISO, buildWeekDays, monthLabelDe, weekStart } from "@/lib/dates"
 
 // URL-State des Termine-Kalenders. Alles landet in der Query, damit Zurück-
 // Button und geteilte Links funktionieren (Muster wie AnalyseFilterBar).
+//
+// ── Was hier ABSICHTLICH nicht mehr steht ──────────────────────────────────
+// `typ` (Setting/Closing), `person` und `versteckt` sind ersatzlos entfallen.
+//  · Typ und Person stehen jetzt im Chip selbst (Füllung bzw. Owner-Avatar) —
+//    ein Filter dafür war eine Kopfleiste voller Chips für eine Information,
+//    die man ohnehin sieht.
+//  · `versteckt` war kein Filter, sondern eine Falle: Unqualifizierte und tote
+//    Termine verschwanden lautlos aus Kalender UND Liste. Sie tragen jetzt
+//    eine eigene Farbe (siehe terminMeta.outlineFor) und bleiben sichtbar.
+// Alte Links mit diesen Parametern funktionieren weiter, sie werden nur nicht
+// mehr gelesen.
 
 export type TerminView = "monat" | "woche" | "tag" | "liste";
 
 /**
  * Zeitfenster der Listenansicht.
  *
- * Die Liste hatte bisher keine Grenze (`rangeForView` liefert für sie `null`) —
- * sie zeigte damit jeden Termin, den es je gab, als eine flache Folge. Für die
+ * Die Liste hat keinen Zeitraum (`rangeForView` liefert für sie `null`) — ohne
+ * dieses Fenster zeigte sie jeden Termin, den es je gab. Für die
  * Kalenderansichten ist der Parameter bedeutungslos, dort setzt der Zeitraum
  * bereits die Grenze.
  */
 export type TerminZeit = "anstehend" | "vergangen" | "alle";
 
+/** Sortierbare Spalten der Arbeitsliste. */
+export type TerminSort = "zeit" | "lead" | "person" | "quelle" | "status";
+
+export type SortDir = "asc" | "desc";
+
 const VIEWS: readonly TerminView[] = ["monat", "woche", "tag", "liste"];
 const ZEITEN: readonly TerminZeit[] = ["anstehend", "vergangen", "alle"];
+const SORTS: readonly TerminSort[] = ["zeit", "lead", "person", "quelle", "status"];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type TermineParams = {
   view: TerminView;
   /** Anker-Datum der Ansicht (YYYY-MM-DD). */
   date: string;
-  kinds: Set<"setting" | "closing">;
-  persons: Set<string>;
-  showHidden: boolean;
   search: string;
   /** Nur in der Listenansicht wirksam. */
   zeit: TerminZeit;
+  /** Nur in der Listenansicht wirksam. */
+  sort: TerminSort;
+  dir: SortDir;
 };
 
 export function parseTermineParams(
@@ -46,77 +63,21 @@ export function parseTermineParams(
   const rawDate = get("date");
   const date = rawDate && ISO_DATE.test(rawDate) ? rawDate : today;
 
-  const rawKinds = (get("typ") ?? "").split(",").filter(Boolean);
-  const kinds = new Set<"setting" | "closing">(
-    rawKinds.filter((k): k is "setting" | "closing" => k === "setting" || k === "closing"),
-  );
-  // Leer = beide Typen. Ein bewusst leerer Filter ist nicht sinnvoll.
-  if (kinds.size === 0) {
-    kinds.add("setting");
-    kinds.add("closing");
-  }
-
-  const persons = new Set((get("person") ?? "").split(",").filter(Boolean));
-
   const rawZeit = get("zeit");
   const zeit = ZEITEN.includes(rawZeit as TerminZeit) ? (rawZeit as TerminZeit) : "anstehend";
+
+  const rawSort = get("sort");
+  const sort = SORTS.includes(rawSort as TerminSort) ? (rawSort as TerminSort) : "zeit";
+  const dir: SortDir = get("dir") === "desc" ? "desc" : "asc";
 
   return {
     view,
     date,
-    kinds,
-    persons,
-    showHidden: get("versteckt") === "1",
     search: get("q")?.trim() ?? "",
     zeit,
+    sort,
+    dir,
   };
-}
-
-/**
- * Termin-Gruppen der Listenansicht, nach Dringlichkeit sortiert.
- *
- * `ohne` fasst Termine ohne gesetzten Zeitpunkt zusammen — die gibt es nur in
- * der Liste, im Kalender haben sie keinen Platz.
- */
-export type TerminGruppe = "ueberfaellig" | "heute" | "woche" | "spaeter" | "ohne" | "vergangen";
-
-export const GRUPPEN_LABEL: Record<TerminGruppe, string> = {
-  ueberfaellig: "Überfällig",
-  heute: "Heute",
-  woche: "Diese Woche",
-  spaeter: "Später",
-  ohne: "Ohne Termin",
-  vergangen: "Vergangen",
-};
-
-/** Reihenfolge der Gruppen in der Liste — dringend zuerst. */
-export const GRUPPEN_ORDER: readonly TerminGruppe[] = [
-  "ueberfaellig",
-  "heute",
-  "woche",
-  "spaeter",
-  "ohne",
-  "vergangen",
-];
-
-/**
- * Einordnung eines Termins.
- *
- * „Überfällig" meint: liegt in der Vergangenheit und ist noch NICHT abgehakt —
- * genau das, was liegen geblieben ist. Abgeschlossene Termine der Vergangenheit
- * landen in „Vergangen", sonst wäre die dringendste Gruppe voller Altlasten.
- */
-export function gruppeFor(
-  dayISO: string | null,
-  erledigt: boolean,
-  today: string,
-  weekEnd: string,
-): TerminGruppe {
-  if (!dayISO) return "ohne";
-  if (dayISO < today) return erledigt ? "vergangen" : "ueberfaellig";
-  if (dayISO === today) return "heute";
-  if (dayISO <= weekEnd) return "woche";
-  return "spaeter";
 }
 
 /** Die in der aktuellen Ansicht sichtbaren Tage (leer bei Monat/Liste). */
@@ -158,7 +119,7 @@ export function periodLabel(view: TerminView, date: string): string {
       ? `${short(fd, fm)} – ${short(td, tm)}${tm === fm ? ` ${ty}` : ` ${ty}`}`
       : `${short(fd, fm)}${fy} – ${short(td, tm)}${ty}`;
   }
-  return "Alle Termine";
+  return "Arbeitsliste";
 }
 
 /** Sichtbarer Datumsbereich einer Ansicht — für die Liste ohne Grenze. */

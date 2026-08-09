@@ -23,30 +23,34 @@ import {
   periodLabel,
   rangeForView,
   stepDate,
+  type TerminSort,
   type TerminView,
 } from "./viewState";
 
-// Client-Shell des Termine-Kalenders: hält Filter- und Ansichts-State (in der
-// URL), normalisiert Setting + Closing zu einem Event-Modell und verteilt es an
+// Client-Shell des Termine-Kalenders: hält Ansichts-State (in der URL),
+// normalisiert Setting + Closing zu einem Event-Modell und verteilt es an
 // Monat / Woche / Tag / Liste. Alle Daten kommen komplett vom Server-Parent —
 // Ansichtswechsel und Navigation laufen darum ohne Server-Roundtrip.
-
-type Assignee = { user_id: string; username: string };
+//
+// Typ-, Personen- und „Versteckte"-Filter sind ersatzlos entfallen (siehe
+// viewState.ts). Was übrig bleibt, ist eine Suche und der Zeitraum — alles
+// andere liest man jetzt am Chip selbst ab.
 
 export function TermineBoard({
   settings,
   closings,
-  settingAssignees,
-  closingAssignees,
   members,
-  canFilterPersons,
 }: {
   settings: SettingCall[];
   closings: ClosingCall[];
-  settingAssignees: Record<string, Assignee[]>;
-  closingAssignees: Record<string, Assignee[]>;
+  /** Nur noch Namensquelle für `assigned_user_id` — kein Filter mehr. */
   members: Member[];
-  canFilterPersons: boolean;
+  /**
+   * Ohne Wirkung. Der Personenfilter ist mit der zweiten Filterzeile entfallen;
+   * die Prop bleibt im Typ, damit `/termine/page.tsx` (fremdes Paket in dieser
+   * Runde) unverändert kompiliert. Beim nächsten Anfassen der Seite streichen.
+   */
+  canFilterPersons?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -85,9 +89,17 @@ export function TermineBoard({
   );
 
   // ── Events aufbauen + filtern ──────────────────────────────
+  // Die Mitgliederliste ist die Namensquelle für `assigned_user_id` — eine
+  // zweite Abfrage dafür gibt es nicht. Seit der Personenfilter weg ist, ist
+  // das ihr einziger Zweck.
+  const usernameById = useMemo(
+    () => new Map(members.map((m) => [m.user_id, m.username])),
+    [members],
+  );
+
   const { events: allEvents, ohneTermin: allOhneTermin } = useMemo(
-    () => buildEvents(settings, closings, settingAssignees, closingAssignees),
-    [settings, closings, settingAssignees, closingAssignees],
+    () => buildEvents(settings, closings, usernameById),
+    [settings, closings, usernameById],
   );
 
   /** Optimistische Verschiebungen einrechnen, bevor gefiltert wird. */
@@ -101,22 +113,6 @@ export function TermineBoard({
     [moved],
   );
 
-  const matchesPerson = useCallback(
-    (e: TerminEvent) => {
-      if (params.persons.size === 0) return true;
-      if (e.ownerId && params.persons.has(e.ownerId)) return true;
-      return e.assignees.some((a) => params.persons.has(a.user_id));
-    },
-    [params.persons],
-  );
-
-  const baseFiltered = useMemo(
-    () => withMoves(allEvents).filter((e) => params.kinds.has(e.kind) && matchesPerson(e)),
-    [allEvents, withMoves, params.kinds, matchesPerson],
-  );
-
-  const hiddenCount = useMemo(() => baseFiltered.filter((e) => e.hidden).length, [baseFiltered]);
-
   // Suchbegriff greift in ALLEN Ansichten — vorher filterte er nur die Liste
   // und ging beim Wechsel auf den Kalender verloren.
   const matchesSearch = useCallback(
@@ -129,31 +125,14 @@ export function TermineBoard({
   );
 
   const filtered = useMemo(
-    () =>
-      (params.showHidden ? baseFiltered : baseFiltered.filter((e) => !e.hidden)).filter(matchesSearch),
-    [baseFiltered, params.showHidden, matchesSearch],
+    () => withMoves(allEvents).filter(matchesSearch),
+    [allEvents, withMoves, matchesSearch],
   );
 
   const ohneTermin = useMemo(
-    () =>
-      allOhneTermin
-        .filter((e) => params.kinds.has(e.kind) && matchesPerson(e))
-        .filter((e) => params.showHidden || !e.hidden)
-        .filter(matchesSearch),
-    [allOhneTermin, params.kinds, matchesPerson, params.showHidden, matchesSearch],
+    () => allOhneTermin.filter(matchesSearch),
+    [allOhneTermin, matchesSearch],
   );
-
-  // Typ-Zähler zeigen den Bestand VOR dem Typ-Filter, damit man sieht, was das
-  // Einschalten bringt.
-  const counts = useMemo(() => {
-    const pool = withMoves(allEvents)
-      .concat(allOhneTermin)
-      .filter((e) => matchesPerson(e) && (params.showHidden || !e.hidden));
-    return {
-      setting: pool.filter((e) => e.kind === "setting").length,
-      closing: pool.filter((e) => e.kind === "closing").length,
-    };
-  }, [allEvents, allOhneTermin, withMoves, matchesPerson, params.showHidden]);
 
   // Auf den sichtbaren Zeitraum eingrenzen (Liste zeigt alles).
   const range = rangeForView(params.view, params.date);
@@ -206,6 +185,20 @@ export function TermineBoard({
     onClick: handleClick,
   });
 
+  // Klick auf dieselbe Spalte dreht die Richtung, auf eine andere startet
+  // aufsteigend. Default (zeit/asc) fliegt aus der URL.
+  const handleSort = useCallback(
+    (col: TerminSort) =>
+      commit((p) => {
+        const nextDir = params.sort === col && params.dir === "asc" ? "desc" : "asc";
+        if (col === "zeit") p.delete("sort");
+        else p.set("sort", col);
+        if (nextDir === "asc") p.delete("dir");
+        else p.set("dir", nextDir);
+      }),
+    [commit, params.sort, params.dir],
+  );
+
   // ── Render ─────────────────────────────────────────────────
   const [ay, am] = params.date.split("-").map(Number);
 
@@ -244,13 +237,6 @@ export function TermineBoard({
       <TermineFilterBar
         view={params.view}
         periodLabel={periodLabel(params.view, params.date)}
-        kinds={params.kinds}
-        persons={params.persons}
-        members={members}
-        showHidden={params.showHidden}
-        hiddenCount={hiddenCount}
-        counts={counts}
-        canFilterPersons={canFilterPersons}
         search={params.search}
         zeit={params.zeit}
         onSearch={(q) => setParam("q", q.trim() ? q : null)}
@@ -258,21 +244,6 @@ export function TermineBoard({
         onView={(v: TerminView) => setParam("view", v)}
         onStep={(dir) => setParam("date", stepDate(params.view, params.date, dir))}
         onToday={() => setParam("date", today)}
-        onToggleKind={(k) => {
-          const next = new Set(params.kinds);
-          if (next.has(k)) next.delete(k);
-          else next.add(k);
-          // Beide aktiv = Default → Parameter raus aus der URL.
-          setParam("typ", next.size === 0 || next.size === 2 ? null : [...next].join(","));
-        }}
-        onTogglePerson={(id) => {
-          const next = new Set(params.persons);
-          if (next.has(id)) next.delete(id);
-          else next.add(id);
-          setParam("person", next.size === 0 ? null : [...next].join(","));
-        }}
-        onResetPersons={() => setParam("person", null)}
-        onToggleHidden={() => setParam("versteckt", params.showHidden ? null : "1")}
       />
 
       {error && (
@@ -292,7 +263,15 @@ export function TermineBoard({
       )}
 
       {params.view === "liste" ? (
-        <TermineList events={filtered} ohneTermin={ohneTermin} zeit={params.zeit} today={today} />
+        <TermineList
+          events={filtered}
+          ohneTermin={ohneTermin}
+          zeit={params.zeit}
+          today={today}
+          sort={params.sort}
+          dir={params.dir}
+          onSort={handleSort}
+        />
       ) : params.view === "monat" ? (
         <CalendarMonth
           year={ay}

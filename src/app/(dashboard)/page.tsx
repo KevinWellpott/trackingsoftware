@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Bell, CalendarCheck, MessageSquare, Phone, Target, TrendingUp } from "lucide-react";
+import { ArrowRight, CalendarCheck, CalendarPlus, MessageSquare, Phone, Target, TrendingUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { addDaysISO, getISOWeek, localDateISO, weekStart } from "@/lib/dates";
@@ -11,10 +11,26 @@ import { PeriodSwitcher, type DashboardPeriod } from "@/components/dashboard/Per
 import { StatTile, StatChip } from "@/components/dashboard/StatTile";
 import { GoalProgress } from "@/components/dashboard/GoalProgress";
 import { PersonalFunnel, type FunnelStage } from "@/components/dashboard/PersonalFunnel";
+import { berlinWindowIso } from "@/components/dashboard/periodWindow";
 import { ViewingBanner } from "@/components/dashboard/ViewingBanner";
 
 // Persönliches Home-Dashboard: zeigt genau EINE Person (scopeUserId).
 // Alle Kennzahlen kommen aus gescopten RPCs/Head-Counts — kein Full-Table-Load.
+//
+// GRUNDREGEL DIESER SEITE: Der Zeitraum-Umschalter muss auf JEDE Zahl wirken.
+// Wo eine Zahl bewusst ein Bestand ist (offene Follow-ups, All-time-Summe),
+// steht das im Label bzw. in der Subline — sonst liest der Nutzer eine
+// Bestandszahl als Zeitraumzahl und hält den Umschalter für kaputt.
+//
+// Die drei Definitionen von „Termin" werden hier bewusst getrennt gehalten:
+//   1. GELEGT    = im Zeitraum gebucht (setting_calls.created_at)
+//                  → rpc_appointments_booked, Kachel „Termine gelegt".
+//   2. absolut   = findet im Zeitraum statt (appointment_at) — nur im Analyse-
+//                  Bereich, hier nicht dargestellt.
+//   3. Kohorte   = wie viele der IM ZEITRAUM GEPITCHTEN Kontakte irgendwann
+//                  einen Termin bekamen → rpc_owner_day_metrics.appts,
+//                  Kachel „Terminquote (aus Pitches)" und Funnel-Stufe
+//                  „Termine". Beantwortet Konversion, nicht Aktivität.
 
 type DayRow = {
   owner_name: string | null;
@@ -25,10 +41,14 @@ type DayRow = {
 };
 
 type ApptRateRow = { total_dms: number | string | null; total_appts: number | string | null };
-type FollowupRow = { due_soon: number | string | null; overdue: number | string | null };
 
-type PhoneRow = {
+/** rpc_appointments_booked: je Person und Berlin-Tag die Zahl gebuchter Termine. */
+type BookedRow = { user_id: string | null; day: string; cnt: number | string | null };
+
+/** rpc_phone_day_metrics — je Owner UND Tag, deshalb durchgehend zeitraumgefiltert. */
+type PhoneDayRow = {
   owner_name: string | null;
+  day: string;
   calls: number | string | null;
   gatekeeper_reached: number | string | null;
   decider_reached: number | string | null;
@@ -36,6 +56,8 @@ type PhoneRow = {
   callbacks: number | string | null;
   dead: number | string | null;
 };
+
+type ClosingRow = { status: string | null; deal_volume: number | string | null };
 
 const EUR = new Intl.NumberFormat("de-DE", {
   style: "currency",
@@ -145,20 +167,34 @@ export default async function DashboardPage({
   const trendFrom = addDaysISO(monday, -63);
   const windowFrom = periodFrom < trendFrom ? periodFrom : trendFrom;
 
-  const headCount = (
-    table: "setting_calls" | "closing_calls",
-    status?: string,
-  ) => {
+  // Halboffenes Fenster [von, morgen) in echtem UTC — Grenzen für alle Filter
+  // auf `timestamptz`-Spalten (docs §6).
+  const { startIso: periodFromIso, endIso: periodToIso } = berlinWindowIso(periodFrom, today);
+
+  // Personen-Zuordnung eines Termins: „zugewiesen ODER (nicht zugewiesen UND
+  // selbst angelegt)" — die PostgREST-Entsprechung von personOf()
+  // (src/lib/personResolution.ts), gebaut wie buildOwnScope() in access.ts.
+  // Der reine created_by_user_id-Filter von früher verlor jeden Termin, den
+  // jemand anderes FÜR diese Person angelegt hat.
+  const personFilter =
+    `assigned_user_id.eq.${scopeUserId},and(assigned_user_id.is.null,created_by_user_id.eq.${scopeUserId})`;
+
+  // Setting-Kopfzahlen: Stichtag ist `created_at` = „gelegt", identisch zur
+  // Definition von rpc_appointments_booked. Ein anderer Stichtag hier würde
+  // Kachel und Funnel-Stufe auseinanderlaufen lassen.
+  const settingCount = (status?: string) => {
     let q = supabase
-      .from(table)
+      .from("setting_calls")
       .select("*", { count: "exact", head: true })
       .eq("workspace_id", access.workspace_id)
-      .eq("created_by_user_id", scopeUserId);
+      .or(personFilter)
+      .gte("created_at", periodFromIso)
+      .lt("created_at", periodToIso);
     if (status) q = q.eq("status", status);
     return q;
   };
 
-  const phonePeriodPromise = supabase.rpc("rpc_phone_owner_metrics", {
+  const phonePeriodPromise = supabase.rpc("rpc_phone_day_metrics", {
     p_workspace_id: access.workspace_id,
     p_from: periodFrom,
     p_to: today,
@@ -169,14 +205,11 @@ export default async function DashboardPage({
     targets,
     dayRes,
     apptRateRes,
-    fuRes,
+    bookedRes,
     phonePeriodRes,
     phoneWeekRes,
     settingOpenRes,
-    settingTotalRes,
-    closingOpenRes,
-    closingWonRes,
-    wonDealsRes,
+    closingRes,
   ] = await Promise.all([
     getTargets(),
     supabase.rpc("rpc_owner_day_metrics", {
@@ -189,30 +222,36 @@ export default async function DashboardPage({
       p_workspace_id: access.workspace_id,
       p_effective_user_id: scopeUserId,
     }),
-    supabase.rpc("rpc_followup_alerts", {
+    // „Termine gelegt" — die Zahl, nach der der Auftraggeber steuert.
+    supabase.rpc("rpc_appointments_booked", {
       p_workspace_id: access.workspace_id,
-      p_today: today,
+      p_from: periodFrom,
+      p_to: today,
       p_effective_user_id: scopeUserId,
     }),
     phonePeriodPromise,
     period === "w"
       ? phonePeriodPromise
-      : supabase.rpc("rpc_phone_owner_metrics", {
+      : supabase.rpc("rpc_phone_day_metrics", {
           p_workspace_id: access.workspace_id,
           p_from: monday,
           p_to: today,
           p_effective_user_id: scopeUserId,
         }),
-    headCount("setting_calls", "offen"),
-    headCount("setting_calls"),
-    headCount("closing_calls", "offen"),
-    headCount("closing_calls", "gewonnen"),
+    settingCount("offen"),
+    // Closing + Umsatz aus EINER Zeilenmenge, damit „Gewonnen" und „€" nie
+    // auseinanderlaufen. Stichtag = Closing-Termin mit Fallback auf die
+    // Anlage — exakt closingEffDate() aus src/lib/analyse.ts, damit Dashboard
+    // und Closing-Tab dieselbe Zahl zeigen.
     supabase
       .from("closing_calls")
-      .select("deal_volume")
+      .select("status, deal_volume")
       .eq("workspace_id", access.workspace_id)
-      .eq("created_by_user_id", scopeUserId)
-      .eq("status", "gewonnen"),
+      .or(personFilter)
+      .or(
+        `and(call_at.gte.${periodFromIso},call_at.lt.${periodToIso}),` +
+        `and(call_at.is.null,created_at.gte.${periodFromIso},created_at.lt.${periodToIso})`,
+      ),
   ]);
 
   // ── Tages-Metriken (RPC existiert erst ab Migration 0011 → bei Fehler leer)
@@ -248,13 +287,16 @@ export default async function DashboardPage({
   const apptRateRow = (apptRateRes.error ? null : ((apptRateRes.data ?? []) as ApptRateRow[])[0]) ?? null;
   const alltimeDms = NUM(apptRateRow?.total_dms);
 
-  // ── Follow-ups
-  const fuRow = (fuRes.error ? null : ((fuRes.data ?? []) as FollowupRow[])[0]) ?? null;
-  const fuDue = NUM(fuRow?.due_soon) + NUM(fuRow?.overdue);
+  // ── Termine gelegt (RPC ab Migration 0028 → bei Fehler 0)
+  const bookedPeriod = (bookedRes.error ? [] : ((bookedRes.data ?? []) as BookedRow[]))
+    .reduce((sum, r) => sum + NUM(r.cnt), 0);
 
-  // ── Telefon (nur `calls` ist datumsgefiltert, Rest zählt gesamt)
+  // ── Telefon: rpc_phone_day_metrics statt rpc_phone_owner_metrics. Bei der
+  //    Owner-RPC ist NUR `calls` zeitraumgefiltert (docs §5), Entscheider und
+  //    Termine zählten dort all-time — die Tages-RPC filtert alle Spalten über
+  //    denselben Tag, das Aufsummieren ergibt echte Zeitraumwerte.
   const sumPhone = (res: typeof phonePeriodRes) => {
-    const rows = res.error ? [] : ((res.data ?? []) as PhoneRow[]);
+    const rows = res.error ? [] : ((res.data ?? []) as PhoneDayRow[]);
     return rows.reduce(
       (acc, r) => ({
         calls: acc.calls + NUM(r.calls),
@@ -267,15 +309,17 @@ export default async function DashboardPage({
   const phonePeriod = sumPhone(phonePeriodRes);
   const phoneWeek = sumPhone(phoneWeekRes);
 
-  // ── Head-Counts + Umsatz
+  // ── Setting / Closing / Umsatz — alle drei jetzt zeitraumgefiltert
   const settingOpen = settingOpenRes.count ?? 0;
-  const settingTotal = settingTotalRes.count ?? 0;
-  const closingOpen = closingOpenRes.count ?? 0;
-  const closingWon = closingWonRes.count ?? 0;
-  const revenue = (wonDealsRes.data ?? []).reduce(
-    (sum, row) => sum + NUM((row as { deal_volume: number | string | null }).deal_volume),
-    0,
-  );
+  let closingTotal = 0, closingOpen = 0, closingWon = 0, revenue = 0;
+  for (const row of (closingRes.data ?? []) as ClosingRow[]) {
+    closingTotal += 1;
+    if (row.status === "offen") closingOpen += 1;
+    if (row.status === "gewonnen") {
+      closingWon += 1;
+      revenue += NUM(row.deal_volume);
+    }
+  }
 
   // ── Ziele
   const dailyGoal = resolveTarget(targets, scopeUserId, "linkedin", "daily", "pitches");
@@ -287,7 +331,7 @@ export default async function DashboardPage({
   const showPhoneGoal = phoneTargetSet || phoneWeek.calls > 0;
   const showPhoneCard = phoneTargetSet || phonePeriod.calls > 0;
 
-  // ── Quoten
+  // ── Quoten (beide auf die Pitches DES ZEITRAUMS bezogen)
   const answerRate = periodDms > 0 ? (periodAnswers / periodDms) * 100 : null;
   const apptRate = periodDms > 0 ? (periodAppts / periodDms) * 100 : null;
   const apptTone = apptRate === null ? "neutral" : apptRate < 3 ? "error" : apptRate > 7 ? "brand" : "success";
@@ -295,9 +339,9 @@ export default async function DashboardPage({
   const funnelStages: FunnelStage[] = [
     { label: "DMs", value: periodDms.toLocaleString("de-DE"), sub: periodLabel },
     { label: "Antworten", value: periodAnswers.toLocaleString("de-DE"), sub: periodLabel },
-    { label: "Termine", value: periodAppts.toLocaleString("de-DE"), sub: periodLabel },
-    { label: "Setting", value: settingOpen.toLocaleString("de-DE"), sub: `offen · ${settingTotal.toLocaleString("de-DE")} gesamt`, href: "/termine" },
-    { label: "Closing", value: closingOpen.toLocaleString("de-DE"), sub: "offen", href: "/termine" },
+    { label: "Termine", value: periodAppts.toLocaleString("de-DE"), sub: `aus Pitches · ${periodLabel}` },
+    { label: "Setting", value: bookedPeriod.toLocaleString("de-DE"), sub: `gelegt · ${settingOpen.toLocaleString("de-DE")} offen`, href: "/termine" },
+    { label: "Closing", value: closingTotal.toLocaleString("de-DE"), sub: `${closingOpen.toLocaleString("de-DE")} offen`, href: "/termine" },
     { label: "Gewonnen", value: closingWon.toLocaleString("de-DE"), sub: EUR.format(revenue), href: "/termine" },
   ];
 
@@ -342,8 +386,11 @@ export default async function DashboardPage({
         </div>
       </header>
 
-      {/* ══ KPI-REIHE ══ */}
-      <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--sp-6)" }}>
+      {/* ══ KPI-REIHE ══
+          Vier Kacheln folgen dem Umschalter, die fünfte ist explizit als
+          Bestand beschriftet — auto-fit statt fester Spaltenzahl, damit die
+          fünfte Kachel auf schmalen Desktops sauber umbricht. */}
+      <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--sp-6)" }}>
         <StatTile
           label={`DMs · ${periodLabel}`}
           value={periodDms.toLocaleString("de-DE")}
@@ -351,15 +398,26 @@ export default async function DashboardPage({
           icon={<MessageSquare size={14} />}
         />
         <StatTile
-          label="Antwortquote"
+          label={`Antwortquote · ${periodLabel}`}
           value={answerRate === null ? "—" : formatRate(answerRate)}
           sub={`${periodAnswers.toLocaleString("de-DE")} Antworten`}
           icon={<TrendingUp size={14} />}
         />
+        {/* Definition 1: im Zeitraum GEBUCHT — über alle Kanäle (LinkedIn,
+            Telefon, manuell), unabhängig davon, wann der Termin stattfindet. */}
         <StatTile
-          label="Terminquote"
+          label={`Termine gelegt · ${periodLabel}`}
+          value={bookedPeriod.toLocaleString("de-DE")}
+          sub="im Zeitraum gebucht"
+          href="/termine"
+          icon={<CalendarPlus size={14} />}
+        />
+        {/* Definition 3: Konversion der im Zeitraum gepitchten Kontakte —
+            eine andere Frage als „gelegt", deshalb der Zusatz im Label. */}
+        <StatTile
+          label="Terminquote (aus Pitches)"
           value={apptRate === null ? "—" : formatRate(apptRate)}
-          sub={`${periodAppts.toLocaleString("de-DE")} Termine · Zielband 3–7 %`}
+          sub={`${periodAppts.toLocaleString("de-DE")} von ${periodDms.toLocaleString("de-DE")} · Ziel 3–7 %`}
           tone={apptTone}
           chip={
             apptRate === null ? undefined : (
@@ -370,23 +428,10 @@ export default async function DashboardPage({
           }
           icon={<CalendarCheck size={14} />}
         />
-        <StatTile
-          label="Follow-ups fällig"
-          value={fuDue.toLocaleString("de-DE")}
-          sub={fuDue > 0 ? "Nachfassen öffnen" : "nichts offen"}
-          tone={NUM(fuRow?.overdue) > 0 ? "warning" : "neutral"}
-          chip={
-            NUM(fuRow?.overdue) > 0 ? (
-              <StatChip tone="warning">{NUM(fuRow?.overdue).toLocaleString("de-DE")} überfällig</StatChip>
-            ) : undefined
-          }
-          href="/nachfassen"
-          icon={<Bell size={14} />}
-        />
       </div>
 
       {/* ══ ZIELE ══ */}
-      <SectionCard title="Ziele" icon={<Target size={16} />} meta={`KW ${getISOWeek(monday)}`}>
+      <SectionCard title="Ziele" icon={<Target size={16} />} meta={`KW ${getISOWeek(monday)} · fest auf Tag/Woche`}>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-7)" }}>
           <GoalProgress label="Heute" current={todayDms} goal={dailyGoal} />
           <GoalProgress label="Diese Woche" current={weekDms} goal={weeklyGoal} />
@@ -397,13 +442,19 @@ export default async function DashboardPage({
       </SectionCard>
 
       {/* ══ TREND ══ */}
-      <SectionCard title="Trend" icon={<TrendingUp size={16} />} meta="10 Wochen">
+      <SectionCard title="Trend" icon={<TrendingUp size={16} />} meta="10 Wochen · fest">
         <PersonalWeeklyChart data={trendWeeks} />
       </SectionCard>
 
       {/* ══ FUNNEL ══ */}
-      <SectionCard title="Funnel" icon={<CalendarCheck size={16} />} meta="DM → Termin → Abschluss">
+      <SectionCard title="Funnel" icon={<CalendarCheck size={16} />} meta={periodLabel}>
         <PersonalFunnel stages={funnelStages} />
+        <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginTop: "var(--sp-6)" }}>
+          „Termine“ zählt Kontakte, die im Zeitraum <strong style={{ fontWeight: 600 }}>gepitcht</strong> wurden und
+          irgendwann einen Termin bekamen (Konversion). „Setting“ zählt Termine, die im Zeitraum{" "}
+          <strong style={{ fontWeight: 600 }}>gelegt</strong> wurden — inklusive Telefon und manuell.
+          „Closing“ und „Gewonnen“ richten sich nach dem Closing-Termin.
+        </p>
       </SectionCard>
 
       {/* ══ TELEFON ══ */}
@@ -411,7 +462,7 @@ export default async function DashboardPage({
         <SectionCard title="Telefon" icon={<Phone size={16} />} href="/telefon" meta={periodLabel}>
           <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)" }}>
             {[
-              { label: `Anrufe · ${periodLabel}`, value: phonePeriod.calls },
+              { label: "Anrufe", value: phonePeriod.calls },
               { label: "Entscheider erreicht", value: phonePeriod.decider },
               { label: "Termine gesetzt", value: phonePeriod.appointments },
             ].map((s) => (
@@ -428,9 +479,6 @@ export default async function DashboardPage({
               </div>
             ))}
           </div>
-          <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginTop: "var(--sp-6)" }}>
-            Anrufe sind auf den Zeitraum gefiltert, Entscheider und Termine zählen gesamt.
-          </p>
         </SectionCard>
       )}
 

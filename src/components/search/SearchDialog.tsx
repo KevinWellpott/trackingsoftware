@@ -4,7 +4,7 @@ import { globalSearch, type SearchHit, type SearchKind } from "@/app/actions/sea
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
-import { Handshake, MessageSquare, Phone, Search, Users } from "lucide-react";
+import { AlertTriangle, Handshake, MessageSquare, Phone, Search, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
@@ -44,6 +44,9 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [searched, setSearched] = useState(false);
+  // Fehlschlag getrennt von „nichts gefunden": beides sah frueher gleich aus,
+  // und ein abgelaufener Cookie oder ein Timeout blieb dadurch unsichtbar.
+  const [failed, setFailed] = useState(false);
   const [, startTransition] = useTransition();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seq = useRef(0);
@@ -59,6 +62,7 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
       setHits([]);
       setTruncated(false);
       setSearched(false);
+      setFailed(false);
     }
   }
 
@@ -71,15 +75,27 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
     if (value.trim().length < 2) {
       setHits([]);
       setSearched(false);
+      setFailed(false);
       return;
     }
     timer.current = setTimeout(() => {
       startTransition(async () => {
-        const res = await globalSearch(value);
-        if (mine !== seq.current) return; // veraltete Antwort verwerfen
-        setHits(res.hits);
-        setTruncated(res.truncated);
-        setSearched(true);
+        try {
+          const res = await globalSearch(value);
+          if (mine !== seq.current) return; // veraltete Antwort verwerfen
+          setHits(res.hits);
+          setTruncated(res.truncated);
+          setFailed(res.failed);
+          setSearched(true);
+        } catch {
+          // Netzwerk-/Serverfehler der Action selbst. Ohne diesen Zweig bliebe
+          // das alte Ergebnis stehen und der Fehler waere nicht zu bemerken.
+          if (mine !== seq.current) return;
+          setHits([]);
+          setTruncated(false);
+          setFailed(true);
+          setSearched(true);
+        }
       });
     }, DEBOUNCE_MS);
   }
@@ -125,7 +141,31 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
           </p>
         )}
 
-        {searched && groups.length === 0 && (
+        {/* Fehlschlag hat Vorrang vor dem Leer-Text: „nichts gefunden" waere
+            hier eine Falschaussage — gesucht wurde gar nicht zu Ende. */}
+        {searched && failed && (
+          <div
+            role="status"
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "var(--sp-3)",
+              padding: "var(--sp-4) var(--sp-5)",
+              borderRadius: "var(--r-sm)",
+              background: "var(--danger-bg)",
+              border: "1px solid var(--danger)",
+            }}
+          >
+            <AlertTriangle size={14} color="var(--danger-fg)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden />
+            <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--danger-fg)" }}>
+              {groups.length > 0
+                ? "Ein Teil der Suche ist fehlgeschlagen — das Ergebnis kann unvollständig sein."
+                : "Suche fehlgeschlagen. Bitte erneut versuchen; besteht der Fehler weiter, ist die Sitzung womöglich abgelaufen."}
+            </p>
+          </div>
+        )}
+
+        {searched && !failed && groups.length === 0 && (
           <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-muted)" }}>
             Nichts gefunden für &bdquo;{query.trim()}&ldquo;.
           </p>

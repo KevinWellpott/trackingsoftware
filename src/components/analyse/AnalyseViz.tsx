@@ -1,7 +1,7 @@
 "use client";
 
 import { Children, type CSSProperties, type ReactNode } from "react";
-import { ArrowDown, Euro, Inbox, Minus, TrendingDown, TrendingUp } from "lucide-react";
+import { Euro, Inbox, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -519,7 +519,11 @@ export function BarFunnel({
   if (stages.length === 0 || stages.every((s) => s.value === 0)) return <EmptyState height={160} />;
 
   const base = stages[0].value;
-  const widthOf = (value: number): number => (base === 0 ? 12 : Math.max((value / base) * 100, 12));
+  // Deckel bei 100: In der Perioden-Zaehlweise kann eine spaete Stufe groesser
+  // sein als Stufe 1 (kurzes Fenster, viele Closings aus aelteren Terminen) —
+  // ohne Deckel liefe der Balken aus der Karte heraus.
+  const widthOf = (value: number): number =>
+    base === 0 ? 12 : Math.min(Math.max((value / base) * 100, 12), 100);
 
   return (
     <div style={{ maxWidth: 560, width: "100%", margin: "0 auto", display: "flex", flexDirection: "column" }}>
@@ -566,8 +570,11 @@ export function BarFunnel({
                       border: `1px solid ${good ? "var(--color-success-border)" : "var(--border)"}`,
                     }}
                   >
-                    <ArrowDown size={10} aria-hidden />
-                    {conv === null ? "—" : `${DEC1_FMT.format(conv)} %`}
+                    {/* Kein Abwaerts-Pfeil: der Wert ist die DURCHLASSquote, nicht
+                        der Verlust. "↓ 37,5 %" las sich wie ein Rueckgang, gemeint
+                        ist "37,5 % kommen weiter". Das Wort traegt die Bedeutung,
+                        die Trichterform darunter bleibt die Geometrie. */}
+                    {conv === null ? "—" : `${DEC1_FMT.format(conv)} % weiter`}
                   </span>
                 </div>
                 <span aria-hidden />

@@ -4,17 +4,28 @@ import type { MeetingKind } from "@/app/actions/appointments";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
 import { Segmented } from "@/components/ui/Segmented";
-import { CalendarClock, Video } from "lucide-react";
+import { CalendarClock, Phone, Video } from "lucide-react";
 import { useState, useTransition } from "react";
 
-// Generischer Termin-Dialog: Pflicht ist nur der Zeitpunkt. Termin-Art
-// wahlweise Link (Meet o. ä.), Telefon oder ohne Angabe; das Speichern
-// delegiert an den Aufrufer (LinkedIn-Listen + Phone-Tracking).
+// Generischer Termin-Dialog für Leads, die schon eine Zeile haben (LinkedIn-
+// Liste, Telefon-Liste). Reihenfolge wie vom Auftraggeber vorgegeben:
+// 1. Datum · 2. Termin-Art · 3. Link ODER Telefonnummer.
+//
+// ── Warum die dritte Option „Ohne" weg ist ─────────────────────────────────
+// Die Vorgabe lautet „Link ODER Telefon" — und genau daran hängt der Zweck:
+// „Damit wenn einer einspringen muss er direkt alle Kontaktinfos hat."
+// „Ohne" war die Abkürzung, die diesen Zweck zuverlässig aushebelte: ein
+// Termin ohne Link und ohne Nummer ist ein Termin, den niemand übernehmen
+// kann. Ein Termin findet entweder in einem Raum statt oder am Telefon —
+// eine dritte Möglichkeit gibt es nicht. Bestandszeilen mit
+// `meeting_kind is null` bleiben gültig und werden nicht angefasst.
 
-type KindOption = "link" | "telefon" | "ohne";
+type KindOption = "link" | "telefon";
 
 export type AppointmentPayload = {
   meetLink: string | null;
+  /** Nummer bei Termin-Art „Telefon"; sonst null. */
+  phone: string | null;
   meetingKind: MeetingKind;
   appointmentAt: string;
 };
@@ -24,6 +35,7 @@ export function AppointmentModal({
   onClose,
   leadName,
   defaultMeetLink,
+  defaultPhone,
   defaultAppointmentAt,
   onSubmit,
   onSaved,
@@ -32,12 +44,15 @@ export function AppointmentModal({
   onClose: () => void;
   leadName?: string;
   defaultMeetLink?: string;
+  /** Bekannte Rufnummer des Leads — spart das Abtippen. */
+  defaultPhone?: string;
   defaultAppointmentAt?: string;
   onSubmit: (payload: AppointmentPayload) => Promise<{ error?: string }>;
   onSaved?: () => void;
 }) {
   const [kind, setKind] = useState<KindOption>("link");
   const [meetLink, setMeetLink] = useState(defaultMeetLink ?? "");
+  const [phone, setPhone] = useState(defaultPhone ?? "");
   const [appointmentAt, setAppointmentAt] = useState(defaultAppointmentAt ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -50,6 +65,7 @@ export function AppointmentModal({
     if (open) {
       setKind("link");
       setMeetLink(defaultMeetLink ?? "");
+      setPhone(defaultPhone ?? "");
       setAppointmentAt(defaultAppointmentAt ?? "");
       setError(null);
     }
@@ -82,20 +98,26 @@ export function AppointmentModal({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const link = meetLink.trim();
+    const nummer = phone.trim();
     const at = appointmentAt.trim();
     if (!at) {
       setError("Bitte Termin-Zeitpunkt ausfüllen.");
       return;
     }
     if (kind === "link" && !link) {
-      setError("Bitte Termin-Link eintragen oder Art auf Telefon/Ohne stellen.");
+      setError("Bitte Termin-Link eintragen oder Art auf Telefon stellen.");
+      return;
+    }
+    if (kind === "telefon" && !nummer) {
+      setError("Bitte die Rufnummer eintragen — ohne sie kann niemand einspringen.");
       return;
     }
     setError(null);
     startTransition(async () => {
       const res = await onSubmit({
         meetLink: kind === "link" ? link : null,
-        meetingKind: kind === "ohne" ? null : kind,
+        phone: kind === "telefon" ? nummer : null,
+        meetingKind: kind,
         appointmentAt: at,
       });
       if (res?.error) {
@@ -130,7 +152,6 @@ export function AppointmentModal({
             options={[
               { value: "link", label: "Link" },
               { value: "telefon", label: "Telefon" },
-              { value: "ohne", label: "Ohne" },
             ]}
             value={kind}
             onChange={setKind}
@@ -139,10 +160,10 @@ export function AppointmentModal({
           />
         </div>
 
-        {kind === "link" && (
+        {kind === "link" ? (
           <div>
             <label htmlFor="appt-link" style={labelStyle}>
-              Termin-Link
+              Termin-Link *
             </label>
             <input
               id="appt-link"
@@ -154,14 +175,27 @@ export function AppointmentModal({
               style={inputStyle}
             />
           </div>
+        ) : (
+          <div>
+            <label htmlFor="appt-phone" style={labelStyle}>
+              <Phone size={13} /> Telefonnummer *
+            </label>
+            <input
+              id="appt-phone"
+              type="tel"
+              required
+              placeholder="+49 …"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              style={inputStyle}
+            />
+          </div>
         )}
 
         <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", margin: 0, lineHeight: 1.5 }}>
           {kind === "telefon"
-            ? "Der Termin findet telefonisch statt — es wird kein Link benötigt."
-            : kind === "ohne"
-              ? "Termin ohne Link/Telefon-Angabe — kann später ergänzt werden."
-              : "Daraus wird automatisch ein Setting-Eintrag erstellt."}
+            ? "Die Nummer steht danach am Termin — im Kalender, in der Liste und im Setting-Kopf."
+            : "Daraus wird automatisch ein Setting-Eintrag erstellt."}
         </p>
 
         {error && (
