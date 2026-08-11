@@ -1,6 +1,8 @@
 # Pitch-Tracker
 
-Next.js-App für gemeinsame Pitch-Listen, Kontakte, Pipeline-Stufen mit Wahrscheinlichkeit, Follow-up-Warnungen und Filter. Daten liegen in **Supabase** (Postgres + Auth + Row Level Security), Deployment auf **Vercel**.
+Next.js-App für den Vertriebs-Funnel eines Teams: zwei Akquise-Kanäle (LinkedIn-Pitches und Telefon-Kaltakquise), die in einen gemeinsamen Termin-Funnel münden (Setting → Closing → Umsatz), dazu zentrale Wiedervorlage, Kalender und ein mehrstufiger Analyse-Bereich. Mandantenfähig: ein Workspace = eine Organisation. Daten liegen in **Supabase** (Postgres + Auth + Row Level Security), Deployment auf **Vercel**.
+
+**Wer hier Code oder Auswertungen schreibt, liest zuerst [`docs/data-model.md`](./docs/data-model.md)** — dort stehen die maßgeblichen Kennzahl-Definitionen (u. a. die drei verschiedenen Bedeutungen von „Termin"), die Zeitzonen-Fallstricke und die Invarianten. Vor einem Release: [`docs/QA-2.0.md`](./docs/QA-2.0.md).
 
 ## Voraussetzungen
 
@@ -12,8 +14,9 @@ Next.js-App für gemeinsame Pitch-Listen, Kontakte, Pipeline-Stufen mit Wahrsche
 
 1. Im [Supabase Dashboard](https://supabase.com/dashboard) ein neues Projekt anlegen.
 2. **SQL Editor**: Inhalt von [`supabase/migrations/20260404000000_init.sql`](./supabase/migrations/20260404000000_init.sql) ausführen (einmalig).
-3. **Authentication → Providers**: E-Mail (Magic Link) aktivieren; optional Google o. Ä.
-4. **Authentication → URL configuration**:
+3. **Ebenfalls im SQL-Editor**: die Migrationen `…0019` bis `…0030` in numerischer Reihenfolge nachziehen. Sie laufen **nicht** automatisch — welche was tut und worauf zu achten ist, steht in [`docs/data-model.md`](./docs/data-model.md) §7. Zwei Reihenfolge-Regeln: `0030` setzt `0029` voraus, und `0029` muss **vor** dem Deploy des zugehörigen Codes laufen (`analyseData.ts` selektiert die neuen Spalten namentlich — fehlt eine, weist PostgREST die *gesamte* Abfrage ab und der Analyse-Bereich ist leer statt unvollständig).
+4. **Authentication → Providers**: E-Mail (Magic Link) aktivieren; optional Google o. Ä.
+5. **Authentication → URL configuration**:
    - **Site URL**: `http://localhost:3000` für lokale Entwicklung.
    - **Redirect URLs**: `http://localhost:3000/auth/callback` und nach Deploy z. B. `https://dein-projekt.vercel.app/auth/callback` (eure echte Production-URL ergänzen).
 
@@ -43,7 +46,9 @@ App: [http://localhost:3000](http://localhost:3000)
 - Erste Person: nach Login unter `/onboarding` einen Workspace anlegen.
 - Zweite Person: nach Login unter `/onboarding` den **Einladungs-Code** eintragen (sichtbar unter **Einstellungen** für alle Mitglieder).
 
-Es gilt **ein Workspace pro Nutzerkonto** (MVP). Der Partner tritt einem bestehenden Workspace bei, statt einen zweiten anzulegen.
+Es gilt **ein Workspace pro Nutzerkonto** — inzwischen keine MVP-Vereinfachung mehr, sondern eine harte Annahme: Bei zwei Mitgliedschaften sperrt `getAccessContext()` den Nutzer aus. Wer die Organisation wechselt, wird per `admin_move_user_to_workspace()` umgezogen; die alte Mitgliedschaft wird dabei gelöscht, nicht ergänzt.
+
+**Plattform-Admins** (`platform_admins`) stehen *oberhalb* der Organisationen: Sie dürfen jede Organisation lesen und dort schreiben, sind aber in keiner Kunden-Organisation Mitglied — sonst erschienen sie im Team-Dashboard und in der Datensicht-Auswahl des Kunden. Der Org-Umschalter in der Sidebar ist nur für sie sichtbar. Details in [`docs/data-model.md`](./docs/data-model.md) §2.
 
 ## Supabase MCP (read-only)
 
@@ -63,5 +68,6 @@ Die `.mcp.json` enthält **kein** Secret (das Token wird zur Laufzeit aus `${SUP
 
 ## Sicherheit
 
-- **`.env` ist nicht versioniert** (`.gitignore: .env*`) und war nie in der Git-Historie. Der `SUPABASE_SERVICE_ROLE_KEY` liegt nur lokal / in den Deploy-Env-Vars und wird ausschließlich serverseitig in `src/lib/supabase/admin.ts` aus `process.env` gelesen (nicht hartkodiert) → keine Rotation nötig, solange die lokale `.env` nicht geteilt wurde.
-- **Seed-Routen** (`/api/setup`, `/api/add-daniel`, `/api/add-samuel`) legen Nutzer über den Admin-Client an und sind einmalige Bootstrapping-Endpunkte. Da die Nutzer bereits existieren, sollten diese Routen vor dem Produktivbetrieb entfernt oder hinter ein Secret gestellt werden.
+- **`.env` ist nicht versioniert** (`.gitignore: .env*`) und war nie in der Git-Historie. Der `SUPABASE_SERVICE_ROLE_KEY` wird an genau **einer** Stelle gelesen: `src/lib/supabase/admin.ts`, serverseitig, aus `process.env` (nicht hartkodiert). Aufrufer sind nur `workspace.ts` und `platform.ts`.
+- **Der Service-Role-Key umgeht RLS vollständig.** Wer ihn außerhalb von `admin.ts` verwendet — in einem Terminal-Befehl, einem `curl`, einem Skript, einem Agenten-Lauf —, hat ihn damit in Shell-History, Prozessliste und Logs geschrieben und muss ihn **rotieren** (Supabase → Project Settings → API, danach `.env` **und** die Vercel-Env-Vars nachziehen). Das ist keine theoretische Regel: Genau dieser Fall ist beim Debuggen der globalen Suche schon eingetreten. Für Datenauswertungen ist der **read-only MCP** (siehe oben) der vorgesehene Weg — er kann nichts schreiben.
+- **Seed-Routen entfernt.** Die früheren Bootstrapping-Endpunkte (`/api/setup`, `/api/add-daniel`, `/api/add-samuel`) existieren nicht mehr; unter `src/app/api/` liegt nur noch `export/route.ts`. Neue Nutzer entstehen über Einladungs-Code bzw. die Nutzerverwaltung, nicht über ungeschützte Routen.

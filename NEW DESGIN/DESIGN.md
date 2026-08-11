@@ -140,6 +140,17 @@ Die Palette ist **computational validiert** (Dark Mode auf `#0A0A0B`): alle Farb
 
 Hilfstoken: `--viz-grid` `rgba(255,255,255,0.06)` · `--viz-axis` = `--text-muted`.
 
+**Personenfarben — zwei Paletten, eine Slot-Zuordnung.** Ein Name wird deterministisch auf einen von sechs Slots abgebildet (`ownerColor`, `src/lib/ownerColor.ts`; bekanntes Team fest verdrahtet, sonst gehasht). Welche Farbe der Slot trägt, hängt vom Ort ab:
+
+| Palette | Tokens | Wo |
+|---|---|---|
+| `ownerColor` | `--owner-1…6` (= die kategoriale Palette: Steel-Blau · Violett · Grün · Teal · Gold · Fuchsia) + `-bg`-Tints | Termine, Analyse, Listen, Telefon, Export — überall dort, wo Personenfarbe **vereinzelt** auftritt |
+| `ownerBrandColor` | Orange-500 → `--text-secondary` → Orange-300 → `--text-muted` → Orange-700 → Orange-200 | **nur** Team-Dashboard (`/team`) |
+
+Der Grund für die zweite Palette ist Dichte, nicht Geschmack: Auf `/team` stehen vier Duell-Panels, vier Mitglieder-Karten, eine Legende und ein Balkendiagramm auf einer Seite — mit sechs eigenständigen Hues standen dort bis zu sechs Fremdfarben gleichzeitig, und die Seite las sich bunt statt als Teil dieser Marke. Die Rampe wechselt bewusst zwischen Orange-Stufen und Neutraltönen: benachbarte Slots bleiben im Diagramm unterscheidbar (dort **ist** die Farbe der einzige Schlüssel zur Person), ohne eine Farbe einzuführen, die es im Markenraum nicht gibt. Weil die Slot-Zuordnung dieselbe bleibt, behält eine Person ihren Platz — nur eingefärbt aus einer anderen Rampe.
+
+Unabhängig davon gilt auf beiden Paletten das Sparsamkeitsgebot: Personenfarbe erscheint als **6px-Punkt**, nicht als Avatar-Tint, Kantenleiste oder eingefärbte Zahl. Rang und Zustand liest man aus Zahl, Icon und Untertitel; trägt die Farbe sie zusätzlich, konkurriert sie mit den Daten.
+
 > **Chart-Orange ≠ UI-Orange:** Serien-Slot 1 ist `#EA580C` (liegt im Helligkeitsband für Dark-Charts), der UI-Akzent bleibt `#F97316`.
 
 ### 3.8 Anwendungsregeln (Akzent-Budget)
@@ -231,13 +242,15 @@ Das Highlight-Farbpaar stammt direkt aus dem Dark Theme der Landing Page: `--gra
 | `--grad-lost-hover` | `linear-gradient(180deg, #E27B74, #D65A52)` | dto. Hover |
 | `--grad-neutral` | `linear-gradient(180deg, #FAFAFA, #DEDEE2)` | Ergebnis-Pill neutral/weiß |
 | `--grad-neutral-hover` | `linear-gradient(180deg, #FFFFFF, #ECECEF)` | dto. Hover |
-| `--grad-ember` | Radial `rgba(255,176,44,0.16) → rgba(255,61,0,0.06) → transparent` | dezenter Glüh-Header hinter Dashboard-/Hero-Bereichen |
+| `--grad-ember` | Radial `rgba(255,176,44,0.16) → rgba(255,61,0,0.06) → transparent` | dezenter Glüh-Header **auf einer Fläche** (Card, Hero-Panel) — siehe Regel darunter |
 | `--grad-ribbon` | Radial `#FFB147 → rgba(209,1,1,0.40)` | **nur Marketing-Momente** (Banner-Ribbon) — nie im App-UI |
 | `--grad-text-accent` | **Radial** `#FDBA4C → rgba(194,52,15,0.40)` | das eine Gradient-Wort/-Zahl pro View (per `background-clip: text`) — exakt das `<Highlight>`-Treatment der Landing Page (dort `bg-radial from-gradient-primary to-gradient-secondary/40`) |
 | `--grad-section` | Radial `rgba(249,115,22,0.10) → transparent 70%` bei `50% 0%` | Sektions-Akzent hinter hervorgehobenen Bereichen — das Landing-Muster `bg-radial-[at_50%_0%] from-primary/10`; für die Unten-Variante Position spiegeln |
 | `--grad-cta-glow` | Radial `rgba(255,176,44,0.40) → rgba(255,61,0,0.04) → transparent` bei `45% 90%` | CTA-Glow-Stapel der Landing — hinter dem Abschluss-/Login-Moment, nach unten maskiert |
 | `--grad-fade-bottom` | `rgba(10,10,11,0) → #0A0A0B` | Scroll-Masken, Listen-Ausblendungen |
 | `--grad-sheen` | `135deg, rgba(255,255,255,0.06) → transparent 40%` | Glanz-Overlay auf Glass-Hero-Karten |
+
+> **`.ember-glow` gehört auf eine Fläche, nie auf den nackten Canvas.** Die Klasse legt ein `::before` mit fester Höhe (220px) über das Element. Auf einer Card endet der Verlauf im Material und liest sich als Glühen; direkt auf `--surface-0` endet er im Nichts — und weil der Canvas fast schwarz ist, sieht man nicht den Verlauf, sondern seine untere Kante: ein dunkler Balken quer über den Seitenkopf. Genau das stand eine Zeit lang über dem Dashboard. Ein Seitenkopf ohne Card-Hintergrund braucht keinen Glow; der Marken-Moment dort ist das eine Gradient-Wort (`--grad-text-accent`), und das trägt allein.
 
 **Gradient-Text-Rezept:**
 

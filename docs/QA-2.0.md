@@ -1,88 +1,181 @@
-# QA-Checkliste — Tracking Software 2.0
+# QA-Checkliste vor dem Launch
 
-Stand: Branch `tracking-software-2.0`. Durchführen mit `npm run dev`, auf **Desktop** und **Mobil** (DevTools 360×800 oder echtes Handy), jeweils in **Hell + Dunkel** (Umschalter in der Sidebar).
+Stand: August 2026, Branch `main` — nach dem Feedback-Umbau (Personen-Zuordnung,
+Analyse-Neubau, Anruf-Log) und der Entschlackung des Analyse-Bereichs.
+
+Durchführen mit `npm run dev`, auf **Desktop und Mobil** (DevTools 360×800 oder
+echtes Gerät). Die App ist **dark-only** — es gibt keinen Hell/Dunkel-Umschalter
+mehr; wo diese Checkliste früher zwei Themes verlangte, ist das erledigt, nicht
+vergessen.
+
+Reihenfolge ist nach Risiko sortiert, nicht nach Menü. Wer abbrechen muss, hat
+mit den ersten drei Abschnitten das Wesentliche geprüft.
+
+---
 
 ## 0. Voraussetzungen
-- [ ] Migration `supabase/migrations/20260404000010_tracking_2_perf.sql` im Supabase-SQL-Editor ausgeführt (Indizes, `rpc_phone_list_counts`, `closing_calls.meet_link` + `call_at→timestamptz`). Ohne sie zeigt die Telefon-Übersicht 0-Counts und Closing-Termine speichern keine Uhrzeit.
-- [ ] Migration `supabase/migrations/20260404000011_tracking_2_fixes.sql` ausgeführt (FKs → profiles, Simon = Owner, `followup_templates`, `rpc_owner_day_metrics`). Ohne sie: Setting/Closing ohne Assignee-Namen, Dashboard-KPIs = 0, kein /team für Simon.
 
-## 0b. Feedback-Umbau (neu zu prüfen)
-- [ ] **`/` = persönliches Dashboard**: nur eigene Zahlen (KPIs, Ziele, Trend, persönlicher Funnel, Telefon); Perioden-Umschalter Woche/Monat/Jahr; keine Emojis.
-- [ ] **`/team`** (nur Kevin + Simon): Wochenduell + Duell-Verlauf, Team-Vergleichskarten, „Dashboard ansehen" wechselt die Datensicht → persönliches Dashboard des Mitglieds; Banner „Zurück zu meinen Daten"; als Member → Redirect auf /.
-- [ ] **Sidebar**: nur eigene Listen (flach, keine Owner-Ordner); Admins sehen „Team-Ansicht"-Sektion; CRM + Organic weg (alte URLs leiten auf / um).
-- [ ] **Nachfassen**: nur eigene Leads, nur letzte 7 Tage (Hinweis „X ältere ausgeblendet" + „Ältere anzeigen"), FU1/FU2/FU3-Filter, Texte aus eigenen Vorlagen.
-- [ ] **Einstellungen**: Follow-up-Vorlagen-Editor (FU1–3, {name}-Platzhalter, leer = Standard).
-- [ ] **Telefon-Import**: ohne Admin-Rechte kein Owner-Select („Import als: …"); als Admin Auswahl vorhanden.
-- [ ] **Setting/Closing**: kein Crash mehr; Assignee-Namen erscheinen (nach Migration 0011).
-- [ ] **Analyse (/analyse, nach Migration 0013)**: als Admin — Nutzer-Chips (z. B. Samuel vs. Kevin), freier Von-Bis-Zeitraum, alle 5 Tabs (LinkedIn/Telefon/Setting/Closing/Funnel), Vergleichstabelle mit Ø-Deltas, Verlaufs-Chart mit Metrik-Umschalter, LinkedIn-Funnel; als Member — gesperrter Selbst-Chip, nur eigene Daten; Telefon-Tab ohne Migration → Hinweis statt Crash.
-- [ ] **Antwort-Kategorien (nach Migration 0014)**: neu wählbar nur Positiv/Neutral/Negativ; alte Werte („Interessiert" …) bleiben in Bestandszeilen sichtbar (als „… (Alt)" im Select).
-- [ ] **Analyse 2.0**: sticky Filterleiste (Blur), Granularität Auto/Tag/Woche/Monat, aktive Filter-Chips mit ×; KPI-Heroes mit Ticker, Sparkline + Delta „vs. Vorperiode" auf allen Tabs; LinkedIn: Kategorien-Donut, Wochentag-Analyse, kumulierter Verlauf, Top-Listen-Ranking; Telefon: Outcome-Donut + 3 „Warum…"-Gründe-Karten; Setting: Quellen-Split, Budget-Verteilung, Ø Pain/Wärme-Gauges; Closing: Umsatz-Verlauf, Win/Loss-Donut, Zahlungsarten, Verlustgründe; Funnel: großer Bar-Funnel + Wert-Kennzahlen (Umsatz pro DM/Termin/Closing). Einblend-Stagger, Mobile 360px, Hell+Dunkel.
+- [ ] Migrationen `0019`–`0030` im **Supabase-SQL-Editor** ausgeführt (sie laufen
+      **nicht** automatisch, siehe `docs/data-model.md` §7). Reihenfolge zwingend;
+      `0030` setzt `0029` voraus, `0029` muss **vor** dem Deploy des Codes laufen —
+      `analyseData.ts` selektiert die neuen Spalten namentlich, und eine fehlende
+      Spalte lässt PostgREST die *gesamte* Abfrage abweisen (leerer Analyse-Bereich
+      statt unvollständigem).
+- [ ] Invarianten aus `docs/data-model.md` §8 durchlaufen — alle liefern `0`
+      bzw. eine leere Menge. Besonders: keine `assigned_user_id is null`, keine
+      Zuweisung über eine Org-Grenze, kein Lead ohne Testarm in einer
+      Routing-Liste (Ausnahme: Altbestand von vor `0030`).
+- [ ] `SUPABASE_ACCESS_TOKEN` gesetzt, falls per MCP gegengerechnet werden soll.
 
-## 1. Datenintegrität (Bestandsdaten-Beweis)
-Im Supabase-SQL-Editor ausführen — die Werte müssen dem bekannten Stand entsprechen (Referenz: 2168 Kontakte beim 2.0-Start) und dürfen sich durch das Update **nicht** verändert haben:
-```sql
-select count(*) as contacts_total from contacts;
+## 1. Automatische Checks (bei jeder Änderung)
 
-select l.owner_name, count(*) as dms
-from contacts c join lists l on l.id = c.list_id
-group by 1 order by 1;
-
-select count(*) filter (where appointment_set) as termine, count(*) as gesamt
-from contacts;
-```
-- [ ] Zahlen identisch zum Stand vor dem Update
-- [ ] Dashboard: Wochenduell + Terminquote zeigen dieselben Werte wie vor dem Update
-
-## 2. LinkedIn-Flow
-- [ ] Liste öffnen: Desktop = Raster, **Mobil = gestapelte Karten** (kein horizontales Scrollen, Tippziele groß)
-- [ ] Schnell-Track: FAB unten rechts bzw. Strg/Cmd+K — nur auf Dashboard/Listen/Nachfassen sichtbar; Mehrfach-Anlage ohne Modal-Schließen
-- [ ] Termin=Ja → Modal erzwingt Meet-Link + Datum/Uhrzeit → Eintrag erscheint in `/setting`
-- [ ] Termin entfernen → **themed Dialog** (kein Browser-confirm); Kontakt zurück im FU-Flow? (Nein — bewusst: `next_follow_up_at` bleibt leer)
-- [ ] Kontakt löschen → themed Dialog
-- [ ] Liste mit >1000 Zeilen: Summen im Fuß korrekt (kein 1000er-Cap), flüssiges Scrollen
-
-## 3. Telefon-Flow
-- [ ] CSV-Import (Google-Maps-Export): nur Firma/Telefon/Website; Duplikate übersprungen; Ergebnis mit Link zur Liste
-- [ ] Übersicht: Status-Counts je Liste korrekt (nach Migration 0010), Gesamt im Header
-- [ ] Call-Mode: ein Lead groß, klick-to-call; Tippen in Textfelder ruckelfrei (kein Re-Filter pro Taste)
-- [ ] Rückruf ohne Datum+Uhrzeit → blockiert; mit → Lead wandert in „Rückruf"-Liste
-- [ ] Nicht erreicht → eigene Liste; Toter Lead → themed Dialog; Termin → Setting-Eintrag
-- [ ] Seitenliste springt zum aktiven Lead (Weiter/Zurück, Pfeiltasten), auch bei tausenden Leads flüssig
-- [ ] Telefon-Dashboard: Metriken je Person + global, Wochenziel-Balken
-
-## 4. Setting-Flow
-- [ ] Queue: Suche (Name/Firma), Meine/Alle, Status-Filter, Termin-Zeit, Meet-Button
-- [ ] Editor: ScriptRunner speichert pro Block (gespeichert ✓), Fortschrittsbalken; Zusatznotizen prominent
-- [ ] Assignee-Multi-Select: per Tastatur bedienbar (Pfeile/Enter/Escape)
-- [ ] Qualifizierung (Show, Budget, Pain/Wärme 1–10 — auf Touch groß genug)
-- [ ] „Closing anlegen" → danach **„Zum Closing →"**-Link funktioniert
-
-## 5. Closing-Flow
-- [ ] **Termin (Datum+Uhrzeit) + Meet-Link im Editor setzbar** — Queue + Header zeigen beides (kein permanentes „Kein Termin" mehr)
-- [ ] Neues Closing übernimmt Termin/Meet-Link aus dem Setting (falls dort gesetzt)
-- [ ] Setting-Kontext read-only sichtbar (Script-Antworten des Setters)
-- [ ] Gewonnen (Deal-Volumen, Zahlung, Start) → erscheint im CRM **und** im Dashboard-Funnel-Umsatz
-- [ ] Verloren erzwingt Grund; Nachfassen erzwingt Wiedervorlage-Datum
-
-## 6. Nachfassen
-- [ ] Fällige LinkedIn-FUs (3/5/7 Tage) mit Kopier-Text; „Erledigt → nächste Stufe" / „Beantwortet"
-- [ ] Telefon-Rückrufe erscheinen zur gesetzten Uhrzeit; Closing-Nachfassen zum Datum
-- [ ] Terminierte Leads erscheinen NICHT; `/follow-up` leitet auf `/nachfassen` um
-
-## 7. Dashboard
-- [ ] Funnel-Sektion: Anrufe (KW) → Termine → Closings → Gewonnen → **Umsatz €**; Karten verlinken in die Bereiche
-- [ ] Telefon-Woche je Owner mit Owner-Farben (gleiche Person = gleiche Farbe wie überall)
-- [ ] Alle bisherigen LinkedIn-Panels unverändert (Duell, Quote, Ziele, Insights)
-
-## 8. Design/Responsive-Gegencheck
-- [ ] Dunkelmodus: keine „ausgewaschenen" hellen Flächen — Owner-Farben, Motivations-/Insight-Karten, Edit-Felder adaptieren
-- [ ] 360px-Breite: nirgends horizontales Scrollen der Seite (Ausnahme: bewusste Scroller wie Wochen-Historie)
-- [ ] Sidebar-Drawer über dem FAB; FAB verdeckt keine Inhalte (Bottom-Padding)
-- [ ] Navigation markiert auch Detailseiten (z. B. `/setting/<id>` hebt „Setting" hervor)
-- [ ] Export: Filter + Vorschau untereinander auf Mobil; Funnel-Exporte (Telefon/Setting/Closing) laden vollständige CSVs
-
-## 9. Automatische Checks (bei jeder Änderung)
 ```bash
-npm run build        # muss grün sein
 npx tsc --noEmit     # 0 Fehler
+npm run lint         # 0 Warnungen
+npm run build        # muss grün sein
 ```
+
+Es gibt **keine Tests und keine CI** — diese drei Befehle sind die gesamte
+automatische Absicherung. `next lint` existiert in dieser Next-Version nicht
+mehr; das Script ruft `eslint` direkt auf.
+
+## 2. Personen-Zuordnung (das riskanteste Stück)
+
+Der Wechsel von „wer hat angelegt" auf „wem gehört der Termin" verschiebt
+Termine und Umsatz zwischen Personen. Das ist gewollt und der wahrscheinlichste
+„das ist kaputt"-Report.
+
+- [ ] Gegenprobe aus dem Plan gelaufen (`created_by_user_id` vs.
+      `assigned_user_id`, gruppiert) — die Verschiebungen sind erklärbar.
+- [ ] Neuer Termin aus LinkedIn/Telefon → zuständig ist der **Owner der
+      Quellliste**, nicht der Anlegende.
+- [ ] Termin manuell angelegt → zuständig ist die **real angemeldete** Person,
+      auch wenn gerade die Datensicht eines Kollegen aktiv ist.
+- [ ] Closing aus „Qualifiziert" → erbt die Zuständigkeit vom Setting.
+- [ ] Umverteilen über `setAssignee()` nur als `owner` + `data_scope='workspace'`;
+      „Niemand" fällt sichtbar auf den Ersteller zurück.
+- [ ] **Mit einem `data_scope='own'`-Account gegenprüfen:** Ein Termin, den ein
+      Admin FÜR dieses Mitglied angelegt hat, ist für das Mitglied sichtbar. Die
+      RLS-Policy war der einzige destruktiv ersetzte Teil von `0028`.
+- [ ] Telefon-Zahlen eines Mitglieds erscheinen beim Mitglied, nicht beim Admin,
+      der die Liste angelegt hat (`owner_name`-Vorrang, seit `0028` auch im
+      Personenfilter der `rpc_phone_*`).
+
+## 3. Analyse-Bereich (`/analyse`, sechs Tabs + `/analyse/vergleich`)
+
+- [ ] Alle sechs Tabs laden: Übersicht · LinkedIn · Telefon · Setting · Closing ·
+      Funnel. `?tab=followup` / `?tab=listen` fallen still auf „uebersicht".
+- [ ] Filterleiste: auf- und zuklappbar, Zustand überlebt den Reload
+      (localStorage, **nicht** URL); im zugeklappten Kopf steht der aktive Filter
+      als Satz.
+- [ ] „Eigener Zeitraum" öffnet die Datumsfelder und filtert danach wirklich.
+- [ ] Beim Tabwechsel verschwinden Parameter, die auf dem Zieltab kein
+      Bedienelement haben (kein unsichtbares Weiterfiltern).
+- [ ] Sektionen sind einklappbar; die meisten starten zu. Der Klick auf das
+      **Info-Icon** öffnet die Erklärung und klappt die Sektion **nicht** um.
+- [ ] „Fortschritt" (kumulativ, mit Vorperiode) steht auf jedem Tab oben;
+      „… im Verlauf" (Setting/Closing) ist die bucketierte Variante daneben.
+- [ ] **Funnel-Tab zeigt für denselben Zeitraum weniger Termine** als Setting-Tab
+      und Übersicht — er schneidet bei heute ab. Die Meta-Zeile nennt das
+      beschnittene Fenster. Das ist korrekt, kein Fehler.
+- [ ] Funnel-Umschalter `modus=kohorte|periode` verändert die Zahlen sichtbar.
+- [ ] Telefon-Tab ohne Migration `0028`: Anwahl-Kachel und Anruf-Log zeigen einen
+      Hinweis, der Rest des Tabs bleibt stehen (kein Absturz, keine 0).
+- [ ] Zeitraum vor dem Log-Start: Anwahlen zeigen „—", nicht 0.
+- [ ] `/analyse/vergleich`: zwei Serien per Chip-Filter bauen, Link kopieren,
+      in einem neuen Tab öffnen → identisches Bild. Eine strukturell leere
+      Kombination („DMs × Kanal Telefon") ist im Dropdown **gesperrt** und
+      erzeugt bei gesetztem Filter eine Warnzeile statt eines leeren Diagramms.
+- [ ] Eine Liste mit über 1000 Zeilen: Summen stimmen (kein PostgREST-1000er-Cap).
+
+## 4. Termin-Funnel
+
+- [ ] `/termine`: Monat/Woche/Tag; **nichts wird ausgeblendet** — auch
+      `dead`/`unqualifiziert` stehen da. Füllung = Typ, Rahmen = Status.
+- [ ] Termin anlegen mit Art „Telefon" → Rufnummer ist Pflicht; mit „Link" →
+      Meet-Link ist Pflicht.
+- [ ] Termin speichern und erneut öffnen → **dieselbe Uhrzeit** (kein Versatz um
+      den UTC-Offset). Gegenprobe im Sommer *und* mit einem Winter-Datum.
+- [ ] Setting-Outcome: „Qualifiziert" legt sofort das Closing an und setzt
+      `closing_gelegt`; Closing löschen → Setting fällt auf `offen` zurück.
+- [ ] Closing „Verloren" erzwingt einen **Verlustgrund-Code** (neun Werte), der
+      Freitext daneben ist optional.
+- [ ] Closing mit Ergebnis, ohne gesetztes `show_status` → wird auf `show`
+      abgeleitet; ein bewusst gesetztes `no_show` bleibt stehen.
+
+## 5. Telefon
+
+- [ ] CSV-Import: Duplikate übersprungen; `target_group` und `script_label` der
+      Liste landen **auf jedem Lead**.
+- [ ] Call-Mode: jeder Outcome-Klick erzeugt genau eine Zeile in
+      `phone_call_attempts`; `kind` stimmt (der Anruf, der einen Rückruf
+      *verabredet*, ist kein `rueckruf`, der Rückruf selbst schon).
+- [ ] „Rückruf" ohne Datum+Uhrzeit blockiert; mit → Lead wandert physisch in die
+      Rückruf-Liste **und behält seinen Testarm**.
+- [ ] A/B-Sektionen: Arme unter 20 Erstkontakten sind ausgeblendet und in der
+      Fußnote gezählt; Leads ohne Label bekommen keine Sammelzeile.
+- [ ] Skript einer Liste nachträglich ändern → Label zieht auf die Leads durch,
+      die noch in der Liste liegen.
+
+## 6. Mandantenfähigkeit & Plattform-Admin
+
+- [ ] In der **eigenen** Organisation: `/team` zeigt nur eigene Mitglieder ·
+      Datensicht-Auswahl ohne fremde Namen · `/termine` ohne fremde Termine ·
+      Suche nach einem fremden Lead liefert 0 Treffer · Sidebar ohne fremde Listen.
+- [ ] Org-Umschalter (rot) wechselt die Organisation und löscht dabei **immer**
+      den Datensicht-Cookie; das rote Warnbanner steht in fremder Org.
+- [ ] In fremder Org angelegte Termine haben `assigned_user_id is null` — das ist
+      der einzige legitime NULL-Fall.
+- [ ] `/admin/org/[id]`: Nutzer-Umzug und Org-Löschung zeigen zuerst eine
+      Vorschau; Löschen verlangt das Abtippen des Namens und verweigert, solange
+      noch Mitglieder da sind.
+- [ ] Zeilen-Aktionen erscheinen beim Hover als Icons, nicht als drei
+      Text-Buttons.
+
+## 7. Dashboards
+
+- [ ] `/` (persönlich): Perioden-Umschalter greift auf **alle** Zahlen der Seite,
+      nicht nur auf die oberen Kacheln. Sektionen: Ziele · Trend · Funnel · Telefon.
+- [ ] Kein dunkler Balken über dem Seitenkopf (`ember-glow` gehört auf eine
+      Fläche, nie auf den nackten Canvas — DESIGN.md §5).
+- [ ] `/team`: nur Wochenduell und Team-Vergleich, **alle** Zahlen im Fenster der
+      laufenden Woche Mo–So. Keine Funnel-Sektion.
+- [ ] `/team` trägt nur Markenfarben — Orange-Stufen und Neutraltöne, keine
+      Fremd-Hues (DESIGN.md §3.7).
+- [ ] „Dashboard ansehen" wechselt die Datensicht; Banner „Zurück zu meinen
+      Daten" erscheint.
+
+## 8. Design & Responsive
+
+- [ ] 360px: nirgends horizontales Scrollen der Seite (Ausnahme: bewusste
+      Scroller wie die Wochen-Historie).
+- [ ] Zahlen stehen sofort da — kein Hochzählen (der `NumberTicker` ist eine
+      reine Formatierung; zehn gleichzeitig animierte Kacheln zeigten in der
+      ersten Sekunde zehn Nullen und ignorierten `prefers-reduced-motion`).
+- [ ] Navigation markiert auch Detailseiten (`/setting/<id>` hebt „Setting" hervor).
+- [ ] Dropdowns (Organisation, Datensicht) schieben die Seitennavigation nicht.
+
+## 9. Bekannte Lücken — geprüft, bewusst offen, nicht launch-blockierend
+
+Sie stehen hier, damit sie nicht als Neuentdeckung zurückkommen:
+
+- **CSV-Export kennt `lost_reason_code` nicht** — er exportiert weiter den
+  Freitext `lost_reason`.
+- **`move_user_scope()` kennt die Zuweisung nicht**: Der Besitz an Terminen wird
+  beim Nutzer-Umzug über `created_by_user_id` ermittelt. Ein Termin, der dem
+  Umziehenden nur *zugewiesen* ist, bleibt zurück (Invariante in §8 fängt das ab).
+- **`phone_call_attempts` fehlt in der Umzugs- und Löschvorschau** — das
+  Anruf-Log zieht beim Umzug nicht mit; gelöscht wird es beim Org-Delete trotzdem
+  (Cascade).
+- **„Termin manuell" hat kein Zuweisungsfeld** — er landet immer beim Anlegenden
+  und muss danach über `setAssignee()` umverteilt werden.
+- **`closing_calls` hat keine Rufnummer** — die Telefonnummer steht nur am Setting.
+- **Das Listen-Board füllt eine bekannte Rufnummer nicht vor.**
+- **Verlustgründe der Bestandsdaten stehen alle auf `sonstiges`** (Backfill
+  `0029`, bewusst kein Rate-Mapping). Bis zur Nachpflege ist die Verteilung eine
+  Aussage über das Deploy-Datum, nicht über die Einwände.
+- **Closing-Show-Quote steht nahe 100 %** — `show_status` wurde für Bestandsdaten
+  aus dem Ergebnis abgeleitet; echte Alt-No-Shows sind nicht rekonstruierbar.
+- **„Zu Closing geschickt" steht fast immer auf 100 %** — der Zwischenschritt
+  „qualifiziert, aber noch kein Closing gelegt" ist in der Oberfläche nicht
+  erreichbar (`docs/data-model.md` §4).
