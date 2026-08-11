@@ -693,9 +693,11 @@ export function SettingCallEditor({
       )}
 
       {/* ── Gesprächsgerüst ──
-          Nur noch Überschriften (mode="outline"). Hinweistexte und Notizfelder
-          je Block sind entfallen; vorhandene Antworten stehen weiter in
-          `script_answers` und lassen sich am jeweiligen Block aufklappen. */}
+          Voller Leitfaden: je Block die ausformulierten Fragen und ein
+          Notizfeld, Autosave beim Blur, Fortschritt oben. Zwischenzeitlich
+          stand hier nur das Gerüst aus Überschriften — damit war das Setting
+          während des Calls weder ablesbar noch beschreibbar. Antworten landen
+          wie gehabt in `script_answers` (Key = block.key). */}
       <div
         style={{
           background: "var(--surface-100)",
@@ -709,7 +711,6 @@ export function SettingCallEditor({
           Gesprächsverlauf
         </div>
         <ScriptRunner
-          mode="outline"
           blocks={SETTING_BLOCKS}
           highlight={{ title: "Gold Standards", blocks: SETTING_GOLD_BLOCKS }}
           initial={call.script_answers ?? {}}
