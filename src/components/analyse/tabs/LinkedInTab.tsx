@@ -5,16 +5,12 @@ import {
   Ban,
   CalendarPlus,
   Euro,
-  FileText,
   Flame,
-  Frown,
   ListOrdered,
-  Meh,
   MessageSquare,
   Percent,
   Repeat,
   Smile,
-  Sparkles,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -25,9 +21,10 @@ import {
   contactDay, loadClosingCalls, loadContacts, loadSettingCalls, type AnalyseContact,
 } from "@/lib/analyseData";
 import {
-  FU_MATURITY_DAYS, NUM, buildBuckets, buildFuCascade, bucketOf, eur, fmtPct, fuStage, ownerKey,
-  pct, sentimentOf, weekdayIndex, type Granularity, type ReifeKey,
+  FU_MATURITY_DAYS, NUM, SENTIMENT_META, buildBuckets, buildFuCascade, bucketOf, eur, fmtPct, fuStage,
+  ownerKey, pct, sentimentOf, weekdayIndex, type Granularity, type ReifeKey,
 } from "@/lib/analyse";
+import { VIZ_NEUTRAL } from "@/lib/viz";
 import { berlinDateISO } from "@/lib/apptTime";
 import { addDaysISO } from "@/lib/dates";
 import { personOf } from "@/lib/personResolution";
@@ -38,7 +35,9 @@ import { NumberTicker } from "@/components/magicui/number-ticker";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
-import { MetricTable, type MetricRow } from "@/components/analyse/AnalyseTables";
+import {
+  MetricTable, ShareBar, type MetricRow, type ShareSegment,
+} from "@/components/analyse/AnalyseTables";
 import { CumulativeProgressChart } from "@/components/analyse/CumulativeProgressChart";
 import { ListPerformanceTable, type ListPerfRow } from "@/components/analyse/ListPerformanceTable";
 import { KpiHero, KpiRow, type Tone } from "@/components/analyse/AnalyseViz";
@@ -67,6 +66,21 @@ import { KpiHero, KpiRow, type Tone } from "@/components/analyse/AnalyseViz";
 //    Umterminierungen. Preis: Zähler (Buchungen im Zeitraum) und Nenner (Pitches
 //    im Zeitraum) sind verschiedene Kohorten, und ein später abgesagter Termin
 //    bleibt gezählt. Beides steht als Fußnote unter der Kachelreihe.
+//
+// ── Aufbau (nach dem Entschlacken) ────────────────────────────────────────
+//
+//   1 Kennzahlen        6 Kacheln, „Termine gelegt" als einzige Leitzahl
+//   2 Vergleich         nur bei mehr als einer sichtbaren Person
+//   3 Fortschritt       drei Mengen-Serien, eine Y-Achse
+//   4 Consistency       Arbeitstage je Person
+//   5 Follow-ups        AQ FU 1/2/3 + Umsatz-Zusatz
+//   6 Nachfass-Disziplin  je Stufe · je Person
+//   7 Listen im Vergleich
+//
+// Gestrichen wurden nur Kacheln und Sektionen, KEINE Rechenwege: die drei
+// Stimmungs-Kacheln (jetzt ein Anteilsbalken), „Zusatz durch FU" auf Antwort-
+// und Terminquote, die Spalten „Streak"/„Aktive Tage" und die Sektion „Eigene
+// Nachfass-Texte vs. Standard". Begründung steht jeweils an der Stelle.
 
 type Member = { user_id: string; username: string };
 
@@ -93,6 +107,19 @@ function deltaPct(cur: number, prev: number): number | null {
 function deltaPP(cur: number | null, prev: number | null): number | null {
   if (cur === null || prev === null) return null;
   return Math.round((cur - prev) * 10) / 10;
+}
+
+/**
+ * YYYY-MM-DD → DD.MM.YYYY.
+ *
+ * Der Fortschritts-Chart trug seinen Zeitraum als rohes ISO-Datum, während
+ * jeder andere Tab deutsch datiert — dasselbe Feld in zwei Schreibweisen liest
+ * sich wie zwei verschiedene Angaben. Bewusst per String-Split statt über
+ * `Date`: ein Parse würde den Kalendertag über die Zeitzone verschieben.
+ */
+function deDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
 }
 
 /** Stagger-Wrapper für Sektionen (KpiHero animiert sich selbst). */
@@ -134,7 +161,7 @@ function B({ children }: { children: ReactNode }) {
  *
  * `AnalyseSection` ist eine Card — KPI-Kacheln darin wären Karten in einer
  * Karte. Der Follow-up-Block braucht trotzdem eine Überschrift, sonst stünden
- * plötzlich sechs weitere Kacheln im Tab, ohne dass klar wäre, worauf sie sich
+ * plötzlich vier weitere Kacheln im Tab, ohne dass klar wäre, worauf sie sich
  * beziehen. Typografie identisch zum Sektionskopf.
  *
  * `info` trägt hier dieselbe Rolle wie an der Sektion: Ein Kachelblock hat
@@ -188,33 +215,25 @@ function BlockHeading({
 }
 
 /**
- * KPI-Kachel mit erklärender Unterzeile statt Delta-Chip.
+ * Kachel-Hülle für die beiden lokalen Varianten unten.
  *
- * `KpiHero` (AnalyseViz) kennt nur den Delta-Chip. Für „Positiv 42" ist ein
- * Delta aber die falsche Zusatzinformation — gebraucht wird der Anteil, aus dem
- * die Zahl kommt („38 % der kategorisierten Antworten"). Eine nackte 42 ohne
- * Bezugsgröße ist als Kennzahl wertlos.
- *
- * Aufbau, Abstände und Klassen sind bewusst identisch zu `KpiHero`; die
- * Unterzeile sitzt exakt dort, wo dort der Delta-Chip steht. In derselben
- * `.kpi-row` stehen beide Varianten nebeneinander, ohne dass man die Naht sieht.
+ * Maße, Klassen und der 2px-Ton-Rail sind bewusst 1:1 aus `KpiHero`
+ * (AnalyseViz) übernommen: In derselben `.kpi-row` stehen fremde und lokale
+ * Kacheln nebeneinander, und die Naht darf man nicht sehen. Als eigene Hülle,
+ * damit die Übereinstimmung an EINER Stelle gepflegt wird statt in zweien.
  */
-function KpiSub({
+function TileShell({
   label,
-  value,
-  format = "int",
-  sub,
   tone = "default",
   icon,
   index = 0,
+  children,
 }: {
   label: string;
-  value: number | null;
-  format?: "int" | "pct" | "eur";
-  sub: string;
   tone?: Tone;
   icon?: ReactNode;
   index?: number;
+  children: ReactNode;
 }) {
   const toneColor =
     tone === "success" ? "var(--success)" : tone === "warning" ? "var(--warning)" : tone === "error" ? "var(--danger)" : null;
@@ -236,27 +255,101 @@ function KpiSub({
         <span className="eyebrow">{label}</span>
         {icon && <span style={{ color: "var(--orange-500)", display: "inline-flex", flexShrink: 0 }}>{icon}</span>}
       </div>
-
-      <div className="kpi-value" style={{ marginTop: "var(--sp-3)" }}>
-        {value === null ? (
-          "—"
-        ) : format === "pct" ? (
-          <>
-            <NumberTicker value={value} decimalPlaces={1} />
-            {" %"}
-          </>
-        ) : format === "eur" ? (
-          <>
-            <NumberTicker value={value} decimalPlaces={0} />
-            {" €"}
-          </>
-        ) : (
-          <NumberTicker value={value} decimalPlaces={0} />
-        )}
-      </div>
-
-      <div style={{ marginTop: "var(--sp-4)", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{sub}</div>
+      {children}
     </div>
+  );
+}
+
+/** Die große Zahl einer Kachel — identisch zur `kpi-value`-Zeile in `KpiHero`. */
+function TileValue({ value, format = "int" }: { value: number | null; format?: "int" | "pct" | "eur" }) {
+  return (
+    <div className="kpi-value" style={{ marginTop: "var(--sp-3)" }}>
+      {value === null ? (
+        "—"
+      ) : format === "pct" ? (
+        <>
+          <NumberTicker value={value} decimalPlaces={1} />
+          {" %"}
+        </>
+      ) : format === "eur" ? (
+        <>
+          <NumberTicker value={value} decimalPlaces={0} />
+          {" €"}
+        </>
+      ) : (
+        <NumberTicker value={value} decimalPlaces={0} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * KPI-Kachel mit erklärender Unterzeile statt Delta-Chip.
+ *
+ * `KpiHero` kennt nur den Delta-Chip. Für „AQ FU 1 = 12,4 %" ist ein Delta aber
+ * die falsche Zusatzinformation — gebraucht wird der Bruch, aus dem die Quote
+ * kommt („18 Antworten von 145 erreichten"). Die Unterzeile sitzt exakt dort,
+ * wo in `KpiHero` der Delta-Chip steht.
+ */
+function KpiSub({
+  label,
+  value,
+  format = "int",
+  sub,
+  tone = "default",
+  icon,
+  index = 0,
+}: {
+  label: string;
+  value: number | null;
+  format?: "int" | "pct" | "eur";
+  sub: string;
+  tone?: Tone;
+  icon?: ReactNode;
+  index?: number;
+}) {
+  return (
+    <TileShell label={label} tone={tone} icon={icon} index={index}>
+      <TileValue value={value} format={format} />
+      <div style={{ marginTop: "var(--sp-4)", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{sub}</div>
+    </TileShell>
+  );
+}
+
+/**
+ * Kachel mit Anteilsbalken statt Unterzeile.
+ *
+ * Ersetzt die früheren drei Kacheln „Positive / Neutrale / Negative Antwort".
+ * Die drei zeigten eine Verteilung, die sich auf 100 % addiert, und schrieben
+ * dabei dreimal denselben Nenner aus — drei Kacheln für einen einzigen Split.
+ * `ShareBar` zeigt denselben Inhalt auf einem Sechstel der Fläche und zeigt ihn
+ * erstmals ALS Split: Die Segmentbreiten stehen nebeneinander, statt dass man
+ * drei Prozentwerte im Kopf sortieren muss.
+ *
+ * Der Balken rechnet gegen ALLE Antworten, nicht nur gegen die kategorisierten:
+ * unkategorisierte Antworten sind ein eigenes Segment. Vorher fielen sie aus
+ * dem Nenner und damit unsichtbar aus der Auswertung.
+ */
+function KpiShare({
+  label,
+  value,
+  segments,
+  icon,
+  index = 0,
+}: {
+  label: string;
+  value: number | null;
+  segments: ShareSegment[];
+  icon?: ReactNode;
+  index?: number;
+}) {
+  return (
+    <TileShell label={label} icon={icon} index={index}>
+      <TileValue value={value} />
+      <div style={{ marginTop: "var(--sp-4)" }}>
+        <ShareBar segments={segments} height={8} />
+      </div>
+    </TileShell>
   );
 }
 
@@ -317,11 +410,6 @@ type ListAgg = {
   answers: number;
   appts: number;
   revenue: number;
-  withFu: number;
-  /** Kontakte, die Stufe k erreicht haben. */
-  reached: number[];
-  /** Antworten, die genau auf Stufe k kamen. */
-  stageAnswers: number[];
 };
 
 function newListAgg(id: string, c: AnalyseContact): ListAgg {
@@ -337,9 +425,7 @@ function newListAgg(id: string, c: AnalyseContact): ListAgg {
       fu2: Boolean(l?.fu2_text?.trim()),
       fu3: Boolean(l?.fu3_text?.trim()),
     },
-    dms: 0, answers: 0, appts: 0, revenue: 0, withFu: 0,
-    reached: [0, 0, 0, 0],
-    stageAnswers: [0, 0, 0, 0],
+    dms: 0, answers: 0, appts: 0, revenue: 0,
   };
 }
 
@@ -558,13 +644,32 @@ export async function LinkedInTab({
   const apptRate = pct(booked, dms);
   const prevApptRate = pct(prevBooked, prevDms);
   const apptTone: Tone = apptRate === null ? "default" : apptRate < 3 ? "error" : apptRate <= 7 ? "success" : "default";
-  const categorized = sentiment.positiv + sentiment.neutral + sentiment.negativ;
   const blockedRate = pct(blocked, dms);
+
+  // Stimmungs-Split für den Anteilsbalken. „Ohne Kategorie" ist ein VOLLWERTIGES
+  // Segment, nicht ein weggelassener Rest: Nenner ist die Zahl über dem Balken
+  // (alle Antworten). Vorher rechneten die drei Kacheln gegen die
+  // kategorisierten Antworten — wer nichts kategorisiert, sah trotzdem
+  // saubere 100 %, und die Datenlücke stand nur im Info-Popover.
+  const sentimentSegments: ShareSegment[] = [
+    ...SENTIMENT_META.map((m) => ({ label: m.label, value: sentiment[m.key], color: m.color })),
+    { label: "Ohne Kategorie", value: sentiment.offen, color: VIZ_NEUTRAL },
+  ];
 
   // Anzeigereihenfolge: Mitglieder, dann "Ohne Zuordnung" (nur mit Daten).
   const names = selectedMembers.map((m) => m.username);
   const ohne = perPerson.get(OHNE);
   if (ohne && (ohne.dms > 0 || ohne.booked > 0)) names.push(OHNE);
+
+  /**
+   * Gibt es überhaupt etwas zu vergleichen?
+   *
+   * Bei genau einer sichtbaren Person ist die Vergleichstabelle eine Zeile plus
+   * eine „Gesamt"-Zeile mit denselben Zahlen — und beide Zeilen stehen bereits
+   * in der Kachelreihe darüber. Der Übersicht-Tab blendet seine Personen-
+   * Tabelle aus demselben Grund aus; hier fehlte das Gate.
+   */
+  const multiPerson = names.length > 1;
 
   const personRows: ComparisonRow[] = names.map((name) => {
     const p = perPerson.get(name) ?? ZERO_PERSON();
@@ -584,9 +689,14 @@ export async function LinkedInTab({
   // ── Consistency ──────────────────────────────────────────────
   // Nur bis heute rechnen: ein laufender Monat darf seine Zukunft nicht als
   // Lücke zählen (gleiche Regel wie beim Ziel-Abgleich in der Übersicht).
+  //
+  // Die frühere Spalte „Streak" ist ersatzlos weg: Sie zählte nur innerhalb des
+  // gewählten Zeitraums und war damit auf dessen Arbeitstage gedeckelt — bei
+  // „Diese Woche" konnte sie nie über 5 gehen, dieselbe Person hatte je nach
+  // Filter eine andere Serie. Eine Zahl, deren Bedeutung am Filter hängt,
+  // motiviert nicht, sie verwirrt.
   const consistencyTo = to < today ? to : today;
   const workdays = workdayList(from, consistencyTo);
-  const lastWorkday = workdays[workdays.length - 1] ?? null;
 
   const consistencyRows: MetricRow[] = selectedMembers.map((m) => {
     const days = dmsByPersonDay.get(m.username) ?? new Map<string, number>();
@@ -604,32 +714,23 @@ export async function LinkedInTab({
       if (goal > 0 && n >= goal) goalDays += 1;
     }
 
-    // Streak rückwärts über die Arbeitstage. Der heutige Tag darf leer sein,
-    // ohne die Serie zu brechen — er ist schlicht noch nicht vorbei. Jeder
-    // andere leere Arbeitstag beendet sie.
-    let streak = 0;
-    for (let i = workdays.length - 1; i >= 0; i--) {
-      const d = workdays[i];
-      if ((days.get(d) ?? 0) > 0) {
-        streak += 1;
-        continue;
-      }
-      if (d === lastWorkday && d === today) continue;
-      break;
-    }
-
     const quote = pct(activeDays, workdays.length);
     return {
       key: m.user_id,
       label: m.username,
-      sub: goal > 0 ? `Tagesziel ${INT.format(goal)} DMs` : "kein Tagesziel hinterlegt",
+      // „Aktive Tage" stand früher als eigene Spalte neben „Konsistenz" —
+      // Zähler und Quotient desselben Bruchs, also dieselbe Messung zweimal.
+      // Vergleichbar über verschiedene Zeiträume ist nur der Quotient; der
+      // Zähler steht jetzt dort, wo auch sein Nenner steht, und liest sich
+      // damit als Bruch statt als konkurrierende Kennzahl.
+      sub: `${INT.format(activeDays)} von ${INT.format(workdays.length)} Arbeitstagen${
+        goal > 0 ? ` · Ziel ${INT.format(goal)} DMs/Tag` : " · kein Tagesziel"
+      }`,
       share: quote === null ? null : quote / 100,
       color: ownerColor(m.username).fg,
       values: {
-        activeDays,
         quote,
         goalDays,
-        streak,
         avgDms: activeDays === 0 ? null : Math.round((dmsOnActive / activeDays) * 10) / 10,
       },
     };
@@ -643,11 +744,14 @@ export async function LinkedInTab({
 
   const cascade = buildFuCascade(fuContacts);
   const fuPitches = cascade[0].reached;
-  const fuAnswers = cascade[1].answers + cascade[2].answers + cascade[3].answers;
-  const fuAppts = cascade[1].appts + cascade[2].appts + cascade[3].appts;
-  const fuAnswerLift = pct(fuAnswers, fuPitches);
-  const fuApptLift = pct(fuAppts, fuPitches);
 
+  // Von den drei früheren „Zusatz durch FU"-Kacheln ist nur die Euro-Fassung
+  // geblieben. Die Prozent-Varianten (Anteil an Antwort- und Terminquote)
+  // sagten dasselbe wie ihr eigener Info-Text: kein Inkrementalwert, ohne
+  // Kontrollgruppe eher Obergrenze als Beweis. Eine Zahl, die selbst erklärt,
+  // nichts zu belegen, löst keine Handlung aus. Beim Umsatz ist das anders —
+  // „ohne Nachfassen wären X € nicht entstanden" ist die einzige Größe hier,
+  // die je eine Entscheidung ändert.
   let revenueTotal = 0;
   let revenueAfterFu = 0;
   for (const c of fuContacts) {
@@ -720,14 +824,8 @@ export async function LinkedInTab({
       agg = newListAgg(c.list_id, c);
       byList.set(c.list_id, agg);
     }
-    const s = fuStage(c.follow_up_number);
     agg.dms += 1;
-    if (s >= 1) agg.withFu += 1;
-    for (let k = 0; k <= s; k++) agg.reached[k] += 1;
-    if (c.answered === true) {
-      agg.answers += 1;
-      agg.stageAnswers[s] += 1;
-    }
+    if (c.answered === true) agg.answers += 1;
     if (c.appointment_set === true) agg.appts += 1;
     if (c.setting_call_id) agg.revenue += wonBySetting.get(c.setting_call_id) ?? 0;
   }
@@ -748,31 +846,6 @@ export async function LinkedInTab({
     revenue: l.revenue,
   }));
 
-  // ── Eigene Nachfass-Texte vs. Standard ───────────────────────
-  function sumGroup(group: ListAgg[]) {
-    const gDms = group.reduce((s, l) => s + l.dms, 0);
-    const gAnswers = group.reduce((s, l) => s + l.answers, 0);
-    const gAppts = group.reduce((s, l) => s + l.appts, 0);
-    const gWithFu = group.reduce((s, l) => s + l.withFu, 0);
-    const gFuAnswers = group.reduce((s, l) => s + l.stageAnswers[1] + l.stageAnswers[2] + l.stageAnswers[3], 0);
-    const gReachedFu1 = group.reduce((s, l) => s + l.reached[1], 0);
-    return {
-      lists: group.length,
-      dms: gDms,
-      answerRate: pct(gAnswers, gDms),
-      fuUsage: pct(gWithFu, gDms),
-      fuAnswerRate: pct(gFuAnswers, gReachedFu1),
-      apptRate: pct(gAppts, gDms),
-    };
-  }
-
-  const withTexts = qualified.filter((l) => l.texts.fu1 || l.texts.fu2 || l.texts.fu3);
-  const withoutTexts = qualified.filter((l) => !(l.texts.fu1 || l.texts.fu2 || l.texts.fu3));
-  const textRows: MetricRow[] = [
-    { key: "eigen", label: "Eigene Nachfass-Texte", sub: "mindestens FU1 hinterlegt", values: sumGroup(withTexts) },
-    { key: "standard", label: "Standard-Texte", sub: "Nutzer-Vorlage bzw. Fallback", values: sumGroup(withoutTexts) },
-  ].filter((r) => (r.values.lists as number) > 0);
-
   const reifeNote =
     reife === "reif"
       ? `nur Pitches bis ${matureBefore}`
@@ -780,11 +853,17 @@ export async function LinkedInTab({
 
   return (
     <>
-      {/* ══ 1 · Acht Kennzahlen ══
+      {/* ══ 1 · Sechs Kennzahlen ══
           Die Kachelreihe hat keine Karte und damit keinen Sektionskopf, an dem
           ein Info-Icon sitzen könnte. Die Überschrift ist dieser Anker — und
           sie stellt den Block zugleich auf dieselbe Stufe wie den
-          Follow-up-Block weiter unten, der schon immer eine hatte. */}
+          Follow-up-Block weiter unten, der schon immer eine hatte.
+
+          Reihenfolge = Funnel-Reihenfolge; auf breiten Viewports ergibt das zwei
+          Zeilen à drei Kacheln: oben die Ansprache (DMs → Antwortquote →
+          Stimmung der Antworten), unten das Ergebnis (Termine → Terminquote →
+          was uns verloren geht). Die drei früheren Stimmungs-Kacheln sind zu
+          einer zusammengefallen. */}
       <BlockHeading
         title="Kennzahlen"
         icon={MessageSquare}
@@ -798,10 +877,11 @@ export async function LinkedInTab({
               Akquise-Leistung, nicht das Ergebnis.
             </span>
             <span>
-              <B>Positiv · Neutral · Negativ</B> rechnen gegen die {INT.format(categorized)} kategorisierten
-              Antworten und addieren sich deshalb auf 100 %.
+              Der <B>Stimmungs-Balken</B> teilt die Antworten in Positiv, Neutral, Negativ und &bdquo;Ohne
+              Kategorie&ldquo;. Sein Nenner sind ALLE Antworten — Antworten ohne gepflegte Kategorie sind ein
+              eigenes Segment, statt aus der Rechnung zu fallen.
               {sentiment.offen > 0 &&
-                ` ${INT.format(sentiment.offen)} beantwortete Kontakte haben keine Kategorie und stecken in keinem der drei Werte.`}
+                ` Aktuell betrifft das ${INT.format(sentiment.offen)} von ${INT.format(answers)} Antworten.`}
             </span>
           </InfoBody>
         }
@@ -823,27 +903,25 @@ export async function LinkedInTab({
           icon={<TrendingUp size={15} />}
           index={1}
         />
-        <KpiSub
-          label="Positive Antwort"
-          value={sentiment.positiv}
-          sub={`${fmtPct(pct(sentiment.positiv, categorized))} der kategorisierten Antworten`}
-          tone="success"
+        <KpiShare
+          label="Antworten"
+          value={answers}
+          segments={sentimentSegments}
           icon={<Smile size={15} />}
           index={2}
         />
-        <KpiSub
-          label="Neutrale Antwort"
-          value={sentiment.neutral}
-          sub={`${fmtPct(pct(sentiment.neutral, categorized))} der kategorisierten Antworten`}
-          icon={<Meh size={15} />}
+        {/* Die EINE Leitzahl des Tabs (`lead`, siehe KpiHero): DMs sind Aufwand,
+            Termine sind das Ergebnis, für das der Aufwand betrieben wird. Die
+            Quoten daneben sind Diagnose — sie erklären die Leitzahl, ersetzen
+            sie aber nicht: 8 % Terminquote auf 25 DMs ist kein guter Monat.
+            Nur eine Glaskarte pro Ansicht (COMPONENTS §5.2). */}
+        <KpiHero
+          label="Termine gelegt"
+          value={booked}
+          delta={deltaPct(booked, prevBooked)}
+          icon={<CalendarPlus size={15} />}
           index={3}
-        />
-        <KpiSub
-          label="Negative Antwort"
-          value={sentiment.negativ}
-          sub={`${fmtPct(pct(sentiment.negativ, categorized))} der kategorisierten Antworten`}
-          icon={<Frown size={15} />}
-          index={4}
+          lead
         />
         <KpiHero
           label="Terminquote"
@@ -853,14 +931,7 @@ export async function LinkedInTab({
           deltaLabel="vs. Vorperiode (pp)"
           tone={apptTone}
           icon={<Percent size={15} />}
-          index={5}
-        />
-        <KpiHero
-          label="Termine gelegt"
-          value={booked}
-          delta={deltaPct(booked, prevBooked)}
-          icon={<CalendarPlus size={15} />}
-          index={6}
+          index={4}
         />
         <KpiSub
           label="Block-Quote"
@@ -869,42 +940,51 @@ export async function LinkedInTab({
           sub={`${INT.format(blocked)} von ${INT.format(dms)} Kontakten haben blockiert`}
           tone={blockedRate !== null && blockedRate >= 5 ? "error" : "default"}
           icon={<Ban size={15} />}
-          index={7}
+          index={5}
         />
       </KpiRow>
 
       {/* ══ 2 · Vergleich je Person ══
-          Bleibt offen: die zentrale Vergleichstabelle des Tabs. */}
-      <Fade i={8}>
-        <AnalyseSection title="Vergleich" icon={Users} meta="DMs · Antworten · gelegte Termine" collapsible>
-          <ComparisonTable
-            columns={[
-              { key: "dms", label: "DMs", format: "int" },
-              { key: "answers", label: "Antworten", format: "int" },
-              { key: "answerRate", label: "Antwortquote", format: "pct", deltaVsAvg: true },
-              { key: "booked", label: "Termine gelegt", format: "int" },
-              { key: "apptRate", label: "Terminquote", format: "pct", deltaVsAvg: true },
-              { key: "blockedRate", label: "Block-Quote", format: "pct" },
-            ]}
-            rows={personRows}
-            average={{
-              dms,
-              answers,
-              answerRate,
-              booked,
-              apptRate,
-              blockedRate,
-            }}
-            averageLabel="Gesamt"
-          />
-        </AnalyseSection>
-      </Fade>
+          Bleibt offen: die zentrale Vergleichstabelle des Tabs — aber nur, wenn
+          es mehr als eine Person zu vergleichen gibt (siehe `multiPerson`). */}
+      {multiPerson && (
+        <Fade i={6}>
+          <AnalyseSection title="Vergleich" icon={Users} meta="DMs · Antworten · gelegte Termine" collapsible>
+            <ComparisonTable
+              columns={[
+                { key: "dms", label: "DMs", format: "int" },
+                { key: "answers", label: "Antworten", format: "int" },
+                { key: "answerRate", label: "Antwortquote", format: "pct", deltaVsAvg: true },
+                { key: "booked", label: "Termine gelegt", format: "int" },
+                { key: "apptRate", label: "Terminquote", format: "pct", deltaVsAvg: true },
+                { key: "blockedRate", label: "Block-Quote", format: "pct" },
+              ]}
+              rows={personRows}
+              average={{
+                dms,
+                answers,
+                answerRate,
+                booked,
+                apptRate,
+                blockedRate,
+              }}
+              averageLabel="Gesamt"
+            />
+          </AnalyseSection>
+        </Fade>
+      )}
 
       {/* ══ 3 · Fortschritt ══
-          Startet zu: Die Endstände aller fünf Serien stehen bereits in der
+          Startet zu: Die Endstände aller drei Serien stehen bereits in der
           Kachelreihe. Der Chart beantwortet nur, WANN im Zeitraum sie
-          entstanden sind — eine Nachfrage. */}
-      <Fade i={9}>
+          entstanden sind — eine Nachfrage.
+
+          Antwort- und Terminquote sind als Serien raus. Sie zeigten exakt die
+          Endwerte zweier Kacheln darüber und zwangen den Chart dafür auf eine
+          zweite Y-Achse — COMPONENTS §9 erlaubt genau eine. Kumulierte Quoten
+          laufen zudem gegen ihren eigenen Endwert und sehen deshalb immer nach
+          Beruhigung aus, egal was passiert ist. */}
+      <Fade i={7}>
         <AnalyseSection
           title="Fortschritt"
           icon={TrendingUp}
@@ -918,10 +998,8 @@ export async function LinkedInTab({
               { key: "dms", label: "DMs", kind: "count", values: dmsByBucket, defaultOn: true },
               { key: "answers", label: "Antworten", kind: "count", values: answersByBucket },
               { key: "termine", label: "Termine gelegt", kind: "count", values: bookedByBucket },
-              { key: "aq", label: "Antwortquote", kind: "rate", values: answersByBucket, denominator: dmsByBucket },
-              { key: "tq", label: "Terminquote", kind: "rate", values: bookedByBucket, denominator: dmsByBucket },
             ]}
-            rangeLabel={`${from} – ${to}`}
+            rangeLabel={`${deDate(from)} – ${deDate(to)}`}
             note="DMs und Antworten sitzen auf dem Pitch-Tag, Termine auf ihrem Buchungstag."
           />
         </AnalyseSection>
@@ -929,8 +1007,13 @@ export async function LinkedInTab({
 
       {/* ══ 4 · Consistency ══
           Startet zu: Arbeitsverhalten je Person ist eine Führungsfrage, kein
-          Erstblick auf die Zahlen des Zeitraums. */}
-      <Fade i={10}>
+          Erstblick auf die Zahlen des Zeitraums.
+
+          Bleibt auch bei einer einzigen Person stehen: Anders als beim
+          Vergleich oben steht hier keine Spalte irgendwo sonst im Tab — die
+          Verteilung der DMs über die Arbeitstage ist eine eigene Frage, keine
+          zweite Schreibweise der Kachelreihe. */}
+      <Fade i={8}>
         <AnalyseSection
           title="Consistency"
           icon={Flame}
@@ -946,12 +1029,8 @@ export async function LinkedInTab({
               <span>
                 <B>Konsistenz</B> misst gegen die Arbeitstage Mo–Fr bis heute, nicht gegen Kalendertage — sonst
                 bestrafte jedes Wochenende die Quote. Pitches am Wochenende zählen hier aus demselben Grund nicht
-                mit; in den Kennzahlen oben sind sie enthalten.
-              </span>
-              <span>
-                <B>Streak</B> sind die zuletzt lückenlos aktiven Arbeitstage innerhalb des gewählten Zeitraums; der
-                heutige Tag darf noch leer sein, ohne die Serie zu brechen. Ein kürzerer Zeitraum deckelt die
-                Streak automatisch.
+                mit; in den Kennzahlen oben sind sie enthalten. Die aktiven Tage selbst stehen unter dem Namen,
+                nicht als eigene Spalte: Sie sind der Zähler dieser Quote, keine zweite Kennzahl.
               </span>
             </InfoBody>
           }
@@ -959,14 +1038,12 @@ export async function LinkedInTab({
           <MetricTable
             label="Person"
             columns={[
-              { key: "activeDays", label: "Aktive Tage", format: "int" },
               { key: "quote", label: "Konsistenz", format: "pct", emphasis: true },
               { key: "goalDays", label: "Ziel erreicht", format: "int" },
-              { key: "streak", label: "Streak", format: "int" },
               { key: "avgDms", label: "Ø DMs/aktiver Tag", format: "num1" },
             ]}
             rows={consistencyRows}
-            minWidth={560}
+            minWidth={440}
             emptyHint="Keine Person ausgewählt."
           />
         </AnalyseSection>
@@ -980,10 +1057,12 @@ export async function LinkedInTab({
         info={
           <InfoBody>
             <span>
-              <B>&bdquo;Zusatz durch FU&ldquo; ist kein Inkrementalwert.</B> Es gibt keine Kontrollgruppe und keinen
-              Zeitstempel je Follow-up — gespeichert ist nur die zuletzt gesendete Stufe. Belastbar ist allein: So
-              viel Prozent entstand bei Kontakten, deren letzte Stufe mindestens FU1 war. Ein Teil davon hätte auch
-              ohne Nachfassen geantwortet — eher Obergrenze als Beweis.
+              <B>&bdquo;Zusatz durch FU an Umsatz&ldquo; ist kein Inkrementalwert.</B> Es gibt keine Kontrollgruppe
+              und keinen Zeitstempel je Follow-up — gespeichert ist nur die zuletzt gesendete Stufe. Belastbar ist
+              allein: So viel Umsatz entstand bei Kontakten, deren letzte Stufe mindestens FU1 war. Ein Teil davon
+              hätte auch ohne Nachfassen geantwortet — eher Obergrenze als Beweis. Als Euro-Betrag trägt die Zahl
+              trotzdem eine Entscheidung (lohnt der Aufwand?); die früheren Prozent-Fassungen auf Antwort- und
+              Terminquote taten das nicht und sind deshalb entfallen.
             </span>
             <span>
               Der Umsatz läuft über den Quellkontakt des gewonnenen Closings; manuell gebuchte Termine ohne
@@ -1024,24 +1103,6 @@ export async function LinkedInTab({
           index={2}
         />
         <KpiSub
-          label="Zusatz durch FU an AQ"
-          value={fuAnswerLift}
-          format="pct"
-          sub={`${INT.format(fuAnswers)} Antworten kamen ab FU1`}
-          tone={fuAnswerLift !== null && fuAnswerLift > 0 ? "success" : "default"}
-          icon={<Sparkles size={15} />}
-          index={3}
-        />
-        <KpiSub
-          label="Zusatz durch FU an TQ"
-          value={fuApptLift}
-          format="pct"
-          sub={`${INT.format(fuAppts)} Termine bei Kontakten ab FU1`}
-          tone={fuApptLift !== null && fuApptLift > 0 ? "success" : "default"}
-          icon={<Sparkles size={15} />}
-          index={4}
-        />
-        <KpiSub
           label="Zusatz durch FU an Umsatz"
           value={revenueAfterFu}
           format="eur"
@@ -1052,7 +1113,7 @@ export async function LinkedInTab({
           }
           tone={revenueAfterFu > 0 ? "success" : "default"}
           icon={<Euro size={15} />}
-          index={5}
+          index={3}
         />
       </KpiRow>
 
@@ -1064,7 +1125,7 @@ export async function LinkedInTab({
           einer der beiden Karten so bleibt — ohne die Vorgabe würde die
           zugeklappte auf die Höhe der offenen gestreckt. */}
       <div className="analyse-row" style={{ alignItems: "start" }}>
-        <Fade i={11}>
+        <Fade i={9}>
           <AnalyseSection
             title="Wird konsequent nachgefasst?"
             icon={AlarmClock}
@@ -1093,7 +1154,11 @@ export async function LinkedInTab({
             />
           </AnalyseSection>
         </Fade>
-        <Fade i={12}>
+        {/* Bleibt auch bei einer Person stehen: „Anteil" und „Ø Verzug" stehen
+            nirgends sonst im Tab — der Sektionskopf nennt nur die beiden
+            Absolutwerte. Eine Zeile ist hier also kein Echo, sondern die
+            einzige Stelle mit diesen Zahlen. */}
+        <Fade i={10}>
           <AnalyseSection
             title="Wer hängt hinterher?"
             icon={Users}
@@ -1133,8 +1198,15 @@ export async function LinkedInTab({
       {/* ══ 7 · Listen ══
           Startet zu: Das Listen-Ranking ist Textarbeit („welche Variante
           trägt?"), keine Zahl des Tages. Die Kopfzeile nennt weiterhin, wie
-          viele Listen die Mindestmenge erreichen. */}
-      <Fade i={13}>
+          viele Listen die Mindestmenge erreichen.
+
+          Letzte Sektion des Tabs. Die frühere Nebenauswertung „Eigene
+          Nachfass-Texte vs. Standard" darunter ist gestrichen: zwei Gruppen,
+          die sich in Zielgruppe UND Zeitpunkt unterscheiden, ergeben keinen
+          A/B-Test — das stand schon in ihrem eigenen Info-Text. Die einzige
+          Handlung daraus („Liste X hat keine FU-Texte") steht als Chip
+          P · 1 · 2 · 3 in dieser Tabelle, pro Liste statt als Sammelquote. */}
+      <Fade i={11}>
         <AnalyseSection
           title="Listen im Vergleich"
           icon={ListOrdered}
@@ -1157,40 +1229,6 @@ export async function LinkedInTab({
           }
         >
           <ListPerformanceTable rows={listRows} showOwner={canCompare} />
-        </AnalyseSection>
-      </Fade>
-
-      {/* ══ 8 · Textsatz ══
-          Startet zu: Nebenauswertung mit ausdrücklich schwacher Aussagekraft
-          (kein echter A/B-Test) — die letzte Sektion, die man morgens braucht. */}
-      <Fade i={14}>
-        <AnalyseSection
-          title="Eigene Nachfass-Texte vs. Standard"
-          icon={FileText}
-          meta={`ab ${MIN_LIST_DMS} DMs`}
-          collapsible
-          defaultOpen={false}
-          info={
-            <span>
-              Grober Schnitt, kein A/B-Test: Listen unterscheiden sich auch in Zielgruppe und Zeitpunkt. Als
-              Richtungsanzeige taugt er, als Beweis nicht.
-            </span>
-          }
-        >
-          <MetricTable
-            label="Textsatz"
-            columns={[
-              { key: "lists", label: "Listen", format: "int" },
-              { key: "dms", label: "DMs", format: "int" },
-              { key: "answerRate", label: "Antwortquote", format: "pct", emphasis: true },
-              { key: "fuUsage", label: "Nachgefasst", format: "pct" },
-              { key: "fuAnswerRate", label: "Quote ab FU1", format: "pct" },
-              { key: "apptRate", label: "Terminquote", format: "pct" },
-            ]}
-            rows={textRows}
-            minWidth={520}
-            emptyHint="Keine Liste erreicht die Mindestmenge."
-          />
         </AnalyseSection>
       </Fade>
     </>

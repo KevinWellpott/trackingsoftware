@@ -13,11 +13,13 @@
 //   format  int = Menge · pct = Quote (×100, rechte Achse) · eur = Euro
 //
 // Braucht die neue Kennzahl eine Messgröße, die es noch nicht gibt, kommt EIN
-// Feld in MeasureKey (model.ts) und EINE Zeile im passenden Mapper (facts.ts)
-// dazu. Alles andere — Aggregation, Chart, Tabelle, URL — bleibt unberührt.
+// Feld in MeasureKey (model.ts), EINE Zeile im passenden Mapper (facts.ts) und
+// EINE Zeile in MEASURE_SOURCE (unten, sonst Compile-Fehler) dazu. Alles
+// andere — Aggregation, Chart, Tabelle, URL — bleibt unberührt.
 // ═════════════════════════════════════════════════════════════════════════
 
-import type { MeasureKey } from "@/lib/compare/model";
+import { channelLabel, type ChannelKey } from "@/lib/channels";
+import { DIMENSION_KEYS, type DimensionKey, type MeasureKey } from "@/lib/compare/model";
 
 /** int = Menge · pct = Quote in Prozent · eur = Euro-Betrag. */
 export type MetricFormat = "int" | "pct" | "eur";
@@ -45,12 +47,16 @@ export const METRICS: readonly CompareMetric[] = [
   { key: "li_terminquote", label: "Terminquote LinkedIn", group: "LinkedIn", num: "li_appts", den: "dms", format: "pct" },
 
   // ── Telefon ────────────────────────────────────────────────
-  { key: "calls", label: "Anwahlen", group: "Telefon", num: "calls", format: "int", hint: "nur Leads mit Erstkontakt-Datum" },
+  // Label "Erstkontakte", nicht "Anwahlen": Die Messgroesse zaehlt FIRMEN mit
+  // erstem Anruf, nicht Waehlversuche. Das Wort "Anwahlen" gehoert seit dem
+  // Anruf-Log der Ereignis-Ebene (src/lib/channels.ts). Der URL-Schluessel
+  // bleibt `calls` — geteilte Links duerfen nicht brechen.
+  { key: "calls", label: "Erstkontakte", group: "Telefon", num: "calls", format: "int", hint: "Firmen mit erstem Anruf im Zeitraum" },
   { key: "gatekeeper", label: "Gatekeeper erreicht", group: "Telefon", num: "gatekeeper", format: "int" },
   { key: "entscheider", label: "Entscheider erreicht", group: "Telefon", num: "decider", format: "int" },
   { key: "entscheiderquote", label: "Entscheider-Quote", group: "Telefon", num: "decider", den: "calls", format: "pct" },
-  { key: "tel_termine", label: "Termine aus Anwahlen", group: "Telefon", num: "phone_appts", format: "int" },
-  { key: "tel_terminquote", label: "Terminquote Telefon", group: "Telefon", num: "phone_appts", den: "calls", format: "pct" },
+  { key: "tel_termine", label: "Termine aus Erstkontakten", group: "Telefon", num: "phone_appts", format: "int" },
+  { key: "tel_terminquote", label: "Terminquote Telefon", group: "Telefon", num: "phone_appts", den: "calls", format: "pct", hint: "je Erstkontakt" },
 
   // ── Setting ────────────────────────────────────────────────
   { key: "termine", label: "Termine (Setting)", group: "Setting", num: "settings", format: "int" },
@@ -83,7 +89,7 @@ export const METRICS: readonly CompareMetric[] = [
   { key: "umsatz", label: "Umsatz", group: "Wert", num: "revenue", format: "eur" },
   { key: "deal_groesse", label: "Ø Deal-Größe", group: "Wert", num: "revenue", den: "won", format: "eur" },
   { key: "umsatz_pro_dm", label: "Umsatz pro DM", group: "Wert", num: "revenue", den: "dms", format: "eur", hint: "Perioden-Kennzahl" },
-  { key: "umsatz_pro_call", label: "Umsatz pro Anwahl", group: "Wert", num: "revenue", den: "calls", format: "eur", hint: "Perioden-Kennzahl" },
+  { key: "umsatz_pro_call", label: "Umsatz pro Erstkontakt", group: "Wert", num: "revenue", den: "calls", format: "eur", hint: "Perioden-Kennzahl" },
   { key: "umsatz_pro_termin", label: "Umsatz pro Termin", group: "Wert", num: "revenue", den: "settings", format: "eur", hint: "Perioden-Kennzahl" },
   { key: "umsatz_pro_closing", label: "Umsatz pro Closing", group: "Wert", num: "revenue", den: "closings", format: "eur", hint: "Perioden-Kennzahl" },
 ];
@@ -101,3 +107,155 @@ export function metricOf(key: string | null | undefined): CompareMetric | null {
 
 /** Gruppen in Registry-Reihenfolge, für die Dropdown-Gliederung. */
 export const METRIC_GROUPS: readonly MetricGroup[] = [...new Set(METRICS.map((m) => m.group))];
+
+// ═══ STRUKTURELL LEERE KOMBINATIONEN ═════════════════════════════════════
+//
+// Wählbar war bisher auch, was es gar nicht geben kann: „DMs" × Kanal Telefon,
+// „Umsatz pro Erstkontakt" × Kanal LinkedIn, „Erstkontakte" × eine LinkedIn-Liste. Das
+// Ergebnis war ein leeres Diagramm mit dem Rat „Zeitraum vergrößern" — ein Rat,
+// der hier nie hilft, weil die Kombination in KEINEM Zeitraum etwas liefert.
+//
+// Die Registry weiß genug, um das zu erkennen: Jede Messgröße stammt aus genau
+// einer Quelltabelle, und jede Quelltabelle trägt nur einen Teil der fünf
+// Dimensionen (facts.ts). Daraus fällt die Prüfung heraus, ohne dass irgendwo
+// eine Verbotsliste gepflegt werden müsste.
+// ═════════════════════════════════════════════════════════════════════════
+
+/** Quelltabelle einer Messgröße — die vier Mapper-Blöcke aus facts.ts. */
+export type MetricSource = "linkedin" | "telefon" | "setting" | "closing";
+
+/**
+ * Messgröße → Quelltabelle. Vollständig getippt: Eine neue `MeasureKey` ohne
+ * Eintrag hier ist ein Compile-Fehler und keine stille Fehleinschätzung.
+ */
+const MEASURE_SOURCE: Record<MeasureKey, MetricSource> = {
+  dms: "linkedin",
+  answers: "linkedin",
+  li_appts: "linkedin",
+  calls: "telefon",
+  gatekeeper: "telefon",
+  decider: "telefon",
+  phone_appts: "telefon",
+  settings: "setting",
+  setting_shows: "setting",
+  setting_decided: "setting",
+  setting_quali: "setting",
+  setting_dead: "setting",
+  closings: "closing",
+  closing_shows: "closing",
+  won: "closing",
+  lost: "closing",
+  revenue: "closing",
+};
+
+/**
+ * Was eine Quelltabelle an Dimensionen überhaupt trägt (Spiegel von facts.ts).
+ *
+ * `person` und `zielgruppe` stehen nicht drin, weil alle vier Quellen sie
+ * setzen — dort kann es strukturell keinen Widerspruch geben.
+ */
+const SOURCE_DIMS: Record<
+  MetricSource,
+  {
+    /** Fester Kanal der Quelle; `null` = die Zeile trägt jeden Kanal. */
+    kanal: ChannelKey | null;
+    /** Welche Listenwelt die Zeile trägt; `null` = gar keine Liste. */
+    liste: "linkedin" | "telefon" | null;
+    /** Trägt die Zeile den Skript-Testarm? */
+    skript: boolean;
+  }
+> = {
+  linkedin: { kanal: "linkedin", liste: "linkedin", skript: false },
+  telefon: { kanal: "telefon", liste: "telefon", skript: true },
+  // Termine und Abschlüsse hängen an keiner Liste und an keinem Testarm: Ein
+  // Setting kennt seinen Quellkontakt, aber der Mapper hebt dessen Liste nicht
+  // an den Termin hoch — ein Filter darauf träfe null Zeilen.
+  setting: { kanal: null, liste: null, skript: false },
+  closing: { kanal: null, liste: null, skript: false },
+};
+
+/** Präfix der Telefonlisten auf der Listen-Achse (vergeben in facts.ts). */
+const PHONE_LIST_PREFIX = "tel:";
+
+/** Die Quelltabellen, aus denen Zähler UND Nenner einer Kennzahl kommen. */
+export function metricSources(m: CompareMetric): MetricSource[] {
+  const out = [MEASURE_SOURCE[m.num]];
+  if (m.den && !out.includes(MEASURE_SOURCE[m.den])) out.push(MEASURE_SOURCE[m.den]);
+  return out;
+}
+
+const q = (s: string) => `„${s}“`;
+
+/**
+ * Ist dieser Filterwert mit dieser Kennzahl strukturell unvereinbar?
+ *
+ * Rückgabe: der Grund als ganzer Satz ohne Schlusspunkt (er landet mal als
+ * Hinweis unter einer Option, mal in einer Warnzeile), oder `null`, wenn die
+ * Kombination Zahlen liefern kann.
+ *
+ * Geprüft wird gegen ALLE Quellen der Kennzahl, nicht nur gegen den Zähler:
+ * Bei „Umsatz pro Erstkontakt" × Kanal LinkedIn hätte der Zähler (Umsatz) Zeilen,
+ * der Nenner (Erstkontakte) nie — und ein Bruch ohne Nenner ist genauso leer wie
+ * einer ohne Zähler.
+ */
+export function filterConflict(m: CompareMetric, dim: DimensionKey, value: string): string | null {
+  const sources = metricSources(m);
+
+  if (dim === "kanal") {
+    const needed = [...new Set(sources.map((s) => SOURCE_DIMS[s].kanal).filter((k): k is ChannelKey => k !== null))];
+    if (needed.length === 0) return null; // reine Termin-/Abschluss-Kennzahl: jeder Kanal denkbar
+    if (needed.length > 1) {
+      // Heute unerreichbar (keine Kennzahl mischt contacts und phone_leads),
+      // aber die Regel gilt trotzdem: zwei feste Kanäle schließen jeden
+      // einzelnen Kanalfilter aus.
+      return `${q(m.label)} verrechnet ${needed.map((k) => channelLabel(k)).join(" und ")} und lässt sich auf keinen einzelnen Kanal einschränken`;
+    }
+    if (needed[0] !== value) return `${q(m.label)} entsteht nur im Kanal ${channelLabel(needed[0])}`;
+    return null;
+  }
+
+  if (dim === "liste") {
+    const worlds = sources.map((s) => SOURCE_DIMS[s].liste);
+    if (worlds.some((w) => w === null)) {
+      return `${q(m.label)} hängt an keiner Liste — Termine und Abschlüsse tragen Person, Kanal und Zielgruppe, nicht die Herkunftsliste`;
+    }
+    const world = value.startsWith(PHONE_LIST_PREFIX) ? "telefon" : "linkedin";
+    if (!worlds.includes(world)) {
+      const isPhone = world === "telefon";
+      return `${q(m.label)} zählt ${isPhone ? "LinkedIn-Kontakte, diese Liste ist eine Telefonliste" : "Telefon-Leads, diese Liste ist eine LinkedIn-Liste"}`;
+    }
+    return null;
+  }
+
+  if (dim === "skript") {
+    if (!sources.every((s) => SOURCE_DIMS[s].skript)) {
+      return `${q(m.label)} kennt keinen Testarm — den trägt nur der Telefon-Lead`;
+    }
+    return null;
+  }
+
+  return null; // person, zielgruppe: von allen vier Quellen getragen
+}
+
+/**
+ * Alle Widersprüche einer fertigen Serie (Kennzahl + gesetzte Filter).
+ *
+ * Nimmt die Filter als lose Map entgegen, damit die Registry nichts vom
+ * URL-Format der Serien wissen muss.
+ */
+export function seriesConflicts(
+  m: CompareMetric,
+  filters: Partial<Record<DimensionKey, string>>,
+): { dim: DimensionKey; reason: string }[] {
+  const out: { dim: DimensionKey; reason: string }[] = [];
+  // Reihenfolge aus DIMENSION_KEYS, nicht aus Object.keys: Die Warnzeile soll
+  // bei gleicher Serie immer gleich lauten, egal in welcher Reihenfolge die
+  // Filter gesetzt wurden.
+  for (const dim of DIMENSION_KEYS) {
+    const value = filters[dim];
+    if (!value) continue;
+    const reason = filterConflict(m, dim, value);
+    if (reason) out.push({ dim, reason });
+  }
+  return out;
+}

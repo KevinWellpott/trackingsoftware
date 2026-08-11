@@ -162,49 +162,6 @@ export function LinkedInSeriesChart({
   );
 }
 
-// ── Telefon ──────────────────────────────────────────────────
-type PhoneBucket = { calls: number; decider: number; appts: number };
-type PhoneMetric = "calls" | "decider" | "appts" | "apptRate";
-
-const PHONE_OPTIONS = [
-  { value: "calls" as const, label: "Calls" },
-  { value: "decider" as const, label: "Entscheider" },
-  { value: "appts" as const, label: "Termine" },
-  { value: "apptRate" as const, label: "Terminquote" },
-];
-
-export function PhoneSeriesChart({
-  buckets,
-  perUser,
-}: {
-  buckets: Bucket[];
-  perUser: Record<string, Record<string, PhoneBucket>>;
-}) {
-  const [metric, setMetric] = useState<PhoneMetric>("calls");
-  const isRate = metric === "apptRate";
-
-  const { points, seriesNames } = buildPoints(buckets, perUser, (v) => {
-    if (!v) return 0;
-    switch (metric) {
-      case "calls":
-        return v.calls;
-      case "decider":
-        return v.decider;
-      case "appts":
-        return v.appts;
-      case "apptRate":
-        return safeRate(v.appts, v.calls);
-    }
-  });
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
-      <Segmented<PhoneMetric> options={PHONE_OPTIONS} value={metric} onChange={setMetric} size="sm" ariaLabel="Metrik" />
-      <SeriesChart points={points} seriesNames={seriesNames} isRate={isRate} />
-    </div>
-  );
-}
-
 // ── Gruppiertes Balken-Chart pro Bucket ──────────────────────
 export function BucketBarChart({
   buckets,

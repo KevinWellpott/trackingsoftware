@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  Calendar, CalendarCheck, CalendarDays, CalendarX, DoorOpen, FileText, Filter, Inbox,
-  MessageSquare, Phone, PhoneCall, PhoneForwarded, PhoneOff, PieChart, Repeat, Smile, Target,
-  TrendingUp, UserCheck, Users, Voicemail, XCircle,
+  Calendar, CalendarCheck, CalendarClock, CalendarRange, CalendarX, DoorOpen, FileText, Filter,
+  Inbox, MessageSquare, MessageSquareOff, Phone, PhoneCall, PhoneForwarded, PhoneOff, Repeat,
+  Target, UserCheck, Users, Voicemail, XCircle,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
@@ -13,42 +13,42 @@ import {
   loadCallAttempts,
   summarizeAttemptsByKind,
 } from "@/lib/phoneAttemptsData";
-import {
-  NUM, SENTIMENT_META, WEEKDAY_LABELS, buildBuckets, bucketOf, ownerKey, pct, weekdayIndex,
-  type Granularity,
-} from "@/lib/analyse";
-import { VIZ_NEUTRAL } from "@/lib/viz";
+import { NUM, buildBuckets, bucketOf, ownerKey, pct, type Granularity } from "@/lib/analyse";
+import { berlinDateISO } from "@/lib/apptTime";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { CumulativeProgressChart } from "@/components/analyse/CumulativeProgressChart";
 import { FunnelStrip } from "@/components/analyse/FunnelStrip";
 import {
-  Footnote, MetricTable, ShareBar, type MetricColumn, type MetricRow,
+  Footnote, MetricTable, type MetricColumn, type MetricRow,
 } from "@/components/analyse/AnalyseTables";
-import { PhoneSeriesChart } from "@/components/analyse/AnalyseCharts";
-import { DistBars, DonutChart, KpiHero, QuoteColumns, WeekdayBars, KpiRow } from "@/components/analyse/AnalyseViz";
+import { DistBars, KpiHero, QuoteColumns } from "@/components/analyse/AnalyseViz";
 
-// Telefon-Flow: Calls → Gatekeeper → Entscheider → Pitch → Termine, aus
-// rpc_phone_day_metrics (benötigt Migration 0013), plus Vorperioden-Deltas.
+// Telefon-Flow: Anwahlen → Erstkontakte → Gatekeeper → Entscheider → Pitch →
+// Termine. Quellen: rpc_phone_day_metrics (benötigt Migration 0013), das
+// Anruf-Log aus Migration 0028 und die Lead-Ebene, plus Vorperioden-Deltas.
 //
-// Die Lead-Ebene (zweiter Teil) beantwortet die Fragen, die die Tages-RPC nicht
-// kennt: Wie oft muss man anrufen? Wie kommt man am Gatekeeper vorbei? Wie
-// klingen die Gespräche? Welches Skript und welche Branche konvertieren?
-//
-// Drei Zählebenen, die nicht verwechselt werden dürfen:
-//   RPC-Ebene      Leads mit Erstkontakt im Zeitraum ("Calls")
-//   Lead-Ebene     Zustand eines Leads heute (call_attempt, Gatekeeper, …)
-//   Ereignis-Ebene Anwahlen aus phone_call_attempts (Migration 0028) — die
-//                  einzige Ebene, auf der derselbe Lead dreimal zählt, und
-//                  damit die einzige, die "nachfassen oder neu scrapen?"
-//                  beantworten kann. Startet bei null, siehe Fußnote dort.
+// Drei Zählebenen, die nicht verwechselt werden dürfen — und die deshalb je
+// ein eigenes Wort haben, das nirgends sonst im Tab vorkommt:
+//   Ereignis-Ebene "ANWAHLEN"      — einzelne Wählversuche aus
+//                  phone_call_attempts. Die einzige Ebene, auf der derselbe
+//                  Lead dreimal zählt, und damit die einzige, die „nachfassen
+//                  oder neu scrapen?" beantworten kann. Startet bei null,
+//                  siehe Leitkachel und Fußnote dort.
+//   RPC-Ebene      "ERSTKONTAKTE"  — Firmen mit erstem Anruf im Zeitraum
+//                  (first_call_at). Wer 40-mal wählt und dabei 12 neue Firmen
+//                  erreicht, hat 40 Anwahlen und 12 Erstkontakte. Bis zum
+//                  Umbau hieß diese Stufe „Calls" — ein Wort, das jeder als
+//                  Wählversuch las, während es Firmen zählte.
+//   Lead-Ebene     Zustand eines Leads heute (call_attempt, Gatekeeper …).
+//                  Heißt in der UI „Leads" bzw. „Versuch".
 //
 // RPC- und Lead-Ebene beschreiben dieselbe KOHORTE: Beide schneiden auf
 // `coalesce(first_call_at, created_at::date) between from and to` zu (SQL:
 // rpc_phone_day_metrics, JS: phoneLeadDay). Nur deshalb dürfen Zähler von der
-// Lead-Ebene (Mailbox, Pitch) über einen Nenner von der RPC-Ebene (Calls)
-// gerechnet werden.
+// Lead-Ebene (Mailbox, Pitch) über einen Nenner von der RPC-Ebene
+// (Erstkontakte) gerechnet werden.
 
 type Member = { user_id: string; username: string };
 
@@ -69,6 +69,9 @@ type PhoneDayRow = {
  * `calls`–`dead` kommen aus der RPC, `pitch` und `mailbox` von der Lead-Ebene
  * (die RPC kennt beide Spalten nicht). Beide Quellen zählen dieselbe Kohorte —
  * siehe Kopfkommentar.
+ *
+ * `calls` heißt so, weil die RPC-Spalte so heißt; in der UI ist das
+ * durchgehend „Erstkontakte" (Firmen mit erstem Anruf), NIE „Anwahlen".
  */
 type Totals = {
   calls: number;
@@ -96,7 +99,7 @@ const INT_FMT = new Intl.NumberFormat("de-DE");
  */
 const MIN_AB_CALLS = 20;
 
-/** Kalendertag eines UTC-Zeitstempels als "09.08.2026" — für die Log-Fußnote. */
+/** Kalendertag eines UTC-Zeitstempels als "09.08.2026" — für die Log-Hinweise. */
 const DAY_FMT = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
@@ -109,20 +112,6 @@ function shortDay(iso: string): string {
   const [, m, d] = iso.split("-");
   return `${d}.${m}.`;
 }
-
-/**
- * Status-Reihenfolge, Labels und Token-Farben der Outcome-Verteilung.
- * Bewusst SEMANTIK-Töne statt der kategorialen Viz-Palette: die Segmente sind
- * Zustände, und Markenorange trägt niemals Status (DESIGN.md §3.5). Grün heißt
- * in der ganzen App „gewonnen/erreicht", Gold „dranbleiben", Rot „tot".
- */
-const STATUS_META: { key: string; label: string; color: string }[] = [
-  { key: "aktiv", label: "Aktiv", color: VIZ_NEUTRAL },
-  { key: "rueckruf", label: "Rückruf", color: "var(--info)" },
-  { key: "nicht_erreicht", label: "Nicht erreicht", color: "var(--warning)" },
-  { key: "termin", label: "Termin", color: "var(--success)" },
-  { key: "dead", label: "Dead", color: "var(--danger)" },
-];
 
 const GATEKEEPER_LABELS: Record<string, string> = {
   direkt: "Direkt zum Entscheider",
@@ -259,6 +248,42 @@ function BlockHeading({
   );
 }
 
+/**
+ * Ein beschrifteter Kachelblock.
+ *
+ * Warum überhaupt Blöcke: Elf Kennzahlen in einem durchlaufenden Raster liest
+ * niemand mehr — man SUCHT darin. Drei benannte Gruppen (Volumen ·
+ * Durchkommen · Terminquoten) machen aus der Suche ein Nachschlagen, und jeder
+ * Block trägt seinen eigenen Erklärtext statt eines Sammel-Popovers.
+ *
+ * Warum `cols` explizit statt `KpiRow`: Dort wird die Spaltenzahl aus der
+ * Kachelzahl geraten und für drei Kacheln auf vier gesetzt — die vierte Zelle
+ * bliebe leer. Hier ist die Blockgröße bekannt. Klasse und Umbruchregeln
+ * (`.kpi-row`, globals.css §6.12b) bleiben unverändert dieselben.
+ */
+function KpiBlock({
+  title,
+  icon,
+  info,
+  cols,
+  children,
+}: {
+  title: string;
+  icon?: LucideIcon;
+  info?: ReactNode;
+  cols: 3 | 4;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <BlockHeading title={title} icon={icon} info={info} />
+      <div className="kpi-row" data-cols={cols}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 /** Leerzustand nach COMPONENTS.md §14.1 — Icon, ein Satz, ein Hinweis. */
 function TableEmpty({ text, hint }: { text: string; hint?: string }) {
   return (
@@ -275,6 +300,44 @@ function TableEmpty({ text, hint }: { text: string; hint?: string }) {
       <Inbox size={20} color="var(--text-muted)" aria-hidden />
       <span style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)" }}>{text}</span>
       {hint && <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{hint}</span>}
+    </div>
+  );
+}
+
+/**
+ * Eine Abbruch-Stufe als Spalte („Nicht durchgestellt", „Kein Pitch", …).
+ *
+ * Die drei Stufen standen bis zum Umbau in drei eigenen Karten — drei Deckel,
+ * drei Klicks für EINE Frage in drei Etappen. Nebeneinander kostet dieselbe
+ * Fläche und beantwortet sie in einem Blick.
+ */
+function ReasonColumn({
+  title,
+  icon: Icon,
+  items,
+}: {
+  title: string;
+  icon: LucideIcon;
+  items: { label: string; value: number }[];
+}) {
+  const total = items.reduce((s, it) => s + it.value, 0);
+  return (
+    <div style={{ display: "grid", gap: "var(--sp-5)", alignContent: "start", minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
+        <Icon size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} aria-hidden />
+        <span className="eyebrow eyebrow-muted">{title}</span>
+        <span
+          style={{
+            marginLeft: "auto",
+            fontSize: "var(--fs-xs)",
+            color: "var(--text-subtle)",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {INT_FMT.format(total)}
+        </span>
+      </div>
+      <DistBars items={items} max={8} />
     </div>
   );
 }
@@ -331,9 +394,9 @@ function groupLeads(
 }
 
 const AB_COLUMNS: MetricColumn[] = [
-  { key: "calls", label: "Calls", format: "int" },
-  { key: "gkRate", label: "GK-Quote", format: "pct" },
-  { key: "deciderRate", label: "Entscheider", format: "pct" },
+  { key: "calls", label: "Erstkontakte", format: "int" },
+  { key: "gkRate", label: "Gatekeeper-Quote", format: "pct" },
+  { key: "deciderRate", label: "Entscheider-Quote", format: "pct" },
   { key: "apptRate", label: "Terminquote", format: "pct", emphasis: true },
 ];
 
@@ -354,8 +417,8 @@ function abInfo({
   return (
     <InfoBody>
       <span>
-        Verglichen werden nur Arme mit mindestens {MIN_AB_CALLS} Calls — sonst gewinnt jede Liste mit drei Leads
-        und einem Zufallstermin.
+        Verglichen werden nur Arme mit mindestens {MIN_AB_CALLS} Erstkontakten — sonst gewinnt jede Liste mit drei
+        Leads und einem Zufallstermin.
       </span>
       {unlabeled > 0 && (
         <span>
@@ -403,7 +466,7 @@ function AbTable({
         label={axisLabel}
         columns={AB_COLUMNS}
         rows={rows}
-        minWidth={460}
+        minWidth={520}
         emptyHint={emptyHint}
       />
       {/* Bleibt als Fußnote: Der Sektionskopf nennt die Zahl ALLER Arme, die
@@ -411,7 +474,7 @@ function AbTable({
           sich die Differenz als Fehler. Erscheint nur, wenn sie zutrifft. */}
       {hidden > 0 && (
         <Footnote>
-          {INT_FMT.format(hidden)} {hidden === 1 ? "Arm" : "Arme"} unter {MIN_AB_CALLS} Calls{" "}
+          {INT_FMT.format(hidden)} {hidden === 1 ? "Arm" : "Arme"} unter {MIN_AB_CALLS} Erstkontakten{" "}
           {hidden === 1 ? "ist" : "sind"} ausgeblendet.
         </Footnote>
       )}
@@ -495,9 +558,10 @@ export async function TelefonTab({
   const leads = cohort(from, to);
   const prevLeads = cohort(prevFrom, prevTo);
 
-  // Anwahlen aus dem Ereignis-Log. `owner_name` liegt dort als Snapshot vor —
-  // der Lead wandert bei Rückruf/Nicht-erreicht in eine Routing-Liste, ein Join
-  // über die aktuelle Liste würde die Historie umschreiben.
+  // ── Ereignis-Ebene: Anwahlen aus dem Anruf-Log ───────────────
+  // `owner_name` liegt dort als Snapshot vor — der Lead wandert bei
+  // Rückruf/Nicht-erreicht in eine Routing-Liste, ein Join über die aktuelle
+  // Liste würde die Historie umschreiben.
   const attempts = attemptData.rows.filter(
     (r) => displayNameFor(r.owner_name, r.created_by_user_id) !== null,
   );
@@ -527,16 +591,47 @@ export async function TelefonTab({
           },
         }));
 
+  // Anwahlen je Bucket — die Sparkline der Leitkachel. Berlin-Kalendertag wie
+  // überall sonst im Tab (docs §6), sonst rutschen Abendanrufe in den
+  // Nachbar-Bucket.
+  const attemptByBucket: Record<string, number> = {};
+  for (const a of attempts) {
+    const bk = bucketOf(berlinDateISO(a.called_at), from, to, granularity);
+    attemptByBucket[bk] = (attemptByBucket[bk] ?? 0) + 1;
+  }
+  const attemptSpark = buckets.map((b) => attemptByBucket[b.key] ?? 0);
+
+  // ── Ehrlichkeit der Leitkachel ───────────────────────────────
+  // Das Anruf-Log (Migration 0028) startet ohne Backfill. Für ein Fenster, das
+  // komplett davor liegt, ist es LEGITIM leer — eine „0" auf der größten Zahl
+  // der Seite läse sich dagegen als „es wurde nicht telefoniert" und würde
+  // ausgerechnet die Leitzahl zur Falschaussage machen. Deshalb dort `null`
+  // (die Kachel zeigt „—") plus eine Zeile, die den Grund nennt. Die Fußnote
+  // in „Nachfassen oder neue Leads?" bleibt zusätzlich bestehen: Sie
+  // qualifiziert die aufgeschlüsselten Zahlen, diese Zeile die Leitzahl.
+  const logStartDay = attemptData.firstCalledAt ? berlinDateISO(attemptData.firstCalledAt) : null;
+  const logStartLabel = attemptData.firstCalledAt
+    ? DAY_FMT.format(new Date(attemptData.firstCalledAt))
+    : null;
+  const logCovers = attemptData.available && logStartDay !== null && logStartDay <= to;
+  const attemptValue = logCovers ? attemptTotal.calls : null;
+  const attemptNote = !attemptData.available
+    ? "Anruf-Log noch nicht eingerichtet"
+    : logStartDay === null
+      ? "bisher keine Anwahl protokolliert"
+      : !logCovers
+        ? `Anruf-Log startet erst am ${logStartLabel}`
+        : logStartDay > from
+          ? `protokolliert erst ab ${logStartLabel}`
+          : "Ereignisse aus dem Anruf-Log";
+
   // ── Aggregation je Anzeigename (Summen + Buckets) ────────────
   const totals = new Map<string, Totals>();
-  const perUser: Record<string, Record<string, { calls: number; gatekeeper: number; decider: number; appts: number }>> = {};
   const ensure = (name: string) => {
     if (!totals.has(name)) totals.set(name, ZERO());
-    if (!perUser[name]) perUser[name] = {};
   };
   for (const m of selectedMembers) ensure(m.username);
 
-  const weekday = WEEKDAY_LABELS.map((label) => ({ label, calls: 0, appts: 0 }));
   // Zuwächse je Bucket für den Fortschritts-Chart (kumuliert wird dort).
   const byBucket = {
     calls: {} as Record<string, number>,
@@ -564,27 +659,17 @@ export async function TelefonTab({
     t.appts += appts;
     t.callbacks += NUM(r.callbacks);
     t.dead += NUM(r.dead);
-    const bk = bucketOf(r.day, from, to, granularity);
-    const b = perUser[name][bk] ?? { calls: 0, gatekeeper: 0, decider: 0, appts: 0 };
-    b.calls += calls;
-    b.gatekeeper += gatekeeper;
-    b.decider += decider;
-    b.appts += appts;
-    perUser[name][bk] = b;
 
+    const bk = bucketOf(r.day, from, to, granularity);
     byBucket.calls[bk] = (byBucket.calls[bk] ?? 0) + calls;
     byBucket.gatekeeper[bk] = (byBucket.gatekeeper[bk] ?? 0) + gatekeeper;
     byBucket.decider[bk] = (byBucket.decider[bk] ?? 0) + decider;
     byBucket.appts[bk] = (byBucket.appts[bk] ?? 0) + appts;
-
-    const wd = weekday[weekdayIndex(r.day)];
-    wd.calls += calls;
-    wd.appts += appts;
   }
 
   // ── Lead-Ebene: was die RPC nicht kennt (Pitch, Mailbox) ─────
   // Beide gehören in dieselbe Totals-Zeile wie die RPC-Werte: Nenner aller
-  // daraus gerechneten Quoten sind die Calls DERSELBEN Kohorte.
+  // daraus gerechneten Quoten sind die Erstkontakte DERSELBEN Kohorte.
   for (const l of leads) {
     const name = ownerOf(l);
     if (!name) continue;
@@ -623,11 +708,6 @@ export async function TelefonTab({
     sum.mailbox += t.mailbox;
   }
 
-  // Serien-Chart nur mit den sichtbaren Personen — eine flache Nulllinie mit
-  // Legendeneintrag ist genauso irreführend wie die Nullzeile in der Tabelle.
-  const perUserVisible: Record<string, Record<string, { calls: number; decider: number; appts: number }>> = {};
-  for (const name of names) perUserVisible[name] = perUser[name] ?? {};
-
   // ── Vorperiode (gleiche Mitglieder-Eingrenzung) ──────────────
   const prevSum = { calls: 0, gatekeeper: 0, decider: 0, appts: 0, callbacks: 0, pitch: 0, mailbox: 0 };
   for (const r of prevRows) {
@@ -643,11 +723,11 @@ export async function TelefonTab({
     if (l.mailbox === true) prevSum.mailbox += 1;
   }
 
-  // ── KPI-Reihe: die zehn Kennzahlen des Telefon-Funnels ───────
-  // Alle Quoten teilen durch die Calls DESSELBEN Zeitraums, außer den beiden
-  // Anschluss-Terminquoten, die zeigen, was aus einer bereits erreichten Stufe
-  // noch wird. Zusammen beantworten sie „wo verliere ich?" — eine schlechte
-  // Terminquote auf Calls bei guter Terminquote auf Entscheider heißt: das
+  // ── KPI-Reihe: die elf Kennzahlen des Telefon-Funnels ────────
+  // Alle Quoten teilen durch die Erstkontakte DESSELBEN Zeitraums, außer den
+  // beiden Anschluss-Terminquoten, die zeigen, was aus einer bereits erreichten
+  // Stufe noch wird. Zusammen beantworten sie „wo verliere ich?" — eine
+  // schlechte Terminquote bei guter Terminquote ab Entscheider heißt: das
   // Problem sitzt vor dem Gespräch, nicht darin.
   const mailboxRate = pct(sum.mailbox, sum.calls);
   const gkRate = pct(sum.gatekeeper, sum.calls);
@@ -669,12 +749,10 @@ export async function TelefonTab({
 
   const callsSpark = buckets.map((b) => byBucket.calls[b.key] ?? 0);
 
-  // ── Lead-Ebene: Versuche, Gatekeeper, Stimmung ───────────────
+  // ── Lead-Ebene: Versuche und Gatekeeper ──────────────────────
   const attemptCells = [ZERO_LEAD(), ZERO_LEAD(), ZERO_LEAD()];
   let attemptUnknown = 0;
   const gatekeeperCells = new Map<string, LeadCell>();
-  const sentiment = { positiv: 0, neutral: 0, negativ: 0, offen: 0 };
-  const statusCounts = new Map<string, number>();
 
   for (const l of leads) {
     const attempt = Number(l.call_attempt);
@@ -698,20 +776,7 @@ export async function TelefonTab({
     if (l.decider_reached === true) gkCell.decider += 1;
     if (l.appointment_set === true) gkCell.appts += 1;
     if (l.status === "dead") gkCell.dead += 1;
-
-    if (l.answer_sentiment) sentiment[l.answer_sentiment] += 1;
-    else if (l.decider_reached === true) sentiment.offen += 1;
-
-    const s = l.status ?? "";
-    statusCounts.set(s, (statusCounts.get(s) ?? 0) + 1);
   }
-
-  const outcomeData = STATUS_META.map((m) => ({
-    name: m.label,
-    value: statusCounts.get(m.key) ?? 0,
-    color: m.color,
-  })).filter((d) => d.value > 0);
-  const outcomeTotal = outcomeData.reduce((s, d) => s + d.value, 0);
 
   const gatekeeperRows: MetricRow[] = ["direkt", "ja", "nein", "ohne"]
     .map((key) => ({ key, cell: gatekeeperCells.get(key) }))
@@ -747,10 +812,14 @@ export async function TelefonTab({
   // damit umzugsfest), die Liste liefert den Default für alles ohne eigenen Wert.
   const groupAb = groupLeads(leads, (l) => l.target_group ?? l.phone_lists?.target_group);
 
-  // ── Gründe ───────────────────────────────────────────────────
+  // ── Abbruch-Gründe (drei Stufen desselben Gesprächs) ─────────
   const noTransfer = reasonItems(leads, "no_transfer_reason");
   const noPitch = reasonItems(leads, "no_pitch_reason");
   const noAppointment = reasonItems(leads, "no_appointment_reason");
+  const reasonTotal = [noTransfer, noPitch, noAppointment].reduce(
+    (s, items) => s + items.reduce((n, it) => n + it.value, 0),
+    0,
+  );
 
   // ── Vergleichstabelle ────────────────────────────────────────
   const tableRows: ComparisonRow[] = names.map((name) => {
@@ -789,43 +858,94 @@ export async function TelefonTab({
 
   return (
     <>
-      {/* ══ 1 · KPI-Hero-Reihe (die zehn Kennzahlen) ══
-          Die Überschrift trägt das Info-Icon: Eine Kachelreihe hat keine
-          Karte und damit keinen Sektionskopf, an dem eines sitzen könnte. */}
-      <BlockHeading
-        title="Kennzahlen"
+      {/* ══ 1 · Kennzahlen in drei Blöcken ══
+          Volumen (was ist passiert) · Durchkommen (wie weit kam ich) ·
+          Terminquoten (was wurde daraus). Jede Blocküberschrift trägt ihr
+          eigenes Info-Icon: Eine Kachelreihe hat keine Karte und damit keinen
+          Sektionskopf, an dem eines sitzen könnte. */}
+      <KpiBlock
+        title="Volumen"
         icon={Phone}
+        cols={3}
         info={
           <InfoBody>
             <span>
-              <B>Calls</B> = Leads mit Erstkontakt im Zeitraum (<code>first_call_at</code>). Die Sektion
-              &bdquo;Nachfassen oder neue Leads?&ldquo; zählt dagegen einzelne Anwahlen — denselben Lead also
-              mehrfach.
+              <B>Anwahlen</B> sind einzelne Wählversuche aus dem Anruf-Log (<code>phone_call_attempts</code>) —
+              derselbe Lead zählt dort mehrfach. <B>Erstkontakte</B> sind Firmen mit erstem Anruf im Zeitraum
+              (<code>first_call_at</code>). Wer 40-mal wählt und dabei 12 neue Firmen erreicht, hat 40 Anwahlen und
+              12 Erstkontakte.
             </span>
             <span>
-              Alle Quoten sind <B>Kohorten-Quoten</B>: Nenner sind die Calls des Zeitraums, Zähler der heutige Stand
+              Das Anruf-Log startet ohne Backfill. Für Zeiträume davor steht auf der Anwahl-Kachel bewusst
+              &bdquo;—&ldquo; statt einer 0: leer heißt hier &bdquo;gab es damals noch nicht&ldquo;, nicht
+              &bdquo;niemand hat telefoniert&ldquo;.
+            </span>
+            <span>
+              <B>Termine</B> sind gebuchte Termine derselben Erstkontakt-Kohorte — auch wenn der Termin erst später
+              zustande kam.
+            </span>
+          </InfoBody>
+        }
+      >
+        {/* Leitzahl des Tabs (einzige Kachel mit `lead`): Anwahlen sind das,
+            was man morgens steuert — Erstkontakte und Termine sind, was dabei
+            herauskommt. Genau diese Zahl war bis zum Umbau Meta-Text auf einer
+            zugeklappten Karte weit unten.
+            `delta` bewusst null: Für die Vorperiode werden keine Anwahlen
+            geladen, und ein Vergleich über den Log-Start hinweg wäre ein
+            Einbruch, den es nie gab. Die Zeile daneben sagt stattdessen, worauf
+            die Zahl beruht. */}
+        <KpiHero
+          label="Anwahlen"
+          value={attemptValue}
+          lead
+          delta={null}
+          deltaLabel={attemptNote}
+          spark={attemptValue === null ? undefined : attemptSpark}
+          icon={<PhoneCall size={15} />}
+          index={0}
+        />
+        <KpiHero
+          label="Erstkontakte"
+          value={sum.calls}
+          delta={deltaPct(sum.calls, prevSum.calls)}
+          spark={callsSpark}
+          icon={<Phone size={15} />}
+          index={1}
+        />
+        <KpiHero
+          label="Termine"
+          value={sum.appts}
+          delta={deltaPct(sum.appts, prevSum.appts)}
+          icon={<Calendar size={15} />}
+          index={2}
+        />
+      </KpiBlock>
+
+      <KpiBlock
+        title="Durchkommen"
+        icon={DoorOpen}
+        cols={4}
+        info={
+          <InfoBody>
+            <span>
+              Vier Stufen auf dem Weg ins Gespräch, alle mit demselben Nenner: den <B>Erstkontakten</B> des
+              Zeitraums.
+            </span>
+            <span>
+              Es sind <B>Kohorten-Quoten</B> — Nenner sind die Erstkontakte des Zeitraums, Zähler der heutige Stand
               genau dieser Leads. Ein Termin, der erst nächste Woche zustande kommt, zählt rückwirkend auf die Woche
               des Erstkontakts.
             </span>
             <span>
               <B>Gatekeeper</B> fasst &bdquo;durchgestellt&ldquo; und &bdquo;direkt zum Entscheider&ldquo; zusammen.{" "}
-              <B>Rückruf-Quote</B> ist der Anteil der Leads auf &bdquo;ruf dann und dann nochmal an&ldquo;.{" "}
               <B>Pitch-Quote</B> stammt aus <code>pitch_delivered</code> (Migration 0028) — Bestandszeilen wurden
               aus &bdquo;Entscheider erreicht&ldquo; übernommen, die beiden Quoten spreizen sich deshalb erst mit
               neu erfassten Anrufen.
             </span>
           </InfoBody>
         }
-      />
-      <KpiRow>
-        <KpiHero
-          label="Calls"
-          value={sum.calls}
-          delta={deltaPct(sum.calls, prevSum.calls)}
-          spark={callsSpark}
-          icon={<Phone size={15} />}
-          index={0}
-        />
+      >
         <KpiHero
           label="Mailbox-Quote"
           value={mailboxRate}
@@ -833,7 +953,7 @@ export async function TelefonTab({
           delta={deltaPP(mailboxRate, prevMailboxRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<Voicemail size={15} />}
-          index={1}
+          index={3}
         />
         <KpiHero
           label="Gatekeeper-Quote"
@@ -842,7 +962,7 @@ export async function TelefonTab({
           delta={deltaPP(gkRate, prevGkRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<DoorOpen size={15} />}
-          index={2}
+          index={4}
         />
         <KpiHero
           label="Entscheider-Quote"
@@ -851,7 +971,7 @@ export async function TelefonTab({
           delta={deltaPP(deciderRate, prevDeciderRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<UserCheck size={15} />}
-          index={3}
+          index={5}
         />
         <KpiHero
           label="Pitch-Quote"
@@ -860,36 +980,60 @@ export async function TelefonTab({
           delta={deltaPP(pitchRate, prevPitchRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<MessageSquare size={15} />}
-          index={4}
+          index={6}
         />
-        {/* Die drei Terminquoten tragen bewusst dasselbe Icon: Sie messen alle
-            Termine, nur auf verschiedenen Basen — das Label sagt, auf welcher. */}
+      </KpiBlock>
+
+      <KpiBlock
+        title="Terminquoten & Rückruf"
+        icon={CalendarCheck}
+        cols={4}
+        info={
+          <InfoBody>
+            <span>
+              Dieselbe Zahl (Termine), drei Nenner: <B>Terminquote</B> rechnet auf alle Erstkontakte, die beiden
+              anderen auf eine bereits erreichte Stufe. Eine schwache Terminquote bei starker Terminquote ab
+              Entscheider heißt: Das Problem sitzt <B>vor</B> dem Gespräch, nicht darin.
+            </span>
+            <span>
+              Die <B>Rückruf-Quote</B> steht daneben, weil sie die Gegenfrage auf derselben Basis beantwortet: Anteil
+              der Erstkontakte auf &bdquo;ruf dann und dann nochmal an&ldquo; — noch kein Termin, aber auch nicht
+              verloren.
+            </span>
+          </InfoBody>
+        }
+      >
+        {/* Die drei Terminquoten bleiben eine Icon-Familie (alle Kalender),
+            tragen aber verschiedene Glyphen: Drei identische Icons
+            nebeneinander liest man als Rendering-Fehler, nicht als
+            Verwandtschaft. Welche Basis gemeint ist, sagt das Label — das Icon
+            trägt nur die Familie. */}
         <KpiHero
-          label="TQ auf Calls"
+          label="Terminquote"
           value={apptRate}
           format="pct"
           delta={deltaPP(apptRate, prevApptRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<CalendarCheck size={15} />}
-          index={5}
+          index={7}
         />
         <KpiHero
-          label="TQ auf Gatekeeper"
+          label="Terminquote ab Gatekeeper"
           value={apptOnGk}
           format="pct"
           delta={deltaPP(apptOnGk, prevApptOnGk)}
           deltaLabel="vs. Vorperiode (pp)"
-          icon={<CalendarCheck size={15} />}
-          index={6}
+          icon={<CalendarRange size={15} />}
+          index={8}
         />
         <KpiHero
-          label="TQ auf Entscheider"
+          label="Terminquote ab Entscheider"
           value={apptOnDecider}
           format="pct"
           delta={deltaPP(apptOnDecider, prevApptOnDecider)}
           deltaLabel="vs. Vorperiode (pp)"
-          icon={<CalendarCheck size={15} />}
-          index={7}
+          icon={<CalendarClock size={15} />}
+          index={9}
         />
         <KpiHero
           label="Rückruf-Quote"
@@ -898,16 +1042,9 @@ export async function TelefonTab({
           delta={deltaPP(callbackRate, prevCallbackRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<PhoneForwarded size={15} />}
-          index={8}
+          index={10}
         />
-        <KpiHero
-          label="Termine"
-          value={sum.appts}
-          delta={deltaPct(sum.appts, prevSum.appts)}
-          icon={<Calendar size={15} />}
-          index={9}
-        />
-      </KpiRow>
+      </KpiBlock>
 
       {/* ══ 2 · Vergleich ══
           Bleibt offen: die zentrale Vergleichstabelle des Tabs. */}
@@ -915,14 +1052,14 @@ export async function TelefonTab({
         <AnalyseSection
           title="Vergleich"
           icon={Filter}
-          meta="Calls · Gatekeeper · Entscheider · Termine"
+          meta="Erstkontakte · Gatekeeper · Entscheider · Termine"
           collapsible
           info={
             <InfoBody>
               <span>
-                Nur &bdquo;Calls&ldquo; ist zeitraumgefiltert (<code>first_call_at</code> im Fenster) — Gatekeeper,
-                Entscheider, Pitch, Termine und Dead sind der aktuelle Stand derselben Leads. Die Quoten sind damit
-                Kohorten-Quoten, keine Tageswerte.
+                Nur &bdquo;Erstkontakte&ldquo; ist zeitraumgefiltert (<code>first_call_at</code> im Fenster) —
+                Gatekeeper, Entscheider, Pitch, Termine und Dead sind der aktuelle Stand derselben Leads. Die Quoten
+                sind damit Kohorten-Quoten, keine Tageswerte.
               </span>
               {hiddenMembers > 0 && (
                 <span>
@@ -941,9 +1078,9 @@ export async function TelefonTab({
           ) : (
             <ComparisonTable
               columns={[
-                { key: "calls", label: "Calls", format: "int" },
+                { key: "calls", label: "Erstkontakte", format: "int" },
                 { key: "gatekeeper", label: "Gatekeeper", format: "int" },
-                { key: "gkRate", label: "GK-Quote", format: "pct", deltaVsAvg: true },
+                { key: "gkRate", label: "Gatekeeper-Quote", format: "pct", deltaVsAvg: true },
                 { key: "decider", label: "Entscheider", format: "int" },
                 { key: "deciderRate", label: "Entscheider-Quote", format: "pct", deltaVsAvg: true },
                 { key: "pitch", label: "Pitch", format: "int" },
@@ -960,108 +1097,15 @@ export async function TelefonTab({
         </AnalyseSection>
       </Fade>
 
-      {/* ══ 3 · Verlauf + Outcome-Verteilung ══
-          Beide starten zu und teilen sich denselben Startzustand: In einem
-          zweispaltigen Raster stünde eine zugeklappte Karte neben einer
-          offenen sonst als hohe, leere Fläche da. `alignItems: start` hält das
-          auch nach dem Aufklappen einer der beiden Karten so — ohne die
-          Vorgabe würde die zugeklappte auf die Höhe der offenen gestreckt.
-          Beide zeigen die Form der Zahlen, nicht die Zahlen selbst. */}
-      <div className="analyse-row" style={{ alignItems: "start" }}>
-        <Fade i={6}>
-          <AnalyseSection title="Verlauf" icon={TrendingUp} meta={`${from} – ${to}`} collapsible defaultOpen={false}>
-            <PhoneSeriesChart buckets={buckets} perUser={perUserVisible} />
-          </AnalyseSection>
-        </Fade>
-        <Fade i={7}>
-          <AnalyseSection
-            title="Outcome-Verteilung"
-            icon={PieChart}
-            meta={`${INT_FMT.format(outcomeTotal)} Leads`}
-            collapsible
-            defaultOpen={false}
-          >
-            <DonutChart data={outcomeData} centerLabel={INT_FMT.format(outcomeTotal)} centerSub="Leads" />
-          </AnalyseSection>
-        </Fade>
-      </div>
-
-      {/* ══ 4 · Fortschritt (kumuliert) ══
-          Der Verlauf darüber zeigt Tageszacken je Person; hier steigt eine
-          Kurve über den Zeitraum. Ein Einbruch liest sich als Abflachung viel
-          schneller als in einer zappelnden Tagesreihe.
-          Startet zu: Die Endstände aller vier Serien stehen in der
-          Kachelreihe ganz oben. */}
-      <Fade i={8}>
-        <AnalyseSection title="Fortschritt" icon={Target} meta="kumuliert" collapsible defaultOpen={false}>
-          <CumulativeProgressChart
-            buckets={buckets}
-            series={[
-              { key: "calls", label: "Calls", kind: "count", values: byBucket.calls, defaultOn: true },
-              { key: "gatekeeper", label: "Gatekeeper", kind: "count", values: byBucket.gatekeeper },
-              { key: "decider", label: "Entscheider", kind: "count", values: byBucket.decider },
-              { key: "appts", label: "Termine", kind: "count", values: byBucket.appts, defaultOn: true },
-            ]}
-            rangeLabel={rangeLabel}
-            note="Jeder Lead zählt am Tag seines Erstkontakts — Gatekeeper, Entscheider und Termine also dort, nicht am Tag des Ereignisses."
-          />
-        </AnalyseSection>
-      </Fade>
-
-      {/* ══ 5 · A/B-Test: Skript-Arme und Zielgruppen ══
-          Zwei Achsen desselben Tests: WAS gesagt wurde und WEM. Beide brauchen
-          gepflegte Labels — ohne sie bleiben die Tabellen leer, und genau das
-          sagt der Leerzustand.
-          Beide starten zu (gleicher Startzustand wegen des zweispaltigen
-          Rasters, s. o.): Ein A/B-Vergleich ist eine gezielte Frage, keine
-          Tageszahl. */}
-      <div className="analyse-row" style={{ alignItems: "start" }}>
-        <Fade i={9}>
-          <AnalyseSection
-            title="Welches Skript konvertiert?"
-            icon={FileText}
-            meta={scriptAb.cells.length === 1 ? "1 Arm" : `${INT_FMT.format(scriptAb.cells.length)} Arme`}
-            collapsible
-            defaultOpen={false}
-            info={abInfo({
-              unlabeled: scriptAb.unlabeled,
-              axisHint:
-                "das Skript-Label steht an der Telefonliste. Leads, die als „Rückruf“ oder „Nicht erreicht“ in eine Routing-Liste gewandert sind, tragen keines mehr; der Vergleich fällt dadurch etwas freundlicher aus als die Realität.",
-            })}
-          >
-            <AbTable
-              cells={scriptAb.cells}
-              axisLabel="Skript-Arm"
-              emptyHint="Noch kein Skript-Arm mit genug Calls. Trag das Skript-Label an der Telefonliste ein — dasselbe Label in mehreren Listen ergibt einen Testarm."
-            />
-          </AnalyseSection>
-        </Fade>
-        <Fade i={10}>
-          <AnalyseSection
-            title="Welche Branche konvertiert?"
-            icon={Users}
-            meta={groupAb.cells.length === 1 ? "1 Zielgruppe" : `${INT_FMT.format(groupAb.cells.length)} Zielgruppen`}
-            collapsible
-            defaultOpen={false}
-            info={abInfo({
-              unlabeled: groupAb.unlabeled,
-              axisHint: "die Branche wird beim CSV-Import gesetzt.",
-            })}
-          >
-            <AbTable
-              cells={groupAb.cells}
-              axisLabel="Branche"
-              emptyHint="Noch keine Branche mit genug Calls. Beim CSV-Import lässt sich die Branche für die ganze Datei setzen; bestehende Listen bekommen sie auf der Listen-Seite unter „Skript und A/B-Test“."
-            />
-          </AnalyseSection>
-        </Fade>
-      </div>
-
-      {/* ══ 6 · Anwahlen aus dem Ereignis-Log ══
-          Die Sektion, die „nochmal anrufen oder neue Leads scrapen?"
-          beantwortet: Terminquote des Erstanrufs gegen die der Folge- und
-          Rückrufe. Anders als alles darunter zählt sie ANRUFE, nicht Leads. */}
-      <Fade i={11}>
+      {/* ══ 3 · Anwahlen aus dem Ereignis-Log ══
+          Steht jetzt direkt unter dem Vergleich statt als achte von zwölf
+          zugeklappten Karten: Sie beantwortet die Frage mit der höchsten
+          Entscheidungsrelevanz („nochmal anrufen oder neue Leads scrapen?")
+          und schlüsselt genau die Leitkachel auf.
+          Bleibt trotzdem zu: Die Leitzahl selbst steht oben auf der Glaskachel
+          samt Log-Hinweis — hier liegt die Aufschlüsselung, und die ist eine
+          Wochen-, keine Tagesfrage. */}
+      <Fade i={6}>
         <AnalyseSection
           title="Nachfassen oder neue Leads?"
           icon={PhoneCall}
@@ -1072,7 +1116,7 @@ export async function TelefonTab({
             <span>
               Eine <B>Anwahl</B> ist ein Ergebnis-Klick im Call-Modus, kein Lead — dreimal derselbe Lead sind hier
               drei Zeilen. Für die Zeit vor dem Log bleibt die lead-basierte Auswertung &bdquo;Wie oft musst du
-              anrufen?&ldquo; darunter der einzige Blick.
+              anrufen?&ldquo; weiter unten der einzige Blick.
             </span>
           }
         >
@@ -1114,38 +1158,82 @@ export async function TelefonTab({
         </AnalyseSection>
       </Fade>
 
-      {/* ══ 7 · Anruf-Versuche (Lead-Ebene, Zeit vor dem Log) ══ */}
-      <Fade i={12}>
-        <AnalyseSection
-          title="Wie oft musst du anrufen?"
-          icon={Repeat}
-          meta={attemptUnknown > 0 ? `${INT_FMT.format(attemptUnknown)} ohne Versuchszähler` : "Leads nach erreichtem Versuch"}
-          collapsible
-          defaultOpen={false}
-          info={
-            <span>
-              <code>call_attempt</code> ist der zuletzt gezählte Versuch eines Leads, nicht ein Ereignis-Log. Die
-              Spalte &bdquo;3. Versuch&ldquo; enthält also Leads, bei denen dreimal angerufen wurde — bricht die
-              Terminquote dort ein, lohnt der dritte Anruf nicht mehr.
-            </span>
-          }
-        >
-          <QuoteColumns
-            perDay={[1, 2, 3].map((n, i) => ({
-              label: `${n}. Versuch`,
-              n: attemptCells[i].n,
-              quote: pct(attemptCells[i].appts, attemptCells[i].n),
-            }))}
-            quoteLabel="Terminquote"
+      {/* ══ 4 · Fortschritt (kumuliert) ══
+          Der einzige Zeit-Chart des Tabs. Die frühere Tagesreihe je Person
+          darüber zeigte dieselben Serien ungeglättet — zwei Zeit-Charts
+          untereinander waren der Hauptgrund, warum die Seite überladen wirkte.
+          Startet zu: Die Endstände aller vier Serien stehen in den Kacheln
+          ganz oben. */}
+      <Fade i={7}>
+        <AnalyseSection title="Fortschritt" icon={Target} meta="kumuliert" collapsible defaultOpen={false}>
+          <CumulativeProgressChart
+            buckets={buckets}
+            series={[
+              { key: "calls", label: "Erstkontakte", kind: "count", values: byBucket.calls, defaultOn: true },
+              { key: "gatekeeper", label: "Gatekeeper", kind: "count", values: byBucket.gatekeeper },
+              { key: "decider", label: "Entscheider", kind: "count", values: byBucket.decider },
+              { key: "appts", label: "Termine", kind: "count", values: byBucket.appts, defaultOn: true },
+            ]}
+            rangeLabel={rangeLabel}
+            note="Jeder Lead zählt am Tag seines Erstkontakts — Gatekeeper, Entscheider und Termine also dort, nicht am Tag des Ereignisses."
           />
         </AnalyseSection>
       </Fade>
 
-      {/* ══ 8 · Gatekeeper + Stimmung ══
-          Beide starten zu (gleicher Startzustand wegen des zweispaltigen
-          Rasters, s. o.): Verteilungen über den bereits laufenden Funnel. */}
+      {/* ══ 5 · A/B-Test: Skript-Arme und Zielgruppen ══
+          Zwei Achsen desselben Tests: WAS gesagt wurde und WEM. Beide brauchen
+          gepflegte Labels — ohne sie bleiben die Tabellen leer, und genau das
+          sagt der Leerzustand.
+          Beide starten zu (gleicher Startzustand im zweispaltigen Raster, sonst
+          stünde die zugeklappte Karte als hohe leere Fläche neben der offenen):
+          Ein A/B-Vergleich ist eine gezielte Frage, keine Tageszahl. */}
+      <div className="analyse-row" style={{ alignItems: "start" }}>
+        <Fade i={8}>
+          <AnalyseSection
+            title="Welches Skript konvertiert?"
+            icon={FileText}
+            meta={scriptAb.cells.length === 1 ? "1 Arm" : `${INT_FMT.format(scriptAb.cells.length)} Arme`}
+            collapsible
+            defaultOpen={false}
+            info={abInfo({
+              unlabeled: scriptAb.unlabeled,
+              axisHint:
+                "der Testarm wird beim Import am Lead festgeschrieben (Migration 0030) und bleibt dort, auch wenn der Lead später als „Rückruf“ oder „Nicht erreicht“ in eine Routing-Liste wandert. Vor 0030 importierte Leads erben ihn ersatzweise von ihrer Liste; nur bei ihnen kann ein Umzug den Arm gekostet haben.",
+            })}
+          >
+            <AbTable
+              cells={scriptAb.cells}
+              axisLabel="Skript-Arm"
+              emptyHint="Noch kein Skript-Arm mit genug Erstkontakten. Der Testarm wird beim CSV-Import gesetzt — dasselbe Label in mehreren Importen ergibt einen gemeinsamen Arm."
+            />
+          </AnalyseSection>
+        </Fade>
+        <Fade i={9}>
+          <AnalyseSection
+            title="Welche Branche konvertiert?"
+            icon={Users}
+            meta={groupAb.cells.length === 1 ? "1 Zielgruppe" : `${INT_FMT.format(groupAb.cells.length)} Zielgruppen`}
+            collapsible
+            defaultOpen={false}
+            info={abInfo({
+              unlabeled: groupAb.unlabeled,
+              axisHint: "die Branche wird beim CSV-Import gesetzt.",
+            })}
+          >
+            <AbTable
+              cells={groupAb.cells}
+              axisLabel="Branche"
+              emptyHint="Noch keine Branche mit genug Erstkontakten. Beim CSV-Import lässt sich die Branche für die ganze Datei setzen; bestehende Listen bekommen sie auf der Listen-Seite unter „Skript und A/B-Test“."
+            />
+          </AnalyseSection>
+        </Fade>
+      </div>
+
+      {/* ══ 6 · Lead-Ebene: Weg zum Entscheider + Anruf-Versuche ══
+          Beide beschreiben denselben Lead-Bestand aus zwei Richtungen: Wer
+          stand im Weg, und wie oft musste man ran. Beide starten zu. */}
       <div className="analyse-row" data-split="wide-left" style={{ alignItems: "start" }}>
-        <Fade i={13}>
+        <Fade i={10}>
           <AnalyseSection
             title="Der Weg zum Entscheider"
             icon={DoorOpen}
@@ -1157,91 +1245,103 @@ export async function TelefonTab({
               label="Gatekeeper"
               columns={[
                 { key: "n", label: "Leads", format: "int" },
-                { key: "deciderRate", label: "Entscheider", format: "pct", emphasis: true },
+                { key: "deciderRate", label: "Entscheider-Quote", format: "pct", emphasis: true },
                 { key: "appts", label: "Termine", format: "int" },
                 { key: "apptRate", label: "Terminquote", format: "pct" },
                 { key: "deadRate", label: "Dead", format: "pct" },
               ]}
               rows={gatekeeperRows}
-              minWidth={520}
+              minWidth={560}
               emptyHint="Keine Gatekeeper-Angaben im Zeitraum."
             />
           </AnalyseSection>
         </Fade>
-        <Fade i={14}>
+        <Fade i={11}>
           <AnalyseSection
-            title="Stimmung im Gespräch"
-            icon={Smile}
-            meta="answer_sentiment"
+            title="Wie oft musst du anrufen?"
+            icon={Repeat}
+            meta={attemptUnknown > 0 ? `${INT_FMT.format(attemptUnknown)} ohne Versuchszähler` : "Leads nach erreichtem Versuch"}
             collapsible
             defaultOpen={false}
             info={
-              <span>
-                Gezählt werden Leads mit erreichtem Entscheider — nur dort gibt es überhaupt ein Gespräch zu
-                bewerten.
-              </span>
+              <InfoBody>
+                <span>
+                  <code>call_attempt</code> ist der zuletzt gezählte Versuch eines Leads, nicht ein Ereignis-Log. Die
+                  Spalte &bdquo;3. Versuch&ldquo; enthält also Leads, bei denen dreimal angerufen wurde — bricht die
+                  Terminquote dort ein, lohnt der dritte Anruf nicht mehr.
+                </span>
+                <span>
+                  &bdquo;Nachfassen oder neue Leads?&ldquo; zählt dieselben Anrufe als <B>Anwahlen</B>, also als
+                  Ereignisse; hier stehen die <B>Leads</B>, gruppiert nach ihrem Zählerstand.
+                </span>
+              </InfoBody>
             }
           >
-            <ShareBar
-              segments={[
-                ...SENTIMENT_META.map((m) => ({ label: m.label, value: sentiment[m.key], color: m.color })),
-                { label: "Ohne Angabe", value: sentiment.offen, color: VIZ_NEUTRAL },
-              ]}
-              height={14}
+            <QuoteColumns
+              perDay={[1, 2, 3].map((n, i) => ({
+                label: `${n}. Versuch`,
+                n: attemptCells[i].n,
+                quote: pct(attemptCells[i].appts, attemptCells[i].n),
+              }))}
+              quoteLabel="Terminquote"
             />
           </AnalyseSection>
         </Fade>
       </div>
 
-      {/* ══ 9 · Gründe ══
-          Drei Freitext-Verteilungen, alle zu: reine Ursachenforschung, und in
-          drei Spalten nebeneinander sonst der längste Block der Seite. */}
-      <div className="analyse-row" data-split="auto" style={{ alignItems: "start" }}>
-        <Fade i={15}>
-          <AnalyseSection title="Warum nicht durchgestellt?" icon={PhoneOff} collapsible defaultOpen={false}>
-            <DistBars items={noTransfer} max={8} />
-          </AnalyseSection>
-        </Fade>
-        <Fade i={16}>
-          <AnalyseSection title="Warum kein Pitch?" icon={XCircle} collapsible defaultOpen={false}>
-            <DistBars items={noPitch} max={8} />
-          </AnalyseSection>
-        </Fade>
-        <Fade i={17}>
-          <AnalyseSection title="Warum kein Termin?" icon={CalendarX} collapsible defaultOpen={false}>
-            <DistBars items={noAppointment} max={8} />
-          </AnalyseSection>
-        </Fade>
-      </div>
-
-      {/* ══ 10 · Wochentag-Analyse ══
-          Startet zu: Nebenauswertung („wann anrufen?"), kein Tageswert. */}
-      <Fade i={18}>
+      {/* ══ 7 · Abbruch-Gründe ══
+          Waren drei Karten („Warum nicht durchgestellt?", „Warum kein Pitch?",
+          „Warum kein Termin?") — drei Deckel und drei Klicks für eine Frage in
+          drei Etappen. Als Spalten ist es ein Klick bei gleicher Fläche, und
+          die Reihenfolge der Spalten ist die Reihenfolge des Gesprächs. */}
+      <Fade i={12}>
         <AnalyseSection
-          title="Wochentag-Analyse"
-          icon={CalendarDays}
-          meta="Calls je Wochentag"
+          title="Wo bricht das Gespräch ab?"
+          icon={MessageSquareOff}
+          meta={`${INT_FMT.format(reasonTotal)} Begründungen`}
           collapsible
           defaultOpen={false}
+          info={
+            <InfoBody>
+              <span>
+                Drei Etappen desselben Gesprächs, von links nach rechts: erst der Gatekeeper, dann der Pitch, dann
+                der Termin. Jede Spalte zählt die Freitext-Begründungen der Leads, die genau dort hängen geblieben
+                sind.
+              </span>
+              <span>
+                Ein Lead kann in mehreren Spalten stehen — die Spalten sind Stufen, keine Aufteilung einer Menge.
+                Gezählt wird nur, wo eine Begründung erfasst wurde; ohne Eintrag taucht der Lead nirgends auf.
+              </span>
+            </InfoBody>
+          }
         >
-          <WeekdayBars
-            perDay={weekday.map((d) => ({ label: d.label, n: d.calls, quote: pct(d.appts, d.calls) }))}
-            quoteLabel="Terminquote"
-          />
+          {/* auto-fit statt fester Dreispaltigkeit: Im schmalen Viewport
+              stapeln sich die Stufen, statt auf 90px zusammenzuschrumpfen. */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "var(--sp-7)",
+            }}
+          >
+            <ReasonColumn title="Nicht durchgestellt" icon={PhoneOff} items={noTransfer} />
+            <ReasonColumn title="Kein Pitch" icon={XCircle} items={noPitch} />
+            <ReasonColumn title="Kein Termin" icon={CalendarX} items={noAppointment} />
+          </div>
         </AnalyseSection>
       </Fade>
 
-      {/* ══ 11 · Funnel ══
+      {/* ══ 8 · Funnel ══
           Startet zu: Dieselben fünf Stufen stehen als Kacheln und als Spalten
           der Vergleichstabelle oben — hier nur zusätzlich als Form je Person. */}
-      <Fade i={19}>
+      <Fade i={13}>
         <AnalyseSection title="Funnel" icon={Phone} collapsible defaultOpen={false}>
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <FunnelStrip
               label="Gesamt"
               highlight
               stages={[
-                { label: "Calls", value: sum.calls },
+                { label: "Erstkontakte", value: sum.calls },
                 { label: "Gatekeeper", value: sum.gatekeeper },
                 { label: "Entscheider", value: sum.decider },
                 { label: "Pitch", value: sum.pitch },
@@ -1255,7 +1355,7 @@ export async function TelefonTab({
                   key={name}
                   label={name}
                   stages={[
-                    { label: "Calls", value: t.calls },
+                    { label: "Erstkontakte", value: t.calls },
                     { label: "Gatekeeper", value: t.gatekeeper },
                     { label: "Entscheider", value: t.decider },
                     { label: "Pitch", value: t.pitch },

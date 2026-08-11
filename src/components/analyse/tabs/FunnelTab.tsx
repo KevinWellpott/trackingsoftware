@@ -42,7 +42,7 @@ import { CumulativeProgressChart } from "@/components/analyse/CumulativeProgress
 //    `contacts.appointment_set` (RPC-Spalte `appts`), die Stufe daneben aber
 //    gezählte Setting-Zeilen. Zwei Definitionen in einem Trichter — genau der
 //    Grund, warum die Werte nicht plausibel wirkten. Die RPCs liefern jetzt
-//    nur noch die Nenner der Wert-Kacheln (DMs, Antworten, Anwahlen,
+//    nur noch die Nenner der Wert-Kacheln (DMs, Antworten, Erstkontakte,
 //    Entscheider), wo sie hingehören.
 // 3) „Je Nutzer" ist raus (Board: „Ab danach alles raus"). Die Zuordnung je
 //    Person bleibt bestehen — sie entscheidet weiterhin, welche Zeilen in die
@@ -55,6 +55,44 @@ import { CumulativeProgressChart } from "@/components/analyse/CumulativeProgress
 //    warum die Termin-Zahl hier KLEINER sein darf als im Setting-Tab: dort ist
 //    „Termine im Zeitraum" bewusst die volle Menge (Kapazitätsfrage), hier ist
 //    es eine Konversionssicht.
+//
+// ── Angleichung an die neue Begriffs- und Gestaltungslinie ────────────────
+// 5) DAS WORT „ANWAHLEN" IST RAUS. Die Volumen-Stufe des Telefon-Kanals heißt
+//    jetzt überall „Erstkontakte" (Firmen mit erstem Anruf), weil „Anwahlen"
+//    seit dem Anruf-Log die Ereignis-Ebene meint, auf der derselbe Lead
+//    mehrfach zählt. Bis hierher zeigten Telefon-Tab und Funnel zwei
+//    verschiedene Zahlen unter demselben Wort. Das Wort kommt deshalb aus der
+//    Kanal-Registry (`volume.unitLabel`) statt aus einer lokalen Wortliste —
+//    genau die Doppelung, die die Registry abschaffen soll.
+// 6) KEINE LEITZAHL-KACHEL (`KpiHero lead`). Der Tab beginnt mit zwei
+//    symmetrischen Kanal-Blöcken; eine hervorgehobene Kachel stellte einen
+//    der beiden Kanäle typografisch über den anderen, obwohl der Vergleich
+//    der ganze Zweck des Aufbaus ist. Dazu ist jede dieser Kacheln ein
+//    Verhältnis, dessen Zähler und Nenner in verschiedenen Zeiträumen liegen
+//    (siehe Info-Text unten) — die wackeligste Zahl des Tabs taugt nicht als
+//    seine Kernaussage. Die trägt der Trichter, der seinen Umsatz ohnehin als
+//    eigene Abschlusskarte führt. Stattdessen bekommt jeder Block seine
+//    Bezugsgröße in die Kopfzeile: „aus N Abschlüssen · Basis M DMs".
+// 7) DER QUELLENFILTER GILT JETZT AUCH OBEN. Er ließ die Wert-Kacheln
+//    unberührt — ein Filter, der die halbe Seite nicht anfasst, liest sich
+//    als Defekt. Gefiltert bleibt jetzt genau der gewählte Kanal stehen; hat
+//    er kein eigenes Akquise-Volumen (Ads, Social Media, Manuell …), bleiben
+//    die zwei Kacheln, die es für ihn gibt. Nicht folgen kann nur die
+//    Umsatz-Herkunft: Eine Aufteilung auf die Kanäle muss sich auf den
+//    Gesamtumsatz summieren, sonst ist „Gesamt" nicht das Gesamt. Diese eine
+//    Sektion sagt das in ihrer Meta-Zeile.
+// 8) DIE QUELLEN-TABELLE ist ab jetzt die einzige Quellen-Aufschlüsselung des
+//    Analysebereichs (die im Closing-Tab entfällt). Sie zeigt fünf statt acht
+//    Spalten und muss zwei Aufgaben zugleich tragen:
+//    • die volle Kette Termin → Show → Closing → Gewonnen → Umsatz, die es
+//      nur hier gibt, und
+//    • die FREITEXT-Quelle, die es nur in der gelöschten Tabelle gab. Ohne
+//      sie wäre „Umsatz je Freitext-Quelle" ersatzlos verloren: Der
+//      Setting-Tab löst den Freitext zwar auf, endet aber bei „Zu Closing".
+//    Gruppiert wird deshalb nach `source_detail`, wo einer da ist, sonst nach
+//    `source_type` — die Regel des Setting-Tabs, inklusive case-insensitiver
+//    Normalisierung (siehe `srcOf`). Gegen die dadurch mögliche Zeilenflut
+//    steht eine Sammelzeile, keine Mindestmenge (Begründung dort).
 
 type Member = { user_id: string; username: string };
 
@@ -105,12 +143,16 @@ type PhoneDayRow = {
   appointments: number | string | null;
 };
 
-/** Die sechs Stufen — je Person und in Summe dieselbe Form. */
+/**
+ * Die sechs Stufen — je Person und in Summe dieselbe Form.
+ *
+ * Ohne `entschieden`: Der Trichter zeigt Mengen, keine Show-Quote. Das Feld
+ * stand hier, wurde aber nie gefüllt und nie gelesen — der Nenner der
+ * Show-Quote gehört zur Quellen-Ebene (`SrcCell`), wo die Quote auch steht.
+ */
 type Person = {
   termine: number;
   shows: number;
-  /** Termine mit erfasstem `show_status` — der Nenner der Show-Quote. */
-  entschieden: number;
   quali: number;
   closings: number;
   closingShows: number;
@@ -121,7 +163,6 @@ type Person = {
 const ZERO = (): Person => ({
   termine: 0,
   shows: 0,
-  entschieden: 0,
   quali: 0,
   closings: 0,
   closingShows: 0,
@@ -146,33 +187,95 @@ function channelKeyOf(sourceType: string | null | undefined): ChannelKey {
   return channelOf(sourceType)?.key ?? "sonstige";
 }
 
-/**
- * Die Wörter der beiden Wert-Kacheln je Kanal: die Einheit des Volumens
- * (Einzahl, „pro DM" statt „pro DMs") und die Reaktions-Stufe darüber.
- *
- * Bewusst hier und nicht in der Kanal-Registry: `ChannelVolume` kennt nur den
- * Plural der Volumen-Stufe („DMs"/„Calls") und gar keine Reaktions-Stufe.
- * Vorschlag fürs nächste Paket, das channels.ts anfasst — dort gehören
- * `unitLabel` und `reachLabel` neben `stageLabel`.
- */
-const STAGE_WORDS: Record<string, { unit: string; reach: string }> = {
-  linkedin: { unit: "DM", reach: "Antwort" },
-  telefon: { unit: "Anwahl", reach: "Entscheider" },
+/** Eine Zeile der Quellen-Tabelle: Freitext-Ursprung, sonst Kanal. */
+type Src = {
+  key: string;
+  label: string;
+  /** Zweite Zeile unter dem Label — der Kanal hinter dem Freitext. */
+  sub: string | null;
+  /** Kanal-Schlüssel; entscheidet, ob die Zeile im Quellenfilter bleibt. */
+  channel: string;
 };
 
-type VolumeChannel = { key: "linkedin" | "telefon"; label: string; unit: string; reach: string };
+/**
+ * Herkunft eines Termins für die Quellen-Tabelle: `source_detail` schlägt
+ * `source_type`.
+ *
+ * Diese Regel kam bisher aus dem Closing-Tab, dessen Quellen-Tabelle entfällt
+ * — ohne sie ginge sie verloren. Sie trägt: Der Freitext ist der ECHTE
+ * Ursprung, und ohne ihn fallen alle manuell gebuchten Termine in eine
+ * Sammelzeile, die im Umsatz-Ranking regelmäßig oben steht und nichts erklärt
+ * („Empfehlung" und „Bestandskunde" sind zwei Quellen, nicht eine).
+ * Case-insensitiv zusammengefasst; angezeigt wird die zuerst gesehene
+ * Schreibweise.
+ *
+ * Der Schlüssel enthält den Kanal — anders als im Closing-Tab. Grund: Der
+ * Quellenfilter arbeitet auf Kanal-Ebene, und eine Zeile, in der zwei Kanäle
+ * stecken, wäre entweder falsch gefiltert oder falsch gezählt. Derselbe
+ * Freitext unter zwei Kanälen ergibt deshalb zwei Zeilen, die ihren Kanal
+ * sichtbar untereinander tragen.
+ */
+function srcOf(r: { source_type: string | null | undefined; source_detail: string | null }): Src {
+  const channel = channelKeyOf(r.source_type);
+  const detail = (r.source_detail ?? "").trim();
+  if (detail) {
+    return {
+      key: `d:${channel}:${detail.toLowerCase()}`,
+      label: detail,
+      sub: channelLabel(r.source_type),
+      channel,
+    };
+  }
+  return { key: `t:${channel}`, label: channelLabel(r.source_type), sub: null, channel };
+}
+
+/**
+ * Closing ohne verknüpftes Setting: kein Fehler, sondern ein direkt angelegtes
+ * oder beim Organisations-Umzug gekapptes Abschlussgespräch. Es hat keine
+ * Herkunft und fällt deshalb auch aus jedem Quellenfilter heraus.
+ */
+const SRC_OHNE: Src = { key: OHNE_SETTING, label: "Ohne Setting-Bezug", sub: null, channel: OHNE_SETTING };
+
+/**
+ * Die Reaktions-Stufe je Kanal — die Zwischenstufe zwischen Ansprache und
+ * Termin: eine Antwort auf die DM, ein erreichter Entscheider am Telefon.
+ *
+ * Das ist der Rest der früheren lokalen Wortliste, und er bleibt bewusst
+ * lokal: Eine Reaktions-Stufe kennt die Kanal-Registry nicht (`ChannelVolume`
+ * beschreibt nur das Akquise-Volumen), und es gibt sie in keinem anderen Tab.
+ * Die Volumen-Wörter dagegen sind hier weg — sie kamen doppelt vor und
+ * nannten die Telefon-Stufe „Anwahl", was seit dem Anruf-Log die
+ * Ereignis-Ebene meint (derselbe Lead zählt dort mehrfach). Gemeint ist die
+ * Firmen-Ebene: „Erstkontakt", und dieses Wort steht jetzt genau einmal, in
+ * `CHANNELS[].volume.unitLabel`.
+ */
+const REACH_LABEL: Record<string, string> = {
+  linkedin: "Antwort",
+  telefon: "Entscheider",
+};
+
+type VolumeChannel = {
+  key: "linkedin" | "telefon";
+  label: string;
+  /** Einzahl für die Verhältnis-Kachel („Umsatz pro DM"/„pro Erstkontakt"). */
+  unit: string;
+  /** Mehrzahl für die Bezugsgröße in der Block-Kopfzeile („Basis 1.234 DMs"). */
+  stage: string;
+  reach: string;
+};
 
 /**
  * Die beiden Kanäle mit eigenem Akquise-Volumen (LinkedIn, Telefon) — genau
  * die, für die es eine Stufe VOR dem Termin gibt. Aus der Registry statt aus
  * einer Literal-Liste: ein dritter Kanal mit eigener Volumen-Tabelle bekommt
- * seinen Block dann automatisch, sobald er in STAGE_WORDS steht.
+ * seinen Block automatisch, sobald er dort ein `volume` trägt.
  */
 const VOLUME_CHANNELS: VolumeChannel[] = CHANNELS.filter((c) => c.volume !== null).map((c) => ({
   key: c.key as "linkedin" | "telefon",
   label: c.label,
-  unit: STAGE_WORDS[c.key]?.unit ?? c.volume!.stageLabel,
-  reach: STAGE_WORDS[c.key]?.reach ?? "Reaktion",
+  unit: c.volume!.unitLabel,
+  stage: c.volume!.stageLabel,
+  reach: REACH_LABEL[c.key] ?? "Reaktion",
 }));
 
 export async function FunnelTab({
@@ -307,17 +410,56 @@ export async function FunnelTab({
   }
 
   // ── Kanal-Zellen ────────────────────────────────────────────
-  // Bewusst UNABHÄNGIG vom Quellenfilter: Die Wert-Kacheln sollen beide Kanäle
-  // immer nebeneinander zeigen, sonst ist der Vergleich eine Frage der
-  // Filterstellung. Zeitraum, Zählweise und Personenfilter gelten sehr wohl.
-  // `entschieden` = Termine mit erfasstem show_status (Nenner der Show-Quote).
-  type Cell = { termine: number; shows: number; entschieden: number; quali: number; closings: number; closingShows: number; won: number; revenue: number };
+  // Die Kanal-Ebene: Sie trägt die kanalreinen Wert-Kacheln und die
+  // Umsatz-Herkunft. Beide werden über ALLE Kanäle gefüllt, unabhängig vom
+  // Quellenfilter — die Aufteilung muss sich auf den Gesamtumsatz summieren,
+  // und die Kacheln greifen sich daraus den Block, den der Filter zeigt.
+  // Zeitraum, Zählweise und Personenfilter gelten sehr wohl.
+  // Bewusst nur diese vier Felder: Die Stufen-Details (Shows, Nenner der
+  // Show-Quote) hängen an der feineren Quellen-Ebene direkt darunter.
+  type Cell = { termine: number; closings: number; won: number; revenue: number };
   const cells = new Map<string, Cell>();
   const cellFor = (key: string): Cell => {
     let c = cells.get(key);
     if (!c) {
-      c = { termine: 0, shows: 0, entschieden: 0, quali: 0, closings: 0, closingShows: 0, won: 0, revenue: 0 };
+      c = { termine: 0, closings: 0, won: 0, revenue: 0 };
       cells.set(key, c);
+    }
+    return c;
+  };
+
+  // ── Quellen-Zellen ──────────────────────────────────────────
+  // Eine Ebene feiner als der Kanal: je Freitext-Ursprung eine Zeile (siehe
+  // `srcOf`). Basis der Quellen-Tabelle — und der Grund, warum sie die Aufgabe
+  // der gelöschten Closing-Tabelle mitträgt.
+  // `entschieden` = Termine mit erfasstem show_status (Nenner der Show-Quote).
+  type SrcCell = {
+    label: string;
+    sub: string | null;
+    channel: string;
+    termine: number;
+    shows: number;
+    entschieden: number;
+    closings: number;
+    won: number;
+    revenue: number;
+  };
+  const srcCells = new Map<string, SrcCell>();
+  const srcFor = (s: Src): SrcCell => {
+    let c = srcCells.get(s.key);
+    if (!c) {
+      c = {
+        label: s.label,
+        sub: s.sub,
+        channel: s.channel,
+        termine: 0,
+        shows: 0,
+        entschieden: 0,
+        closings: 0,
+        won: 0,
+        revenue: 0,
+      };
+      srcCells.set(s.key, c);
     }
     return c;
   };
@@ -331,6 +473,10 @@ export async function FunnelTab({
     shows: {} as Record<string, number>,
     quali: {} as Record<string, number>,
     closings: {} as Record<string, number>,
+    // Nenner der Abschlussrate: erschienene Closings, nicht alle. Deckungsgleich
+    // mit Closing-Tab und Vergleichsseite — dieselbe Kennzahl darf nicht je nach
+    // Ansicht einen anderen Nenner haben.
+    closingShows: {} as Record<string, number>,
     won: {} as Record<string, number>,
   };
   const addBucket = (map: Record<string, number>, day: string, n = 1): void => {
@@ -340,19 +486,20 @@ export async function FunnelTab({
   };
 
   // ── Setting-Calls ───────────────────────────────────────────
-  // `channelOfSetting` deckt ALLE Settings ab, auch die außerhalb des
-  // Fensters: in der Periodensicht kann ein Closing zu einem älteren Termin
-  // gehören, und ohne diesen Eintrag landete sein Umsatz fälschlich unter
-  // "Ohne Setting-Bezug" statt beim Kanal.
-  const channelOfSetting = new Map<string, ChannelKey>();
-  // Die Kohorte: Setting-ID → Person + Tag + Kanal. Was hier fehlt, gehört
+  // `srcOfSetting` deckt ALLE Settings ab, auch die außerhalb des Fensters: in
+  // der Periodensicht kann ein Closing zu einem älteren Termin gehören, und
+  // ohne diesen Eintrag landete sein Umsatz fälschlich unter "Ohne
+  // Setting-Bezug" statt bei seiner Quelle.
+  const srcOfSetting = new Map<string, Src>();
+  // Die Kohorte: Setting-ID → Person + Tag + Herkunft. Was hier fehlt, gehört
   // nicht zum Zeitraum. Bewusst OHNE Quellenfilter — der greift erst beim
-  // Funnel, damit die Kanal-Zellen vollständig bleiben.
-  const cohort = new Map<string, { name: string; day: string; channel: ChannelKey }>();
+  // Funnel, damit Kanal- und Quellen-Zellen vollständig bleiben.
+  const cohort = new Map<string, { name: string; day: string; src: Src }>();
 
   for (const r of settingRows) {
-    const channel = channelKeyOf(r.source_type);
-    channelOfSetting.set(r.id, channel);
+    const src = srcOf(r);
+    const channel = src.channel;
+    srcOfSetting.set(r.id, src);
 
     // `toEff` statt `to`: ein Termin, der erst noch ansteht, gehört nicht in
     // eine Konversionsrechnung (siehe Zeitgrenze oben).
@@ -363,18 +510,20 @@ export async function FunnelTab({
 
     const show = r.show_status === "show";
     const quali = isQualified(r);
-    cohort.set(r.id, { name, day, channel });
+    cohort.set(r.id, { name, day, src });
 
-    const cell = cellFor(channel);
-    cell.termine += 1;
-    if (show) cell.shows += 1;
+    cellFor(channel).termine += 1;
+
+    const sc = srcFor(src);
+    sc.termine += 1;
+    if (show) sc.shows += 1;
     // Nenner der Show-Quote: nur Termine MIT erfasstem Ergebnis — identisch zu
     // Setting- und Uebersichtstab. Gegen alle Termine gerechnet saehe dieselbe
     // Kennzahl hier anders aus als dort.
-    if (r.show_status === "show" || r.show_status === "no_show") cell.entschieden += 1;
-    if (quali) cell.quali += 1;
+    if (r.show_status === "show" || r.show_status === "no_show") sc.entschieden += 1;
 
-    // Der Funnel darunter folgt dem Quellenfilter, die Kacheln oben nicht.
+    // Der Funnel darunter folgt dem Quellenfilter; Kanal- und Quellen-Zellen
+    // oben bleiben vollständig und werden erst beim Rendern zugeschnitten.
     if (quelle !== "alle" && channel !== quelle) continue;
 
     const p = ensure(name);
@@ -399,36 +548,43 @@ export async function FunnelTab({
 
     let name: string | null;
     let day: string;
-    let channel: string;
+    let src: Src;
 
     if (modus === "kohorte") {
       // Das Closing folgt seinem Setting: Es zählt genau dann, wenn dieses
       // Setting zur Kohorte gehört — unabhängig vom Closing-Datum. Auch
-      // Person, Kanal und Bucket kommen vom Setting, sonst risse eine Zeile
+      // Person, Herkunft und Bucket kommen vom Setting, sonst risse eine Zeile
       // auseinander (Termin bei A, Abschluss bei B) und die Durchlaufquote
       // wäre wieder unecht.
       if (!inCohort) continue;
       name = inCohort.name;
       day = inCohort.day;
-      channel = inCohort.channel;
+      src = inCohort.src;
     } else {
       day = closingEffDate(r);
       if (day < from || day > toEff) continue;
       name = resolvePerson(r);
       if (!name) continue;
-      channel = (r.setting_call_id ? channelOfSetting.get(r.setting_call_id) : null) ?? OHNE_SETTING;
+      src = (r.setting_call_id ? srcOfSetting.get(r.setting_call_id) : null) ?? SRC_OHNE;
     }
 
+    const channel = src.channel;
     const show = r.show_status === "show";
     const won = r.status === "gewonnen";
     const vol = won ? NUM(r.deal_volume) : 0;
 
     const cell = cellFor(channel);
     cell.closings += 1;
-    if (show) cell.closingShows += 1;
     if (won) {
       cell.won += 1;
       cell.revenue += vol;
+    }
+
+    const sc = srcFor(src);
+    sc.closings += 1;
+    if (won) {
+      sc.won += 1;
+      sc.revenue += vol;
     }
 
     if (quelle !== "alle" && channel !== quelle) continue;
@@ -441,6 +597,7 @@ export async function FunnelTab({
       p.revenue += vol;
     }
     addBucket(byBucket.closings, day);
+    if (show) addBucket(byBucket.closingShows, day);
     if (won) addBucket(byBucket.won, day);
   }
 
@@ -484,33 +641,82 @@ export async function FunnelTab({
 
   type Tile = { label: string; value: number | null; icon: ReactNode };
 
-  /** Die vier Wert-Kacheln eines Volumen-Kanals. */
-  const tilesFor = (channel: VolumeChannel): Tile[] => {
-    const cell = cells.get(channel.key);
+  /**
+   * Ein Kachel-Block. `volume === null` heißt: Für diese Quelle beginnt der
+   * Funnel erst beim Termin — es gibt keine Tabelle mit „so viele haben wir
+   * angesprochen" (Ads, Social Media, Manuell …).
+   */
+  type TileBlock = { key: string; label: string; volume: VolumeChannel | null };
+
+  /**
+   * Hier greift der Quellenfilter — bis hierher tat er das nicht, und ein
+   * Filter, der die halbe Seite unberührt lässt, liest sich als Defekt.
+   *
+   * Ohne Filter: die beiden Kanäle mit eigenem Akquise-Volumen nebeneinander,
+   * damit der Vergleich nicht von der Filterstellung abhängt. Mit Filter:
+   * genau der gewählte Kanal — wer „Telefon" wählt, will nicht daneben die
+   * LinkedIn-Kacheln lesen. Für einen Kanal ohne eigenes Volumen bleiben die
+   * zwei Kacheln, die es für ihn gibt; die LinkedIn- und Telefon-Kacheln unter
+   * einem Ads-Filter wären keine Vergleichsgröße, sondern die falsche Antwort.
+   */
+  const tileBlocks: TileBlock[] =
+    quelle === "alle"
+      ? VOLUME_CHANNELS.map((c) => ({ key: c.key, label: c.label, volume: c }))
+      : [
+          {
+            key: quelle,
+            label: channelLabel(quelle),
+            volume: VOLUME_CHANNELS.find((c) => c.key === quelle) ?? null,
+          },
+        ];
+
+  /** Die Wert-Kacheln eines Blocks: vier mit Akquise-Volumen, sonst zwei. */
+  const tilesFor = (block: TileBlock): Tile[] => {
+    const cell = cells.get(block.key);
     const revenue = cell?.revenue ?? 0;
-    const vol = volume[channel.key];
-    return [
-      {
-        label: `Umsatz pro ${channel.unit}`,
+    const tiles: Tile[] = [];
+
+    if (block.volume) {
+      const vol = volume[block.volume.key];
+      const isLinkedIn = block.volume.key === "linkedin";
+      tiles.push({
+        label: `Umsatz pro ${block.volume.unit}`,
         value: perValue(revenue, vol.total),
-        icon: channel.key === "linkedin" ? <Euro size={15} /> : <PhoneCall size={15} />,
-      },
-      {
-        label: `Umsatz pro ${channel.reach}`,
+        icon: isLinkedIn ? <Euro size={15} /> : <PhoneCall size={15} />,
+      });
+      tiles.push({
+        label: `Umsatz pro ${block.volume.reach}`,
         value: perValue(revenue, vol.reach),
-        icon: channel.key === "linkedin" ? <MessageCircle size={15} /> : <UserRound size={15} />,
-      },
-      {
-        label: "Umsatz pro Setting",
-        value: perValue(revenue, cell?.termine ?? 0),
-        icon: <CalendarCheck size={15} />,
-      },
-      {
-        label: "Umsatz pro Closing",
-        value: perValue(revenue, cell?.closings ?? 0),
-        icon: <Handshake size={15} />,
-      },
-    ];
+        icon: isLinkedIn ? <MessageCircle size={15} /> : <UserRound size={15} />,
+      });
+    }
+
+    tiles.push({
+      label: "Umsatz pro Setting",
+      value: perValue(revenue, cell?.termine ?? 0),
+      icon: <CalendarCheck size={15} />,
+    });
+    tiles.push({
+      label: "Umsatz pro Closing",
+      value: perValue(revenue, cell?.closings ?? 0),
+      icon: <Handshake size={15} />,
+    });
+    return tiles;
+  };
+
+  /**
+   * Die Bezugsgröße eines Blocks in einer Zeile — acht gleich große
+   * Eurobeträge ohne Nenner sagen nichts: „12 € pro DM" ist über 30 DMs eine
+   * Zufallszahl und über 3.000 eine Aussage. Deshalb steht die Basis in der
+   * Kopfzeile, statt eine der Kacheln zur Leitzahl zu erklären (siehe Punkt 6
+   * im Kopfkommentar).
+   */
+  const blockBasis = (block: TileBlock): string => {
+    const won = (cells.get(block.key)?.won ?? 0).toLocaleString("de-DE");
+    const head = `${eur(revenueOf(block.key))} aus ${won} Abschlüssen`;
+    if (!block.volume) return `${head} · keine Stufe vor dem Termin`;
+    const vol = volume[block.volume.key];
+    return `${head} · Basis ${vol.total.toLocaleString("de-DE")} ${block.volume.stage}`;
   };
 
   const quelleLabel = quelle === "alle" ? "Alle Quellen" : channelLabel(quelle);
@@ -522,6 +728,17 @@ export async function FunnelTab({
     ? `${fmtDay(from)} – ${fmtDay(to)} · noch kein Termin stattgefunden`
     : `${fmtDay(from)} – ${fmtDay(toEff)}${clamped ? " · nur bis heute" : ""}`;
   const rangeMeta = `${windowLabel} · ${quelleLabel} · ${modusLabel}`;
+  /**
+   * Meta-Zeile der einen Sektion, die dem Quellenfilter NICHT folgen kann:
+   * „Wo kommt der Umsatz her?" teilt den Gesamtumsatz auf die Kanäle auf. Mit
+   * gesetztem Filter bliebe eine Aufteilung mit einem einzigen Summanden, und
+   * „Gesamt" wäre nicht mehr das Gesamt. Statt den Widerspruch unkommentiert
+   * stehen zu lassen — der Filter sagt „Telefon", die Zeile zeigt
+   * LinkedIn-Umsatz —, sagt die Sektion selbst, dass er hier nicht gilt.
+   */
+  const alleQuellenMeta = `${windowLabel} · ${modusLabel} · alle Quellen${
+    quelle === "alle" ? "" : " (Filter gilt hier nicht)"
+  }`;
 
   // Ein Satz, der die Zählweise erklärt — ohne den steht der Umschalter da wie
   // ein Schalter ohne Beschriftung.
@@ -560,50 +777,114 @@ export async function FunnelTab({
     </p>
   );
 
-  // ── Quellen-Matrix (nur ohne Quellen-Filter — sonst bliebe eine Zeile) ──
-  const matrixBase = [...cells.values()].reduce((acc, c) => acc + c.termine, 0);
-  const matrixRows: MetricRow[] = [...cells.entries()]
-    .filter(([, c]) => c.termine > 0 || c.closings > 0)
-    .sort((a, b) => b[1].revenue - a[1].revenue || b[1].termine - a[1].termine)
-    .map(([key, c]) => ({
-      key,
-      label: key === OHNE_SETTING ? "Ohne Setting-Bezug" : channelLabel(key),
-      // Anteil gegen die Kanal-Summe, nicht gegen den (quellengefilterten)
-      // Funnel — sonst hinge der Balken an einem Filter, den die Tabelle gar
-      // nicht anwendet.
-      share: matrixBase === 0 ? null : c.termine / matrixBase,
-      values: {
-        termine: c.termine,
-        showRate: pct(c.shows, c.entschieden),
-        quali: c.quali,
-        closings: c.closings,
-        closingRate: pct(c.closings, c.shows),
-        won: c.won,
-        winRate: pct(c.won, c.shows),
-        revenue: c.revenue,
+  // ── Quellen-Tabelle ─────────────────────────────────────────
+  // Sichtbar sind die Quellen des aktiven Filters — Anteilsbalken und
+  // Gesamtzeile rechnen deshalb über genau die Zeilen, die auch dastehen.
+  // Eine Gesamtzeile, die mehr summiert als die Tabelle zeigt, wäre der
+  // nächste Widerspruch derselben Art.
+  const srcVisible = [...srcCells.entries()]
+    .filter(([, c]) => (c.termine > 0 || c.closings > 0) && (quelle === "alle" || c.channel === quelle))
+    .sort((a, b) => b[1].revenue - a[1].revenue || b[1].termine - a[1].termine);
+
+  const matrixBase = srcVisible.reduce((acc, [, c]) => acc + c.termine, 0);
+
+  // ── Zeilenzahl: Sammelzeile statt Mindestmenge ──────────────
+  // Mit der Freitext-Auflösung kann die Tabelle beliebig lang werden — jede
+  // Schreibweise von „Empfehlung Meier" ist eine eigene Zeile.
+  //
+  // Bewusst eine Sammelzeile und KEINE Mindestmenge (wie `min` im Listen-Tab):
+  // Diese Tabelle ist nach Umsatz sortiert, und eine Mindestmenge („erst ab 5
+  // Terminen") verschluckte ausgerechnet die Zeile, für die es diese
+  // Auswertung gibt — eine Quelle mit einem Termin und einem 20.000-€-Deal.
+  // Die Sammelzeile verliert keinen Euro und hält die Gesamtzeile gleich der
+  // Summe des Sichtbaren.
+  const MAX_SOURCE_ROWS = 8;
+
+  // „Ohne Setting-Bezug" zählt nicht gegen das Limit und wandert nie in die
+  // Sammelzeile: Das ist keine Quelle, sondern der Hinweis, dass diese Zahlen
+  // zu keiner gehören — unter „Übrige Quellen" wäre er als eine ausgewiesen.
+  const shownSrc: [string, SrcCell][] = [];
+  const restSrc: [string, SrcCell][] = [];
+  let shownCount = 0;
+  for (const entry of srcVisible) {
+    if (entry[0] === OHNE_SETTING || shownCount < MAX_SOURCE_ROWS) {
+      shownSrc.push(entry);
+      if (entry[0] !== OHNE_SETTING) shownCount += 1;
+      continue;
+    }
+    restSrc.push(entry);
+  }
+  // Eine einzelne Restzeile bleibt sie selbst: „Übrige Quellen (1)" versteckt
+  // einen Namen und spart keine Zeile.
+  if (restSrc.length === 1) shownSrc.push(...restSrc.splice(0, 1));
+
+  const matrixRows: MetricRow[] = shownSrc.map(([key, c]) => ({
+    key,
+    label: c.label,
+    // Der Kanal unter dem Freitext: „Empfehlung" allein sagt nicht, über
+    // welchen Weg der Termin entstanden ist.
+    sub: c.sub,
+    share: matrixBase === 0 ? null : c.termine / matrixBase,
+    values: {
+      termine: c.termine,
+      showRate: pct(c.shows, c.entschieden),
+      closings: c.closings,
+      won: c.won,
+      revenue: c.revenue,
+    },
+  }));
+
+  if (restSrc.length > 0) {
+    const rest = restSrc.reduce(
+      (acc, [, c]) => {
+        acc.termine += c.termine;
+        acc.shows += c.shows;
+        acc.entschieden += c.entschieden;
+        acc.closings += c.closings;
+        acc.won += c.won;
+        acc.revenue += c.revenue;
+        return acc;
       },
-    }));
-  const matrixTotal = [...cells.values()].reduce(
-    (acc, c) => {
+      { termine: 0, shows: 0, entschieden: 0, closings: 0, won: 0, revenue: 0 },
+    );
+    matrixRows.push({
+      key: "rest",
+      label: "Übrige Quellen",
+      sub: `${restSrc.length} Quellen unterhalb der Top ${MAX_SOURCE_ROWS}`,
+      share: matrixBase === 0 ? null : rest.termine / matrixBase,
+      values: {
+        termine: rest.termine,
+        showRate: pct(rest.shows, rest.entschieden),
+        closings: rest.closings,
+        won: rest.won,
+        revenue: rest.revenue,
+      },
+    });
+  }
+  const matrixTotal = srcVisible.reduce(
+    (acc, [, c]) => {
       acc.termine += c.termine;
       acc.shows += c.shows;
       acc.entschieden += c.entschieden;
-      acc.quali += c.quali;
       acc.closings += c.closings;
       acc.won += c.won;
       acc.revenue += c.revenue;
       return acc;
     },
-    { termine: 0, shows: 0, entschieden: 0, quali: 0, closings: 0, won: 0, revenue: 0 },
+    { termine: 0, shows: 0, entschieden: 0, closings: 0, won: 0, revenue: 0 },
   );
 
   return (
     <>
-      {/* ── Umsatz je Stufe, je Kanal ──────────────────────────── */}
-      {VOLUME_CHANNELS.map((channel, blockIndex) => (
-        <div key={channel.key} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
+      {/* ── Umsatz je Stufe, je Kanal ────────────────────────────
+             KEINE Kachel trägt `lead`: Die Blöcke stehen als Vergleich
+             nebeneinander, und die Leitzahl-Auszeichnung würde einen der
+             Kanäle über den anderen stellen (Begründung: Punkt 6 oben). Die
+             Kernaussage des Tabs ist der Trichter. */}
+      {tileBlocks.map((block, blockIndex) => (
+        <div key={block.key} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-            <span className="eyebrow eyebrow-muted">Umsatz je Stufe · {channel.label}</span>
+            <span className="eyebrow eyebrow-muted">Umsatz je Stufe · {block.label}</span>
             <span
               style={{
                 fontSize: "var(--fs-xs)",
@@ -611,11 +892,11 @@ export async function FunnelTab({
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              {eur(revenueOf(channel.key))} aus {(cells.get(channel.key)?.won ?? 0).toLocaleString("de-DE")} Abschlüssen
+              {blockBasis(block)}
             </span>
           </div>
           <KpiRow>
-            {tilesFor(channel).map((t, i) => (
+            {tilesFor(block).map((t, i) => (
               <KpiHero
                 key={t.label}
                 label={t.label}
@@ -637,13 +918,15 @@ export async function FunnelTab({
         <AnalyseSection
           title="Wo kommt der Umsatz her?"
           icon={Coins}
-          meta={rangeMeta}
+          meta={alleQuellenMeta}
           collapsible
           info={
             <InfoText>
               <p style={INFO_P}>
-                Die Kacheln oben zeigen <strong style={INFO_STRONG}>immer beide Kanäle</strong> — unabhängig vom
-                Quellenfilter, sonst wäre der Vergleich eine Frage der Filterstellung.
+                Diese vier Zahlen zeigen <strong style={INFO_STRONG}>immer alle Quellen</strong> — als einzige
+                Sektion des Tabs. Sie teilen den Gesamtumsatz auf; mit gesetztem Quellenfilter bliebe eine
+                Aufteilung mit einem einzigen Summanden übrig, und &bdquo;Gesamt&ldquo; wäre nicht mehr das
+                Gesamt. Alles andere auf dieser Seite folgt dem Filter.
               </p>
               <p style={INFO_P}>
                 Der Umsatz wird über die Herkunft des Termins (<code>source_type</code>) auf den Kanal
@@ -689,7 +972,10 @@ export async function FunnelTab({
                 Alle sechs Stufen kommen aus <code>setting_calls</code> und <code>closing_calls</code>;
                 &bdquo;Qualifiziert&ldquo; ist dieselbe Definition wie im Setting-Tab (erschienen <em>und</em>{" "}
                 Status qualifiziert bzw. Closing gelegt). Die Kacheln oben stammen aus derselben Menge, ihre
-                Nenner (DMs, Antworten, Anwahlen, Entscheider) dagegen aus den Tages-RPCs.
+                Nenner (DMs, Antworten, Erstkontakte, Entscheider) dagegen aus den Tages-RPCs.
+                &bdquo;Erstkontakte&ldquo; sind Firmen mit erstem Anruf — nicht die Wählversuche aus dem
+                Anruf-Log, die im Telefon-Tab als &bdquo;Anwahlen&ldquo; stehen und denselben Lead mehrfach
+                zählen.
               </p>
             </InfoText>
           }
@@ -705,7 +991,10 @@ export async function FunnelTab({
         <AnalyseSection
           title="Fortschritt"
           icon={TrendingUp}
-          meta="kumuliert über den Zeitraum"
+          // Der Quellenfilter steht auch hier in der Meta-Zeile: Die Kurven
+          // folgen ihm, und ohne den Hinweis wirkte eine gefilterte Kurve wie
+          // ein Einbruch statt wie ein Ausschnitt.
+          meta={`kumuliert · ${quelleLabel}`}
           collapsible
           defaultOpen={false}
           info={
@@ -731,18 +1020,24 @@ export async function FunnelTab({
               { key: "quali", label: "Qualifiziert", kind: "count", values: byBucket.quali },
               { key: "closings", label: "Closings", kind: "count", values: byBucket.closings },
               { key: "won", label: "Gewonnen", kind: "count", values: byBucket.won, defaultOn: true },
-              { key: "winRate", label: "Win-Rate", kind: "rate", values: byBucket.won, denominator: byBucket.closings },
+              { key: "winRate", label: "Abschlussrate", kind: "rate", values: byBucket.won, denominator: byBucket.closingShows },
             ]}
             rangeLabel={`${fmtDay(from)} – ${fmtDay(toEff)}`}
           />
         </AnalyseSection>
       </div>
 
-      {/* ── Quellen-Matrix ─────────────────────────────────────── */}
-      {quelle === "alle" && matrixRows.length > 0 && (
+      {/* ── Quellen-Tabelle ────────────────────────────────────────
+             Ab zwei Zeilen: Eine einzelne Zeile wiederholte nur den Trichter
+             darüber, mit Gesamtzeile darunter sogar zweimal. Der frühere
+             Schnitt („nur ohne Quellenfilter") stammte aus derselben
+             Überlegung, verlor aber die Aufschlüsselung eines gefilterten
+             Kanals in seine Freitext-Quellen — genau das, was diese Tabelle
+             seit dem Wegfall der Closing-Tabelle leisten muss. */}
+      {matrixRows.length > 1 && (
         <div className="fade-up" style={{ animationDelay: "300ms" }}>
           {/* Startet offen: die einzige Tabelle des Tabs und die Antwort auf
-              „welcher Kanal trägt den Trichter" — dieselbe Rangordnung wie der
+              „welche Quelle trägt den Trichter" — dieselbe Rangordnung wie der
               Trichter selbst, nur aufgeschlüsselt. */}
           <AnalyseSection
             title="Je Quelle"
@@ -752,13 +1047,28 @@ export async function FunnelTab({
             info={
               <InfoText>
                 <p style={INFO_P}>
-                  Show-Quote gegen die Termine mit erfasstem Ergebnis, Abschlussrate gegen die erschienenen
-                  Closings — dieselben Nenner wie im Setting- und Closing-Tab, damit dieselbe Kennzahl nicht je
-                  nach Tab einen anderen Wert zeigt.
+                  Aufgeschlüsselt nach dem Freitext-Ursprung (<code>source_detail</code>), wo einer hinterlegt
+                  ist — sonst nach dem Kanal. Ohne diesen Schritt lägen alle manuell gebuchten Termine in einer
+                  Sammelzeile, die im Umsatz-Ranking meist oben steht und nichts erklärt:
+                  &bdquo;Empfehlung&ldquo; und &bdquo;Bestandskunde&ldquo; sind zwei Quellen, nicht eine. Die
+                  zweite Zeile unter dem Namen nennt den Kanal, über den der Termin lief. Zeilen ohne
+                  verknüpftes Setting stehen unter &bdquo;Ohne Setting-Bezug&ldquo; — kein Fehler, sondern ein
+                  direkt angelegtes oder beim Organisations-Umzug gekapptes Closing.
                 </p>
                 <p style={INFO_P}>
-                  Die Tabelle folgt derselben Zählweise wie der Trichter oben ({modusLabel}) und ist wie die
-                  Kacheln unabhängig vom Quellenfilter aufgebaut.
+                  <strong style={INFO_STRONG}>Nur eine Prozentzahl, und die hat einen bekannten Nenner:</strong>{" "}
+                  Die Show-Quote rechnet gegen die Termine mit erfasstem Ergebnis, wie im Setting-Tab. Die
+                  früheren Spalten &bdquo;Show → Closing&ldquo; und &bdquo;Closing → Win&ldquo; standen daneben
+                  und rechneten gegen andere Nenner — drei Prozentzahlen nebeneinander, die man nicht
+                  vergleichen kann. Der Durchlauf zwischen den Stufen steht im Trichter oben, wo er hingehört.
+                  Abschlussrate und Umsatz je Gespräch stehen als Mengen in derselben Zeile: Gewonnen gegen
+                  Closings, Umsatz gegen Closings.
+                </p>
+                <p style={INFO_P}>
+                  Die Tabelle folgt derselben Zählweise wie der Trichter ({modusLabel}) und demselben
+                  Quellenfilter; Anteilsbalken und Gesamtzeile rechnen über genau die Zeilen, die hier stehen.
+                  Ab {MAX_SOURCE_ROWS} Quellen sammelt eine Zeile &bdquo;Übrige Quellen&ldquo; den Rest ein —
+                  keine Mindestmenge, weil sonst gerade die kleine Quelle mit dem großen Abschluss wegfiele.
                 </p>
                 {zeitgrenzeInfo}
               </InfoText>
@@ -766,28 +1076,26 @@ export async function FunnelTab({
           >
             <MetricTable
               label="Quelle"
+              // Fünf Spalten, links nach rechts eine Erzählung: wie viel kam
+              // rein (Termine), wie viel davon war echt (Show-Quote), wie weit
+              // kam es (Closings), was wurde daraus (Gewonnen, Umsatz). Damit
+              // passt die Tabelle auf einen 13-Zoll-Laptop, ohne zu scrollen.
               columns={[
                 { key: "termine", label: "Termine", format: "int" },
                 { key: "showRate", label: "Show-Quote", format: "pct" },
-                { key: "quali", label: "Quali", format: "int" },
                 { key: "closings", label: "Closings", format: "int" },
-                { key: "closingRate", label: "Show → Closing", format: "pct" },
                 { key: "won", label: "Gewonnen", format: "int" },
-                { key: "winRate", label: "Closing → Win", format: "pct" },
                 { key: "revenue", label: "Umsatz", format: "eur", emphasis: true },
               ]}
               rows={matrixRows}
               total={{
                 termine: matrixTotal.termine,
                 showRate: pct(matrixTotal.shows, matrixTotal.entschieden),
-                quali: matrixTotal.quali,
                 closings: matrixTotal.closings,
-                closingRate: pct(matrixTotal.closings, matrixTotal.shows),
                 won: matrixTotal.won,
-                winRate: pct(matrixTotal.won, matrixTotal.shows),
                 revenue: matrixTotal.revenue,
               }}
-              minWidth={820}
+              minWidth={560}
             />
           </AnalyseSection>
         </div>

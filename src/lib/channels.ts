@@ -42,8 +42,20 @@ export type ChannelKey =
  */
 export type ChannelVolume = {
   table: "contacts" | "phone_leads";
-  /** Beschriftung der Volumen-Stufe im Funnel ("DMs" / "Calls"). */
+  /**
+   * Beschriftung der Volumen-Stufe ("DMs" / "Erstkontakte").
+   *
+   * WICHTIG — "Erstkontakte", nicht "Anwahlen": Diese Stufe zaehlt FIRMEN mit
+   * erstem Anruf (`phone_leads.first_call_at`), nicht Waehlversuche. Das Wort
+   * "Anwahlen" ist seit dem Anruf-Log (Migration 0028) fuer die Ereignis-Ebene
+   * reserviert, auf der derselbe Lead dreimal zaehlt. Bis hierher hiessen beide
+   * Ebenen an verschiedenen Stellen gleich — zwei verschiedene Zahlen unter
+   * einem Wort, ohne Hinweis. Wer das hier zurueckbenennt, stellt genau diese
+   * Verwechslung wieder her.
+   */
   stageLabel: string;
+  /** Einzahl fuer Verhaeltnis-Kennzahlen ("pro DM", "pro Erstkontakt"). */
+  unitLabel: string;
 };
 
 export type Channel = {
@@ -88,7 +100,7 @@ export const CHANNELS = [
     color: vizSlot(0),
     selectable: true,
     filterable: true,
-    volume: { table: "contacts", stageLabel: "DMs" },
+    volume: { table: "contacts", stageLabel: "DMs", unitLabel: "DM" },
   },
   {
     key: "telefon",
@@ -96,7 +108,7 @@ export const CHANNELS = [
     color: vizSlot(1),
     selectable: true,
     filterable: true,
-    volume: { table: "phone_leads", stageLabel: "Calls" },
+    volume: { table: "phone_leads", stageLabel: "Erstkontakte", unitLabel: "Erstkontakt" },
   },
   {
     key: "social_media",
@@ -235,7 +247,7 @@ export function hasVolume(key: string | null | undefined): boolean {
   return channelOf(key)?.volume != null;
 }
 
-/** Beschriftung der Volumen-Stufe ("DMs"/"Calls"); `null` ohne eigenes Volumen. */
+/** Beschriftung der Volumen-Stufe ("DMs"/"Erstkontakte"); `null` ohne eigenes Volumen. */
 export function channelVolumeLabel(key: string | null | undefined): string | null {
   return channelOf(key)?.volume?.stageLabel ?? null;
 }

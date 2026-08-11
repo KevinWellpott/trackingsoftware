@@ -61,8 +61,9 @@ export type Measures = Partial<Record<MeasureKey, number>>;
  * dieselbe Spalte (`setting_calls.source_type`, Registry in
  * src/lib/channels.ts). Eine zweite „Quelle"-Achse wäre dieselbe Achse unter
  * anderem Namen; die fünfte Dimension trägt stattdessen den Skript-Testarm
- * (`phone_lists.script_label`, Migration 0029) — die einzige Achse, für die es
- * sonst gar keine Auswertung gibt.
+ * (`phone_leads.script_label`, Migration 0030 — die Liste zählt nur als
+ * Rückfall für Bestandsleads) — die einzige Achse, für die es sonst gar keine
+ * Auswertung gibt.
  */
 export type DimensionKey = "person" | "kanal" | "liste" | "zielgruppe" | "skript";
 

@@ -1,3 +1,4 @@
+import type { CSSProperties, ReactNode } from "react";
 import { GitCompare, Table } from "lucide-react";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { localDateISO } from "@/lib/dates";
@@ -7,10 +8,10 @@ import {
 } from "@/lib/analyseData";
 import { createClient } from "@/lib/supabase/server";
 import { buildFacts } from "@/lib/compare/facts";
+import { metricOf, seriesConflicts } from "@/lib/compare/metrics";
 import { aggregate, parseSeriesList } from "@/lib/compare/series";
 import type { DimensionKey } from "@/lib/compare/model";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
-import { Footnote } from "@/components/analyse/AnalyseTables";
 import { CompareBuilder } from "@/components/analyse/compare/CompareBuilder";
 import { CompareChart } from "@/components/analyse/compare/CompareChart";
 import { CompareTable } from "@/components/analyse/compare/CompareTable";
@@ -34,6 +35,16 @@ import { PageHeader } from "@/components/ui/PageHeader";
 // zum Weitergeben.
 
 export const dynamic = "force-dynamic";
+
+// Die Erklaertexte stehen hinter dem Info-Icon der Sektion, nicht als Fussnote
+// darunter: Vier Zeilen Methodik unter jedem Element sind beim ersten Lesen
+// wertvoll und danach jeden Tag im Weg. Die Vorgabe des Auftraggebers gilt fuer
+// den gesamten Analysebereich („Info-Texte als Pop-up, nicht konstant da").
+function InfoText({ children }: { children: ReactNode }) {
+  return <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>{children}</div>;
+}
+const INFO_P: CSSProperties = { margin: 0 };
+const INFO_STRONG: CSSProperties = { fontWeight: 600 };
 
 export default async function VergleichPage({
   searchParams,
@@ -84,6 +95,19 @@ export default async function VergleichPage({
     labelIndex.get(`${dim}:${value}`) ?? value,
   );
 
+  // Strukturell unmoegliche Kombinationen (Kennzahl × Filterwert). Der Chart
+  // zeigt sie im Leerzustand statt des generischen „Zeitraum vergroessern" —
+  // ein Rat, der hier nie hilft. Doppelte Gruende (zwei Serien, derselbe
+  // Fehler) faellt das Set heraus.
+  const emptyReasons = [
+    ...new Set(
+      specs.flatMap((spec) => {
+        const m = metricOf(spec.metric);
+        return m ? seriesConflicts(m, spec.filters).map((c) => c.reason) : [];
+      }),
+    ),
+  ];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
@@ -106,7 +130,31 @@ export default async function VergleichPage({
       />
 
       <div className="fade-up">
-        <AnalyseSection title="Verlauf" icon={GitCompare} meta={`${buckets.length} Perioden`}>
+        <AnalyseSection
+          title="Verlauf"
+          icon={GitCompare}
+          meta={`${buckets.length} Perioden`}
+          info={
+            <InfoText>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Zwei Achsen.</strong> Mengen und Beträge liegen links, Quoten rechts
+                — sonst drückten 400 Termine jede Quote platt auf die Nulllinie. Gestrichelt = Quote, durchgezogen
+                = Menge.
+              </p>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Warum bricht eine Linie ab?</strong> Weil in dieser Periode der Nenner
+                fehlte. Eine 0 stünde dort für &bdquo;gemessen und nichts gefunden&ldquo;; richtig ist aber
+                &bdquo;keine Basis, also nicht messbar&ldquo; — und das ist eine Lücke.
+              </p>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Warum springt &bdquo;Umsatz pro DM&ldquo; so?</strong> Weil Zähler und
+                Nenner nicht aus derselben Kohorte stammen: Der Deal von heute geht auf eine DM von vor Wochen
+                zurück. Alle Wert-Kennzahlen sind solche Perioden-Kennzahlen — bei schwankendem Volumen taugen sie
+                als Trend, nicht als Stückpreis.
+              </p>
+            </InfoText>
+          }
+        >
           <CompareChart
             buckets={buckets}
             series={series.map((s, i) => ({
@@ -116,26 +164,36 @@ export default async function VergleichPage({
               format: s.metric.format,
               points: s.points,
             }))}
+            notes={emptyReasons}
           />
-          <Footnote>
-            Mengen und Beträge stehen auf der linken Achse, Quoten (gestrichelt) auf der rechten. Perioden ohne
-            Nenner bleiben eine Lücke statt einer 0 — &bdquo;keine Basis&ldquo; ist kein Nullwert. Wert-Kennzahlen wie
-            &bdquo;Umsatz pro DM&ldquo; sind Perioden-Kennzahlen: Der Deal von heute stammt aus einer DM von vor
-            Wochen, Zähler und Nenner liegen also im selben Fenster, aber nicht in derselben Kohorte.
-          </Footnote>
         </AnalyseSection>
       </div>
 
       <div className="fade-up" style={{ animationDelay: "80ms" }}>
-        <AnalyseSection title="Gegenüberstellung" icon={Table} meta="Δ bezieht sich auf die erste Serie">
+        <AnalyseSection
+          title="Gegenüberstellung"
+          icon={Table}
+          meta="Δ bezieht sich auf die erste Serie"
+          info={
+            <InfoText>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Gesamt</strong> ist bei Mengen die Summe, bei Quoten Summe ÷ Summe
+                über den ganzen Zeitraum. Bewusst nicht der Mittelwert der Perioden-Quoten: darin zählte ein Tag
+                mit einem Termin so viel wie einer mit vierzig.
+              </p>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Ø je Periode</strong> steht deshalb nur bei Mengen. Bei einer Quote
+                wäre er entweder dasselbe wie &bdquo;Gesamt&ldquo; oder genau jener ungewichtete Mittelwert.
+              </p>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Wem eine Zahl zugerechnet wird:</strong> bei Terminen und Abschlüssen
+                der zuständigen Person (Zuweisung vor Ersteller), bei DMs und Erstkontakten dem Besitzer der Liste. Die
+                Personen-Achse meint damit über alle Kennzahlen hinweg dieselbe Person.
+              </p>
+            </InfoText>
+          }
+        >
           <CompareTable series={series} />
-          <Footnote>
-            &bdquo;Gesamt&ldquo; ist bei Mengen die Summe und bei Quoten die gewichtete Quote über den ganzen Zeitraum
-            (Summe ÷ Summe) — nicht der Mittelwert der Perioden-Quoten, in dem ein Tag mit einem Termin so viel
-            zählte wie einer mit vierzig. &bdquo;Ø je Periode&ldquo; gibt es deshalb nur für Mengen. Die Personen-Achse
-            ist überall dieselbe: bei Terminen die zuständige Person (Zuweisung vor Ersteller), bei DMs und
-            Anwahlen der Besitzer der Liste.
-          </Footnote>
         </AnalyseSection>
       </div>
     </div>

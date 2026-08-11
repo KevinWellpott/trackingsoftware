@@ -10,6 +10,12 @@
 // Bewusst NICHT die AnalyseFilterBar: die trägt die acht Flow-Tabs und den
 // globalen Nutzerfilter. Hier ist die Person eine Serien-Eigenschaft (genau
 // darum geht es), ein globaler Personenfilter wäre ein Widerspruch.
+//
+// Eine Serienzeile trägt zwei feste Bedienelemente — Kennzahl und „+ Filter" —
+// plus einen Chip je GESETZTEM Filter (SeriesFilters.tsx). Vorher standen dort
+// fünf Dimensions-Dropdowns, die meist alle „…: alle" zeigten: sechs Elemente
+// je Serie, von denen fünf nichts taten, und eine sticky Leiste, die bei sechs
+// Serien höher wurde als das Diagramm darunter.
 
 import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -19,11 +25,10 @@ import { DatePicker } from "@/components/ui/DatePicker";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import type { Granularity, RangeKey } from "@/lib/analyse";
-import { METRICS } from "@/lib/compare/metrics";
-import {
-  DIMENSION_KEYS, DIMENSION_LABEL, type CompareOption, type DimensionKey,
-} from "@/lib/compare/model";
+import { METRICS, metricOf } from "@/lib/compare/metrics";
+import { DIMENSION_KEYS, type CompareOption, type DimensionKey } from "@/lib/compare/model";
 import { MAX_SERIES, serializeSeries, type SeriesSpec } from "@/lib/compare/series";
+import { SeriesFilters } from "@/components/analyse/compare/SeriesFilters";
 
 // Dieselben Optionen wie in der Analyse-Filterleiste. Bewusst kopiert statt
 // importiert: die Leiste ist eine "use client"-Komponente mit eigener
@@ -72,10 +77,16 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Die Registry-Gruppe wird zum Gruppenkopf im Dropdown, nicht mehr zur grauen
+// Hinweiszeile unter jedem Eintrag. Bei 29 Kennzahlen ist das der Unterschied
+// zwischen Auswahl und Suchaufgabe — und es trennt die drei gleichnamigen
+// „Termine…"-Kennzahlen sichtbar nach ihrer Quelle. Die Hinweiszeile bleibt
+// dem vorbehalten, was sie erklären soll: der Methodik einzelner Kennzahlen.
 const METRIC_OPTIONS: SelectOption[] = METRICS.map((m) => ({
   value: m.key,
   label: m.label,
-  hint: m.hint ? `${m.group} · ${m.hint}` : m.group,
+  group: m.group,
+  hint: m.hint,
 }));
 
 export function CompareBuilder({
@@ -255,79 +266,94 @@ export function CompareBuilder({
 
         {/* ── Serien ───────────────────────────────────────────── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
-          {specs.map((spec, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--sp-4)",
-                flexWrap: "wrap",
-                paddingTop: i > 0 ? "var(--sp-4)" : 0,
-                borderTop: i > 0 ? "1px solid var(--border-subtle)" : undefined,
-              }}
-            >
-              {/* Farbpunkt = Identität der Serie in Chart, Legende und Tabelle. */}
-              <span
-                aria-hidden
+          {/* Deckel gegen die wachsende Leiste: Sechs Serien belegten hier mehr
+              Hoehe als das Diagramm darunter — man scrollte an der Auswertung
+              vorbei, um sie zu bedienen. Die Chips halten die Zeilen flach; ab
+              der Grenze scrollt die Serienliste in sich, statt die Seite zu
+              verdraengen. „+ Serie" steht bewusst AUSSERHALB des Scrollfensters
+              und bleibt damit immer erreichbar; die Popover haengen im Portal
+              und werden vom overflow nicht beschnitten. */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--sp-4)",
+              maxHeight: "min(40vh, 300px)",
+              overflowY: "auto",
+            }}
+          >
+            {specs.map((spec, i) => (
+              <div
+                key={i}
                 style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  background: colors[i],
-                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--sp-4)",
+                  flexWrap: "wrap",
+                  paddingTop: i > 0 ? "var(--sp-4)" : 0,
+                  borderTop: i > 0 ? "1px solid var(--border-subtle)" : undefined,
                 }}
-              />
-              <Select
-                value={spec.metric}
-                onChange={(v) => setMetric(i, v)}
-                options={METRIC_OPTIONS}
-                ariaLabel={`Kennzahl der Serie ${i + 1}`}
-                id={`metric-${i}`}
-                triggerStyle={{ ...SELECT_TRIGGER, width: 190 }}
-                width={280}
-              />
-              {activeDims.map((dim) => (
-                <Select
-                  key={dim}
-                  value={spec.filters[dim] ?? ""}
-                  onChange={(v) => setFilter(i, dim, v)}
-                  options={[
-                    { value: "", label: `${DIMENSION_LABEL[dim]}: alle` },
-                    ...options[dim].map((o) => ({ value: o.value, label: o.label, hint: o.hint })),
-                  ]}
-                  ariaLabel={`${DIMENSION_LABEL[dim]} der Serie ${i + 1}`}
-                  id={`dim-${i}-${dim}`}
-                  triggerStyle={{ ...SELECT_TRIGGER, width: 160 }}
-                  width={240}
-                />
-              ))}
-              {/* Die letzte Serie bleibt stehen: ein Chart ohne Serie wäre ein
-                  Zustand, aus dem nur der Reload wieder herausführt. */}
-              {specs.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeSeries(i)}
-                  aria-label={`Serie ${i + 1} entfernen`}
+              >
+                {/* Farbpunkt = Identität der Serie in Chart, Legende und Tabelle. */}
+                <span
+                  aria-hidden
                   style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 28,
-                    height: 28,
-                    borderRadius: "var(--r-full)",
-                    background: "transparent",
-                    color: "var(--text-muted)",
-                    border: "1px solid var(--border-default)",
-                    cursor: "pointer",
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: colors[i],
                     flexShrink: 0,
                   }}
-                >
-                  <X size={12} aria-hidden />
-                </button>
-              )}
-            </div>
-          ))}
+                />
+                <Select
+                  value={spec.metric}
+                  onChange={(v) => setMetric(i, v)}
+                  options={METRIC_OPTIONS}
+                  ariaLabel={`Kennzahl der Serie ${i + 1}`}
+                  id={`metric-${i}`}
+                  triggerStyle={{ ...SELECT_TRIGGER, width: 190 }}
+                  width={280}
+                />
+                {/* Kennzahl + „+ Filter" sind die zwei festen Bedienelemente der
+                    Zeile; alles Weitere erscheint nur, wenn es auch filtert. */}
+                <SeriesFilters
+                  index={i}
+                  metric={metricOf(spec.metric) ?? METRICS[0]}
+                  filters={spec.filters}
+                  dims={activeDims}
+                  options={options}
+                  onChange={(dim, value) => setFilter(i, dim, value)}
+                />
+                {/* Die letzte Serie bleibt stehen: ein Chart ohne Serie wäre ein
+                    Zustand, aus dem nur der Reload wieder herausführt. */}
+                {specs.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeSeries(i)}
+                    aria-label={`Serie ${i + 1} entfernen`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 28,
+                      height: 28,
+                      borderRadius: "var(--r-full)",
+                      background: "transparent",
+                      color: "var(--text-muted)",
+                      border: "1px solid var(--border-default)",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      // Ans Zeilenende: zwischen Chips wechselnder Breite waere
+                      // der Loeschknopf sonst jedes Mal woanders.
+                      marginLeft: "auto",
+                    }}
+                  >
+                    <X size={12} aria-hidden />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)" }}>
             <Button

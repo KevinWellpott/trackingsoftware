@@ -354,10 +354,13 @@ export default async function DashboardPage({
       )}
 
       {/* ══ HEADER ══
-          Der Glueh-Header ist der Hero-Moment der Seite; der Name traegt
-          als einziges Element das Gradient-Wort-Treatment (DESIGN.md §5). */}
+          Ohne `ember-glow`: Der Verlauf lief 220px nach unten und endete dort
+          mit einer sichtbaren Kante — auf dem Near-Black-Canvas las sich das
+          nicht als Glueh-Effekt, sondern als dunkler Balken quer ueber den
+          Seitenkopf. Der Hero-Moment bleibt das Gradient-Wort im Namen
+          (DESIGN.md §5); das traegt allein. */}
       <header
-        className="ember-glow section-header-mobile"
+        className="section-header-mobile"
         style={{
           display: "flex",
           alignItems: "flex-end",

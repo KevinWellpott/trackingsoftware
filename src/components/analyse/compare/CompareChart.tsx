@@ -9,7 +9,7 @@
 // beantwortbar. Quoten bleiben gestrichelt: dieselbe Konvention wie im
 // Fortschritts-Chart, damit man Menge und Quote ohne Legendensuche trennt.
 
-import { Inbox } from "lucide-react";
+import { AlertTriangle, Inbox } from "lucide-react";
 import {
   CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -30,7 +30,16 @@ export type ChartSeries = {
 
 type Point = { label: string; [series: string]: number | string | null };
 
-function EmptyState({ height }: { height: number }) {
+/**
+ * Leerzustand.
+ *
+ * `notes` trägt die STRUKTURELLEN Gründe (Kennzahl und Filter können in keinem
+ * Zeitraum zusammenpassen — z. B. „DMs" im Kanal Telefon). Liegt so einer vor,
+ * wäre der Standardrat „Zeitraum vergrößern" eine Falschauskunft: Man könnte
+ * das ganze Jahr wählen und bekäme dieselbe leere Fläche.
+ */
+function EmptyState({ height, notes }: { height: number; notes: string[] }) {
+  const structural = notes.length > 0;
   return (
     <div
       style={{
@@ -44,13 +53,40 @@ function EmptyState({ height }: { height: number }) {
         padding: "var(--sp-6)",
       }}
     >
-      <Inbox size={20} color="var(--text-muted)" aria-hidden />
+      {structural ? (
+        <AlertTriangle size={20} color="var(--warning-fg)" aria-hidden />
+      ) : (
+        <Inbox size={20} color="var(--text-muted)" aria-hidden />
+      )}
       <span style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)" }}>
-        Für diese Serien gibt es im Zeitraum nichts zu zeigen.
+        {structural
+          ? "Diese Kombination kann keine Zahlen liefern."
+          : "Für diese Serien gibt es im Zeitraum nichts zu zeigen."}
       </span>
-      <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-        Zeitraum vergrößern oder einen Filter entfernen.
-      </span>
+      {structural ? (
+        <ul
+          style={{
+            listStyle: "none",
+            margin: 0,
+            padding: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--sp-2)",
+            fontSize: "var(--fs-xs)",
+            lineHeight: 1.45,
+            color: "var(--warning-fg)",
+            maxWidth: "44ch",
+          }}
+        >
+          {notes.map((n) => (
+            <li key={n}>{n}.</li>
+          ))}
+        </ul>
+      ) : (
+        <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
+          Zeitraum vergrößern oder einen Filter entfernen.
+        </span>
+      )}
     </div>
   );
 }
@@ -58,10 +94,13 @@ function EmptyState({ height }: { height: number }) {
 export function CompareChart({
   buckets,
   series,
+  notes = [],
   height = 320,
 }: {
   buckets: { key: string; label: string }[];
   series: ChartSeries[];
+  /** Strukturelle Gründe für einen leeren Chart (siehe EmptyState). */
+  notes?: string[];
   height?: number;
 }) {
   const hasCounts = series.some((s) => s.format !== "pct");
@@ -78,7 +117,7 @@ export function CompareChart({
     series.length === 0 ||
     series.every((s) => s.points.every((v) => v === null || v === 0));
 
-  if (nothing) return <EmptyState height={height} />;
+  if (nothing) return <EmptyState height={height} notes={notes} />;
 
   const labelByKey = new Map(series.map((s) => [s.key, s.label]));
   const formatByKey = new Map(series.map((s) => [s.key, s.format]));

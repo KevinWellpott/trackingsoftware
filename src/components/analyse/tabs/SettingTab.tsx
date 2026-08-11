@@ -32,6 +32,11 @@ import type { SettingStatus } from "@/lib/types";
 // geschickt. Alles Weitere ist Ursachenforschung und liegt eingeklappt unter
 // „Mehr Auswertungen" — sichtbar bleibt daneben nur die Quellen-Auswertung.
 //
+// Genau EINE Leitzahl je Tab (`lead` an KpiHero): hier „Termine". Sie ist die
+// einzige absolute Menge der Reihe — die drei anderen Kacheln sind Quoten, die
+// ohne sie gar nicht existieren — und die Zahl, die das Team täglich steuert.
+// Zwei Leitzahlen wären keine, deshalb bleibt es bei dieser einen.
+//
 // Personenachse: `personIn` (Zuweisung vor Ersteller), nicht mehr
 // `created_by_user_id` — siehe src/lib/personResolution.ts.
 
@@ -75,6 +80,10 @@ type Totals = {
 const ZERO = (): Totals => ({ termine: 0, shows: 0, noShows: 0, quali: 0, closing: 0 });
 
 const INT = new Intl.NumberFormat("de-DE");
+// Eine Nachkommastelle für die Ø-Werte in der Meta-Zeile der zugeklappten
+// Qualitäts-Sektion. Rein für die Anzeige — gerechnet wird nichts Neues.
+const DEC1 = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const fmt1 = (v: number | null): string => (v === null ? "—" : DEC1.format(v));
 
 // ── Info-Texte ───────────────────────────────────────────────
 // Die Methodik-Erklärungen standen bis hierher als Fußnote unter jeder
@@ -189,6 +198,13 @@ function cellValues(cell: Cell) {
  * für immer. Ein `<details>` kostet nichts (kein State, kein Client-JS) und
  * hält die Rechenwege am Leben; sie zu löschen hieße, sie beim nächsten „doch
  * wieder" komplett neu zu bauen.
+ *
+ * Alle Sektionen DARIN starten zugeklappt (`defaultOpen={false}`). Vorher riss
+ * ein Klick sieben Sektionen gleichzeitig auf und verdreifachte die Seitenlänge
+ * — genau das ließ den Tab überladen wirken. Damit ein zugeklappter Balken
+ * trotzdem eine Entscheidung erlaubt, trägt jede Sektion ihre Menge bzw. ihren
+ * Kernwert in der Meta-Zeile: ohne Zahl weiß niemand, ob dahinter 40 Zeilen
+ * oder nichts steht.
  */
 function MoreAnalyses({ meta, children }: { meta: string; children: ReactNode }) {
   return (
@@ -504,6 +520,11 @@ export async function SettingTab({
     sum.termine,
   );
   const brancheRows = cellRows([...brancheCells.entries()], (k) => BRANCHE_LABELS[k] ?? "Ohne Angabe", sum.termine);
+  // Für die Meta-Zeile der zugeklappten Sektion: „ohne" ist keine Branche,
+  // sondern eine Erfassungslücke. Sie darf die Anzahl nicht aufblähen, gehört
+  // aber genannt — sie begrenzt die Aussagekraft der Tabelle dahinter.
+  const brancheKnown = brancheRows.filter((r) => r.key !== "ohne").length;
+  const brancheOhne = brancheCells.get("ohne")?.n ?? 0;
 
   const sourceRows: MetricRow[] = [...sourceCells.entries()]
     .filter(([, c]) => c.n > 0)
@@ -557,6 +578,10 @@ export async function SettingTab({
     <>
       {/* ── KPI-Heroes: die vier Fragen des Setting-Flows ──────── */}
       <KpiRow>
+        {/* Leitzahl des Tabs (Glasfläche + --fs-3xl). Die drei Kacheln
+            daneben sind Quoten AUS dieser Menge — ohne Termine gibt es keine
+            einzige davon. Also steht sie oben links, wo der Blick zuerst
+            landet. */}
         <KpiHero
           label="Termine"
           value={sum.termine}
@@ -565,6 +590,7 @@ export async function SettingTab({
           spark={termineSpark}
           icon={<CalendarCheck size={15} />}
           index={0}
+          lead
         />
         <KpiHero
           label="Show-Quote"
@@ -575,12 +601,20 @@ export async function SettingTab({
           icon={<Eye size={15} />}
           index={1}
         />
+        {/* „Quali-Quote" setzte zweimal Vorwissen voraus: die Abkürzung selbst
+            und den Nenner — dass gegen die ERSCHIENENEN gerechnet wird und
+            nicht gegen alle Termine, stand bis hierher nur im Info-Popover.
+            Das Label nennt jetzt die Sache („Qualifiziert"), die Unterzeile
+            den Bruch in absoluten Zahlen. Keine zusätzliche Fläche: die Zeile
+            trug vorher „vs. Vorperiode (pp)" — dieselbe Aussage transportiert
+            der Delta-Chip daneben über Pfeil und Vorzeichen, identisch zu den
+            Nachbarkacheln. */}
         <KpiHero
-          label="Quali-Quote"
+          label="Qualifiziert"
           value={qualiRate}
           format="pct"
           delta={ppDelta(qualiRate, prevQualiRate)}
-          deltaLabel="vs. Vorperiode (pp)"
+          deltaLabel={`${INT.format(sum.quali)} von ${INT.format(sum.shows)} Erschienenen`}
           icon={<BadgeCheck size={15} />}
           index={2}
         />
@@ -603,7 +637,7 @@ export async function SettingTab({
         <AnalyseSection
           title="Vergleich"
           icon={Filter}
-          meta="Termine · Show · Quali · Zu Closing"
+          meta="Termine · Show · Qualifiziert · Zu Closing"
           info={
             <InfoText>
               <p style={INFO_P}>
@@ -614,8 +648,9 @@ export async function SettingTab({
                 teils Vorfälle von vor dem Zeitraum, mischt also Ereignisse mit Datensätzen.
               </p>
               <p style={INFO_P}>
-                <strong style={INFO_STRONG}>Quali-Quote</strong> = qualifiziert ÷ erschienen. Das ist die
-                Antwort auf &bdquo;wer addet die falschen Leads&ldquo;.
+                <strong style={INFO_STRONG}>Qualifiziert</strong> = qualifizierte Termine ÷ Erschienene —
+                bewusst NICHT ÷ alle Termine, sonst zöge jeder No-Show die Quote mit nach unten und die Zahl
+                mischte zwei Ursachen. Das ist die Antwort auf &bdquo;wer addet die falschen Leads&ldquo;.
               </p>
               <p style={INFO_P}>
                 <strong style={INFO_STRONG}>Zu Closing</strong> = Closings ÷ qualifizierte Termine. No-Shows und
@@ -629,7 +664,7 @@ export async function SettingTab({
             columns={[
               { key: "termine", label: "Termine", format: "int" },
               { key: "showRate", label: "Show-Quote", format: "pct", deltaVsAvg: true },
-              { key: "qualiRate", label: "Quali-Quote", format: "pct", deltaVsAvg: true },
+              { key: "qualiRate", label: "Qualifiziert", format: "pct", deltaVsAvg: true },
               { key: "zuClosing", label: "Zu Closing", format: "pct", deltaVsAvg: true },
             ]}
             rows={tableRows}
@@ -646,7 +681,9 @@ export async function SettingTab({
         <AnalyseSection
           title="Fortschritt im Zeitraum"
           icon={TrendingUp}
-          meta="kumuliert"
+          // Menge zuerst: Ein zugeklappter Balken „kumuliert" verrät nicht, ob
+          // dahinter eine Kurve oder eine leere Achse steckt.
+          meta={`${INT.format(sum.termine)} Termine · kumuliert`}
           collapsible
           defaultOpen={false}
           info={
@@ -690,13 +727,22 @@ export async function SettingTab({
         data-split="chart"
         style={{ animationDelay: "320ms" }}
       >
-        <AnalyseSection title="Termine im Verlauf" icon={BarChart3} collapsible defaultOpen={false}>
+        <AnalyseSection
+          title="Termine im Verlauf"
+          icon={BarChart3}
+          meta={`${INT.format(sum.termine)} Termine · je Person`}
+          collapsible
+          defaultOpen={false}
+        >
           <BucketBarChart buckets={buckets} perUser={perUser} />
         </AnalyseSection>
         <AnalyseSection
           title="Quellen-Split"
           icon={PieChart}
-          meta={`${INT.format(sum.termine)} Termine`}
+          // Anzahl der Segmente statt der Termin-Summe: Die Termin-Zahl steht
+          // schon in der Kachel oben und in der Karte daneben — hier ist die
+          // offene Frage, wie viele Kanäle überhaupt beitragen.
+          meta={`${quellenData.length} Quellen`}
           collapsible
           defaultOpen={false}
         >
@@ -732,7 +778,7 @@ export async function SettingTab({
             columns={[
               { key: "n", label: "Termine", format: "int" },
               { key: "showRate", label: "Show-Quote", format: "pct" },
-              { key: "qualiRate", label: "Quali-Quote", format: "pct", emphasis: true },
+              { key: "qualiRate", label: "Qualifiziert", format: "pct", emphasis: true },
               { key: "zuClosing", label: "Zu Closing", format: "pct" },
             ]}
             rows={sourceRows}
@@ -753,8 +799,12 @@ export async function SettingTab({
         <AnalyseSection
           title="Wann erscheinen Leads?"
           icon={Timer}
-          meta="Balken = Termine · Zeile darunter = Show-Quote"
+          // Die Legende („Balken = Termine …") stand hier und steht ohnehin im
+          // Info-Popover — zugeklappt hilft sie niemandem. An ihre Stelle
+          // treten Menge und Umfang: drei Achsen über so viele Termine.
+          meta={`3 Zeitachsen · ${INT.format(sum.termine)} Termine`}
           collapsible
+          defaultOpen={false}
           info={
             <InfoText>
               <p style={INFO_P}>
@@ -811,16 +861,25 @@ export async function SettingTab({
           </div>
         </AnalyseSection>
 
-        {/* ── Termin-Art + Branche ────────────────────────────── */}
+        {/* ── Termin-Art + Branche ──────────────────────────────
+               Zugeklappt, und zwar BEIDE: Die Karten stehen nebeneinander in
+               einem Raster und werden auf gleiche Höhe gezogen — eine offene
+               neben einer geschlossenen ergäbe eine halb leere Karte. */}
         <div className="analyse-row">
           <div style={{ display: "grid" }}>
-            <AnalyseSection title="Termin-Art" icon={Video} meta="Video-Link vs. Telefon" collapsible>
+            <AnalyseSection
+              title="Termin-Art"
+              icon={Video}
+              meta={`${kindRows.length} Arten · ${INT.format(sum.termine)} Termine`}
+              collapsible
+              defaultOpen={false}
+            >
               <MetricTable
                 label="Art"
                 columns={[
                   { key: "n", label: "Termine", format: "int" },
                   { key: "showRate", label: "Show-Quote", format: "pct", emphasis: true },
-                  { key: "qualiRate", label: "Quali-Quote", format: "pct" },
+                  { key: "qualiRate", label: "Qualifiziert", format: "pct" },
                   { key: "zuClosing", label: "Zu Closing", format: "pct" },
                 ]}
                 rows={kindRows}
@@ -829,13 +888,19 @@ export async function SettingTab({
             </AnalyseSection>
           </div>
           <div style={{ display: "grid" }}>
-            <AnalyseSection title="Branche" icon={Briefcase} meta="Wo läuft die Qualifikation durch?" collapsible>
+            <AnalyseSection
+              title="Branche"
+              icon={Briefcase}
+              meta={`${brancheKnown} Branchen · ${INT.format(brancheOhne)} ohne Angabe`}
+              collapsible
+              defaultOpen={false}
+            >
               <MetricTable
                 label="Branche"
                 columns={[
                   { key: "n", label: "Termine", format: "int" },
                   { key: "showRate", label: "Show-Quote", format: "pct" },
-                  { key: "qualiRate", label: "Quali-Quote", format: "pct", emphasis: true },
+                  { key: "qualiRate", label: "Qualifiziert", format: "pct", emphasis: true },
                   { key: "zuClosing", label: "Zu Closing", format: "pct" },
                 ]}
                 rows={brancheRows}
@@ -850,8 +915,9 @@ export async function SettingTab({
         <AnalyseSection
           title="Welches Kriterium sagt den Abschluss voraus?"
           icon={ListChecks}
-          meta="Closing-Quote bei Ja vs. Nein"
+          meta={`${criteriaRows.length} Kriterien · Ja vs. Nein`}
           collapsible
+          defaultOpen={false}
           info={
             <InfoText>
               <p style={INFO_P}>
@@ -882,9 +948,17 @@ export async function SettingTab({
           />
         </AnalyseSection>
 
-        {/* ── Qualitäts-Reihe ────────────────────────────────── */}
+        {/* ── Qualitäts-Reihe ──────────────────────────────────
+               Ebenfalls beide zugeklappt — gleiches Raster, gleiche Begründung
+               wie eine Reihe darüber. */}
         <div className="analyse-row" data-split="auto">
-          <AnalyseSection title="Budget (8k+)" icon={Wallet} meta={`${INT.format(budgetTotal)} Angaben`} collapsible>
+          <AnalyseSection
+            title="Budget (8k+)"
+            icon={Wallet}
+            meta={`${INT.format(budgetTotal)} Angaben`}
+            collapsible
+            defaultOpen={false}
+          >
             <DistBars items={budgetItems} total={budgetTotal} />
           </AnalyseSection>
           {/* Durchschnitt und Verteilung gehören zusammen: ein Ø 5,5 kann
@@ -892,8 +966,16 @@ export async function SettingTab({
           <AnalyseSection
             title="Lead-Qualität"
             icon={GaugeIcon}
-            meta="Skala 1–10"
+            // Kernwert statt Skalenhinweis: „Skala 1–10" sagt zugeklappt nur,
+            // WIE gemessen wird, nicht WAS herauskam. Die beiden Ø-Werte sind
+            // genau die Zahl, wegen der man aufklappt (oder eben nicht).
+            meta={
+              avgPain === null && avgWarmth === null
+                ? "noch keine Bewertungen"
+                : `Ø Pain ${fmt1(avgPain)} · Ø Wärme ${fmt1(avgWarmth)}`
+            }
             collapsible
+            defaultOpen={false}
             info={
               <InfoText>
                 <p style={INFO_P}>
@@ -931,8 +1013,9 @@ export async function SettingTab({
         <AnalyseSection
           title="Status-Verteilung"
           icon={ListChecks}
-          meta={`${statusTotal} gesamt`}
+          meta={`${INT.format(statusTotal)} Termine · ${STATUS_META.length} Status`}
           collapsible
+          defaultOpen={false}
           info={
             <InfoText>
               <p style={INFO_P}>

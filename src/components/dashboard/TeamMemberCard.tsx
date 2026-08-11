@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { setDataViewForm } from "@/app/actions/workspace";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { ownerColor, ownerInitials } from "@/lib/ownerColor";
+import { ownerBrandColor, ownerInitials } from "@/lib/ownerColor";
 
 // Team-Vergleich: eine Karte pro Workspace-Mitglied mit Wochen-Kennzahlen.
 // Server-kompatibel — der Footer wechselt die Datensicht via setDataViewForm.
@@ -19,7 +19,8 @@ import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 // einer anderen Farbe — nebeneinander ergab das ein Farbmuster, in dem die
 // Zahlen die schwaechsten Elemente waren. Uebrig bleibt der 6px-Punkt: er
 // identifiziert die Person genauso zuverlaessig und ist derselbe Marker wie im
-// Wochenduell.
+// Wochenduell — und in derselben Marken-Rampe (`ownerBrandColor`), damit die
+// Karten-Reihe nicht in vier Fremdfarben nebeneinander steht.
 
 export type TeamMemberMetrics = {
   dms: number;
@@ -74,7 +75,7 @@ export function TeamMemberCard({
   metrics: TeamMemberMetrics | null;
   isSelf: boolean;
 }) {
-  const c = ownerColor(username);
+  const dotColor = ownerBrandColor(username);
 
   return (
     <Card style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
@@ -124,7 +125,7 @@ export function TeamMemberCard({
                 height: 6,
                 flexShrink: 0,
                 borderRadius: "var(--r-full)",
-                background: c.fg,
+                background: dotColor,
                 display: "inline-block",
               }}
             />

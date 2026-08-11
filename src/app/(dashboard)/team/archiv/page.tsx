@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { restoreListForm } from "@/app/actions/lists";
 import { restorePhoneListForm } from "@/app/actions/phone";
-import { ownerColor } from "@/lib/ownerColor";
 import type { PhoneListKind } from "@/lib/types";
 
 // Admin-Archiv: zeigt archivierte LinkedIn- und Telefonlisten workspace-weit
@@ -67,14 +66,13 @@ export default async function ArchivPage() {
         ) : (
           <div>
             {archivedLists.map((l, i) => {
-              const oc = l.owner_name ? ownerColor(l.owner_name) : null;
               return (
                 <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "0.875rem", padding: "0.875rem 1.375rem", borderBottom: i < archivedLists.length - 1 ? "1px solid var(--border)" : "none" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                       <span style={{ fontSize: "0.9375rem", fontWeight: 600, color: "var(--text-primary)" }}>{l.name}</span>
-                      {l.owner_name && oc && (
-                        <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: oc.fg, background: oc.bg, border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`, padding: "1px 8px", borderRadius: 99 }}>
+                      {l.owner_name && (
+                        <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--text-secondary)", background: "var(--surface-3)", border: "1px solid var(--border-default)", padding: "1px 8px", borderRadius: 99 }}>
                           {l.owner_name}
                         </span>
                       )}
@@ -105,14 +103,13 @@ export default async function ArchivPage() {
         ) : (
           <div>
             {archivedPhoneLists.map((l, i) => {
-              const oc = l.owner_name ? ownerColor(l.owner_name) : null;
               return (
                 <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "0.875rem", padding: "0.875rem 1.375rem", borderBottom: i < archivedPhoneLists.length - 1 ? "1px solid var(--border)" : "none" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                       <span style={{ fontSize: "0.9375rem", fontWeight: 600, color: "var(--text-primary)" }}>{l.name}</span>
-                      {l.owner_name && oc && (
-                        <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: oc.fg, background: oc.bg, border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`, padding: "1px 8px", borderRadius: 99 }}>
+                      {l.owner_name && (
+                        <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--text-secondary)", background: "var(--surface-3)", border: "1px solid var(--border-default)", padding: "1px 8px", borderRadius: 99 }}>
                           {l.owner_name}
                         </span>
                       )}

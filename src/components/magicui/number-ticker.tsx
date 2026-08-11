@@ -1,62 +1,48 @@
-"use client";
-
-import { useEffect, useRef, type ComponentPropsWithoutRef } from "react";
-import { useInView, useMotionValue, useSpring } from "motion/react";
+import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/utils";
 
+/**
+ * Formatierte Zahl — ohne Hochzähl-Animation.
+ *
+ * Die Komponente hat den Wert früher von 0 auf sein Ziel hochgefedert. Bei
+ * einer einzelnen Heldenzahl ist das ein netter Effekt; in einer Analyse-Ansicht
+ * mit zehn KPI-Kacheln zappeln zehn Zahlen gleichzeitig, und was man in der
+ * ersten Sekunde sieht, sind zehn Nullen. Das erzeugt den Eindruck „hier
+ * passiert viel", trägt aber keine Information — und verzögert genau die
+ * Aussage, für die man die Seite geöffnet hat.
+ *
+ * Dazu kam ein handfester Mangel: Die Animation lief über `useSpring` und hat
+ * als einzige Bewegung der App `prefers-reduced-motion` ignoriert. Die
+ * CSS-Regel, die alle übrigen Übergänge stilllegt, konnte sie nicht erreichen.
+ *
+ * Der Name bleibt, damit die Aufrufstellen unverändert weiterlaufen. Ohne
+ * Animation braucht es auch kein `"use client"` mehr — die Zahl rendert jetzt
+ * serverseitig und steht schon im ersten Frame richtig da.
+ */
+
+// Die Animations-Props der Vorfassung (`startValue`, `direction`, `delay`)
+// sind entfallen: Es gibt keine Aufrufstelle, die sie gesetzt hat, und als
+// stille No-ops haetten sie nur vorgetaeuscht, dass sich hier noch etwas
+// steuern laesst.
 interface NumberTickerProps extends ComponentPropsWithoutRef<"span"> {
   value: number;
-  startValue?: number;
-  direction?: "up" | "down";
-  delay?: number;
   decimalPlaces?: number;
 }
 
 export function NumberTicker({
   value,
-  startValue = 0,
-  direction = "up",
-  delay = 0,
   className,
   decimalPlaces = 0,
   ...props
 }: NumberTickerProps) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const motionValue = useMotionValue(direction === "down" ? value : startValue);
-  const springValue = useSpring(motionValue, { damping: 60, stiffness: 100 });
-  const isInView = useInView(ref, { once: true, margin: "0px" });
-
-  useEffect(() => {
-    // In view: animate after the configured delay.
-    // Not (yet) in view: fallback shortly after mount so off-screen tickers
-    // still end up showing the target value instead of staying at 0.
-    const timeout = isInView ? delay * 1000 : delay * 1000 + 300;
-    const timer = setTimeout(() => {
-      motionValue.set(direction === "down" ? startValue : value);
-    }, timeout);
-    return () => clearTimeout(timer);
-  }, [motionValue, isInView, delay, value, direction, startValue]);
-
-  useEffect(
-    () =>
-      springValue.on("change", (latest) => {
-        if (ref.current) {
-          ref.current.textContent = Intl.NumberFormat("de-DE", {
-            minimumFractionDigits: decimalPlaces,
-            maximumFractionDigits: decimalPlaces,
-          }).format(Number(latest.toFixed(decimalPlaces)));
-        }
-      }),
-    [springValue, decimalPlaces],
-  );
+  const text = Intl.NumberFormat("de-DE", {
+    minimumFractionDigits: decimalPlaces,
+    maximumFractionDigits: decimalPlaces,
+  }).format(value);
 
   return (
-    <span
-      ref={ref}
-      className={cn("inline-block tabular-nums", className)}
-      {...props}
-    >
-      {startValue}
+    <span className={cn("inline-block tabular-nums", className)} {...props}>
+      {text}
     </span>
   );
 }

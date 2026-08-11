@@ -1,8 +1,8 @@
 import { Crown, History, Trophy, Utensils } from "lucide-react";
 import {
-  WeeklyDuelChart, type DuelSeries, type WeeklyDuelPoint,
+  DUEL_GOAL_COLOR, WeeklyDuelChart, type DuelSeries, type WeeklyDuelPoint,
 } from "@/components/DashboardCharts";
-import { ownerColor } from "@/lib/ownerColor";
+import { ownerBrandColor } from "@/lib/ownerColor";
 
 // Wochenduell + Duell-Verlauf des Team-Dashboards.
 //
@@ -12,6 +12,11 @@ import { ownerColor } from "@/lib/ownerColor";
 // Zahlen und Fortschrittsbalken; dadurch stand die Rangfolge in vier Farben
 // gleichzeitig und die eigentlichen Zahlen gingen darin unter. Rang liest man
 // jetzt aus Zahl, Krone und Untertitel — Farbe traegt sie nirgends allein.
+//
+// Und die Farbe, die uebrig bleibt, kommt aus der Marken-Rampe
+// (`ownerBrandColor`), nicht aus den sechs freien Hues: Orange-Stufen und
+// Neutraltoene halten die Personen im Diagramm auseinander, ohne dass die Seite
+// in Blau/Violett/Gruen/Fuchsia gleichzeitig steht.
 
 export type WochenduellProps = {
   roster: string[];
@@ -102,7 +107,7 @@ export function WochenduellSection({
   winCounts,
   draws,
 }: WochenduellProps) {
-  const roster: DuelSeries[] = rosterNames.map((name) => ({ name, color: ownerColor(name).fg }));
+  const roster: DuelSeries[] = rosterNames.map((name) => ({ name, color: ownerBrandColor(name) }));
   const historicalWeeks: WeeklyDuelPoint[] = historicalWeeksProp.map((w) => ({ week: w.week, values: w.counts }));
 
   const weekValues = rosterNames.map((n) => weekCounts[n] ?? 0);
@@ -180,10 +185,12 @@ export function WochenduellSection({
           <History size={14} color="var(--text-muted)" aria-hidden />
           <span style={{ fontSize: "var(--fs-base)", fontWeight: 600, color: "var(--text-primary)", letterSpacing: "var(--ls-tight)" }}>Duell-Verlauf letzte 10 Wochen</span>
           {/* Legende: hier IST die Farbe die Information — sie ist der einzige
-              Schluessel zu den Balken. Die Ziel-Linie behaelt Gold, weil das
-              Chart sie in exakt diesem Ton zeichnet. */}
+              Schluessel zu den Balken. Die Ziel-Linie traegt denselben Neutralton,
+              in dem das Chart sie zeichnet (DUEL_GOAL_COLOR in DashboardCharts):
+              Gold war die letzte Fremdfarbe der Seite und meldete keinen Zustand,
+              den man nicht schon an der Linie selbst sieht. */}
           <div style={{ marginLeft: "auto", display: "flex", gap: "var(--sp-5)", flexWrap: "wrap" }}>
-            {[...roster.map((r) => ({ label: r.name, color: r.color })), { label: `Ziel ${weeklyGoal}`, color: "var(--warning)" }].map((m) => (
+            {[...roster.map((r) => ({ label: r.name, color: r.color })), { label: `Ziel ${weeklyGoal}`, color: DUEL_GOAL_COLOR }].map((m) => (
               <div key={m.label} style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
                 <OwnerDot color={m.color} />
                 <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-muted)" }}>{m.label}</span>

@@ -17,7 +17,7 @@ import { FunnelTab } from "@/components/analyse/tabs/FunnelTab";
 //
 //   Übersicht   beide Kanäle + Termin-Funnel + Umsatz auf einer Seite
 //   LinkedIn    DMs → Antworten → Termine, Consistency, Follow-ups, Listen
-//   Telefon     Calls → Gatekeeper → Entscheider → Termine
+//   Telefon     Anwahlen → Erstkontakte → Gatekeeper → Entscheider → Termine
 //   Setting     Termine → Shows → Qualifikation, inkl. Ursachen-Schnitte
 //   Closing     Abschlüsse, Umsatz, Geschwindigkeit
 //   Funnel      End-to-End je Quelle und je Person

@@ -2,7 +2,7 @@
 
 import { AnchoredPopover, useAnchor, type PopoverAlign } from "@/components/ui/AnchoredPopover";
 import { Check, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 // Dropdown im Brand-Design (ersetzt natives <select>).
 //
@@ -13,6 +13,10 @@ import { useEffect, useRef, useState } from "react";
 //
 // Fokus bleibt bewusst auf dem Trigger (aria-activedescendant-Muster): so
 // funktionieren Pfeiltasten, Enter und Escape, ohne Fokus hin- und herzureichen.
+//
+// Optionale Gruppenkoepfe: `SelectOption.group` (siehe dort). Die Optionsliste
+// bleibt dabei ein FLACHES Array — die Koepfe sind reine Darstellung und
+// tauchen in der Tastatursteuerung gar nicht auf.
 
 /**
  * Unkontrollierte Variante fuer klassische <form action>-Formulare: haelt den
@@ -39,9 +43,53 @@ export type SelectOption = {
   /** Zusatzzeile unter dem Label. */
   hint?: string;
   disabled?: boolean;
+  /**
+   * Optionale Ueberschrift ueber dieser Option.
+   *
+   * Aufeinanderfolgende Optionen mit demselben Text stehen unter EINEM Kopf;
+   * die Reihenfolge bleibt die des Arrays (die Liste sortiert nichts um). Ohne
+   * `group` rendert die Liste exakt wie vorher — bestehende Aufrufer merken
+   * von der Ergaenzung nichts.
+   *
+   * Warum ueberhaupt: Bei ~30 Eintraegen ist eine flache Liste keine Auswahl
+   * mehr, sondern eine Suchaufgabe. Im Serienvergleich stehen dort drei
+   * gleichnamige „Termine…"-Kennzahlen aus drei Quellen nebeneinander — ohne
+   * Kopf ist nicht erkennbar, welche welche ist.
+   */
+  group?: string;
 };
 
 const LIST_MAX_HEIGHT = 288;
+
+/** Erster (dir=1) bzw. letzter (dir=-1) waehlbarer Index; 0, wenn es keinen gibt. */
+function firstEnabled(options: SelectOption[], dir: 1 | -1): number {
+  const start = dir === 1 ? 0 : options.length - 1;
+  for (let i = start; i >= 0 && i < options.length; i += dir) {
+    if (!options[i]?.disabled) return i;
+  }
+  return 0;
+}
+
+/** Ein Lauf aufeinanderfolgender Optionen derselben Gruppe (Index-Bereich). */
+type OptionRun = { group?: string; from: number; to: number };
+
+/**
+ * Zerlegt die flache Optionsliste in Gruppen-Laeufe.
+ *
+ * Entscheidend: Die Optionen bleiben EIN flaches Array, die Laeufe tragen nur
+ * Index-Bereiche. Damit bleiben `active`, `aria-activedescendant`, `data-idx`
+ * und `step()` unveraendert auf den flachen Indizes — und Gruppenkoepfe werden
+ * von der Tastatur gar nicht erst beruehrt, weil sie keine Optionen sind.
+ */
+function buildRuns(options: SelectOption[]): OptionRun[] {
+  const runs: OptionRun[] = [];
+  for (let i = 0; i < options.length; i++) {
+    const last = runs[runs.length - 1];
+    if (last && last.group === options[i].group) last.to = i;
+    else runs.push({ group: options[i].group, from: i, to: i });
+  }
+  return runs;
+}
 
 export function Select({
   value,
@@ -90,7 +138,7 @@ export function Select({
   // Oeffnen setzt den aktiven Eintrag auf den gewaehlten — bewusst im Handler
   // und nicht per Effekt, sonst rendert die Liste zweimal.
   function openList() {
-    setActive(selectedIndex < 0 ? 0 : selectedIndex);
+    setActive(selectedIndex < 0 ? firstEnabled(options, 1) : selectedIndex);
     open();
   }
 
@@ -135,12 +183,81 @@ export function Select({
     switch (e.key) {
       case "ArrowDown": e.preventDefault(); step(1); break;
       case "ArrowUp": e.preventDefault(); step(-1); break;
-      case "Home": e.preventDefault(); setActive(0); break;
-      case "End": e.preventDefault(); setActive(options.length - 1); break;
+      // Home/End springen auf den ersten bzw. letzten WAEHLBAREN Eintrag.
+      // Seit es deaktivierte Optionen gibt (unpassende Filterwerte im
+      // Serienvergleich), landete ein blindes 0 / length-1 sonst auf einem
+      // Eintrag, den Enter nicht annimmt — die Liste wirkte kaputt.
+      case "Home": e.preventDefault(); setActive(firstEnabled(options, 1)); break;
+      case "End": e.preventDefault(); setActive(firstEnabled(options, -1)); break;
       case "Enter":
       case " ": e.preventDefault(); pick(active); break;
       case "Tab": close(); break;
     }
+  }
+
+  const runs = buildRuns(options);
+  // Ohne eine einzige `group` bleibt der Renderpfad exakt der alte: ein
+  // flacher Lauf, kein Wrapper, kein Kopf.
+  const hasGroups = runs.some((r) => r.group !== undefined);
+
+  /** Rendert die Optionen eines Laufs — Index bleibt der FLACHE Index. */
+  function renderRun(run: { from: number; to: number }) {
+    const out = [];
+    for (let idx = run.from; idx <= run.to; idx++) {
+      const opt = options[idx];
+      if (!opt) continue;
+      const isSelected = opt.value === value;
+      const isActive = idx === active;
+      out.push(
+        <div
+          key={opt.value || `__empty-${idx}`}
+          id={`${id ?? "sel"}-opt-${idx}`}
+          data-idx={idx}
+          role="option"
+          aria-selected={isSelected}
+          aria-disabled={opt.disabled || undefined}
+          onMouseEnter={() => !opt.disabled && setActive(idx)}
+          onClick={() => pick(idx)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            padding: "0.375rem 0.5rem",
+            borderRadius: "var(--r-sm)",
+            fontSize: "var(--fs-sm)",
+            lineHeight: 1.35,
+            cursor: opt.disabled ? "not-allowed" : "pointer",
+            // Gewaehlt = Orange wie im Kalender; nur-aktiv = neutrale Flaeche.
+            background: isSelected ? "var(--accent-muted)" : isActive ? "var(--surface-2)" : "transparent",
+            color: opt.disabled
+              ? "var(--text-disabled)"
+              : (opt.color ?? (isSelected ? "var(--orange-300)" : "var(--text-secondary)")),
+            fontWeight: isSelected ? 600 : 400,
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {opt.label}
+            {opt.hint && (
+              <span
+                style={{
+                  display: "block",
+                  fontSize: "var(--fs-2xs)",
+                  color: opt.disabled ? "var(--text-disabled)" : "var(--text-muted)",
+                  fontWeight: 400,
+                  // Der Hinweis traegt bei deaktivierten Eintraegen den GRUND —
+                  // der darf nicht auf halbem Wege abgeschnitten werden.
+                  whiteSpace: "normal",
+                }}
+              >
+                {opt.hint}
+              </span>
+            )}
+          </span>
+          {isSelected && <Check size={13} style={{ flexShrink: 0, color: "var(--orange-300)" }} />}
+        </div>,
+      );
+    }
+    return out;
   }
 
   const baseTrigger: React.CSSProperties =
@@ -217,48 +334,31 @@ export function Select({
           popoverRef={listRef}
           style={{ padding: "var(--sp-2)" }}
         >
-          {options.map((opt, idx) => {
-            const isSelected = opt.value === value;
-            const isActive = idx === active;
-            return (
-              <div
-                key={opt.value || `__empty-${idx}`}
-                id={`${id ?? "sel"}-opt-${idx}`}
-                data-idx={idx}
-                role="option"
-                aria-selected={isSelected}
-                aria-disabled={opt.disabled || undefined}
-                onMouseEnter={() => !opt.disabled && setActive(idx)}
-                onClick={() => pick(idx)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  padding: "0.375rem 0.5rem",
-                  borderRadius: "var(--r-sm)",
-                  fontSize: "var(--fs-sm)",
-                  lineHeight: 1.35,
-                  cursor: opt.disabled ? "not-allowed" : "pointer",
-                  // Gewaehlt = Orange wie im Kalender; nur-aktiv = neutrale Flaeche.
-                  background: isSelected ? "var(--accent-muted)" : isActive ? "var(--surface-2)" : "transparent",
-                  color: opt.disabled
-                    ? "var(--text-disabled)"
-                    : (opt.color ?? (isSelected ? "var(--orange-300)" : "var(--text-secondary)")),
-                  fontWeight: isSelected ? 600 : 400,
-                }}
-              >
-                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {opt.label}
-                  {opt.hint && (
-                    <span style={{ display: "block", fontSize: "var(--fs-2xs)", color: "var(--text-muted)", fontWeight: 400 }}>
-                      {opt.hint}
-                    </span>
-                  )}
-                </span>
-                {isSelected && <Check size={13} style={{ flexShrink: 0, color: "var(--orange-300)" }} />}
-              </div>
-            );
-          })}
+          {hasGroups
+            ? runs.map((run, r) =>
+                run.group === undefined ? (
+                  // Optionen vor dem ersten Kopf (z. B. „alle") bleiben ohne
+                  // Gruppe stehen — sie gehoeren zu keiner.
+                  <Fragment key={`run-${r}`}>{renderRun(run)}</Fragment>
+                ) : (
+                  // role="group" im Listbox ist die vorgesehene Schachtelung;
+                  // der sichtbare Kopf ist damit doppelt und wird versteckt.
+                  <div key={`run-${r}`} role="group" aria-label={run.group}>
+                    <div
+                      aria-hidden
+                      className="eyebrow eyebrow-muted"
+                      style={{
+                        padding: "var(--sp-4) 0.5rem var(--sp-2)",
+                        fontSize: "var(--fs-2xs)",
+                      }}
+                    >
+                      {run.group}
+                    </div>
+                    {renderRun(run)}
+                  </div>
+                ),
+              )
+            : renderRun({ from: 0, to: options.length - 1 })}
         </AnchoredPopover>
       )}
     </>

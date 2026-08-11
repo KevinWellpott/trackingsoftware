@@ -185,6 +185,17 @@ export function PersonalWeeklyChart({ data }: { data: PersonalWeekPoint[] }) {
 export type DuelSeries = { name: string; color: string };
 export type WeeklyDuelPoint = { week: string; values: Record<string, number> };
 
+/**
+ * Ziel-Linie im Duell-Verlauf — Neutralton, kein Gold.
+ *
+ * Die Linie stand in `METRIC_COLORS.followups` (#d1a24f). Das ist die Farbe der
+ * Nachfass-Metrik und meint hier gar nichts; auf dem Team-Dashboard war sie nur
+ * noch die letzte Fremdfarbe neben der Marken-Rampe der Personen. Exportiert,
+ * damit die Legende in WochenduellSection denselben Ton fuehrt wie die Linie —
+ * die beiden liefen vorher schon einmal auseinander.
+ */
+export const DUEL_GOAL_COLOR = "var(--text-muted)";
+
 export function WeeklyDuelChart({ data, series, goal }: { data: WeeklyDuelPoint[]; series: DuelSeries[]; goal: number }) {
   if (series.length === 0 || data.every((d) => series.every((s) => (d.values[s.name] ?? 0) === 0))) {
     return <EmptyState text="Noch keine Verlaufsdaten." />;
@@ -210,10 +221,10 @@ export function WeeklyDuelChart({ data, series, goal }: { data: WeeklyDuelPoint[
         {goal > 0 && (
           <ReferenceLine
             y={goal}
-            stroke={METRIC_COLORS.followups}
+            stroke={DUEL_GOAL_COLOR}
             strokeDasharray="4 4"
             strokeWidth={1.5}
-            label={{ value: `Ziel ${goal}`, position: "right", fill: METRIC_COLORS.followups, fontSize: 11 }}
+            label={{ value: `Ziel ${goal}`, position: "right", fill: DUEL_GOAL_COLOR, fontSize: 11 }}
           />
         )}
       </BarChart>

@@ -138,6 +138,7 @@ export function KpiHero({
   tone = "default",
   icon,
   index = 0,
+  lead = false,
 }: {
   label: string;
   value: number | null;
@@ -149,6 +150,19 @@ export function KpiHero({
   tone?: Tone;
   icon?: ReactNode;
   index?: number;
+  /**
+   * Die EINE Leitzahl der Ansicht — groessere Zahl auf Glasflaeche.
+   *
+   * Warum es das braucht: Bisher sahen Leitzahl und Randauswertung identisch
+   * aus (gleiche Karte, gleiche Zahlengroesse, gleiche orange Beschriftung).
+   * Wo nichts hervorsticht, wirkt alles gleich wichtig — und genau das ist der
+   * Grund, warum die Ansichten trotz Aufraeumens ueberladen wirkten. Das
+   * Designsystem haelt Glasflaeche und `--fs-3xl` dafuer bereit; sie waren im
+   * gesamten Analysebereich unbenutzt.
+   *
+   * Pro Ansicht hoechstens EINMAL setzen — zwei Leitzahlen sind keine.
+   */
+  lead?: boolean;
 }) {
   const toneColor = tone === "default" ? null : TONE_COLOR[tone];
   const deltaColor =
@@ -163,7 +177,7 @@ export function KpiHero({
     // KPI-Hero (COMPONENTS.md §8): Eyebrow → Zahl → Delta-Chip → Sparkline.
     // Der Ton sitzt als 2px-Rail links; die Zahl bleibt immer --text-primary.
     <div
-      className="card fade-up"
+      className={lead ? "glass-card corner-ticks fade-up" : "card fade-up"}
       style={{
         position: "relative",
         padding: "var(--sp-6) var(--sp-7)",
@@ -180,7 +194,7 @@ export function KpiHero({
       </div>
 
       <div
-        className="kpi-value"
+        className={lead ? "kpi-value kpi-value-lg" : "kpi-value"}
         style={{
           marginTop: "var(--sp-3)",
         }}

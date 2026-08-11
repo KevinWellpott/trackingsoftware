@@ -1,16 +1,15 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
   BarChart3, CalendarCheck, ChevronRight, CreditCard, Euro, Eye, FileSignature, Filter, PieChart,
-  Receipt, Timer, TrendingUp, Trophy, Users, XCircle,
+  Receipt, Timer, TrendingUp, Trophy, Users, Wallet, XCircle,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { loadClosingCalls, loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
+import { loadClosingCalls, loadSettingCalls } from "@/lib/analyseData";
 import {
   NUM, bucketIndex, buildBuckets, bucketOf, closingEffDate, eur, fmtPct, pct, settingEffDate,
   type Granularity,
 } from "@/lib/analyse";
-import { channelLabel } from "@/lib/channels";
 import { personIn } from "@/lib/personResolution";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
@@ -24,14 +23,27 @@ import { CLOSING_LOST_REASON_CODES, CLOSING_LOST_REASON_LABELS } from "@/lib/typ
 // Ein einziger Fetch deckt aktuelles UND Vorperioden-Fenster ab — der Split
 // passiert in JS über closingEffDate.
 //
-// Oben stehen genau fünf Zahlen (Auftraggeber-Vorgabe): Termine, Show-Quote,
-// Abschlussrate, Umsatz pro Meeting, Umsatz gesamt. Darunter die zwei Fragen,
-// die daraus folgen — wer holt die Cash-Termine, und woran sterben die
-// verlorenen Deals. Alles Weitere liegt eingeklappt unter „Mehr Auswertungen".
+// Oben stehen sechs Zahlen: Termine, Show-Quote, Abschlussrate — darunter die
+// drei Geld-Kacheln Umsatz/Meeting, Ø-Deal und Umsatz. Sechs statt fünf, weil
+// fünf Kacheln auf 3+2 umbrechen und die Leitzahl dann allein in der zweiten
+// Reihe stand; der Ø-Deal lag ohnehin nur als Nebensatz im Aufklapper und
+// füllt die sechste Stelle, ohne eine neue Rechnung mitzubringen.
+// Darunter die zwei Fragen, die daraus folgen — wer holt die Cash-Termine,
+// und woran sterben die verlorenen Deals. Alles Weitere liegt eingeklappt
+// unter „Mehr Auswertungen".
 //
-// Die Setting-Calls kommen mit dazu, aber nicht als Kennzahl: sie liefern die
-// Herkunft (source_detail/source_type) und den Termin, gegen den die
-// Abschluss-Geschwindigkeit gerechnet wird.
+// Genau EINE Leitzahl je Tab (`lead` an KpiHero): hier „Umsatz". Sie ist das
+// Ergebnis, auf das die fünf anderen Kacheln zulaufen, und die einzige Zahl
+// des Tabs, die außerhalb des Vertriebs jemanden interessiert. Sie steht
+// zuletzt, weil der Trichter dorthin läuft — nicht davon weg.
+//
+// Die Setting-Calls kommen mit dazu, aber nicht als Kennzahl: sie liefern den
+// Termin, gegen den die Abschluss-Geschwindigkeit gerechnet wird.
+//
+// Was hier bewusst NICHT (mehr) steht: eine Quellen-Tabelle. Gefragt war „durch
+// WEN kamen die Termine" (das ist der Vergleich unten), nicht „woher" — und die
+// Herkunft rechnet der Funnel-Tab als einziger in einer Zeile bis zum Umsatz
+// durch. Drei Quellen-Tabellen im Analysebereich waren zwei zu viel.
 //
 // Personenachse: `personIn` (Zuweisung vor Ersteller). Beim Closing wog der
 // alte Weg über `created_by_user_id` besonders schwer — ein Closing entsteht
@@ -107,30 +119,6 @@ function rangeLabelOf(from: string, to: string): string {
   return `${d(from)} – ${d(to)}`;
 }
 
-// Kein `lost` mehr: Die Abschlussrate rechnet auch hier gegen die SHOWS, damit
-// die Quelle-Tabelle und die KPI-Kachel dieselbe Zahl meinen.
-type SourceCell = { closings: number; shows: number; won: number; revenue: number };
-const ZERO_SOURCE = (): SourceCell => ({ closings: 0, shows: 0, won: 0, revenue: 0 });
-
-/**
- * Quelle eines Closings — dieselbe Regel wie im Setting-Tab.
- *
- * `source_detail` hat Vorrang vor `source_type`: Der Freitext trägt den echten
- * Ursprung; ohne ihn fallen alle manuell gebuchten Termine in einen Sammeltopf,
- * der im Umsatz-Ranking regelmäßig die Top-Zeile ist und nichts erklärt.
- * Case-insensitiv normalisiert, angezeigt wird die zuerst gesehene Schreibweise.
- */
-function sourceKeyOf(
-  setting: AnalyseSettingCall | undefined,
-): { key: string; label: string; channel: string | null } {
-  if (!setting) return { key: "ohne", label: "Ohne Setting-Bezug", channel: null };
-  const detail = (setting.source_detail ?? "").trim();
-  if (detail) {
-    return { key: `d:${detail.toLowerCase()}`, label: detail, channel: channelLabel(setting.source_type) };
-  }
-  return { key: `t:${setting.source_type ?? "sonstige"}`, label: channelLabel(setting.source_type), channel: null };
-}
-
 /**
  * Aufklappbarer Bereich für die Detail-Auswertungen.
  *
@@ -138,6 +126,13 @@ function sourceKeyOf(
  * für immer. Ein `<details>` kostet nichts (kein State, kein Client-JS) und
  * hält die Rechenwege am Leben; sie zu löschen hieße, sie beim nächsten „doch
  * wieder" komplett neu zu bauen.
+ *
+ * Alle Sektionen DARIN starten zugeklappt (`defaultOpen={false}`). Vorher riss
+ * ein Klick sechs Sektionen gleichzeitig auf und verdreifachte die Seitenlänge
+ * — genau das ließ den Tab überladen wirken. Damit ein zugeklappter Balken
+ * trotzdem eine Entscheidung erlaubt, trägt jede Sektion ihre Menge bzw. ihren
+ * Kernwert in der Meta-Zeile: ohne Zahl weiß niemand, ob dahinter 40 Zeilen
+ * oder nichts steht.
  */
 function MoreAnalyses({ meta, children }: { meta: string; children: ReactNode }) {
   return (
@@ -242,8 +237,6 @@ export async function ClosingTab({
   const speedCells = SPEED_LABELS.map(() => ({ n: 0, won: 0, lost: 0 }));
   let speedUnknown = 0;
   const sizeBins = SIZE_LABELS.map(() => ({ n: 0, revenue: 0 }));
-  const sourceCells = new Map<string, SourceCell>();
-  const sourceMeta = new Map<string, { label: string; channel: string | null }>();
   let signatureYes = 0;
   let signatureKnown = 0;
   const startLead: number[] = [];
@@ -285,17 +278,9 @@ export async function ClosingTab({
     closingsByBucket[bk] = (closingsByBucket[bk] ?? 0) + 1;
     if (r.show_status === "show") showsByBucket[bk] = (showsByBucket[bk] ?? 0) + 1;
 
-    // Herkunft über das zugehörige Setting.
+    // Das zugehörige Setting — nur noch für die Abschluss-Geschwindigkeit.
+    // (Die Herkunft hing ebenfalls hier; sie wird im Funnel-Tab ausgewertet.)
     const setting = r.setting_call_id ? settingById.get(r.setting_call_id) : undefined;
-    const srcKey = sourceKeyOf(setting);
-    let src = sourceCells.get(srcKey.key);
-    if (!src) {
-      src = ZERO_SOURCE();
-      sourceCells.set(srcKey.key, src);
-      sourceMeta.set(srcKey.key, { label: srcKey.label, channel: srcKey.channel });
-    }
-    src.closings += 1;
-    if (r.show_status === "show") src.shows += 1;
 
     // Abschluss-Geschwindigkeit: Setting-Termin → Closing-Gespräch.
     const settingDay = setting ? settingEffDate(setting) : null;
@@ -316,8 +301,6 @@ export async function ClosingTab({
       t.won += 1;
       const vol = NUM(r.deal_volume);
       t.revenue += vol;
-      src.won += 1;
-      src.revenue += vol;
       wonByBucket[bk] = (wonByBucket[bk] ?? 0) + 1;
       revPerUser[name][bk] = (revPerUser[name][bk] ?? 0) + vol;
       revenueByBucket[bk] = (revenueByBucket[bk] ?? 0) + vol;
@@ -382,7 +365,10 @@ export async function ClosingTab({
   const revPerMeeting = revenuePerMeeting(sum.revenue, sum.closings);
   const avgDeal = sum.won === 0 ? null : Math.round(sum.revenue / sum.won);
 
-  const prevShowRate = pct(prev.shows, prev.closings);
+  // Kein `prevShowRate` mehr: Die Show-Quote zeigt keinen Vorperioden-Chip,
+  // solange sie aus dem Ergebnis abgeleitet wird (siehe Kachel). `prev.shows`
+  // wird weiter mitgezählt — es trägt den Nenner der Vorperioden-Abschlussrate
+  // und wäre auch die Basis, wenn der Chip zurückkommt.
   const prevWinRate = pct(prev.won, prev.shows);
   const prevRevPerMeeting = revenuePerMeeting(prev.revenue, prev.closings);
 
@@ -459,27 +445,6 @@ export async function ClosingTab({
   const matrixTotal: Record<string, number> = { gesamt: sum.lost };
   for (const name of names) matrixTotal[`p:${name}`] = totals.get(name)!.lost;
 
-  // ── Quelle ───────────────────────────────────────────────────
-  const sourceRows: MetricRow[] = [...sourceCells.entries()]
-    .filter(([, c]) => c.closings > 0)
-    .sort((a, b) => b[1].revenue - a[1].revenue || b[1].closings - a[1].closings)
-    .map(([key, c]) => {
-      const meta = sourceMeta.get(key)!;
-      return {
-        key,
-        label: meta.label,
-        sub: meta.channel,
-        share: sum.closings === 0 ? null : c.closings / sum.closings,
-        values: {
-          closings: c.closings,
-          showRate: pct(c.shows, c.closings),
-          winRate: pct(c.won, c.shows),
-          revPerMeeting: revenuePerMeeting(c.revenue, c.closings),
-          revenue: c.revenue,
-        },
-      };
-    });
-
   const sizeRows: MetricRow[] = SIZE_LABELS.map((label, i) => ({
     key: label,
     label,
@@ -498,7 +463,11 @@ export async function ClosingTab({
 
   return (
     <>
-      {/* ── KPI-Heroes: die fünf Zahlen des Closing-Flows ──────── */}
+      {/* ── KPI-Heroes: die sechs Zahlen des Closing-Flows ────────
+             Reihe 1 = der Trichter (Menge, Show, Abschluss), Reihe 2 = das
+             Geld (je Termin, je Deal, gesamt). Sechs Kacheln gehen im Raster
+             als 3+3 auf; die fünf von vorher brachen auf 3+2 und ließen die
+             wichtigste Zahl allein in der zweiten Reihe stehen. */}
       <KpiRow>
         <KpiHero
           label="Closing-Termine"
@@ -509,12 +478,18 @@ export async function ClosingTab({
           icon={<CalendarCheck size={15} />}
           index={0}
         />
+        {/* Ohne Delta-Chip, mit Absicht: „Erschienen" wird beim Erfassen eines
+            Ergebnisses automatisch gesetzt und wurde für Bestandsdaten
+            nachgetragen — die Quote klebt deshalb nahe 100 % und BEWEGT sich
+            praktisch nicht. Ein Delta auf einer Zahl, die sich nicht ändern
+            kann, ist Rauschen, und der rote/grüne Chip macht daraus ein
+            Signal, wo keines ist. Die Fußnote unter dem Vergleich erklärt
+            weiterhin, warum. Sobald echte No-Shows erfasst werden, gehören
+            `delta` und `deltaLabel` hier wieder hin. */}
         <KpiHero
           label="Show-Quote"
           value={showRate}
           format="pct"
-          delta={ppDelta(showRate, prevShowRate)}
-          deltaLabel="vs. Vorperiode (pp)"
           icon={<Eye size={15} />}
           index={1}
         />
@@ -539,6 +514,23 @@ export async function ClosingTab({
           icon={<Receipt size={15} />}
           index={3}
         />
+        {/* Aus dem Aufklapper hochgeholt (war eine Zeile in „Vertrag &
+            Abwicklung"). Bewusst OHNE Delta: Der Ø-Deal stand dort nie mit
+            Vorperiode, und bei wenigen Abschlüssen springt er ohnehin um
+            zweistellige Prozente, sobald ein einziger großer Deal dazukommt —
+            ein Chip daran wäre erfundene Bewegung. Der Wert selbst ist
+            unverändert Umsatz ÷ gewonnene Deals. */}
+        <KpiHero
+          label="Ø-Deal"
+          value={avgDeal}
+          format="eur"
+          icon={<Wallet size={15} />}
+          index={4}
+        />
+        {/* Leitzahl des Tabs (Glasfläche + --fs-3xl): das Ergebnis, auf das
+            die fünf Kacheln davor zulaufen. Sie steht am Ende der Reihe, weil
+            der Trichter dorthin läuft — und nur EINE Kachel darf sie tragen,
+            sonst hebt sich wieder nichts ab. */}
         <KpiHero
           label="Umsatz"
           value={sum.revenue}
@@ -547,7 +539,8 @@ export async function ClosingTab({
           spark={revenueSpark}
           tone="success"
           icon={<Euro size={15} />}
-          index={4}
+          index={5}
+          lead
         />
       </KpiRow>
 
@@ -575,8 +568,8 @@ export async function ClosingTab({
               </p>
               <p style={INFO_P}>
                 <strong style={INFO_STRONG}>Umsatz/Meeting</strong> = Umsatz ÷ Closing-Termine, also je
-                gebuchtem Gespräch. Der Umsatz je <em>gewonnenem</em> Deal ist der Ø-Deal unter
-                &bdquo;Mehr Auswertungen&ldquo;.
+                gebuchtem Gespräch. Der Umsatz je <em>gewonnenem</em> Deal steht als Kachel
+                &bdquo;Ø-Deal&ldquo; direkt daneben — zwei verschiedene Nenner, deshalb zwei Kacheln.
               </p>
             </InfoText>
           }
@@ -612,7 +605,9 @@ export async function ClosingTab({
         <AnalyseSection
           title="Fortschritt im Zeitraum"
           icon={TrendingUp}
-          meta="kumuliert"
+          // Menge zuerst: Ein zugeklappter Balken „kumuliert" verrät nicht, ob
+          // dahinter eine Kurve oder eine leere Achse steckt.
+          meta={`${INT.format(sum.closings)} Closings · kumuliert`}
           collapsible
           defaultOpen={false}
           info={
@@ -643,53 +638,6 @@ export async function ClosingTab({
               },
             ]}
             rangeLabel={rangeLabelOf(from, to)}
-          />
-        </AnalyseSection>
-      </div>
-
-      {/* ── Herkunft ───────────────────────────────────────────────
-             Startet offen: die Tabelle beantwortet die zweite Frage des Tabs
-             („woher kommt der Umsatz") und besteht aus Zahlen, nicht aus
-             einem Bild, das man ohnehin nur überfliegt. */}
-      <div className="fade-up" style={{ animationDelay: "340ms" }}>
-        <AnalyseSection
-          title="Welche Quelle schließt am besten ab?"
-          icon={TrendingUp}
-          meta="Closings nach Herkunft des Termins"
-          collapsible
-          info={
-            <InfoText>
-              <p style={INFO_P}>
-                Die Herkunft kommt vom verknüpften Setting (<code>setting_call_id</code>) und wird nach{" "}
-                <code>source_detail</code> aufgeschlüsselt, wo ein Freitext-Ursprung hinterlegt ist — sonst nach
-                dem Kanal.
-              </p>
-              <p style={INFO_P}>
-                Ein Closing ohne diese Verknüpfung steht in &bdquo;Ohne Setting-Bezug&ldquo;: kein Fehler,
-                sondern ein direkt angelegtes oder beim Organisations-Umzug gekapptes Closing.
-              </p>
-            </InfoText>
-          }
-        >
-          <MetricTable
-            label="Quelle"
-            columns={[
-              { key: "closings", label: "Closings", format: "int" },
-              { key: "showRate", label: "Show-Quote", format: "pct" },
-              { key: "winRate", label: "Abschlussrate", format: "pct", emphasis: true },
-              { key: "revPerMeeting", label: "Umsatz/Meeting", format: "eur" },
-              { key: "revenue", label: "Umsatz", format: "eur" },
-            ]}
-            rows={sourceRows}
-            total={{
-              closings: sum.closings,
-              showRate,
-              winRate,
-              revPerMeeting,
-              revenue: sum.revenue,
-            }}
-            minWidth={640}
-            emptyHint="Im Zeitraum keine Closings erfasst."
           />
         </AnalyseSection>
       </div>
@@ -731,7 +679,9 @@ export async function ClosingTab({
           <AnalyseSection
             title="Einwand × Person"
             icon={Users}
-            meta="woran hängt wer?"
+            // Größe der Matrix statt Fragesatz — sie sagt, ob hier eine
+            // Rangfolge steht oder eine Zeile mit drei Nullen.
+            meta={`${matrixRows.length} Einwände × ${names.length} Personen`}
             collapsible
             info={
               <InfoText>
@@ -763,16 +713,21 @@ export async function ClosingTab({
           <AnalyseSection
             title="Umsatz im Verlauf"
             icon={BarChart3}
-            meta="Umsatz (EUR) aus gewonnenen Deals"
+            // Summe statt Beschreibung: Wer zugeklappt sieht, dass hier 84.000 €
+            // liegen, weiß, ob sich der Klick lohnt. „Umsatz (EUR) aus
+            // gewonnenen Deals" sagte nur, was auf der Achse steht.
+            meta={`${eur(sum.revenue)} · je Person`}
             collapsible
+            defaultOpen={false}
           >
             <BucketBarChart buckets={buckets} perUser={revPerUser} />
           </AnalyseSection>
           <AnalyseSection
             title="Win / Loss"
             icon={PieChart}
-            meta={`${INT.format(sum.closings)} Closings`}
+            meta={`${INT.format(sum.won)} gewonnen · ${INT.format(sum.lost)} verloren`}
             collapsible
+            defaultOpen={false}
           >
             <DonutChart data={winLossData} centerLabel={fmtPct(winRate)} centerSub="Abschlussrate" />
           </AnalyseSection>
@@ -783,8 +738,16 @@ export async function ClosingTab({
             <AnalyseSection
               title="Wie lange dauert der Abschluss?"
               icon={Timer}
-              meta={speedUnknown > 0 ? `${INT.format(speedUnknown)} ohne Setting-Bezug` : "Balken = Closings, Zeile = Win-Rate"}
+              // Menge zuerst, Einschränkung dahinter: Wie viele Closings die
+              // Auswertung überhaupt tragen, entscheidet, ob sie etwas taugt —
+              // ohne verknüpftes Setting gibt es keine Dauer.
+              meta={
+                speedUnknown > 0
+                  ? `${INT.format(sum.closings - speedUnknown)} von ${INT.format(sum.closings)} mit Setting-Bezug`
+                  : `${INT.format(sum.closings)} Closings`
+              }
               collapsible
+              defaultOpen={false}
               info={
                 <InfoText>
                   <p style={INFO_P}>
@@ -816,6 +779,7 @@ export async function ClosingTab({
               icon={Receipt}
               meta={`${INT.format(sum.won)} gewonnene Deals`}
               collapsible
+              defaultOpen={false}
             >
               <MetricTable
                 label="Größe"
@@ -836,8 +800,12 @@ export async function ClosingTab({
         <AnalyseSection
           title="Vertrag & Abwicklung"
           icon={FileSignature}
-          meta="nach gewonnenem Abschluss"
+          // Die Erfassungsquote IST hier die Kernaussage: Steht da „3 von 21",
+          // sagt die Sektion nichts über die Abwicklung, sondern über die
+          // Pflege — und das soll man sehen, ohne aufzuklappen.
+          meta={`Unterschrift: ${INT.format(signatureKnown)} von ${INT.format(sum.won)} erfasst`}
           collapsible
+          defaultOpen={false}
           info={
             <InfoText>
               <p style={INFO_P}>
@@ -845,9 +813,8 @@ export async function ClosingTab({
                 gesetzt wurde — die Zahl daneben nennt, wie viele das sind.
               </p>
               <p style={INFO_P}>
-                Der Ø-Deal ist der Umsatz je <strong style={INFO_STRONG}>gewonnenem</strong> Deal und damit
-                bewusst etwas anderes als die KPI-Kachel &bdquo;Umsatz pro Meeting&ldquo; oben, die je Termin
-                rechnet.
+                &bdquo;Vertragsstart&ldquo; ist der Median über die gewonnenen Deals mit gesetztem Startdatum —
+                ein einzelner Deal mit Start in einem halben Jahr verschiebt ihn deshalb nicht.
               </p>
             </InfoText>
           }
@@ -864,9 +831,10 @@ export async function ClosingTab({
                 label: "Vertragsstart (Median)",
                 value: medianStartLead === null ? "—" : `${medianStartLead} Tage nach Abschluss`,
               },
-              // Ø-Deal = Umsatz je GEWONNENEM Deal — bewusst nicht in den
-              // KPI-Kacheln: dort steht „Umsatz pro Meeting" (je Termin).
-              { label: "Ø-Deal (je gewonnenem Deal)", value: avgDeal === null ? "—" : eur(avgDeal) },
+              // Der Ø-Deal stand hier als vierte Zeile und steht jetzt als
+              // Kachel oben — dieselbe Rechnung (Umsatz ÷ gewonnene Deals),
+              // nur sichtbar statt zwei Klicks tief. Zweimal dieselbe Zahl auf
+              // einer Seite ist genau die Überladung, die weg soll.
             ]}
           />
         </AnalyseSection>
@@ -874,8 +842,9 @@ export async function ClosingTab({
         <AnalyseSection
           title="Zahlungsarten"
           icon={CreditCard}
-          meta={`${INT.format(sum.won)} gewonnen`}
+          meta={`${paymentItems.length} Arten · ${INT.format(sum.won)} gewonnen`}
           collapsible
+          defaultOpen={false}
           info={
             <InfoText>
               <p style={INFO_P}>
