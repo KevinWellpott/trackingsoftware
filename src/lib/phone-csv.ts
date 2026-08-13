@@ -15,6 +15,14 @@ export type ParsedPhoneRow = {
    * `null` = Spalte fehlt oder Zelle leer; dann greift der Dialog-Wert.
    */
   targetGroup: string | null;
+  /**
+   * Ansprechpartner aus einer Spalte wie „GF Name" / „Ansprechpartner".
+   * Handrecherchierte Listen tragen den Entscheider oft schon — ihn beim Import
+   * wegzuwerfen heisst, dass ihn jemand im Call-Mode ein zweites Mal ermittelt.
+   */
+  deciderName: string | null;
+  /** E-Mail — per Spaltenkopf ODER aus einer beliebigen Zelle erkannt (§ unten). */
+  email: string | null;
 };
 
 export type PhoneCsvResult = {
@@ -59,6 +67,60 @@ function isNoise(cell: string): boolean {
  */
 const TARGET_GROUP_HEADERS = ["branche", "zielgruppe", "target_group", "targetgroup"];
 
+/**
+ * Spaltenköpfe je Feld. Zwei Sorten stehen hier nebeneinander:
+ * die Google-Maps-Scraper-Codes (`qBF1Pd` & Co.) und deutsche Klartext-Namen,
+ * wie sie in von Hand gepflegten Listen stehen.
+ *
+ * Verglichen wird auf **exakte Gleichheit** des normalisierten Kopfes, nicht auf
+ * Teilstrings. Genau daran haengt der haeufigste Fall: Eine Liste mit den Spalten
+ * „Name" (Firma) und „GF Name" (Entscheider) wuerde bei Teilstring-Suche beide
+ * Male dieselbe Spalte treffen — der Firmenname landete als Ansprechpartner.
+ *
+ * `art`/`kategorie` sind bewusst NICHT als Branche gemappt: Google Maps fuellt
+ * das je Eintrag verschieden („Autowäsche" vs. „Dienst für professionelle
+ * Autopflege"), das ergaebe zwei Zielgruppen fuer dieselbe Branche. Die Branche
+ * wird im Dialog einmal gesetzt — dort weiss sie jemand.
+ */
+const HEADERS = {
+  company: ["qBF1Pd", "name", "firma", "firmenname", "unternehmen", "company", "betrieb"],
+  phone: ["UsdlK", "telefon", "telefonnummer", "rufnummer", "tel", "phone"],
+  website: ["lcr4fd href", "website", "webseite", "homepage", "url"],
+  decider: [
+    "gf name",
+    "gf",
+    "geschaeftsfuehrer",
+    "geschäftsführer",
+    "ansprechpartner",
+    "entscheider",
+    "inhaber",
+    "kontaktperson",
+    "decider",
+  ],
+  email: ["email", "e-mail", "e mail", "mail"],
+} as const;
+
+/** Kopfzeilen-Abgleich: trimmen, Mehrfach-Leerzeichen einkochen, case-insensitiv. */
+function normHeader(h: string): string {
+  return h.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function findHeader(header: string[], names: readonly string[]): number {
+  const norm = header.map(normHeader);
+  for (const n of names) {
+    const i = norm.indexOf(normHeader(n));
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+// E-Mails werden zusaetzlich OHNE Spaltenkopf erkannt. Das ist die eine
+// Ausnahme von „nur per Header": Eine Zeichenkette mit @ und Punkt-TLD ist
+// eindeutig eine E-Mail und kann mit keinem anderen Feld verwechselt werden —
+// anders als ein Personen- oder Branchenname. In der Praxis stehen genau so die
+// Mails in solchen Listen: in einer namenlosen Notizspalte am Zeilenende.
+const EMAIL_RE = /[^\s,;<>()"']+@[^\s,;<>()"']+\.[a-z]{2,}/i;
+
 export function parsePhoneCsv(text: string): PhoneCsvResult {
   const parsed = Papa.parse<string[]>(text, {
     skipEmptyLines: true,
@@ -69,10 +131,17 @@ export function parsePhoneCsv(text: string): PhoneCsvResult {
   if (table.length === 0) return { rows: [], totalDataRows: 0 };
 
   const header = table[0].map((h) => String(h ?? "").trim());
-  const idxCompany = header.indexOf("qBF1Pd");
-  const idxPhone = header.indexOf("UsdlK");
-  const idxWebsite = header.indexOf("lcr4fd href");
-  const idxTargetGroup = header.findIndex((h) => TARGET_GROUP_HEADERS.includes(h.toLowerCase()));
+  const idxCompany = findHeader(header, HEADERS.company);
+  const idxPhone = findHeader(header, HEADERS.phone);
+  const idxWebsite = findHeader(header, HEADERS.website);
+  const idxDecider = findHeader(header, HEADERS.decider);
+  const idxEmail = findHeader(header, HEADERS.email);
+  const idxTargetGroup = findHeader(header, TARGET_GROUP_HEADERS);
+
+  // Spalten, die bereits ein Feld belegen, scheiden fuer die Firmen-Heuristik
+  // aus. Ohne das landet in einer Datei ohne Firmen-Kopf der Ansprechpartner
+  // oder die Branche als Firmenname — beides faellt erst im Call-Mode auf.
+  const claimed = new Set([idxDecider, idxEmail, idxTargetGroup].filter((i) => i >= 0));
 
   const dataRows = table.slice(1);
   const rows: ParsedPhoneRow[] = [];
@@ -104,22 +173,41 @@ export function parsePhoneCsv(text: string): PhoneCsvResult {
     const targetGroup =
       idxTargetGroup >= 0 && cells[idxTargetGroup] ? cells[idxTargetGroup] : null;
 
-    // Firma: Header-Hint, sonst erste "echte" Textzelle. Die Branchen-Spalte
-    // wird dabei uebersprungen: sonst wuerde in einer Datei ohne Google-Header
-    // die Branche als Firmenname landen.
+    // Ansprechpartner: ausschliesslich per Spaltenkopf, aus demselben Grund wie
+    // die Branche — ein geratener Personenname ist schlimmer als gar keiner.
+    const deciderName = idxDecider >= 0 && cells[idxDecider] ? cells[idxDecider] : null;
+
+    // E-Mail: Spaltenkopf zuerst, sonst die erste Zelle, die eine enthaelt.
+    let email: string | null = null;
+    if (idxEmail >= 0 && cells[idxEmail] && EMAIL_RE.test(cells[idxEmail])) {
+      email = cells[idxEmail].match(EMAIL_RE)?.[0] ?? null;
+    } else {
+      for (const c of cells) {
+        const hit = c.match(EMAIL_RE);
+        if (hit) {
+          email = hit[0];
+          break;
+        }
+      }
+    }
+
+    // Firma: Header-Hint, sonst erste "echte" Textzelle. Bereits belegte Spalten
+    // werden dabei uebersprungen: sonst wuerde in einer Datei ohne Google-Header
+    // die Branche oder der Ansprechpartner als Firmenname landen.
     let company: string | null = null;
     if (idxCompany >= 0 && cells[idxCompany] && !isNoise(cells[idxCompany])) {
       company = cells[idxCompany];
     } else {
       const hit = cells.find(
-        (c, i) => i !== idxTargetGroup && c !== "" && !isNoise(c) && !c.startsWith("category-list"),
+        (c, i) =>
+          !claimed.has(i) && c !== "" && !isNoise(c) && !EMAIL_RE.test(c) && !c.startsWith("category-list"),
       );
       if (hit) company = hit;
     }
 
     // Nur verwertbare Zeilen behalten
     if (phone || company) {
-      rows.push({ company, phone, website, targetGroup });
+      rows.push({ company, phone, website, targetGroup, deciderName, email });
     }
   }
 

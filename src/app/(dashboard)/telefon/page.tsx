@@ -1,7 +1,7 @@
 import { CsvImportDialog } from "@/components/telefon/CsvImportDialog";
 import { DeletePhoneListButton } from "@/components/telefon/DeletePhoneListButton";
 import { PhoneDashboard } from "@/components/telefon/PhoneDashboard";
-import { getAccessContext, listDataViewUsers } from "@/lib/access";
+import { getAccessContext, listDataViewUsers, ownScopeFilter } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { ownerColor } from "@/lib/ownerColor";
 import type { PhoneLeadStatus, PhoneList, PhoneListKind } from "@/lib/types";
@@ -49,8 +49,16 @@ export default async function TelefonPage() {
     .eq("workspace_id", access.workspace_id)
     .is("archived_at", null)
     .order("created_at", { ascending: false });
-  if (access.effective_user_id) {
-    listsQuery = listsQuery.eq("created_by_user_id", access.effective_user_id);
+  // Personenfilter über owner_name (mit created_by_user_id nur als Rückfall) —
+  // dieselbe Regel wie `list_owned_by_user()` in den RPCs, wie `/telefon/[listId]`
+  // und wie der Sidebar-Baum. Vorher stand hier `eq(created_by_user_id)`: Eine
+  // Liste, die ein Admin FÜR ein Mitglied angelegt hat, zählte damit in jeder
+  // Auswertung beim Mitglied, war in dessen Datensicht aber unsichtbar — und die
+  // Detailseite antwortete auf denselben Datensatz mit 404, weil sie schon nach
+  // owner_name filterte.
+  const ownScope = ownScopeFilter(access);
+  if (ownScope) {
+    listsQuery = listsQuery.or(ownScope);
   }
 
   const [{ data: rawLists }, { data: countRows }, allUsers] = await Promise.all([
@@ -133,6 +141,8 @@ export default async function TelefonPage() {
               users={users}
               me={{ user_id: access.user.id, username: access.username }}
               isAdmin={access.role === "owner"}
+              orgName={access.workspaces.name}
+              isForeignOrg={access.is_foreign_org}
               targetGroups={targetGroups}
               scriptLabels={scriptLabels}
             />

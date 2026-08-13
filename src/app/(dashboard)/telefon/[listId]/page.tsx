@@ -1,7 +1,7 @@
 import { CallModeRunner } from "@/components/telefon/CallModeRunner";
 import { DeletePhoneListButton } from "@/components/telefon/DeletePhoneListButton";
 import { updatePhoneListScriptForm } from "@/app/actions/phone";
-import { getAccessContext, ownScopeFilter } from "@/lib/access";
+import { getAccessContext, matchesOwnScope, ownScopeFilter } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { ownerColor } from "@/lib/ownerColor";
@@ -42,6 +42,58 @@ const KIND_META: Record<PhoneListKind, { label: string; color: string; bg: strin
   },
 };
 
+/**
+ * Die Liste gibt es — sie gehoert nur jemand anderem als der eingestellten
+ * Datensicht. Frueher stand hier ein 404, und der ist an dieser Stelle eine
+ * Falschaussage: Er sagt „nicht vorhanden", obwohl der Datensatz genau da ist.
+ * Wer gerade importiert hat und auf „Zur Liste" klickt, sucht daraufhin den
+ * Fehler im Import statt im Filter.
+ */
+function OutOfScopeNotice({
+  listName,
+  ownerName,
+  viewName,
+  orgName,
+}: {
+  listName: string;
+  ownerName: string | null;
+  viewName: string | null;
+  orgName: string;
+}) {
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <Link
+        href="/telefon"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.375rem",
+          fontSize: "0.8125rem",
+          color: "var(--text-subtle)",
+          textDecoration: "none",
+          marginBottom: "0.75rem",
+        }}
+      >
+        <ArrowLeft size={13} /> Telefon
+      </Link>
+      <div className="card" style={{ padding: "var(--sp-9) var(--sp-8)" }}>
+        <h1 style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-primary)", margin: "0 0 var(--sp-5)" }}>
+          &bdquo;{listName}&ldquo; liegt außerhalb der aktiven Datensicht
+        </h1>
+        <p style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 var(--sp-6)" }}>
+          Die Liste existiert in <strong>{orgName}</strong> und gehört{" "}
+          <strong>{ownerName ?? "niemandem (kein Inhaber gesetzt)"}</strong>. Angezeigt werden gerade
+          nur die Daten von <strong>{viewName ?? "einer einzelnen Person"}</strong>.
+        </p>
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
+          Setz die Datensicht oben auf <strong>{ownerName ?? "alle"}</strong> zurück — dann taucht die
+          Liste auch in der Übersicht wieder auf.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default async function PhoneListPage({ params }: { params: Promise<{ listId: string }> }) {
   const { listId } = await params;
   const access = await getAccessContext();
@@ -49,18 +101,34 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
 
   const supabase = await createClient();
 
-  let listQuery = supabase
+  // Bewusst OHNE Personenfilter laden und die Zuordnung danach in JS pruefen.
+  // Gefiltert abgefragt liefern „Liste existiert hier nicht" und „Liste ist da,
+  // aber die Datensicht zeigt auf jemand anderen" dieselbe leere Antwort — und
+  // damit denselben 404. Der zweite Fall ist aber kein Fehler des Nutzers,
+  // sondern eine Filtereinstellung, und braucht eine Erklaerung statt einer
+  // Sackgasse. Die Organisationsgrenze bleibt hart (`workspace_id`), und RLS
+  // liegt ohnehin darunter: Wer nur seine eigenen Zeilen sehen darf, bekommt
+  // hier gar keine.
+  const { data: rawList } = await supabase
     .from("phone_lists")
     .select("*")
     .eq("id", listId)
-    .eq("workspace_id", access.workspace_id);
-  const ownScope = ownScopeFilter(access);
-  if (ownScope) {
-    listQuery = listQuery.or(ownScope);
-  }
-  const { data: rawList } = await listQuery.maybeSingle();
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
   if (!rawList) notFound();
   const list = rawList as PhoneList;
+  const ownScope = ownScopeFilter(access);
+
+  if (!matchesOwnScope(access, list)) {
+    return (
+      <OutOfScopeNotice
+        listName={list.name}
+        ownerName={list.owner_name}
+        viewName={access.effective_username}
+        orgName={access.workspaces.name}
+      />
+    );
+  }
 
   // Leads + bereits vergebene Testarme/Branchen parallel: die Vorschlagsliste
   // hängt an keiner Lead-Zeile, ein zweiter serieller Roundtrip vor dem großen

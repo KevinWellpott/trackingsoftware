@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext, ownScopeFilter } from "@/lib/access";
+import { getAccessContext, listDataViewUsers, ownScopeFilter, type AccessContext } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
 import { revalidatePath } from "next/cache";
 import { parsePhoneCsv } from "@/lib/phone-csv";
@@ -111,21 +111,64 @@ async function ensurePhoneRoutingList(
   return created.id;
 }
 
+/**
+ * Wem darf eine neu angelegte Liste gehoeren?
+ *
+ * `owner_name` ist die Auswertungsachse (`list_owned_by_user()`, `buildOwnScope()`)
+ * und matcht auf `profiles.username` INNERHALB der Organisation. Ein Name, der dort
+ * kein Mitglied ist, macht die Liste heimatlos: Sie erscheint auf `/telefon` unter
+ * einer Person, die es in dieser Organisation nicht gibt, ihre Leads zaehlen in
+ * keiner Telefon-RPC mit, und sobald eine Datensicht aktiv ist, faellt sie aus dem
+ * Personenfilter — die Detailseite antwortet dann mit 404 auf eine Liste, die es
+ * gibt. Genau das passiert einem Plattform-Admin in fremder Organisation: Er ist
+ * dort kein `workspace_members`-Eintrag (§2), sein eigener Name ist also nie ein
+ * gueltiger Inhaber. Invariante §8 verlangt dasselbe.
+ *
+ * Der Name kommt deshalb IMMER aus `profiles` und nie aus dem Formular — sonst
+ * entscheidet eine Schreibweise im Client darueber, ob die Auswertung greift.
+ */
+async function resolveListOwner(
+  access: AccessContext,
+  requestedUserId: string | null,
+): Promise<{ userId: string; username: string } | { error: string }> {
+  const members = await listDataViewUsers(access.workspace_id);
+  if (members.length === 0) {
+    return {
+      error: `„${access.workspaces.name}" hat noch kein Mitglied. Lege dort zuerst einen Nutzer an — ohne Inhaber wäre die Liste in keiner Auswertung sichtbar.`,
+    };
+  }
+  const wanted = requestedUserId ?? access.user.id;
+  const hit = members.find((m) => m.user_id === wanted);
+  if (hit) return { userId: hit.user_id, username: hit.username };
+
+  // Nicht-Mitglied angefragt. Fuer den Plattform-Admin in fremder Organisation
+  // ist das der Normalfall und keine Fehlbedienung — er muss nur sagen, WEM die
+  // Liste gehoert. Deshalb nennt die Meldung die Auswahl statt nur „verboten".
+  const names = members.map((m) => m.username).join(", ");
+  return {
+    error: access.is_foreign_org
+      ? `Du bist in „${access.workspaces.name}" kein Mitglied und kannst dort nichts besitzen. Wähle als Inhaber: ${names}.`
+      : `Der gewählte Inhaber gehört nicht zu „${access.workspaces.name}". Zur Auswahl stehen: ${names}.`,
+  };
+}
+
 /** Neue Akquise-Liste anlegen (für den Import; owner kann von auth.uid abweichen). */
 export async function createPhoneList(input: {
   name: string;
-  ownerName: string | null;
+  /** Nur die user_id — der Anzeigename kommt aus `profiles` (siehe resolveListOwner). */
   ownerUserId: string | null;
 }): Promise<{ id?: string; error?: string }> {
   const access = await getAccessContext();
   if (!access) return { error: "Nicht angemeldet." };
+  const owner = await resolveListOwner(access, input.ownerUserId);
+  if ("error" in owner) return { error: owner.error };
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("phone_lists")
     .insert({
       workspace_id: access.workspace_id,
-      created_by_user_id: input.ownerUserId ?? access.user.id,
-      owner_name: input.ownerName,
+      created_by_user_id: owner.userId,
+      owner_name: owner.username,
       name: input.name.trim() || "Telefonliste",
       list_kind: "akquise",
     })
@@ -356,8 +399,17 @@ export async function importPhoneCsv(
 
   const file = formData.get("file");
   if (!(file instanceof File)) return { error: "Keine Datei erhalten." };
-  const ownerName = String(formData.get("owner_name") ?? "").trim() || null;
-  const ownerUserId = String(formData.get("owner_user_id") ?? "").trim() || access.user.id;
+
+  // Inhaber gegen die MITGLIEDER der aktiven Organisation aufloesen, nicht gegen
+  // das Formular. Ohne diesen Schritt stempelt ein Plattform-Admin in fremder
+  // Organisation seinen eigenen Namen auf die Liste — siehe resolveListOwner.
+  const owner = await resolveListOwner(
+    access,
+    String(formData.get("owner_user_id") ?? "").trim() || null,
+  );
+  if ("error" in owner) return { error: owner.error };
+  const { userId: ownerUserId, username: ownerName } = owner;
+
   const listName =
     String(formData.get("list_name") ?? "").trim() ||
     file.name.replace(/\.csv$/i, "").trim() ||
@@ -418,6 +470,11 @@ export async function importPhoneCsv(
       company: r.company,
       phone: r.phone,
       website: r.website,
+      // Handrecherchierte Listen tragen den Entscheider und oft eine Mail schon
+      // in eigenen Spalten. Beides wurde bisher verworfen — im Call-Mode musste
+      // es dann jemand ein zweites Mal herausfinden.
+      decider_name: r.deciderName,
+      email: r.email,
       // Zeilenwert schlägt den Dialog-Wert: Eine gemischte Datei mit
       // `branche`-Spalte soll je Zeile korrekt landen, eine sortenreine Datei
       // ohne Spalte bekommt durchgängig den im Dialog gewählten Wert.

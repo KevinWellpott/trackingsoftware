@@ -254,3 +254,23 @@ export function ownScopeFilter(access: AccessContext): string | null {
   if (!access.effective_user_id) return null;
   return buildOwnScope(access.effective_user_id, access.effective_username ?? "");
 }
+
+/**
+ * Dieselbe Regel wie `buildOwnScope`, nur in JS statt als PostgREST-Filter.
+ *
+ * Damit kann eine Detailseite zwischen den beiden Faellen unterscheiden, die
+ * eine gefilterte Abfrage sonst zu einer einzigen leeren Antwort verschmilzt:
+ * „gibt es in dieser Organisation nicht" (404 ist richtig) und „gibt es, aber
+ * die aktive Datensicht blendet es aus" (404 ist irrefuehrend — der Datensatz
+ * ist da, nur zeigt der Filter woandershin). Die Regel steht bewusst neben
+ * buildOwnScope: Zwei Formulierungen derselben Bedingung, die auseinanderlaufen
+ * koennen, waeren genau der Fehler, den diese Funktion aufdecken soll.
+ */
+export function matchesOwnScope(
+  access: AccessContext,
+  row: { owner_name: string | null; created_by_user_id: string | null },
+): boolean {
+  if (!access.effective_user_id) return true;
+  if (row.owner_name) return row.owner_name === access.effective_username;
+  return row.created_by_user_id === access.effective_user_id;
+}

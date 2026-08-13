@@ -53,12 +53,18 @@ export function CsvImportDialog({
   users,
   me,
   isAdmin,
+  orgName,
+  isForeignOrg = false,
   targetGroups = [],
   scriptLabels = [],
 }: {
   users: UserOption[];
   me: UserOption;
   isAdmin: boolean;
+  /** Name der AKTIVEN Organisation — die Liste entsteht dort, nicht „bei mir". */
+  orgName: string;
+  /** Plattform-Admin in fremder Organisation: dort ist er kein Mitglied. */
+  isForeignOrg?: boolean;
   /**
    * Bereits vergebene Branchen als Vorschlagsliste. Das ist der Anti-Chaos-
    * Mechanismus: Ohne sichtbare Vorschläge entstehen „Handwerk", „handwerker"
@@ -70,10 +76,18 @@ export function CsvImportDialog({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  // Owner-Auswahl nur für Admins mit mehreren Nutzern — sonst immer "ich selbst".
-  const showOwnerSelect = isAdmin && users.length > 1;
+
+  // Darf ich die Liste überhaupt selbst besitzen? Nur, wenn ich Mitglied der
+  // AKTIVEN Organisation bin. Ein Plattform-Admin ist das in einer Kunden-Org
+  // nicht (§2) — sein Name als `owner_name` macht die Liste heimatlos: Sie
+  // zählt in keiner Telefon-RPC mit und verschwindet, sobald eine Datensicht
+  // aktiv ist. Vorher hing die Auswahl an `users.length > 1`, weshalb genau die
+  // Ein-Personen-Organisation (der Regelfall beim Kunden) still auf mich fiel.
+  const canOwnSelf = users.some((u) => u.user_id === me.user_id);
+  const showOwnerSelect = !canOwnSelf || (isAdmin && users.length > 1);
+  const noMembers = users.length === 0;
   const [ownerUserId, setOwnerUserId] = useState(() =>
-    users.some((u) => u.user_id === me.user_id) || !showOwnerSelect ? me.user_id : users[0].user_id,
+    canOwnSelf ? me.user_id : (users[0]?.user_id ?? ""),
   );
   const [listName, setListName] = useState("");
   const [targetGroup, setTargetGroup] = useState("");
@@ -94,6 +108,10 @@ export function CsvImportDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (noMembers) {
+      setError(`„${orgName}" hat noch kein Mitglied, dem die Liste gehören könnte.`);
+      return;
+    }
     const owner = showOwnerSelect ? users.find((u) => u.user_id === ownerUserId) : me;
     if (!owner) {
       setError("Bitte einen Inhaber auswählen.");
@@ -218,7 +236,33 @@ export function CsvImportDialog({
           </div>
         ) : (
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {showOwnerSelect ? (
+            {/* Ziel-Organisation immer nennen. Der Import legt eine Liste in der
+                AKTIVEN Organisation an — steht man in einer fremden, ist das die
+                folgenreichste Angabe des ganzen Dialogs und stand bisher nirgends. */}
+            <div
+              style={{
+                fontSize: "0.75rem",
+                lineHeight: 1.5,
+                color: isForeignOrg ? "var(--color-error-text)" : "var(--text-muted)",
+                background: isForeignOrg ? "var(--color-error-bg)" : "var(--surface-150)",
+                border: `1px solid ${isForeignOrg ? "var(--color-error-border)" : "var(--border)"}`,
+                borderRadius: "var(--radius-sm)",
+                padding: "0.5rem 0.75rem",
+              }}
+            >
+              Ziel-Organisation: <strong>{orgName}</strong>
+              {isForeignOrg && " — fremde Organisation. Die Liste gehört dort einem ihrer Mitglieder, nicht dir."}
+            </div>
+
+            {noMembers ? (
+              <div>
+                <span style={labelStyle}>Inhaber</span>
+                <div style={{ fontSize: "0.8125rem", color: "var(--color-error-text)", lineHeight: 1.5 }}>
+                  &bdquo;{orgName}&ldquo; hat noch kein Mitglied. Lege dort zuerst einen Nutzer an — ohne
+                  Inhaber wäre die Liste in keiner Auswertung sichtbar.
+                </div>
+              </div>
+            ) : showOwnerSelect ? (
               <div>
                 <label htmlFor="csv-owner" style={labelStyle}>
                   Inhaber
@@ -230,6 +274,12 @@ export function CsvImportDialog({
                   ariaLabel="Inhaber"
                   options={users.map((u) => ({ value: u.user_id, label: u.username }))}
                 />
+                {!canOwnSelf && (
+                  <p style={{ margin: "0.375rem 0 0", fontSize: "0.6875rem", color: "var(--text-subtle)", lineHeight: 1.5 }}>
+                    Du bist in dieser Organisation kein Mitglied und kannst dort nichts besitzen. Alle
+                    Zahlen dieser Liste zählen bei der gewählten Person.
+                  </p>
+                )}
               </div>
             ) : (
               <div>
@@ -341,8 +391,10 @@ export function CsvImportDialog({
             >
               <FileUp size={14} style={{ flexShrink: 0, marginTop: 1 }} />
               <span>
-                Aus dem (unsortierten) Google-Maps-CSV werden nur <strong>Firma</strong>, <strong>Telefonnummer</strong> und{" "}
-                <strong>Website</strong> übernommen. Bereits vorhandene Telefonnummern des Inhabers werden als Duplikate übersprungen.
+                Übernommen werden <strong>Firma</strong>, <strong>Telefonnummer</strong>, <strong>Website</strong>,{" "}
+                <strong>Ansprechpartner</strong> (Spalte &bdquo;GF Name&ldquo; / &bdquo;Ansprechpartner&ldquo;) und{" "}
+                <strong>E-Mail</strong>.
+                Bereits vorhandene Telefonnummern des Inhabers werden als Duplikate übersprungen.
               </span>
             </div>
 
@@ -363,7 +415,7 @@ export function CsvImportDialog({
 
             <button
               type="submit"
-              disabled={isPending}
+              disabled={isPending || noMembers}
               style={{
                 background: "var(--grad-cta)",
                 color: "var(--text-on-accent)",
@@ -373,8 +425,8 @@ export function CsvImportDialog({
                 padding: "0.5625rem 1.125rem",
                 fontSize: "0.875rem",
                 fontWeight: 600,
-                cursor: isPending ? "default" : "pointer",
-                opacity: isPending ? 0.6 : 1,
+                cursor: isPending || noMembers ? "default" : "pointer",
+                opacity: isPending || noMembers ? 0.6 : 1,
               }}
             >
               {isPending ? "Importiere…" : "Importieren"}
