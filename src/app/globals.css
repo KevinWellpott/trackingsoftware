@@ -1131,6 +1131,14 @@ input:hover::-webkit-calendar-picker-indicator { filter: brightness(0) invert(85
 }
 .show-seg:disabled { color: var(--text-disabled); cursor: not-allowed; }
 .show-seg[data-active="true"] { font-weight: var(--fw-semibold); }
+/* Neutrale Auswahl ohne Semantik-Ton (Gatekeeper, Reaktion …): aktiv wird
+   durch Leuchtdichte markiert, nicht durch Farbe — Markenorange faellt hier
+   aus, weil das Status in der Akzentfarbe waere. */
+.show-seg[data-active="true"]:not([data-tone]) {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
 .show-seg[data-tone="show"][data-active="true"] {
   background: var(--success-bg);
   border-color: rgb(63 179 127 / 0.28);
@@ -1383,6 +1391,241 @@ details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
 .organic-list-card-link:hover .organic-list-card {
   border-color: var(--border-accent) !important;
   background: var(--surface-3) !important;
+}
+
+/* ─── 6.11b Telefon / Power-Dialer ─────────────────────────────
+   Der Call-Mode war die bunteste Ansicht der App: vier vollflaechig
+   eingefaerbte Ergebnis-Buttons nebeneinander (gruen · orange · gold · rot),
+   sechs Filter-Chips in je eigener Statusfarbe, dazu Markenorange als
+   Fuellung fuer „Rueckruf". Das verletzt zwei Regeln des Systems zugleich:
+   „Orange ist Signal, kein Dekor" und „Markenorange traegt niemals Status".
+
+   Die Neuordnung folgt einer Rangfolge statt einer Palette:
+     1  Die Rufnummer ist die einzige Handlung, die den Bildschirm verlaesst.
+        Sie traegt den Akzent — und sonst nichts in dieser Ansicht.
+     2  „Termin" ist das eine positive Endergebnis und traegt als einziger
+        Button eine Flaeche (Gruen-Gradient, wie Setting/Closing).
+     3  Alle uebrigen Ergebnisse sind Surface-Buttons. Ihre Semantik steckt
+        in einem 6px-Punkt, nicht in der Flaeche: Farbe bleibt lesbar,
+        hoert aber auf, um Aufmerksamkeit zu konkurrieren.
+   Dieselbe Logik traegt Filter-Chips und Seitenliste. */
+
+.dialer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-6);
+}
+
+/* Filter: still, bis er aktiv ist. Der Statuston lebt nur noch im Punkt. */
+.dialer-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: 28px;
+  padding: 0 var(--sp-5);
+  border: 1px solid transparent;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+              border-color var(--transition-fast);
+}
+.dialer-filter:hover:not([data-active="true"]) { background: var(--surface-3); color: var(--text-primary); }
+.dialer-filter[data-active="true"] {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  font-weight: var(--fw-semibold);
+}
+.dialer-filter-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  flex-shrink: 0;
+}
+.dialer-filter-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-weight: var(--fw-regular);
+}
+
+/* Die Rufnummer: der eine Akzent dieser Ansicht. */
+.dialer-call {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+  padding: var(--sp-6) var(--sp-7);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--r-lg);
+  background: var(--accent-muted);
+}
+.dialer-call-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-5);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--ls-tight);
+  color: var(--orange-300);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+.dialer-call-link:hover { color: var(--orange-200); }
+.dialer-call-empty { font-size: var(--fs-base); color: var(--text-muted); }
+
+/* Ergebnis-Buttons. `won` erbt die Flaeche von .outcome-btn, der Rest bleibt
+   Surface — der Punkt links traegt die Bedeutung. */
+.dialer-outcome {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-4);
+  flex: 1 1 150px;
+  height: var(--h-control-lg);
+  padding: 0 var(--sp-7);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-full);
+  background: var(--grad-surface);
+  box-shadow: var(--lip-control);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+              color var(--transition-fast), transform var(--transition-fast);
+}
+.dialer-outcome:hover:not(:disabled) {
+  background: var(--grad-surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.dialer-outcome:active:not(:disabled) { transform: scale(0.98); }
+.dialer-outcome:disabled { cursor: not-allowed; opacity: 0.5; }
+.dialer-outcome-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  flex-shrink: 0;
+}
+/* Das eine positive Endergebnis — dieselbe Mechanik wie .outcome-btn[won]. */
+.dialer-outcome[data-tone="won"] {
+  border: none;
+  background: var(--grad-won);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.20), inset 0 0 0 1px #2e9a6a;
+  color: #0a0a0b;
+  font-weight: var(--fw-semibold);
+}
+.dialer-outcome[data-tone="won"]:hover:not(:disabled) { background: var(--grad-won-hover); color: #0a0a0b; }
+
+/* Tastenkuerzel-Hinweis. Ein Power-Dialer wird nicht geklickt, sondern
+   getippt — die Kuerzel muessen sichtbar sein, sonst existieren sie nicht. */
+.dialer-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-xs);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-family: var(--font-mono-stack);
+  font-size: var(--fs-2xs);
+  line-height: 1;
+}
+.dialer-outcome[data-tone="won"] .dialer-kbd {
+  border-color: rgb(10 10 11 / 0.25);
+  background: rgb(10 10 11 / 0.10);
+  color: rgb(10 10 11 / 0.65);
+}
+
+/* Navigation im Kartenkopf */
+.dialer-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: 28px;
+  padding: 0 var(--sp-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-full);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.dialer-nav:hover:not(:disabled) { background: var(--surface-3); color: var(--text-primary); }
+.dialer-nav:disabled { color: var(--text-disabled); cursor: not-allowed; }
+
+/* Seitenliste: aktive Zeile durch Flaeche + Akzent-Rail, nicht durch Fettung.
+   Schriftgewicht 800 stand hier gegen die Systemregel „nie 700". */
+.dialer-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: 0 var(--sp-6);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+.dialer-row:hover { background: var(--surface-3); }
+.dialer-row[data-active="true"] {
+  background: var(--surface-3);
+  border-left-color: var(--accent);
+}
+
+/* Feld-Label: dieselbe Eyebrow-Typografie wie im Rest des Systems. */
+.dialer-label {
+  display: block;
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-muted);
+}
+.dialer-sublabel {
+  display: block;
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+}
+.dialer-hint {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  line-height: var(--lh-base);
+}
+
+/* Eingerueckte Folgefrage — Rail statt Rahmen, damit die Hierarchie ohne
+   zusaetzliche Kastenlinie lesbar bleibt. */
+.dialer-sub {
+  padding-left: var(--sp-6);
+  border-left: 2px solid var(--border-subtle);
 }
 
 /* ─── 6.12 Leerzustand ─────────────────────────────────────── */

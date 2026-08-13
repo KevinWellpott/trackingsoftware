@@ -18,28 +18,12 @@ import { notFound } from "next/navigation";
 // jemand am Stück abtelefoniert — und weil `phone_leads.script` pro Lead als
 // Testachse unbrauchbar ist.
 
-const KIND_META: Record<PhoneListKind, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
-  akquise: {
-    label: "Akquise",
-    color: "var(--text-muted)",
-    bg: "var(--surface-150)",
-    border: "var(--border)",
-    icon: <Phone size={11} />,
-  },
-  rueckruf: {
-    label: "Rückruf",
-    color: "var(--info-fg)",
-    bg: "var(--info-bg)",
-    border: "rgb(78 128 214 / 0.28)",
-    icon: <PhoneMissed size={11} />,
-  },
-  nicht_erreicht: {
-    label: "Nicht erreicht",
-    color: "var(--color-warning-text)",
-    bg: "var(--color-warning-bg)",
-    border: "var(--color-warning-border)",
-    icon: <Voicemail size={11} />,
-  },
+// Wie in der Übersicht: Die Listen-Art ist Struktur, kein Status — neutrales
+// Badge mit farbigem Punkt statt getönter Fläche.
+const KIND_META: Record<PhoneListKind, { label: string; dot: string; icon: React.ReactNode }> = {
+  akquise: { label: "Akquise", dot: "var(--text-muted)", icon: <Phone size={11} /> },
+  rueckruf: { label: "Rückruf", dot: "var(--info)", icon: <PhoneMissed size={11} /> },
+  nicht_erreicht: { label: "Nicht erreicht", dot: "var(--warning)", icon: <Voicemail size={11} /> },
 };
 
 /**
@@ -221,47 +205,31 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
         <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
           {list.owner_name && oc && (
             <span
+              className="badge"
               style={{
-                fontSize: "0.6875rem",
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.06em",
                 color: oc.fg,
                 background: oc.bg,
                 border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`,
-                padding: "2px 8px",
-                borderRadius: 99,
               }}
             >
               {list.owner_name}
             </span>
           )}
           <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.3rem",
-              fontSize: "0.6875rem",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              color: kind.color,
-              background: kind.bg,
-              border: `1px solid ${kind.border}`,
-              padding: "2px 8px",
-              borderRadius: 99,
-            }}
+            className="badge badge-gray"
+            style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}
           >
+            <span style={{ width: 6, height: 6, borderRadius: "var(--r-full)", background: kind.dot }} />
             {kind.icon} {kind.label}
           </span>
-          <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)" }}>
+          <span className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
             {leads.length.toLocaleString("de-DE")} Leads
           </span>
           <span style={{ marginLeft: "auto" }}>
             <DeletePhoneListButton listId={list.id} listName={list.name} redirectTo="/telefon" />
           </span>
         </div>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.03em", margin: 0 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>
           {list.name}
         </h1>
       </div>

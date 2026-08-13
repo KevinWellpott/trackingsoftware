@@ -1,6 +1,7 @@
 "use client";
 
 import { importPhoneCsv } from "@/app/actions/phone";
+import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { FileUp, Upload } from "lucide-react";
@@ -8,10 +9,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-// CSV-Import (Google-Maps-Export) für Telefonlisten: Datei hochladen,
-// optionaler Listenname, Branche. Nur Firma/Telefon/Website werden gemappt.
-// Import ist immer personenbezogen: Nicht-Admins importieren als sie selbst,
-// nur Admins mit mehreren Nutzern können den Inhaber wählen.
+// CSV-Import für Telefonlisten: Datei hochladen, optionaler Listenname,
+// Branche, Testarm. Gemappt werden Firma, Telefon, Website, Ansprechpartner
+// und E-Mail (Spaltenkoepfe: src/lib/phone-csv.ts).
+// Import ist immer personenbezogen: Wer Mitglied der aktiven Organisation ist,
+// importiert als er selbst; Admins koennen einen anderen Inhaber waehlen — und
+// MUESSEN es, wenn sie selbst kein Mitglied sind (Plattform-Admin in fremder
+// Organisation, siehe resolveListOwner in actions/phone.ts).
 //
 // Die Branche ist der Moment, an dem sie überhaupt bekannt ist: Wer eine Liste
 // scrapt, weiß, wonach er gesucht hat — hinterher steht sie in keiner Zeile
@@ -27,26 +31,15 @@ type ImportResult = {
   listId?: string;
 };
 
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: "0.75rem",
-  fontWeight: 600,
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
+// Labels und Felder kommen aus dem System (.dialer-label / .input), damit der
+// Dialog dieselbe Typografie und dieselben Fokus-Ringe traegt wie der
+// Call-Mode dahinter. Vorher definierte er beides selbst — mit anderer
+// Schriftgroesse, anderem Radius und anderer Rahmenfarbe als der Rest.
+const hintStyle: React.CSSProperties = {
+  margin: "var(--sp-3) 0 0",
+  fontSize: "var(--fs-2xs)",
   color: "var(--text-muted)",
-  marginBottom: "0.375rem",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  background: "var(--surface-50)",
-  border: "1px solid var(--border-bright)",
-  borderRadius: "var(--radius-sm)",
-  padding: "0.5rem 0.75rem",
-  fontSize: "0.875rem",
-  color: "var(--text-primary)",
-  outline: "none",
+  lineHeight: "var(--lh-base)",
 };
 
 export function CsvImportDialog({
@@ -148,29 +141,19 @@ export function CsvImportDialog({
 
   return (
     <>
-      <button
-        type="button"
+      {/* Der eine Primaer-CTA dieser View — deshalb `variant="primary"`
+          aus der Button-Familie statt eines nachgebauten Gradienten. */}
+      <Button
+        variant="primary"
+        size="sm"
+        icon={<Upload size={14} />}
         onClick={() => {
           reset();
           setOpen(true);
         }}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "0.4rem",
-          background: "var(--grad-cta)",
-          color: "var(--text-on-accent)",
-          boxShadow: "var(--shadow-btn-primary)",
-          border: "none",
-          borderRadius: "var(--r-full)",
-          padding: "0.5rem 0.875rem",
-          fontSize: "0.8125rem",
-          fontWeight: 600,
-          cursor: "pointer",
-        }}
       >
-        <Upload size={14} /> CSV importieren
-      </button>
+        CSV importieren
+      </Button>
 
       <Modal
         open={open}
@@ -180,74 +163,61 @@ export function CsvImportDialog({
         width={460}
       >
         {result ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
             <div
               style={{
-                background: "var(--color-success-bg)",
+                background: "var(--success-bg)",
                 border: "1px solid var(--color-success-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "0.875rem 1rem",
-                color: "var(--color-success-text)",
-                fontSize: "0.875rem",
-                fontWeight: 600,
-                lineHeight: 1.5,
+                borderRadius: "var(--r-md)",
+                padding: "var(--sp-6) var(--sp-7)",
+                color: "var(--success-fg)",
+                fontSize: "var(--fs-base)",
+                fontWeight: "var(--fw-medium)",
+                lineHeight: "var(--lh-base)",
               }}
             >
-              {result.imported} importiert, {result.duplicates} Duplikate übersprungen (von {result.total} Zeilen)
+              <span className="tnum">{result.imported}</span> importiert,{" "}
+              <span className="tnum">{result.duplicates}</span> Duplikate übersprungen (von{" "}
+              <span className="tnum">{result.total}</span> Zeilen)
             </div>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
+            <div style={{ display: "flex", gap: "var(--sp-4)" }}>
               {result.listId && (
                 <Link
                   href={`/telefon/${result.listId}`}
                   onClick={() => setOpen(false)}
+                  className="ui-btn"
+                  data-variant="primary"
                   style={{
                     flex: 1,
-                    textAlign: "center",
+                    justifyContent: "center",
                     background: "var(--grad-cta)",
                     color: "var(--text-on-accent)",
-                    boxShadow: "var(--shadow-btn-primary)",
-                    borderRadius: "var(--r-full)",
-                    padding: "0.5rem 0.875rem",
-                    fontSize: "0.8125rem",
-                    fontWeight: 600,
+                    border: "none",
                     textDecoration: "none",
                   }}
                 >
                   Zur Liste →
                 </Link>
               )}
-              <button
-                type="button"
-                onClick={reset}
-                style={{
-                  background: "var(--surface-150)",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-full)",
-                  padding: "0.5rem 0.875rem",
-                  fontSize: "0.8125rem",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
+              <Button variant="secondary" onClick={reset}>
                 Weitere importieren
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-7)" }}>
             {/* Ziel-Organisation immer nennen. Der Import legt eine Liste in der
                 AKTIVEN Organisation an — steht man in einer fremden, ist das die
                 folgenreichste Angabe des ganzen Dialogs und stand bisher nirgends. */}
             <div
               style={{
-                fontSize: "0.75rem",
-                lineHeight: 1.5,
-                color: isForeignOrg ? "var(--color-error-text)" : "var(--text-muted)",
-                background: isForeignOrg ? "var(--color-error-bg)" : "var(--surface-150)",
-                border: `1px solid ${isForeignOrg ? "var(--color-error-border)" : "var(--border)"}`,
-                borderRadius: "var(--radius-sm)",
-                padding: "0.5rem 0.75rem",
+                fontSize: "var(--fs-xs)",
+                lineHeight: "var(--lh-base)",
+                color: isForeignOrg ? "var(--danger-fg)" : "var(--text-muted)",
+                background: isForeignOrg ? "var(--danger-bg)" : "var(--surface-1)",
+                border: `1px solid ${isForeignOrg ? "var(--color-error-border)" : "var(--border-default)"}`,
+                borderRadius: "var(--r-sm)",
+                padding: "var(--sp-4) var(--sp-6)",
               }}
             >
               Ziel-Organisation: <strong>{orgName}</strong>
@@ -256,15 +226,15 @@ export function CsvImportDialog({
 
             {noMembers ? (
               <div>
-                <span style={labelStyle}>Inhaber</span>
-                <div style={{ fontSize: "0.8125rem", color: "var(--color-error-text)", lineHeight: 1.5 }}>
+                <span className="dialer-label">Inhaber</span>
+                <div style={{ fontSize: "var(--fs-sm)", color: "var(--danger-fg)", lineHeight: "var(--lh-base)" }}>
                   &bdquo;{orgName}&ldquo; hat noch kein Mitglied. Lege dort zuerst einen Nutzer an — ohne
                   Inhaber wäre die Liste in keiner Auswertung sichtbar.
                 </div>
               </div>
             ) : showOwnerSelect ? (
               <div>
-                <label htmlFor="csv-owner" style={labelStyle}>
+                <label htmlFor="csv-owner" className="dialer-label">
                   Inhaber
                 </label>
                 <Select
@@ -275,7 +245,7 @@ export function CsvImportDialog({
                   options={users.map((u) => ({ value: u.user_id, label: u.username }))}
                 />
                 {!canOwnSelf && (
-                  <p style={{ margin: "0.375rem 0 0", fontSize: "0.6875rem", color: "var(--text-subtle)", lineHeight: 1.5 }}>
+                  <p style={hintStyle}>
                     Du bist in dieser Organisation kein Mitglied und kannst dort nichts besitzen. Alle
                     Zahlen dieser Liste zählen bei der gewählten Person.
                   </p>
@@ -283,15 +253,15 @@ export function CsvImportDialog({
               </div>
             ) : (
               <div>
-                <span style={labelStyle}>Inhaber</span>
-                <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                <span className="dialer-label">Inhaber</span>
+                <div style={{ fontSize: "var(--fs-base)", fontWeight: "var(--fw-medium)", color: "var(--text-primary)" }}>
                   Import als: {me.username}
                 </div>
               </div>
             )}
 
             <div>
-              <label htmlFor="csv-file" style={labelStyle}>
+              <label htmlFor="csv-file" className="dialer-label">
                 CSV-Datei
               </label>
               <input
@@ -299,12 +269,13 @@ export function CsvImportDialog({
                 type="file"
                 accept=".csv"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                style={{ ...inputStyle, padding: "0.4rem 0.5rem", cursor: "pointer" }}
+                className="input"
+                style={{ cursor: "pointer", padding: "var(--sp-3) var(--sp-5)" }}
               />
             </div>
 
             <div>
-              <label htmlFor="csv-list-name" style={labelStyle}>
+              <label htmlFor="csv-list-name" className="dialer-label">
                 Listenname (optional)
               </label>
               <input
@@ -313,12 +284,12 @@ export function CsvImportDialog({
                 value={listName}
                 onChange={(e) => setListName(e.target.value)}
                 placeholder="Standard: Dateiname"
-                style={inputStyle}
+                className="input"
               />
             </div>
 
             <div>
-              <label htmlFor="csv-target-group" style={labelStyle}>
+              <label htmlFor="csv-target-group" className="dialer-label">
                 Branche / Zielgruppe
               </label>
               {/* Freitext MIT Vorschlagsliste statt Dropdown: Ein geschlossenes
@@ -332,14 +303,14 @@ export function CsvImportDialog({
                 value={targetGroup}
                 onChange={(e) => setTargetGroup(e.target.value)}
                 placeholder="z. B. Webdesigner, Handwerk"
-                style={inputStyle}
+                className="input"
               />
               <datalist id="csv-target-group-options">
                 {targetGroups.map((g) => (
                   <option key={g} value={g} />
                 ))}
               </datalist>
-              <p style={{ margin: "0.375rem 0 0", fontSize: "0.6875rem", color: "var(--text-subtle)", lineHeight: 1.5 }}>
+              <p style={hintStyle}>
                 Wird auf alle Leads dieses Imports gestempelt und macht den
                 Branchen-Vergleich in der Analyse möglich. Eine CSV-Spalte
                 <strong> branche</strong> bzw. <strong>zielgruppe</strong> hat pro Zeile Vorrang.
@@ -347,7 +318,7 @@ export function CsvImportDialog({
             </div>
 
             <div>
-              <label htmlFor="csv-script-label" style={labelStyle}>
+              <label htmlFor="csv-script-label" className="dialer-label">
                 Testarm des Skripts
               </label>
               {/* Gleiche Begruendung wie bei der Branche: Freitext mit
@@ -361,14 +332,14 @@ export function CsvImportDialog({
                 value={scriptLabel}
                 onChange={(e) => setScriptLabel(e.target.value)}
                 placeholder="z. B. V1, Hard Opener"
-                style={inputStyle}
+                className="input"
               />
               <datalist id="csv-script-label-options">
                 {scriptLabels.map((g) => (
                   <option key={g} value={g} />
                 ))}
               </datalist>
-              <p style={{ margin: "0.375rem 0 0", fontSize: "0.6875rem", color: "var(--text-subtle)", lineHeight: 1.5 }}>
+              <p style={hintStyle}>
                 Wird auf jeden Lead gestempelt und bleibt dort, auch wenn er
                 später in &bdquo;Rückruf&ldquo; oder &bdquo;Nicht erreicht&ldquo; wandert.
                 Ohne diesen Stempel fielen genau die schlechten Ausgänge aus dem Test.
@@ -378,15 +349,15 @@ export function CsvImportDialog({
             <div
               style={{
                 display: "flex",
-                gap: "0.5rem",
+                gap: "var(--sp-4)",
                 alignItems: "flex-start",
-                background: "var(--surface-150)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                padding: "0.625rem 0.75rem",
-                fontSize: "0.75rem",
+                background: "var(--surface-1)",
+                border: "1px solid var(--border-default)",
+                borderRadius: "var(--r-sm)",
+                padding: "var(--sp-5) var(--sp-6)",
+                fontSize: "var(--fs-xs)",
                 color: "var(--text-muted)",
-                lineHeight: 1.5,
+                lineHeight: "var(--lh-base)",
               }}
             >
               <FileUp size={14} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -401,36 +372,22 @@ export function CsvImportDialog({
             {error && (
               <div
                 style={{
-                  fontSize: "0.8125rem",
-                  color: "var(--color-error-text)",
-                  background: "var(--color-error-bg)",
+                  fontSize: "var(--fs-sm)",
+                  color: "var(--danger-fg)",
+                  background: "var(--danger-bg)",
                   border: "1px solid var(--color-error-border)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "0.5rem 0.75rem",
+                  borderRadius: "var(--r-sm)",
+                  padding: "var(--sp-4) var(--sp-6)",
+                  lineHeight: "var(--lh-base)",
                 }}
               >
                 {error}
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={isPending || noMembers}
-              style={{
-                background: "var(--grad-cta)",
-                color: "var(--text-on-accent)",
-                boxShadow: "var(--shadow-btn-primary)",
-                border: "none",
-                borderRadius: "var(--r-full)",
-                padding: "0.5625rem 1.125rem",
-                fontSize: "0.875rem",
-                fontWeight: 600,
-                cursor: isPending || noMembers ? "default" : "pointer",
-                opacity: isPending || noMembers ? 0.6 : 1,
-              }}
-            >
-              {isPending ? "Importiere…" : "Importieren"}
-            </button>
+            <Button type="submit" variant="primary" disabled={noMembers} loading={isPending}>
+              Importieren
+            </Button>
           </form>
         )}
       </Modal>

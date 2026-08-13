@@ -23,18 +23,20 @@ type ListCounts = {
 
 const EMPTY_COUNTS: ListCounts = { total: 0, aktiv: 0, rueckruf: 0, nicht_erreicht: 0, termin: 0, dead: 0 };
 
-// Routing-Listen tragen Info-Blau (Rueckruf) bzw. Warning-Gold (nicht
-// erreicht). Orange bleibt dem Akzent vorbehalten und traegt hier keinen Status.
-const KIND_BADGE: Record<PhoneListKind, { label: string; color: string; bg: string } | null> = {
+// Routing-Listen sind eine STRUKTUR-Eigenschaft der Liste, kein Status ihrer
+// Leads — deshalb ein neutrales Badge mit farbigem Punkt statt einer getoenten
+// Flaeche. Vorher trug jede Karte bis zu drei eingefaerbte Elemente (Icon,
+// Badge, Statuszeile) in vier Semantiktoenen; im Raster mit einem Dutzend
+// Karten ergab das ein Farbfeld, in dem nichts mehr hervorstach.
+const KIND_BADGE: Record<PhoneListKind, { label: string; dot: string } | null> = {
   akquise: null,
-  rueckruf: { label: "Rückruf", color: "var(--info-fg)", bg: "var(--info-bg)" },
-  nicht_erreicht: { label: "Nicht erreicht", color: "var(--warning-fg)", bg: "var(--warning-bg)" },
+  rueckruf: { label: "Rückruf", dot: "var(--info)" },
+  nicht_erreicht: { label: "Nicht erreicht", dot: "var(--warning)" },
 };
 
 function KindIcon({ kind }: { kind: PhoneListKind }) {
-  if (kind === "rueckruf") return <PhoneMissed size={14} style={{ color: "var(--info-fg)" }} />;
-  if (kind === "nicht_erreicht") return <Voicemail size={14} style={{ color: "var(--warning-fg)" }} />;
-  return <Phone size={14} style={{ color: "var(--stage-telefon)" }} />;
+  const Icon = kind === "rueckruf" ? PhoneMissed : kind === "nicht_erreicht" ? Voicemail : Phone;
+  return <Icon size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />;
 }
 
 export default async function TelefonPage() {
@@ -221,15 +223,23 @@ export default async function TelefonPage() {
                             </span>
                             {badge && (
                               <span
-                                className="badge"
-                                style={{ color: badge.color, background: badge.bg, flexShrink: 0 }}
+                                className="badge badge-gray"
+                                style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)", flexShrink: 0 }}
                               >
+                                <span
+                                  style={{ width: 6, height: 6, borderRadius: "var(--r-full)", background: badge.dot }}
+                                />
                                 {badge.label}
                               </span>
                             )}
                           </div>
 
-                          {/* Status-Zeile: Zahl + Wort, nie Farbe allein. */}
+                          {/* Status-Zeile: Zahl + Wort, nie Farbe allein — und
+                              nur EIN Ton. „Termin" ist das Ergebnis, auf das
+                              die Liste hinarbeitet; Rückruf und Dead sind
+                              Zwischenstände und stehen gedämpft daneben.
+                              Vorher trugen vier der fünf Zahlen eine eigene
+                              Farbe, wodurch die wichtigste keine mehr hatte. */}
                           <div
                             className="tnum"
                             style={{
@@ -237,13 +247,14 @@ export default async function TelefonPage() {
                               gap: "var(--sp-4) var(--sp-6)",
                               flexWrap: "wrap",
                               fontSize: "var(--fs-xs)",
+                              color: "var(--text-muted)",
                             }}
                           >
                             <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{c.total} gesamt</span>
-                            <span style={{ color: "var(--text-muted)" }}>{c.aktiv} aktiv</span>
-                            <span style={{ color: "var(--info-fg)" }}>{c.rueckruf} Rückruf</span>
+                            <span>{c.aktiv} aktiv</span>
+                            <span>{c.rueckruf} Rückruf</span>
                             <span style={{ color: "var(--success-fg)" }}>{c.termin} Termin</span>
-                            <span style={{ color: "var(--text-muted)" }}>{c.dead} dead</span>
+                            <span>{c.dead} dead</span>
                           </div>
                         </div>
                       </Link>

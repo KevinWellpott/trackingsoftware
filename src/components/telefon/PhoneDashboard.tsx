@@ -49,16 +49,17 @@ function coerce(rows: RawRow[] | null | undefined): OwnerMetrics[] {
   }));
 }
 
+// Icons tragen keine Semantik mehr. Sechs verschieden eingefaerbte Icons in
+// einer Reihe sind keine Information, sondern ein Muster — welcher Wert wichtig
+// ist, entscheidet ohnehin der Kontext, nicht die Farbe des Piktogramms.
 function MiniStat({
   icon,
   label,
   value,
-  color,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number;
-  color?: string;
 }) {
   return (
     <div style={{ minWidth: 0 }}>
@@ -67,7 +68,7 @@ function MiniStat({
           display: "flex",
           alignItems: "center",
           gap: "var(--sp-3)",
-          color: color ?? "var(--text-muted)",
+          color: "var(--text-muted)",
           marginBottom: "var(--sp-3)",
         }}
       >
@@ -86,16 +87,17 @@ function MiniStat({
   );
 }
 
+// Der Balken ist neutral, solange das Ziel offen ist, und wird erst gruen,
+// wenn es erreicht ist. Vorher lief er in der Personenfarbe — damit sagte die
+// Farbe „wer", obwohl die Frage „wie weit" lautet.
 function GoalBar({
   label,
   value,
   target,
-  color,
 }: {
   label: string;
   value: number;
   target: number;
-  color: string;
 }) {
   const pct = target > 0 ? Math.min((value / target) * 100, 100) : 0;
   const reached = target > 0 && value >= target;
@@ -120,7 +122,7 @@ function GoalBar({
       <div className="progress-track" style={{ height: 4 }}>
         <div
           className="progress-fill"
-          style={{ width: `${pct}%`, background: reached ? "var(--success)" : color }}
+          style={{ width: `${pct}%`, background: reached ? "var(--success)" : "var(--text-disabled)" }}
         />
       </div>
     </div>
@@ -218,15 +220,15 @@ export async function PhoneDashboard() {
             {/* Die Kennzahl-Zeile bleibt farblich ruhig: nur das Icon traegt
                 den Kanal-/Semantikton, die Zahl bleibt --text-primary. */}
             {[
-              { label: "Anrufe", value: totals.calls, icon: <Phone size={12} />, color: "var(--stage-telefon)" },
-              { label: "Gatekeeper", value: totals.gatekeeper_reached, icon: <Shield size={12} />, color: "var(--text-muted)" },
-              { label: "Entscheider", value: totals.decider_reached, icon: <UserCheck size={12} />, color: "var(--text-muted)" },
-              { label: "Termine", value: totals.appointments, icon: <Calendar size={12} />, color: "var(--success)" },
-              { label: "Rückrufe", value: totals.callbacks, icon: <PhoneMissed size={12} />, color: "var(--warning)" },
-              { label: "Dead", value: totals.dead, icon: <PhoneOff size={12} />, color: "var(--danger)" },
+              { label: "Anrufe", value: totals.calls, icon: <Phone size={12} /> },
+              { label: "Gatekeeper", value: totals.gatekeeper_reached, icon: <Shield size={12} /> },
+              { label: "Entscheider", value: totals.decider_reached, icon: <UserCheck size={12} /> },
+              { label: "Termine", value: totals.appointments, icon: <Calendar size={12} /> },
+              { label: "Rückrufe", value: totals.callbacks, icon: <PhoneMissed size={12} /> },
+              { label: "Dead", value: totals.dead, icon: <PhoneOff size={12} /> },
             ].map((s) => (
               <div key={s.label} className="stat-strip-cell" style={{ padding: "var(--sp-6) var(--sp-7)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", marginBottom: "var(--sp-3)", color: s.color }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", marginBottom: "var(--sp-3)", color: "var(--text-muted)" }}>
                   {s.icon}
                   <span className="eyebrow eyebrow-muted">{s.label}</span>
                 </div>
@@ -284,22 +286,17 @@ export async function PhoneDashboard() {
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)", marginBottom: "var(--sp-7)" }}>
-                    <MiniStat icon={<Phone size={12} />} label="Anrufe" value={r.calls} color={color} />
+                    <MiniStat icon={<Phone size={12} />} label="Anrufe" value={r.calls} />
                     <MiniStat icon={<Shield size={12} />} label="Gatekeeper" value={r.gatekeeper_reached} />
                     <MiniStat icon={<UserCheck size={12} />} label="Entscheider" value={r.decider_reached} />
-                    <MiniStat icon={<Calendar size={12} />} label="Termine" value={r.appointments} color="var(--success)" />
-                    <MiniStat icon={<PhoneMissed size={12} />} label="Rückrufe" value={r.callbacks} color="var(--warning)" />
-                    <MiniStat icon={<PhoneOff size={12} />} label="Dead" value={r.dead} color="var(--danger)" />
+                    <MiniStat icon={<Calendar size={12} />} label="Termine" value={r.appointments} />
+                    <MiniStat icon={<PhoneMissed size={12} />} label="Rückrufe" value={r.callbacks} />
+                    <MiniStat icon={<PhoneOff size={12} />} label="Dead" value={r.dead} />
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
-                    <GoalBar label="Anrufe diese Woche" value={week?.calls ?? 0} target={callsTarget} color={color} />
-                    <GoalBar
-                      label="Termine diese Woche"
-                      value={week?.appointments ?? 0}
-                      target={apptTarget}
-                      color="var(--success)"
-                    />
+                    <GoalBar label="Anrufe diese Woche" value={week?.calls ?? 0} target={callsTarget} />
+                    <GoalBar label="Termine diese Woche" value={week?.appointments ?? 0} target={apptTarget} />
                   </div>
                 </div>
               );
