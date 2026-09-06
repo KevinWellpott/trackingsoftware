@@ -2,7 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
-import { nextFollowUpAfter } from "@/lib/followup";
+import { FU_MAX_STAGE, nextFollowUpAfter } from "@/lib/followup";
+import { scheduleRecycle } from "@/app/actions/recycle";
 
 // Bewusst KEIN revalidatePath in diesen Actions: alle Zielrouten sind dynamisch
 // (Cookies) und rendern beim nächsten Besuch ohnehin frisch. Ein revalidatePath
@@ -196,6 +197,23 @@ export async function updateContact(
     .update(payload)
     .eq("id", contactId);
   if (error) return { error: error.message };
+
+  // Derselbe "tote Enden"-Fall wie advanceLinkedInFollowUp (§ Konzept-
+  // Diskussion), nur über das Listen-Board statt /nachfassen erreicht: FU3
+  // gerade erst erledigt, keine Antwort, Flow endet. `effFU === FU_MAX_STAGE`
+  // statt nur `next_follow_up_at === null` zu prüfen — sonst triggerte auch
+  // eine fehlende pitched_at-Angabe (Datenlücke, keine echte Erschöpfung).
+  if (
+    patch.next_follow_up_at === undefined &&
+    payload.next_follow_up_at === null &&
+    current.blocked_at == null &&
+    (patch.follow_up_number ?? current.follow_up_number) === FU_MAX_STAGE &&
+    (patch.answered ?? current.answered) !== true &&
+    patch.follow_up_number !== current.follow_up_number
+  ) {
+    await scheduleRecycle("linkedin", contactId, null);
+  }
+
   return {};
 }
 

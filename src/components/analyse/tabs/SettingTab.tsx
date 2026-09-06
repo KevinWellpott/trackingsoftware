@@ -1,18 +1,21 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-  BadgeCheck, BarChart3, Briefcase, CalendarCheck, CalendarClock, ChevronRight, Eye, Filter,
+  BadgeCheck, BarChart3, BellRing, Briefcase, CalendarCheck, CalendarClock, ChevronRight, Eye, Filter,
   Gauge as GaugeIcon, Handshake, ListChecks, PieChart, Timer, TrendingUp, Video, Wallet,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
+import {
+  loadReminderTouches, loadSettingCalls, type AnalyseReminderTouch, type AnalyseSettingCall,
+} from "@/lib/analyseData";
 import {
   WEEKDAY_LABELS, buildBuckets, bucketIndex, bucketOf, daysBetween, pct, settingEffDate, weekdayIndex,
   type Granularity, type QuelleKey,
 } from "@/lib/analyse";
-import { toBerlinSlot } from "@/lib/apptTime";
+import { berlinDateISO, toBerlinSlot } from "@/lib/apptTime";
 import { CHANNELS, channelLabel, channelOf } from "@/lib/channels";
 import { personIn } from "@/lib/personResolution";
+import { ownerColor } from "@/lib/ownerColor";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { Footnote, MetricTable, type MetricRow } from "@/components/analyse/AnalyseTables";
@@ -263,7 +266,10 @@ export async function SettingTab({
 }) {
   const supabase = await createClient();
   const hasPrev = Boolean(prevFrom && prevTo);
-  const allRows = await loadSettingCalls(supabase, access, canCompare);
+  const [allRows, reminderTouches] = await Promise.all([
+    loadSettingCalls(supabase, access, canCompare),
+    loadReminderTouches(supabase, access, canCompare, ["setting"]),
+  ]);
   const buckets = buildBuckets(from, to, granularity);
 
   const selectedIds = new Set(selectedMembers.map((m) => m.user_id));
@@ -425,6 +431,105 @@ export async function SettingTab({
     if (r.clear_need === true) addCell(criteria.clear_need.ja, r);
     else if (r.clear_need === false) addCell(criteria.clear_need.nein, r);
   }
+
+  // ── Erinnerungs-Disziplin (Migration 0031) ───────────────────
+  // Eigene Achse, unabhängig vom Haupt-Loop oben: Touches werden nach ihrem
+  // eigenen Fälligkeits-Tag (due_at) in [from,to] gezählt, nicht nach dem
+  // effektiven Termin-Datum des Settings.
+  type TouchAgg = { due: number; done: number; overdue: number };
+  const ZERO_TOUCH = (): TouchAgg => ({ due: 0, done: 0, overdue: 0 });
+  const touchTotals = new Map<string, TouchAgg>();
+  const ensureTouch = (name: string): TouchAgg => {
+    let t = touchTotals.get(name);
+    if (!t) {
+      t = ZERO_TOUCH();
+      touchTotals.set(name, t);
+    }
+    return t;
+  };
+  for (const m of selectedMembers) ensureTouch(m.username);
+
+  const showStatusBySettingId = new Map(allRows.map((r) => [r.id, r.show_status]));
+  const OFFSET_TOUCH_TYPES = ["offset_1", "offset_2", "offset_3"] as const;
+  type TouchTypeCell = { doneN: number; doneShow: number; notDoneN: number; notDoneShow: number };
+  const ZERO_TT = (): TouchTypeCell => ({ doneN: 0, doneShow: 0, notDoneN: 0, notDoneShow: 0 });
+  const byTouchType = new Map<string, TouchTypeCell>();
+  for (const tt of OFFSET_TOUCH_TYPES) byTouchType.set(tt, ZERO_TT());
+
+  const nowIso = new Date().toISOString();
+  for (const touch of reminderTouches as AnalyseReminderTouch[]) {
+    const day = berlinDateISO(touch.due_at);
+    if (day < from || day > to) continue;
+
+    // Block (a): Erledigungsquote je Person.
+    const uid = personIn(touch, selectedIds);
+    if (uid || allSelected) {
+      const name = uid ? nameById.get(uid)! : OHNE;
+      const t = ensureTouch(name);
+      t.due += 1;
+      if (touch.done_at) t.done += 1;
+      else if (touch.due_at < nowIso) t.overdue += 1;
+    }
+
+    // Block (b): Show-Quote je Touch-Art — nur die drei geplanten Offsets
+    // (kein No-Show-Sofort-Touch: dessen Termin ist per Definition bereits
+    // No-Show, das wäre tautologisch) und nur Termine mit erfasstem Ergebnis.
+    if (touch.touch_type !== "no_show") {
+      const parentShow = showStatusBySettingId.get(touch.entity_id);
+      if (parentShow === "show" || parentShow === "no_show") {
+        const cell = byTouchType.get(touch.touch_type)!;
+        const didShow = parentShow === "show" ? 1 : 0;
+        if (touch.done_at) {
+          cell.doneN += 1;
+          cell.doneShow += didShow;
+        } else {
+          cell.notDoneN += 1;
+          cell.notDoneShow += didShow;
+        }
+      }
+    }
+  }
+
+  const touchNames = selectedMembers.map((m) => m.username);
+  if ((touchTotals.get(OHNE)?.due ?? 0) > 0) touchNames.push(OHNE);
+  const touchDueTotal = touchNames.reduce((s, n) => s + (touchTotals.get(n)?.due ?? 0), 0);
+  const touchOverdueTotal = touchNames.reduce((s, n) => s + (touchTotals.get(n)?.overdue ?? 0), 0);
+
+  const reminderPersonRows: MetricRow[] = touchNames
+    .map((name) => {
+      const t = touchTotals.get(name) ?? ZERO_TOUCH();
+      return {
+        key: name,
+        label: name,
+        share: touchDueTotal === 0 ? null : t.due / touchDueTotal,
+        color: ownerColor(name === OHNE ? "" : name).fg,
+        values: { due: t.due, done: t.done, rate: pct(t.done, t.due), overdue: t.overdue },
+      };
+    })
+    .filter((r) => (r.values.due as number) > 0)
+    .sort((a, b) => (a.values.rate as number) - (b.values.rate as number));
+
+  const TOUCH_TYPE_LABELS: Record<string, string> = {
+    offset_1: "1. Erinnerung",
+    offset_2: "2. Erinnerung",
+    offset_3: "3. Erinnerung",
+  };
+  const reminderTouchTypeRows: MetricRow[] = OFFSET_TOUCH_TYPES.map((tt) => {
+    const c = byTouchType.get(tt)!;
+    const doneRate = pct(c.doneShow, c.doneN);
+    const notDoneRate = pct(c.notDoneShow, c.notDoneN);
+    return {
+      key: tt,
+      label: TOUCH_TYPE_LABELS[tt],
+      values: {
+        doneN: c.doneN,
+        doneRate,
+        notDoneN: c.notDoneN,
+        notDoneRate,
+        spread: doneRate === null || notDoneRate === null ? null : Math.round((doneRate - notDoneRate) * 10) / 10,
+      },
+    };
+  }).filter((r) => (r.values.doneN as number) + (r.values.notDoneN as number) > 0);
 
   const names = selectedMembers.map((m) => m.username);
   // Die OHNE-Zeile erscheint nur, wenn sie im Zeitraum wirklich etwas zählt.
@@ -784,6 +889,72 @@ export async function SettingTab({
             rows={sourceRows}
             minWidth={480}
             emptyHint="Im Zeitraum keine Termine erfasst."
+          />
+        </AnalyseSection>
+      </div>
+
+      {/* ── Erinnerungs-Disziplin ───────────────────────────────────
+             Eigener, neuer Block (bewusst nicht in „Mehr Auswertungen"
+             versteckt und nicht mit „Wer hängt hinterher?" aus dem
+             LinkedIn-Tab zusammengelegt — andere Datenquelle, andere Frage). */}
+      <div className="analyse-row fade-up" data-split="chart" style={{ animationDelay: "440ms" }}>
+        <AnalyseSection
+          title="Erinnerungs-Disziplin"
+          icon={BellRing}
+          meta={`${INT.format(touchDueTotal)} fällig · ${INT.format(touchOverdueTotal)} überfällig`}
+          collapsible
+          defaultOpen={false}
+          info={
+            <InfoText>
+              <p style={INFO_P}>
+                Fällige Bestätigungs-Touches vor dem Setting-Termin (§ Erinnerungs-Kaskade), je zuständiger
+                Person. Ein Touch gilt als erledigt, sobald das manuelle Häkchen in &bdquo;Meine Erinnerungen heute&ldquo;
+                gesetzt wurde — unabhängig vom Kanal.
+              </p>
+            </InfoText>
+          }
+        >
+          <MetricTable
+            label="Person"
+            columns={[
+              { key: "due", label: "Fällig", format: "int" },
+              { key: "done", label: "Erledigt", format: "int" },
+              { key: "rate", label: "Quote", format: "pct", emphasis: true },
+              { key: "overdue", label: "Überfällig", format: "int" },
+            ]}
+            rows={reminderPersonRows}
+            minWidth={460}
+            emptyHint="Noch keine fälligen Erinnerungen im Zeitraum."
+          />
+        </AnalyseSection>
+        <AnalyseSection
+          title="Welcher Touch wirkt am stärksten?"
+          icon={Eye}
+          meta={`${reminderTouchTypeRows.length} Touch-Arten`}
+          collapsible
+          defaultOpen={false}
+          info={
+            <InfoText>
+              <p style={INFO_P}>
+                Show-Quote der Termine, deren Touch erledigt wurde, gegen die, deren Touch offen blieb — je
+                Touch-Art. Nur Termine mit erfasstem Ergebnis; der sofortige No-Show-Nachfass-Touch bleibt außen
+                vor, weil sein Termin per Definition bereits No-Show ist.
+              </p>
+            </InfoText>
+          }
+        >
+          <MetricTable
+            label="Touch"
+            columns={[
+              { key: "doneN", label: "Erledigt (n)", format: "int" },
+              { key: "doneRate", label: "Show-Quote", format: "pct", emphasis: true },
+              { key: "notDoneN", label: "Offen (n)", format: "int" },
+              { key: "notDoneRate", label: "Show-Quote", format: "pct" },
+              { key: "spread", label: "Δ pp", format: "num1" },
+            ]}
+            rows={reminderTouchTypeRows}
+            minWidth={520}
+            emptyHint="Noch keine entschiedenen Termine mit Touch-Daten."
           />
         </AnalyseSection>
       </div>

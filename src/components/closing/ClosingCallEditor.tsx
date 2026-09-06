@@ -264,7 +264,10 @@ export function ClosingCallEditor({
   // durch Migration 0029 pauschal auf "Sonstiges" steht.
   const [lostReasonCode, setLostReasonCode] = useState<ClosingLostReasonCode | null>(call.lost_reason_code);
   const [lostReason, setLostReason] = useState(call.lost_reason ?? "");
-  const [followUpDue, setFollowUpDue] = useState("");
+  // Datum+Uhrzeit statt nur Datum (Migration 0031): die Erinnerungs-Kaskade
+  // vor dem Nachfass-Kontakt braucht einen echten Zeitpunkt, gegen den sie
+  // T-3 Tage/T-1 Tag/T-1 Stunde rechnen kann.
+  const [followUpDueAt, setFollowUpDueAt] = useState("");
 
   // Setting-Spiegel: an, sobald ein Setting verknüpft ist — genau dafür
   // existiert die Ansicht. Ohne Setting gibt es den Umschalter gar nicht.
@@ -357,7 +360,7 @@ export function ClosingCallEditor({
     setSignatureReceived(false);
     setLostReasonCode(null);
     setLostReason("");
-    setFollowUpDue("");
+    setFollowUpDueAt("");
     save(
       {
         status: "offen",
@@ -370,6 +373,7 @@ export function ClosingCallEditor({
         lost_reason: null,
         lost_reason_code: null,
         follow_up_due: null,
+        follow_up_due_at: null,
       },
       { refresh: true },
     );
@@ -1046,13 +1050,8 @@ export function ClosingCallEditor({
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           <div>
-            <span style={fieldLabel}>Wiedervorlage am *</span>
-            <DatePicker
-              variant="input"
-              value={followUpDue || null}
-              onChange={(v) => setFollowUpDue(v ?? "")}
-              placeholder="Datum wählen"
-            />
+            <span style={fieldLabel}>Nächster Kontakt am *</span>
+            <DateTimeField value={followUpDueAt} onChange={setFollowUpDueAt} ariaLabel="Nächster Kontakt" />
           </div>
 
           {modalError && (
@@ -1074,15 +1073,19 @@ export function ClosingCallEditor({
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
-              disabled={isPending || !followUpDue}
+              disabled={isPending || !followUpDueAt}
               onClick={() =>
-                submitOutcome("nachfassen", { followUpDue }, () => setFollowOpen(false))
+                submitOutcome(
+                  "nachfassen",
+                  { followUpDueAt: berlinInputToIso(followUpDueAt) },
+                  () => setFollowOpen(false),
+                )
               }
               style={{
                 ...modalButton("primary", { bg: "var(--color-warning-bg)", fg: "var(--color-warning-text)" }),
                 border: "1px solid var(--color-warning-border)",
-                opacity: isPending || !followUpDue ? 0.6 : 1,
-                cursor: isPending || !followUpDue ? "default" : "pointer",
+                opacity: isPending || !followUpDueAt ? 0.6 : 1,
+                cursor: isPending || !followUpDueAt ? "default" : "pointer",
               }}
             >
               Wiedervorlage setzen

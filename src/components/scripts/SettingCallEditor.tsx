@@ -191,6 +191,8 @@ export function SettingCallEditor({
   const [showStatus, setShowStatus] = useState<"show" | "no_show" | null>(call.show_status);
   const [followUpDue, setFollowUpDue] = useState<string | null>(call.follow_up_due);
   const [recordingLink, setRecordingLink] = useState(call.recording_link ?? "");
+  const [waPhone, setWaPhone] = useState(call.wa_phone ?? "");
+  const [waConsent, setWaConsent] = useState(Boolean(call.wa_consent_at));
   const [notes, setNotes] = useState(call.notes ?? "");
   const [closingDone, setClosingDone] = useState(call.status === "closing_gelegt");
   // Id des angelegten Closings (nach createClosingFromSetting bekannt; bei
@@ -638,6 +640,64 @@ export function SettingCallEditor({
             </span>
           )}
         </div>
+      </div>
+
+      {/* ── WhatsApp-Kontakt ──
+          Wird HIER eingesammelt (nicht am Lead), weil zu diesem Zeitpunkt
+          zum ersten Mal echtes Vertrauen besteht — Grundlage der Closing-/
+          Nachfass-Erinnerungskaskade (Migration 0031). wa_consent_at
+          dokumentiert die Einwilligung (UWG-Pflicht, auch B2B): eine reine
+          Termin-/Service-Nachricht ist danach unkritisch, eine Nachricht
+          ohne dokumentierten Beleg nicht. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+          background: "var(--surface-100)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-lg)",
+          padding: "0.875rem 1.125rem",
+          boxShadow: "var(--shadow-sm)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
+          <MessageSquareQuote size={14} style={{ color: "var(--text-subtle)" }} />
+          <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}>WhatsApp</span>
+        </div>
+        <input
+          type="tel"
+          value={waPhone}
+          onChange={(e) => setWaPhone(e.target.value)}
+          onBlur={() => {
+            if (waPhone.trim() === (call.wa_phone ?? "")) return;
+            save({ wa_phone: waPhone.trim() || null });
+          }}
+          placeholder="Persönliche Nummer des Entscheiders"
+          style={{ ...fieldInput, flex: "1 1 220px", width: "auto" }}
+        />
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            fontSize: "0.75rem",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={waConsent}
+            onChange={(e) => {
+              setWaConsent(e.target.checked);
+              save({ wa_consent_at: e.target.checked ? new Date().toISOString() : null });
+            }}
+          />
+          Einwilligung zur WhatsApp-Kontaktierung erhalten
+        </label>
       </div>
 
       {/* ── Kontext aus der Quelle ──

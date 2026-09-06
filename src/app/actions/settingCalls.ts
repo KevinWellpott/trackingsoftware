@@ -4,7 +4,17 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
 import type { SettingOutcome, SettingStatus } from "@/lib/types";
+import {
+  createNoShowTouch,
+  deleteTouchesForEntity,
+  generateClosingCascade,
+  generateSettingCascade,
+  supersedeTouches,
+} from "@/app/actions/reminders";
+import { scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
+
+const OFFSET_TOUCHES = ["offset_1", "offset_2", "offset_3"] as const;
 
 // Setting-Call bearbeiten (Script-Antworten + strukturierte Felder + Status)
 // und bei Qualifikation einen Closing-Call erzeugen.
@@ -35,6 +45,10 @@ export type SettingCallPatch = {
   notes?: string | null;
   lead_name?: string | null;
   company?: string | null;
+  /** Persönliche WhatsApp-Nummer des Entscheiders — NICHT dieselbe wie `phone` (Einwahlnummer bei meeting_kind='telefon'). */
+  wa_phone?: string | null;
+  /** Zeitstempel der dokumentierten Einwilligung zur WhatsApp-Kontaktierung (UWG). */
+  wa_consent_at?: string | null;
 };
 
 // Die Pruefung stuetzt sich nicht mehr allein darauf, dass RLS die Zeile
@@ -106,6 +120,17 @@ export async function setSettingOutcome(input: {
   const { error } = await supabase.from("setting_calls").update(patch).eq("id", input.settingId);
   if (error) return { error: error.message };
 
+  // Ein Ergebnis entscheidet das Schicksal des Termins — die Bestätigungs-
+  // Kaskade ist damit obsolet. No-Show bekommt zusätzlich sofort einen
+  // eigenen, dringlichen Nachfass-Touch (kein geplanter Offset).
+  await supersedeTouches("setting", input.settingId, OFFSET_TOUCHES);
+  if (input.outcome === "no_show") await createNoShowTouch("setting", input.settingId);
+  // 'dead' ist eines der vier "toten Enden" (§ Konzept-Diskussion) — bekommt
+  // ein Recycling-Datum statt endgültig zu verschwinden. Kein Verlustgrund-
+  // Code am Setting, deshalb reason=null (recycleCadence.ts nimmt den
+  // generischen days_setting_dead-Wert).
+  if (input.outcome === "dead") await scheduleRecycle("setting", input.settingId, null);
+
   revalidatePath(`/setting/${input.settingId}`, "page");
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
@@ -141,6 +166,11 @@ export async function rescheduleSetting(
   if (error) return { error: error.message };
 
   await mirrorAppointmentToSource(settingId, appointmentIso);
+
+  // Neuterminierung ist ein frischer Anlauf: ALLE Touch-Arten weg (auch ein
+  // offener No-Show-Touch), danach die Kaskade gegen den neuen Zeitpunkt neu.
+  await supersedeTouches("setting", settingId);
+  await generateSettingCascade(settingId);
 
   revalidatePath(`/setting/${settingId}`, "page");
   revalidatePath("/termine", "page");
@@ -192,6 +222,11 @@ export async function moveSettingAppointment(
   if (error) return { error: error.message };
 
   await mirrorAppointmentToSource(settingId, appointmentIso);
+
+  // Reiner Zeit-Umzug: nur die geplante Kaskade folgt, ein evtl. offener
+  // No-Show-Touch (den es hier praktisch nie gibt, da Status unangetastet
+  // bleibt) wird nicht angefasst.
+  await generateSettingCascade(settingId);
 
   revalidatePath(`/setting/${settingId}`, "page");
   revalidatePath("/termine", "page");
@@ -247,6 +282,13 @@ export async function createClosingFromSetting(
       .from("setting_calls")
       .update(closingAt ? { ...qualifiedPatch, closing_at: closingAt } : qualifiedPatch)
       .eq("id", settingId);
+
+    // Das Setting ist qualifiziert — seine eigene Kaskade ist damit erledigt;
+    // das Closing bekommt (spätestens jetzt, ggf. mit neu gefülltem Termin)
+    // seine eigene.
+    await supersedeTouches("setting", settingId, OFFSET_TOUCHES);
+    await generateClosingCascade(existing.id);
+
     revalidatePath("/termine", "page");
     revalidatePath("/nachfassen", "page");
     return { closingId: existing.id };
@@ -298,6 +340,9 @@ export async function createClosingFromSetting(
     .update({ ...qualifiedPatch, closing_at: closingAt })
     .eq("id", settingId);
 
+  await supersedeTouches("setting", settingId, OFFSET_TOUCHES);
+  await generateClosingCascade(closing.id);
+
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
@@ -342,6 +387,8 @@ export async function deleteSettingCall(id: string): Promise<{ error?: string }>
 
   const { error } = await supabase.from("setting_calls").delete().eq("id", id);
   if (error) return { error: error.message };
+
+  await deleteTouchesForEntity("setting", id);
 
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");

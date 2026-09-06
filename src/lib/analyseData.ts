@@ -185,8 +185,12 @@ const SETTING_COLUMNS =
  *
  * Als PostgREST-`or`-Ausdruck formuliert, weil beide Zweige ODER-verknüpft
  * sind; die übrigen `.eq()`-Filter der Query bleiben UND-verknüpft.
+ *
+ * Exportiert für `loadReminderTouches` — `reminder_touches` trägt dieselben
+ * zwei Spalten (dort allerdings ist `assigned_user_id` praktisch nie NULL,
+ * weil die Kaskaden-Erzeugung selbst schon auf created_by_user_id zurückfällt).
  */
-function assignedOrCreatedBy(userId: string): string {
+export function assignedOrCreatedBy(userId: string): string {
   return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId})`;
 }
 
@@ -348,4 +352,63 @@ export async function loadPhoneLeads(
 /** Erstkontakt-Tag eines Telefon-Leads (analog contactDay). */
 export function phoneLeadDay(l: { first_call_at: string | null; created_at: string }): string {
   return l.first_call_at ?? berlinDateISO(l.created_at);
+}
+
+// ── Erinnerungs-Kaskade (Migration 0031) ────────────────────
+
+export type ReminderTouchEntityType = "setting" | "closing" | "closing_followup";
+export type ReminderTouchType = "offset_1" | "offset_2" | "offset_3" | "no_show";
+
+export type AnalyseReminderTouch = {
+  id: string;
+  entity_type: ReminderTouchEntityType;
+  entity_id: string;
+  touch_type: ReminderTouchType;
+  due_at: string;
+  appointment_at: string;
+  channel: string | null;
+  done_at: string | null;
+  assigned_user_id: string | null;
+  created_by_user_id: string | null;
+};
+
+const REMINDER_TOUCH_COLUMNS =
+  "id, entity_type, entity_id, touch_type, due_at, appointment_at, channel, done_at, assigned_user_id, created_by_user_id";
+
+/**
+ * Reminder-Touches für die "Erinnerungs-Disziplin"-Blöcke in Setting- und
+ * Closing-Tab. `entity_id` hat bewusst keinen Fremdschlüssel (Migration
+ * 0031 — polymorph über zwei mögliche Zieltabellen), ein Embedded-Relation-
+ * Select ist deshalb nicht möglich; die Verknüpfung zum jeweiligen Termin
+ * läuft im aufrufenden Tab über eine Map auf die bereits geladenen
+ * setting_calls/closing_calls — exakt das Muster, das `ClosingTab.tsx` mit
+ * `settingById` bereits für die Abschluss-Geschwindigkeit nutzt.
+ *
+ * Zählt auch superseded Touches mit, WENN sie erledigt wurden — eine
+ * Neuterminierung macht einen offenen Touch obsolet, aber ein VORHER
+ * erledigter bleibt ein echtes Stück Erinnerungs-Disziplin. Nur ein
+ * superseded UND nie erledigter Touch (z. B. durch mehrfaches Verschieben
+ * entstanden) fällt raus — sonst würde jede Neuterminierung die Quote der
+ * zuständigen Person unfair drücken.
+ */
+export async function loadReminderTouches(
+  supabase: Client,
+  access: AccessContext,
+  canCompare: boolean,
+  entityTypes: readonly ReminderTouchEntityType[],
+): Promise<AnalyseReminderTouch[]> {
+  const rows = await fetchAllRows((f, t) => {
+    let q = supabase
+      .from("reminder_touches")
+      .select(REMINDER_TOUCH_COLUMNS)
+      .eq("workspace_id", access.workspace_id)
+      .in("entity_type", entityTypes)
+      .or("done_at.not.is.null,superseded_at.is.null");
+    if (!canCompare) q = q.or(assignedOrCreatedBy(access.user.id));
+    return q.order("id").range(f, t);
+  }).catch((err) => {
+    console.error("analyseData:", err instanceof Error ? err.message : err);
+    return [];
+  });
+  return rows as unknown as AnalyseReminderTouch[];
 }

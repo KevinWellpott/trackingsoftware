@@ -121,6 +121,14 @@ export type SettingCall = {
    * Nullable — die Pflicht sitzt im Formular, nicht in der Tabelle.
    */
   phone: string | null;
+  /**
+   * Persönliche WhatsApp-/Handynummer des Entscheiders (Migration 0031) —
+   * NICHT dieselbe wie `phone` (Einwahlnummer bei meeting_kind='telefon').
+   * Grundlage der Closing-/Nachfass-Erinnerungskaskade.
+   */
+  wa_phone: string | null;
+  /** Zeitstempel der dokumentierten Einwilligung zur WhatsApp-Kontaktierung (UWG). */
+  wa_consent_at: string | null;
   source_contact_id: string | null;
   source_phone_lead_id: string | null;
   lead_name: string | null;
@@ -233,6 +241,8 @@ export type ClosingCall = {
    */
   lost_reason_code: ClosingLostReasonCode | null;
   follow_up_due: string | null;
+  /** Präziser Nachfass-Zeitpunkt (Migration 0031) — Basis der Erinnerungs-Kaskade, follow_up_due bleibt synchron. */
+  follow_up_due_at: string | null;
   recording_link: string | null;
   objections_handled: string | null;
   objections_open: string | null;

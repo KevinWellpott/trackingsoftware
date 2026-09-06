@@ -6,6 +6,7 @@ import { berlinInputToIso } from "@/lib/apptTime";
 import { revalidatePath } from "next/cache";
 import { parsePhoneCsv } from "@/lib/phone-csv";
 import { logCallAttempt } from "@/app/actions/phoneAttempts";
+import { scheduleRecycle } from "@/app/actions/recycle";
 import type { PhoneCallKind, PhoneListKind } from "@/lib/types";
 
 // Telefonakquise: Listen, Routing (Rückruf/Nicht erreicht = echte separate Listen),
@@ -342,6 +343,12 @@ export async function setPhoneLeadOutcome(input: {
 
   const { error } = await supabase.from("phone_leads").update(patch).eq("id", input.leadId);
   if (error) return { error: error.message };
+
+  // 'dead' ist eines der vier "toten Enden" (§ Konzept-Diskussion) — bekommt
+  // ein Recycling-Datum statt endgültig zu verschwinden. Kein Verlustgrund-
+  // Code am Telefon-Lead, deshalb reason=null (recycleCadence.ts nimmt den
+  // generischen days_phone_dead-Wert).
+  if (input.outcome === "dead") await scheduleRecycle("telefon", input.leadId, null);
 
   // Anwahl protokollieren — NACH dem Update, weil logCallAttempt den Lead-Stand
   // als Snapshot liest (Status entscheidet über den Topf, mailbox/gatekeeper/

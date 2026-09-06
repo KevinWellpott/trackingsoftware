@@ -1,16 +1,20 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-  BarChart3, CalendarCheck, ChevronRight, CreditCard, Euro, Eye, FileSignature, Filter, PieChart,
+  BarChart3, BellRing, CalendarCheck, ChevronRight, CreditCard, Euro, Eye, FileSignature, Filter, PieChart,
   Receipt, Timer, TrendingUp, Trophy, Users, Wallet, XCircle,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { loadClosingCalls, loadSettingCalls } from "@/lib/analyseData";
+import {
+  loadClosingCalls, loadReminderTouches, loadSettingCalls, type AnalyseReminderTouch,
+} from "@/lib/analyseData";
 import {
   NUM, bucketIndex, buildBuckets, bucketOf, closingEffDate, eur, fmtPct, pct, settingEffDate,
   type Granularity,
 } from "@/lib/analyse";
+import { berlinDateISO } from "@/lib/apptTime";
 import { personIn } from "@/lib/personResolution";
+import { ownerColor } from "@/lib/ownerColor";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { Footnote, MetricTable, StatRow, type MetricColumn, type MetricRow } from "@/components/analyse/AnalyseTables";
@@ -190,9 +194,10 @@ export async function ClosingTab({
   const supabase = await createClient();
   const hasPrev = Boolean(prevFrom && prevTo);
 
-  const [allRows, settings] = await Promise.all([
+  const [allRows, settings, reminderTouches] = await Promise.all([
     loadClosingCalls(supabase, access, canCompare),
     loadSettingCalls(supabase, access, canCompare),
+    loadReminderTouches(supabase, access, canCompare, ["closing", "closing_followup"]),
   ]);
   const buckets = buildBuckets(from, to, granularity);
 
@@ -337,6 +342,105 @@ export async function ClosingTab({
       perPerson.set(name, (perPerson.get(name) ?? 0) + 1);
     }
   }
+
+  // ── Erinnerungs-Disziplin (Migration 0031) ───────────────────
+  // Eigene Achse, unabhängig vom Haupt-Loop oben — Touches zählen nach ihrem
+  // eigenen Fälligkeits-Tag (due_at), nicht nach dem effektiven Closing-Datum.
+  // entity_id von 'closing' UND 'closing_followup' zeigt auf dieselbe
+  // closing_calls.id — eine Map reicht für beide Touch-Kontexte.
+  type TouchAgg = { due: number; done: number; overdue: number };
+  const ZERO_TOUCH = (): TouchAgg => ({ due: 0, done: 0, overdue: 0 });
+  const touchTotals = new Map<string, TouchAgg>();
+  const ensureTouch = (name: string): TouchAgg => {
+    let t = touchTotals.get(name);
+    if (!t) {
+      t = ZERO_TOUCH();
+      touchTotals.set(name, t);
+    }
+    return t;
+  };
+  for (const m of selectedMembers) ensureTouch(m.username);
+
+  const showStatusByClosingId = new Map(allRows.map((r) => [r.id, r.show_status]));
+  const OFFSET_TOUCH_TYPES = ["offset_1", "offset_2", "offset_3"] as const;
+  type TouchTypeCell = { doneN: number; doneShow: number; notDoneN: number; notDoneShow: number };
+  const ZERO_TT = (): TouchTypeCell => ({ doneN: 0, doneShow: 0, notDoneN: 0, notDoneShow: 0 });
+  const byTouchType = new Map<string, TouchTypeCell>();
+  for (const tt of OFFSET_TOUCH_TYPES) byTouchType.set(tt, ZERO_TT());
+
+  const nowIso = new Date().toISOString();
+  for (const touch of reminderTouches as AnalyseReminderTouch[]) {
+    const day = berlinDateISO(touch.due_at);
+    if (day < from || day > to) continue;
+
+    // Block (a): Erledigungsquote je Person.
+    const uid = personIn(touch, selectedIds);
+    if (uid || allSelected) {
+      const name = uid ? nameById.get(uid)! : OHNE;
+      const t = ensureTouch(name);
+      t.due += 1;
+      if (touch.done_at) t.done += 1;
+      else if (touch.due_at < nowIso) t.overdue += 1;
+    }
+
+    // Block (b): Show-Quote je Touch-Art — nur die drei geplanten Offsets,
+    // nur Closings mit erfasstem Ergebnis.
+    if (touch.touch_type !== "no_show") {
+      const parentShow = showStatusByClosingId.get(touch.entity_id);
+      if (parentShow === "show" || parentShow === "no_show") {
+        const cell = byTouchType.get(touch.touch_type)!;
+        const didShow = parentShow === "show" ? 1 : 0;
+        if (touch.done_at) {
+          cell.doneN += 1;
+          cell.doneShow += didShow;
+        } else {
+          cell.notDoneN += 1;
+          cell.notDoneShow += didShow;
+        }
+      }
+    }
+  }
+
+  const touchNames = selectedMembers.map((m) => m.username);
+  if ((touchTotals.get(OHNE)?.due ?? 0) > 0) touchNames.push(OHNE);
+  const touchDueTotal = touchNames.reduce((s, n) => s + (touchTotals.get(n)?.due ?? 0), 0);
+  const touchOverdueTotal = touchNames.reduce((s, n) => s + (touchTotals.get(n)?.overdue ?? 0), 0);
+
+  const reminderPersonRows: MetricRow[] = touchNames
+    .map((name) => {
+      const t = touchTotals.get(name) ?? ZERO_TOUCH();
+      return {
+        key: name,
+        label: name,
+        share: touchDueTotal === 0 ? null : t.due / touchDueTotal,
+        color: ownerColor(name === OHNE ? "" : name).fg,
+        values: { due: t.due, done: t.done, rate: pct(t.done, t.due), overdue: t.overdue },
+      };
+    })
+    .filter((r) => (r.values.due as number) > 0)
+    .sort((a, b) => (a.values.rate as number) - (b.values.rate as number));
+
+  const TOUCH_TYPE_LABELS: Record<string, string> = {
+    offset_1: "1. Erinnerung",
+    offset_2: "2. Erinnerung",
+    offset_3: "3. Erinnerung",
+  };
+  const reminderTouchTypeRows: MetricRow[] = OFFSET_TOUCH_TYPES.map((tt) => {
+    const c = byTouchType.get(tt)!;
+    const doneRate = pct(c.doneShow, c.doneN);
+    const notDoneRate = pct(c.notDoneShow, c.notDoneN);
+    return {
+      key: tt,
+      label: TOUCH_TYPE_LABELS[tt],
+      values: {
+        doneN: c.doneN,
+        doneRate,
+        notDoneN: c.notDoneN,
+        notDoneRate,
+        spread: doneRate === null || notDoneRate === null ? null : Math.round((doneRate - notDoneRate) * 10) / 10,
+      },
+    };
+  }).filter((r) => (r.values.doneN as number) + (r.values.notDoneN as number) > 0);
 
   const names = selectedMembers.map((m) => m.username);
   // Die OHNE-Zeile erscheint nur, wenn sie im Zeitraum wirklich etwas zählt.
@@ -703,6 +807,71 @@ export async function ClosingTab({
             />
           </AnalyseSection>
         </div>
+      </div>
+
+      {/* ── Erinnerungs-Disziplin ───────────────────────────────────
+             Eigener, neuer Block — deckt Closing-Termin- UND Nachfass-
+             Termin-Touches ab. */}
+      <div className="analyse-row fade-up" data-split="chart" style={{ animationDelay: "480ms" }}>
+        <AnalyseSection
+          title="Erinnerungs-Disziplin"
+          icon={BellRing}
+          meta={`${INT.format(touchDueTotal)} fällig · ${INT.format(touchOverdueTotal)} überfällig`}
+          collapsible
+          defaultOpen={false}
+          info={
+            <InfoText>
+              <p style={INFO_P}>
+                Fällige Bestätigungs-Touches vor dem Closing-Termin UND vor einem vereinbarten Nachfass-Kontakt,
+                je zuständiger Person. Ein Touch gilt als erledigt, sobald das manuelle Häkchen in &bdquo;Meine
+                Erinnerungen heute&ldquo; gesetzt wurde — unabhängig vom Kanal.
+              </p>
+            </InfoText>
+          }
+        >
+          <MetricTable
+            label="Person"
+            columns={[
+              { key: "due", label: "Fällig", format: "int" },
+              { key: "done", label: "Erledigt", format: "int" },
+              { key: "rate", label: "Quote", format: "pct", emphasis: true },
+              { key: "overdue", label: "Überfällig", format: "int" },
+            ]}
+            rows={reminderPersonRows}
+            minWidth={460}
+            emptyHint="Noch keine fälligen Erinnerungen im Zeitraum."
+          />
+        </AnalyseSection>
+        <AnalyseSection
+          title="Welcher Touch wirkt am stärksten?"
+          icon={Eye}
+          meta={`${reminderTouchTypeRows.length} Touch-Arten`}
+          collapsible
+          defaultOpen={false}
+          info={
+            <InfoText>
+              <p style={INFO_P}>
+                Show-Quote der Closings, deren Touch erledigt wurde, gegen die, deren Touch offen blieb — je
+                Touch-Art. Nur Closings mit erfasstem Ergebnis; der sofortige No-Show-Nachfass-Touch bleibt außen
+                vor, weil sein Termin per Definition bereits No-Show ist.
+              </p>
+            </InfoText>
+          }
+        >
+          <MetricTable
+            label="Touch"
+            columns={[
+              { key: "doneN", label: "Erledigt (n)", format: "int" },
+              { key: "doneRate", label: "Show-Quote", format: "pct", emphasis: true },
+              { key: "notDoneN", label: "Offen (n)", format: "int" },
+              { key: "notDoneRate", label: "Show-Quote", format: "pct" },
+              { key: "spread", label: "Δ pp", format: "num1" },
+            ]}
+            rows={reminderTouchTypeRows}
+            minWidth={520}
+            emptyHint="Noch keine entschiedenen Closings mit Touch-Daten."
+          />
+        </AnalyseSection>
       </div>
 
       {/* ── Alles Weitere: eingeklappt ──────────────────────────

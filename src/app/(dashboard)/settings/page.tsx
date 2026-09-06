@@ -15,7 +15,9 @@ import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
 import { RenameUserButton } from "@/components/settings/RenameUserButton";
 import { DataScopeSelect } from "@/components/settings/DataScopeSelect";
 import { RoleSelect } from "@/components/settings/RoleSelect";
-import { Plus, Shield, Target, UserCheck, Users } from "lucide-react";
+import { getReminderSettings, updateReminderSettingsForm } from "@/app/actions/reminders";
+import { getRecycleSettings, updateRecycleSettingsForm } from "@/app/actions/recycle";
+import { Bell, Plus, RefreshCw, Shield, Target, UserCheck, Users } from "lucide-react";
 
 const TARGET_FIELDS: {
   label: string;
@@ -29,6 +31,45 @@ const TARGET_FIELDS: {
   { label: "Telefon Anrufe/Woche", channel: "telefon", period: "weekly", metric: "calls" },
   { label: "Termine/Woche", channel: "telefon", period: "weekly", metric: "appointments" },
 ];
+
+const REMINDER_OFFSET_FIELDS = [
+  { field: "offset_1_hours", label: "1. Erinnerung (Std. vorher)" },
+  { field: "offset_2_hours", label: "2. Erinnerung (Std. vorher)" },
+  { field: "offset_3_hours", label: "3. Erinnerung (Std. vorher)" },
+] as const;
+
+const REMINDER_TEMPLATE_FIELDS = [
+  { field: "template_setting_reminder", label: "Setting-Erinnerung" },
+  { field: "template_closing_reminder", label: "Closing-Erinnerung" },
+  { field: "template_followup_reminder", label: "Nachfass-Termin-Erinnerung" },
+  { field: "template_no_show_setting", label: "No-Show-Nachfassen (Setting)" },
+  { field: "template_no_show_closing", label: "No-Show-Nachfassen (Closing)" },
+] as const;
+
+// Reihenfolge = Erzähl-Reihenfolge: kurze Wartezeit zuerst (Timing), lange
+// zuletzt (Wettbewerb/Vertrauen). 'falsche_zielgruppe' hat bewusst kein
+// Feld — nie automatisches Recycling (§ Konzept-Diskussion).
+const RECYCLE_DAY_FIELDS = [
+  { field: "days_ghosting_breakup", label: "Ghosting — Breakup-Touch (Tage)" },
+  { field: "days_timing", label: "Verlustgrund: Timing (Tage)" },
+  { field: "days_preis", label: "Verlustgrund: Preis (Tage)" },
+  { field: "days_kein_bedarf", label: "Verlustgrund: Kein Bedarf (Tage)" },
+  { field: "days_sonstiges", label: "Verlustgrund: Sonstiges (Tage)" },
+  { field: "days_phone_dead", label: "Telefon-Lead dead (Tage)" },
+  { field: "days_setting_dead", label: "Setting dead (Tage)" },
+  { field: "days_linkedin_exhausted", label: "LinkedIn ohne Antwort (Tage)" },
+  { field: "days_entscheider", label: "Verlustgrund: Entscheider (Tage)" },
+  { field: "days_ghosting", label: "Ghosting — danach (Tage)" },
+  { field: "days_wettbewerb", label: "Verlustgrund: Wettbewerb (Tage)" },
+  { field: "days_vertrauen", label: "Verlustgrund: Vertrauen (Tage)" },
+] as const;
+
+const RECYCLE_TEMPLATE_FIELDS = [
+  { field: "template_recycle_linkedin", label: "LinkedIn" },
+  { field: "template_recycle_telefon", label: "Telefon" },
+  { field: "template_recycle_setting", label: "Setting" },
+  { field: "template_recycle_closing", label: "Closing" },
+] as const;
 
 // Gemeinsame Stile des Settings-Layouts (COMPONENTS.md §15).
 const SECTION_HEAD: React.CSSProperties = {
@@ -89,8 +130,15 @@ export default async function SettingsPage({
 
   const q = await searchParams;
   const isOwner = access.role === "owner";
+  // Strenger als `isOwner`: die Kaskaden-Einstellungen sind Team-weit sichtbar
+  // (jeder rendert seine "Meine Erinnerungen heute" gegen dieselben Vorlagen)
+  // und deshalb bewusst nur für role='owner' UND data_scope='workspace'
+  // änderbar — dasselbe Prädikat wie access.can_switch_view / setAssignee().
+  const canManageReminders = access.role === "owner" && access.data_scope === "workspace";
   const { users } = isOwner ? await listUsers(access.workspace_id) : { users: [] };
   const targets = isOwner ? await getTargets() : [];
+  const reminderSettings = canManageReminders ? await getReminderSettings() : null;
+  const recycleSettings = canManageReminders ? await getRecycleSettings() : null;
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
@@ -284,6 +332,187 @@ export default async function SettingsPage({
                 Keine Nutzer vorhanden.
               </p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Erinnerungs-Kaskade ──
+          Sichtbarkeits-Gate bewusst STRENGER als bei „Nutzer"/„Ziele" oben
+          (dort reicht role='owner') — siehe Kommentar bei canManageReminders. */}
+      {canManageReminders && reminderSettings && (
+        <div className="card" style={{ overflow: "hidden" }}>
+          <div style={SECTION_HEAD}>
+            <Bell size={16} color="var(--text-muted)" />
+            <span style={SECTION_TITLE}>Erinnerungs-Kaskade</span>
+            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>Zeitabstände &amp; Vorlagen</span>
+          </div>
+          <div style={{ padding: "var(--sp-7) var(--sp-8)", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
+            <div>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Abstände vor dem Termin
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "var(--sp-6)" }}>
+                {REMINDER_OFFSET_FIELDS.map((f) => (
+                  <form key={f.field} action={updateReminderSettingsForm}>
+                    <input type="hidden" name="field" value={f.field} />
+                    <label style={FIELD_LABEL}>{f.label}</label>
+                    <div style={{ display: "flex", gap: "var(--sp-3)" }}>
+                      <input
+                        type="number"
+                        name="value"
+                        min={1}
+                        step={1}
+                        defaultValue={reminderSettings[f.field]}
+                        className="ui-input"
+                        style={{ minWidth: 0, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                      />
+                      <button type="submit" title="Speichern" className="btn-secondary" style={{ padding: "0 var(--sp-5)", flexShrink: 0 }}>
+                        ✓
+                      </button>
+                    </div>
+                  </form>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Nachrichtenvorlagen
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
+                {REMINDER_TEMPLATE_FIELDS.map((f) => (
+                  <form
+                    key={f.field}
+                    action={updateReminderSettingsForm}
+                    style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}
+                  >
+                    <input type="hidden" name="field" value={f.field} />
+                    <label style={FIELD_LABEL}>{f.label}</label>
+                    <div style={{ display: "flex", gap: "var(--sp-3)", alignItems: "flex-start" }}>
+                      <textarea
+                        name="value"
+                        defaultValue={reminderSettings[f.field]}
+                        rows={2}
+                        className="ui-input"
+                        style={{ flex: 1, minWidth: 0, resize: "vertical", fontFamily: "inherit", padding: "var(--sp-3) var(--sp-4)" }}
+                      />
+                      <button
+                        type="submit"
+                        title="Speichern"
+                        className="btn-secondary"
+                        style={{ padding: "0 var(--sp-5)", height: "var(--h-control-lg)", flexShrink: 0 }}
+                      >
+                        ✓
+                      </button>
+                    </div>
+                  </form>
+                ))}
+              </div>
+              <p style={{ margin: "var(--sp-4) 0 0", fontSize: "var(--fs-xs)", color: "var(--text-subtle)" }}>
+                Platzhalter: <code>{"{vorname}"}</code> · <code>{"{firma}"}</code> · <code>{"{datum}"}</code> ·{" "}
+                <code>{"{uhrzeit}"}</code>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Recycling ──
+          Gleiches Sichtbarkeits-Gate wie Erinnerungs-Kaskade — dieselbe
+          Begründung (Team-weit sichtbar unter /nachfassen). */}
+      {canManageReminders && recycleSettings && (
+        <div className="card" style={{ overflow: "hidden" }}>
+          <div style={SECTION_HEAD}>
+            <RefreshCw size={16} color="var(--text-muted)" />
+            <span style={SECTION_TITLE}>Recycling</span>
+            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>Wartezeiten &amp; Vorlagen</span>
+          </div>
+          <div style={{ padding: "var(--sp-7) var(--sp-8)", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
+            <div>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Wartezeit bis zum nächsten Versuch
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "var(--sp-6)" }}>
+                {RECYCLE_DAY_FIELDS.map((f) => (
+                  <form key={f.field} action={updateRecycleSettingsForm}>
+                    <input type="hidden" name="field" value={f.field} />
+                    <label style={FIELD_LABEL}>{f.label}</label>
+                    <div style={{ display: "flex", gap: "var(--sp-3)" }}>
+                      <input
+                        type="number"
+                        name="value"
+                        min={1}
+                        step={1}
+                        defaultValue={recycleSettings[f.field]}
+                        className="ui-input"
+                        style={{ minWidth: 0, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                      />
+                      <button type="submit" title="Speichern" className="btn-secondary" style={{ padding: "0 var(--sp-5)", flexShrink: 0 }}>
+                        ✓
+                      </button>
+                    </div>
+                  </form>
+                ))}
+                <form action={updateRecycleSettingsForm}>
+                  <input type="hidden" name="field" value="max_attempts" />
+                  <label style={FIELD_LABEL}>Max. Recycling-Versuche</label>
+                  <div style={{ display: "flex", gap: "var(--sp-3)" }}>
+                    <input
+                      type="number"
+                      name="value"
+                      min={1}
+                      max={5}
+                      step={1}
+                      defaultValue={recycleSettings.max_attempts}
+                      className="ui-input"
+                      style={{ minWidth: 0, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                    />
+                    <button type="submit" title="Speichern" className="btn-secondary" style={{ padding: "0 var(--sp-5)", flexShrink: 0 }}>
+                      ✓
+                    </button>
+                  </div>
+                </form>
+              </div>
+              <p style={{ margin: "var(--sp-4) 0 0", fontSize: "var(--fs-xs)", color: "var(--text-subtle)" }}>
+                Verlustgrund &bdquo;Falsche Zielgruppe&ldquo; bekommt bewusst kein automatisches Recycling.
+              </p>
+            </div>
+            <div>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Nachrichtenvorlagen je Ursprung
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
+                {RECYCLE_TEMPLATE_FIELDS.map((f) => (
+                  <form
+                    key={f.field}
+                    action={updateRecycleSettingsForm}
+                    style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}
+                  >
+                    <input type="hidden" name="field" value={f.field} />
+                    <label style={FIELD_LABEL}>{f.label}</label>
+                    <div style={{ display: "flex", gap: "var(--sp-3)", alignItems: "flex-start" }}>
+                      <textarea
+                        name="value"
+                        defaultValue={recycleSettings[f.field]}
+                        rows={2}
+                        className="ui-input"
+                        style={{ flex: 1, minWidth: 0, resize: "vertical", fontFamily: "inherit", padding: "var(--sp-3) var(--sp-4)" }}
+                      />
+                      <button
+                        type="submit"
+                        title="Speichern"
+                        className="btn-secondary"
+                        style={{ padding: "0 var(--sp-5)", height: "var(--h-control-lg)", flexShrink: 0 }}
+                      >
+                        ✓
+                      </button>
+                    </div>
+                  </form>
+                ))}
+              </div>
+              <p style={{ margin: "var(--sp-4) 0 0", fontSize: "var(--fs-xs)", color: "var(--text-subtle)" }}>
+                Platzhalter: <code>{"{vorname}"}</code> · <code>{"{firma}"}</code> · <code>{"{anlass}"}</code>
+              </p>
+            </div>
           </div>
         </div>
       )}

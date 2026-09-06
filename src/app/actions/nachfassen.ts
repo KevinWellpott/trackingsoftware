@@ -6,13 +6,15 @@ import { revalidatePath } from "next/cache";
 import { localDateISO, addDaysISO } from "@/lib/dates";
 import { FU_MAX_STAGE, nextFollowUpAfter } from "@/lib/followup";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
+import { getRecycleSettings, loadRecycleTasksRaw, scheduleRecycle } from "@/app/actions/recycle";
+import { recycleTemplateField, renderRecycleTemplate, type RecycleOrigin } from "@/lib/recycleCadence";
 
 // Nachfassen-Union (LinkedIn-FU + Telefon-Rückruf + Closing-Nachfassen +
 // Setting-Wiedervorlage) über die nachfassen_tasks-RPC + vorbereiteter
 // Kopier-Text (KEIN Auto-Versand).
 
 export type NachfassenTask = {
-  source: "linkedin" | "telefon" | "closing" | "setting";
+  source: "linkedin" | "telefon" | "closing" | "setting" | "recycling";
   entity_id: string;
   owner_name: string | null;
   lead_name: string | null;
@@ -23,6 +25,11 @@ export type NachfassenTask = {
   list_id: string | null;
   phone: string | null;
   prepared_text: string;
+  /** Nur bei `source === "recycling"` gesetzt — welche der vier Ursprungstabellen. */
+  recycle_origin?: RecycleOrigin;
+  /** lost_reason_code | 'dead' | 'fu_exhausted' — für Badge + Aktionen. */
+  recycle_reason?: string | null;
+  recycle_attempt?: number;
 };
 
 function firstName(name: string | null): string {
@@ -170,6 +177,65 @@ export async function getNachfassenTasks(options?: {
     tasks.push({ ...r, list_id, phone, prepared_text });
   }
 
+  // Recycling: eigene RPC (Migration 0032), eigene Anreicherung — die
+  // Entity-IDs hier sind disjunkt zu den vier Zweigen oben (ein FU3-Kontakt
+  // ohne Antwort steht nicht mehr im LinkedIn-Zweig, ein toter Telefon-Lead
+  // nicht mehr im Rückruf-Zweig usw.), deshalb kein Konflikt mit contactInfo/
+  // leadInfo von oben.
+  const recycleRows = await loadRecycleTasksRaw(access);
+  if (recycleRows.length > 0) {
+    const recycleSettings = await getRecycleSettings();
+
+    const rLinkedinIds = recycleRows.filter((r) => r.origin === "linkedin").map((r) => r.entity_id);
+    const rTelefonIds = recycleRows.filter((r) => r.origin === "telefon").map((r) => r.entity_id);
+
+    const rContactList = new Map<string, string>();
+    for (let i = 0; i < rLinkedinIds.length; i += 200) {
+      const { data: cs } = await supabase.from("contacts").select("id, list_id").in("id", rLinkedinIds.slice(i, i + 200));
+      (cs ?? []).forEach((c) => rContactList.set(c.id, c.list_id));
+    }
+    const rLeadInfo = new Map<string, { list_id: string; phone: string | null }>();
+    for (let i = 0; i < rTelefonIds.length; i += 200) {
+      const { data: ls } = await supabase
+        .from("phone_leads")
+        .select("id, list_id, phone")
+        .in("id", rTelefonIds.slice(i, i + 200));
+      (ls ?? []).forEach((l) => rLeadInfo.set(l.id, { list_id: l.list_id, phone: l.phone }));
+    }
+
+    for (const r of recycleRows) {
+      const text = renderRecycleTemplate(recycleSettings[recycleTemplateField(r.origin)], {
+        leadName: r.lead_name,
+        company: r.company,
+        reason: r.reason,
+      });
+      let list_id: string | null = null;
+      let phone: string | null = null;
+      if (r.origin === "linkedin") list_id = rContactList.get(r.entity_id) ?? null;
+      if (r.origin === "telefon") {
+        const info = rLeadInfo.get(r.entity_id);
+        list_id = info?.list_id ?? null;
+        phone = info?.phone ?? null;
+      }
+      tasks.push({
+        source: "recycling",
+        entity_id: r.entity_id,
+        owner_name: r.owner_name,
+        lead_name: r.lead_name,
+        company: r.company,
+        due_at: r.due_at,
+        channel: "Recycling",
+        next_fu_number: null,
+        list_id,
+        phone,
+        prepared_text: text,
+        recycle_origin: r.origin,
+        recycle_reason: r.reason,
+        recycle_attempt: r.attempt_count,
+      });
+    }
+  }
+
   return { tasks, hiddenOlder };
 }
 
@@ -249,6 +315,12 @@ export async function advanceLinkedInFollowUp(contactId: string): Promise<{ erro
     .update({ follow_up_number: done, next_follow_up_at: nextDate })
     .eq("id", contactId);
   if (error) return { error: error.message };
+
+  // FU3 erledigt, ohne dass je geantwortet wurde: der Flow endet hier für
+  // immer (nextDate === null) — eines der vier "toten Enden" (§ Konzept-
+  // Diskussion). Statt spurlos zu verschwinden, bekommt der Kontakt ein
+  // Recycling-Datum. Kein Verlustgrund-Code bei LinkedIn, reason=null.
+  if (nextDate === null && done >= FU_MAX_STAGE) await scheduleRecycle("linkedin", contactId, null);
   revalidatePath("/nachfassen", "page");
   revalidatePath(`/lists/${(c as { list_id: string }).list_id}`, "page");
   revalidatePath("/", "layout");

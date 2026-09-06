@@ -8,11 +8,13 @@ import { ViewTree } from "@/components/listen/ViewTree";
 import type { ViewNode } from "@/lib/listViews";
 import {
   BarChart2,
+  BellRing,
   Building2,
   CalendarDays,
   CalendarPlus,
   ChevronDown,
   ChevronRight,
+  Clock,
   Download,
   GitCompare,
   LineChart,
@@ -109,6 +111,7 @@ function NavLink({
   label,
   onClick,
   exact = false,
+  title,
 }: {
   href: string;
   icon: React.ElementType;
@@ -117,6 +120,9 @@ function NavLink({
   /** Nur die Route selbst faerbt aktiv — noetig, wenn eine Unterseite eine
       eigene Zeile hat (/analyse vs. /analyse/vergleich), sonst leuchten beide. */
   exact?: boolean;
+  /** Tooltip — vor allem fuer Zeilen, die sich vom Namen her aehneln
+      (Erinnerungen vs. Nachfassen) und ohne Erklaerung verwechselbar waeren. */
+  title?: string;
 }) {
   const pathname = usePathname();
   // Aktiv auch auf Unterseiten (/setting/abc → „Setting"); "/" nur exakt.
@@ -124,7 +130,7 @@ function NavLink({
     ? pathname === href
     : pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
   return (
-    <Link href={href} onClick={onClick} className={`sidebar-link${isActive ? " active" : ""}`}>
+    <Link href={href} onClick={onClick} className={`sidebar-link${isActive ? " active" : ""}`} title={title}>
       <Icon size={16} style={{ flexShrink: 0 }} />
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {label}
@@ -932,10 +938,26 @@ export function SidebarContent({
         <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} exact />
         <NavLink href="/analyse/vergleich" icon={GitCompare} label="Vergleich" onClick={onClose} />
         <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
-        {/* ACHTUNG: Hier stand die einzige Verlinkung auf /nachfassen. Sie ist
-            auf Wunsch entfernt; die Route und ihre Funktion bleiben bestehen,
-            sind aber nur noch per direkter URL erreichbar (die fruehere
-            Dashboard-Kachel ist ebenfalls entfallen). */}
+        {/* Zwei bewusst getrennte Werkzeuge, deshalb beide sichtbar UND beide
+            mit erklaerendem Tooltip: "Erinnerungen" ist stundengenau (Termin
+            in 1h unbestaetigt), "Nachfassen" ist die taegliche Wiedervorlage.
+            Einzige Ueberschneidung: ein Closing im Status 'nachfassen' taucht
+            in BEIDEN auf (Tages-Eintrag hier + Uhrzeit-Touches dort) — dafuer
+            hat die Closing-Sektion in NachfassenBoard einen Querverweis. */}
+        <NavLink
+          href="/erinnerungen"
+          icon={BellRing}
+          label="Erinnerungen"
+          onClick={onClose}
+          title="Stundengenaue Termin-Bestätigung vor Setting/Closing/Nachfass-Kontakt"
+        />
+        <NavLink
+          href="/nachfassen"
+          icon={Clock}
+          label="Nachfassen"
+          onClick={onClose}
+          title="Tägliche Wiedervorlage: LinkedIn-Follow-ups, Telefon-Rückrufe, Setting/Closing"
+        />
 
         {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).
             Ghost-Akzent: die einzige Orange-Textaktion in der Navigation. */}

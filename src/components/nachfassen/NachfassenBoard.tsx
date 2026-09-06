@@ -1,6 +1,8 @@
 "use client";
 
 import { advanceLinkedInFollowUp, markLinkedInAnswered, type NachfassenTask } from "@/app/actions/nachfassen";
+import { excludeFromRecycle, markRecycleContacted, markRecycleResponded } from "@/app/actions/recycle";
+import { RECYCLE_REASON_LABELS } from "@/lib/recycleCadence";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import {
   AlertTriangle,
@@ -17,6 +19,8 @@ import {
   Handshake,
   History,
   Phone,
+  RefreshCw,
+  UserX,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -72,6 +76,17 @@ const CHANNEL_META: Record<
     bg: "rgb(63 163 111 / 0.10)",
     border: "rgb(63 163 111 / 0.28)",
   },
+  // Recycling ist kein Kanal wie die anderen vier — es sammelt terminal
+  // negative Leads aus ALLEN vier Ursprüngen (§ Konzept-Diskussion, Migration
+  // 0032). Eigene, bewusst neutrale Farbe statt einer der vier Kanalfarben,
+  // damit die Karte nicht wie ein fünfter Akquise-Kanal aussieht.
+  recycling: {
+    label: "Recycling",
+    icon: <RefreshCw size={11} />,
+    color: "var(--text-muted)",
+    bg: "var(--surface-3)",
+    border: "var(--border-default)",
+  },
 };
 
 const FILTERS: { value: ChannelFilter; label: string }[] = [
@@ -80,6 +95,7 @@ const FILTERS: { value: ChannelFilter; label: string }[] = [
   { value: "telefon", label: "Telefon" },
   { value: "setting", label: "Setting" },
   { value: "closing", label: "Closing" },
+  { value: "recycling", label: "Recycling" },
 ];
 
 /** Fällig-Zeitpunkt de-DE (Europe/Berlin). Datum-only-Strings ohne Uhrzeit formatieren. */
@@ -226,10 +242,12 @@ function TaskCard({ task }: { task: NachfassenTask }) {
     }
   };
 
-  const runLinkedInAction = (action: (id: string) => Promise<{ error?: string }>) => {
+  // Gemeinsamer Runner für alle "Klick löst Server-Action aus, Karte
+  // verschwindet danach"-Buttons (LinkedIn UND Recycling).
+  const runAction = (promise: Promise<{ error?: string }>) => {
     setError(null);
     startTransition(async () => {
-      const res = await action(task.entity_id);
+      const res = await promise;
       if (res.error) {
         setError(res.error);
         return;
@@ -319,6 +337,26 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           >
             {meta.icon} {meta.label}
           </span>
+          {/* Grund + Versuchszähler — nur bei Recycling: der Kanal-Badge sagt
+              hier nur "Recycling", nicht mehr WARUM der Lead hier gelandet ist. */}
+          {task.source === "recycling" && (
+            <span
+              style={{
+                fontSize: "0.625rem",
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                background: "var(--surface-150)",
+                border: "1px solid var(--border)",
+                borderRadius: 99,
+                padding: "0.1rem 0.4rem",
+              }}
+            >
+              {(task.recycle_reason && RECYCLE_REASON_LABELS[task.recycle_reason]) || "Unbekannt"}
+              {typeof task.recycle_attempt === "number" && task.recycle_attempt > 0
+                ? ` · Versuch ${task.recycle_attempt + 1}`
+                : ""}
+            </span>
+          )}
         </div>
       </div>
 
@@ -401,7 +439,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             <button
               type="button"
               disabled={isPending}
-              onClick={() => runLinkedInAction(advanceLinkedInFollowUp)}
+              onClick={() => runAction(advanceLinkedInFollowUp(task.entity_id))}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -423,7 +461,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             <button
               type="button"
               disabled={isPending}
-              onClick={() => runLinkedInAction(markLinkedInAnswered)}
+              onClick={() => runAction(markLinkedInAnswered(task.entity_id))}
               style={{
                 ...linkBtnStyle,
                 color: "var(--color-success-text)",
@@ -472,6 +510,75 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           </Link>
         )}
 
+        {task.source === "recycling" && task.recycle_origin && (
+          <>
+            {task.recycle_origin === "linkedin" && task.list_id && (
+              <Link href={`/lists/${task.list_id}`} style={linkBtnStyle}>
+                Zur Liste <ArrowUpRight size={12} />
+              </Link>
+            )}
+            {task.recycle_origin === "telefon" && task.list_id && (
+              <Link href={`/telefon/${task.list_id}`} style={linkBtnStyle}>
+                <Phone size={12} /> Zum Call-Mode
+              </Link>
+            )}
+            {task.recycle_origin === "setting" && (
+              <Link href={`/setting/${task.entity_id}`} style={linkBtnStyle}>
+                <ClipboardCheck size={12} /> Zum Setting
+              </Link>
+            )}
+            {task.recycle_origin === "closing" && (
+              <Link href={`/closing/${task.entity_id}`} style={linkBtnStyle}>
+                <Handshake size={12} /> Zum Closing
+              </Link>
+            )}
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() =>
+                runAction(
+                  markRecycleContacted(task.recycle_origin!, task.entity_id, task.recycle_reason ?? null),
+                )
+              }
+              style={{
+                ...linkBtnStyle,
+                cursor: isPending ? "default" : "pointer",
+              }}
+              title="Kontaktiert, noch kein Ergebnis — nächster Versuch nach Kadenz"
+            >
+              <RefreshCw size={12} /> Nochmal versucht
+            </button>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => runAction(markRecycleResponded(task.recycle_origin!, task.entity_id))}
+              style={{
+                ...linkBtnStyle,
+                color: "var(--color-success-text)",
+                background: "var(--color-success-bg)",
+                borderColor: "var(--color-success-border)",
+                cursor: isPending ? "default" : "pointer",
+              }}
+              title="Lead ist wieder im Spiel — Recycling stoppen"
+            >
+              <Check size={12} /> Reagiert
+            </button>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => runAction(excludeFromRecycle(task.recycle_origin!, task.entity_id))}
+              style={{
+                ...linkBtnStyle,
+                color: "var(--text-muted)",
+                cursor: isPending ? "default" : "pointer",
+              }}
+              title="Dauerhaft ausschließen — kein weiterer Recycling-Versuch"
+            >
+              <UserX size={12} /> Endgültig raus
+            </button>
+          </>
+        )}
+
         {error && (
           <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-error-text)" }}>{error}</span>
         )}
@@ -515,6 +622,7 @@ const SECTION_META: Record<
   telefon: { icon: <Phone size={12} />, bg: "rgb(78 128 214 / 0.10)", color: "var(--stage-telefon)", tone: "info" },
   setting: { icon: <ClipboardCheck size={12} />, bg: "rgb(139 92 246 / 0.10)", color: "var(--stage-setting)", tone: "neutral" },
   closing: { icon: <Handshake size={12} />, bg: "var(--success-bg)", color: "var(--success-fg)", tone: "success" },
+  recycling: { icon: <RefreshCw size={12} />, bg: "var(--surface-3)", color: "var(--text-muted)", tone: "neutral" },
 };
 
 /* ── Einklappbare Sektion: Header (Chevron + Kachel + Titel + Badge + Divider + Meta) ── */
@@ -598,6 +706,21 @@ function CollapsibleSection({
           </span>
         )}
       </button>
+      {/* Einzige Ueberschneidung mit /erinnerungen: ein Closing im Status
+          'nachfassen' erzeugt dort zusaetzlich bis zu 3 stundengenaue
+          Bestaetigungs-Touches vor dem vereinbarten Kontakt-Zeitpunkt. Hinweis
+          statt Duplizierung der Logik hier — welche Karte konkret eine aktive
+          Kaskade hat, weiss nur /erinnerungen. */}
+      {!collapsed && section.key === "closing" && (
+        <div style={{ margin: "0 0 0.625rem 1.75rem" }}>
+          <Link
+            href="/erinnerungen"
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.6875rem", color: "var(--orange-300)", textDecoration: "none" }}
+          >
+            <Clock size={11} /> Stundengenaue Bestätigungs-Erinnerungen zu diesen Kontakten → Erinnerungen
+          </Link>
+        </div>
+      )}
       {!collapsed && (
         <div id={gridId}>
           <CardGrid tasks={section.tasks} />
@@ -620,7 +743,14 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
   const sorted = useMemo(() => [...tasks].sort((a, b) => dueSortKey(a) - dueSortKey(b)), [tasks]);
 
   const counts = useMemo(() => {
-    const c: Record<ChannelFilter, number> = { alle: tasks.length, linkedin: 0, telefon: 0, setting: 0, closing: 0 };
+    const c: Record<ChannelFilter, number> = {
+      alle: tasks.length,
+      linkedin: 0,
+      telefon: 0,
+      setting: 0,
+      closing: 0,
+      recycling: 0,
+    };
     for (const t of tasks) c[t.source] += 1;
     return c;
   }, [tasks]);
@@ -670,6 +800,13 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
       const group = sorted.filter((t) => t.source === "closing");
       if (group.length > 0) s.push({ key: "closing", label: "Closing", tasks: group });
     }
+    // EINE Recycling-Sektion für alle vier Ursprünge (§ Konzept-Diskussion) —
+    // bewusst nicht nach Ursprung aufgesplittet, die Origin-Badge auf der
+    // Karte zeigt das je Zeile.
+    if (fuFilter == null && (filter === "alle" || filter === "recycling")) {
+      const group = sorted.filter((t) => t.source === "recycling");
+      if (group.length > 0) s.push({ key: "recycling", label: "Recycling", tasks: group });
+    }
     return s;
   }, [sorted, filter, fuFilter]);
 
@@ -684,6 +821,7 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
         <StatChip icon={<AtSign size={12} />} label="Follow-ups" value={counts.linkedin} />
         <StatChip icon={<Phone size={12} />} label="Rückrufe" value={counts.telefon} />
         <StatChip icon={<ClipboardCheck size={12} />} label="Setting" value={counts.setting} />
+        <StatChip icon={<RefreshCw size={12} />} label="Recycling" value={counts.recycling} />
       </div>
 
       {/* ── Kanal-Filter ── */}
@@ -792,7 +930,8 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
               Alles nachgefasst
             </div>
             <p style={{ maxWidth: 380 }}>
-              Sobald LinkedIn-Follow-ups, Telefon-Rückrufe oder Closing-Nachfassen fällig werden, erscheinen sie hier.
+              Sobald LinkedIn-Follow-ups, Telefon-Rückrufe, Setting-/Closing-Nachfassen oder ein Recycling-Versuch
+              fällig werden, erscheinen sie hier.
             </p>
           </div>
         </div>

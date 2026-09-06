@@ -2,10 +2,21 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
+import { berlinDateISO } from "@/lib/apptTime";
 import { CLOSING_LOST_REASON_CODES, type ClosingLostReasonCode } from "@/lib/types";
+import {
+  createNoShowTouch,
+  deleteTouchesForEntity,
+  generateClosingCascade,
+  generateFollowUpCascade,
+  supersedeTouches,
+} from "@/app/actions/reminders";
+import { scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
 
 // Closing-Call bearbeiten. Terminal: gewonnen (→ CRM), verloren, nachfassen.
+
+const OFFSET_TOUCHES = ["offset_1", "offset_2", "offset_3"] as const;
 
 export type ClosingCallPatch = {
   call_at?: string | null;
@@ -20,6 +31,8 @@ export type ClosingCallPatch = {
   /** Zählbarer Verlustgrund (Migration 0029) — die Statistik hängt daran. */
   lost_reason_code?: ClosingLostReasonCode | null;
   follow_up_due?: string | null;
+  /** Präziser Nachfass-Zeitpunkt (Migration 0031) — Basis der Erinnerungs-Kaskade. */
+  follow_up_due_at?: string | null;
   recording_link?: string | null;
   objections_handled?: string | null;
   objections_open?: string | null;
@@ -29,6 +42,23 @@ export type ClosingCallPatch = {
   lead_name?: string | null;
   company?: string | null;
 };
+
+/**
+ * Hält `follow_up_due` (date) synchron zu `follow_up_due_at` (timestamptz).
+ *
+ * `nachfassen_tasks` liest weiter unverändert `follow_up_due` — diese eine
+ * Stelle ist der einzige Ort, an dem beide Felder je nach demselben Wert
+ * gesetzt werden, damit sie nie auseinanderlaufen können. Nur aktiv, wenn
+ * `follow_up_due_at` im Patch tatsächlich vorkommt (nicht `undefined`) —
+ * ein Patch, der nur andere Felder ändert, rührt das Datum nicht an.
+ */
+function withFollowUpDateSynced(patch: ClosingCallPatch): ClosingCallPatch {
+  if (!("follow_up_due_at" in patch)) return patch;
+  return {
+    ...patch,
+    follow_up_due: patch.follow_up_due_at ? berlinDateISO(patch.follow_up_due_at) : null,
+  };
+}
 
 // Nicht nur "RLS hat die Zeile durchgelassen": fuer einen Plattform-Admin
 // laesst RLS jede Zeile durch. Die aktive Organisation entscheidet.
@@ -45,11 +75,48 @@ async function canAccessClosingCall(id: string): Promise<boolean> {
   return Boolean(data);
 }
 
-export async function updateClosingCall(id: string, patch: ClosingCallPatch): Promise<{ error?: string }> {
+export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch): Promise<{ error?: string }> {
   if (!(await canAccessClosingCall(id))) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
+
+  // Vorherigen show_status lesen, BEVOR geschrieben wird — nur ein echter
+  // Übergang zu 'no_show' (nicht schon vorher 'no_show') löst den Sofort-
+  // Touch aus. Dasselbe Vorher-Lesen-Muster wie in setClosingOutcome.
+  const patch = withFollowUpDateSynced(rawPatch);
+  const showStatusChanging = "show_status" in patch;
+  let previousShowStatus: "show" | "no_show" | null = null;
+  if (showStatusChanging) {
+    const { data: current } = await supabase
+      .from("closing_calls")
+      .select("show_status")
+      .eq("id", id)
+      .maybeSingle();
+    previousShowStatus = (current as { show_status: "show" | "no_show" | null } | null)?.show_status ?? null;
+  }
+
   const { error } = await supabase.from("closing_calls").update(patch).eq("id", id);
   if (error) return { error: error.message };
+
+  // Termin (Closing-Call selbst) verschoben — z. B. per Drag&Drop im
+  // Kalender, das hier landet, weil es kein eigenes moveClosingAppointment
+  // gibt: Kaskade gegen den neuen Zeitpunkt neu aufbauen.
+  if ("call_at" in patch) {
+    await supersedeTouches("closing", id, OFFSET_TOUCHES);
+    await generateClosingCascade(id);
+  }
+  // Nachfass-Zeitpunkt geändert (unabhängig vom Ergebnis-Dialog, z. B. beim
+  // Nachpflegen eines bestehenden Nachfassen-Closings).
+  if ("follow_up_due_at" in patch) {
+    await supersedeTouches("closing_followup", id);
+    if (patch.follow_up_due_at) await generateFollowUpCascade(id);
+  }
+  // Der No-Show-Toggle im Closing-Editor läuft über genau diesen Pfad
+  // (handleShowStatus → save({ show_status })), nicht über setClosingOutcome
+  // — closing_calls kennt kein eigenes No-Show-Outcome, nur den Schalter.
+  if (showStatusChanging && patch.show_status === "no_show" && previousShowStatus !== "no_show") {
+    await createNoShowTouch("closing", id);
+  }
+
   revalidatePath(`/closing/${id}`, "page");
   revalidatePath("/termine", "page");
   revalidatePath("/crm", "page");
@@ -87,12 +154,19 @@ export async function setClosingOutcome(input: {
   /** Zählbarer Verlustgrund. Pflicht bei `outcome = 'verloren'`. */
   lostReasonCode?: ClosingLostReasonCode | null;
   followUpDue?: string | null;
+  /**
+   * Präziser Nachfass-Zeitpunkt (ISO, Migration 0031) — Basis der
+   * Erinnerungs-Kaskade für den vereinbarten Nachfass-Kontakt. Wird
+   * mitgegeben, überschreibt er `followUpDue` (das reine Datum leitet sich
+   * daraus ab, siehe `withFollowUpDateSynced`).
+   */
+  followUpDueAt?: string | null;
 }): Promise<{ error?: string }> {
   // Berechtigung IMMER als erste Anweisung — vor jeder Validierung, sonst
   // verrieten die Fehlermeldungen einem Fremden etwas über die Zeile.
   if (!(await canAccessClosingCall(input.closingId))) return { error: "Keine Berechtigung." };
-  if (input.outcome === "nachfassen" && !input.followUpDue) {
-    return { error: "Für „Nachfassen“ ist ein Wiedervorlage-Datum erforderlich." };
+  if (input.outcome === "nachfassen" && !input.followUpDue && !input.followUpDueAt) {
+    return { error: "Für „Nachfassen“ ist ein Wiedervorlage-Zeitpunkt erforderlich." };
   }
   // Validiert wird jetzt der CODE, nicht mehr der Freitext: gezählt werden kann
   // nur der Code, und ein erzwungener Freitext hat die Auswertung jahrelang mit
@@ -113,6 +187,7 @@ export async function setClosingOutcome(input: {
     patch.contract_start = input.contractStart ?? null;
     patch.signature_received = input.signatureReceived ?? null;
     patch.follow_up_due = null;
+    patch.follow_up_due_at = null;
   } else if (input.outcome === "verloren") {
     patch.closed = false;
     patch.lost_reason_code = lostReasonCode;
@@ -120,8 +195,10 @@ export async function setClosingOutcome(input: {
     // eine leere Kontextzeile, die wie eine Angabe aussieht.
     patch.lost_reason = input.lostReason?.trim() || null;
     patch.follow_up_due = null;
+    patch.follow_up_due_at = null;
   } else {
     patch.follow_up_due = input.followUpDue ?? null;
+    patch.follow_up_due_at = input.followUpDueAt ?? null;
   }
 
   const supabase = await createClient();
@@ -143,8 +220,25 @@ export async function setClosingOutcome(input: {
     patch.show_status = "show";
   }
 
-  const { error } = await supabase.from("closing_calls").update(patch).eq("id", input.closingId);
+  const { error } = await supabase.from("closing_calls").update(withFollowUpDateSynced(patch)).eq("id", input.closingId);
   if (error) return { error: error.message };
+
+  // Ein Ergebnis entscheidet das Schicksal des Closing-Termins — dessen
+  // eigene Kaskade ist damit obsolet, unabhängig vom Outcome.
+  await supersedeTouches("closing", input.closingId, OFFSET_TOUCHES);
+  if (input.outcome === "nachfassen") {
+    // Neuer Nachfass-Zeitpunkt: Kaskade dagegen neu aufbauen.
+    await supersedeTouches("closing_followup", input.closingId);
+    await generateFollowUpCascade(input.closingId);
+  } else {
+    // gewonnen/verloren: kein Nachfass-Termin mehr offen.
+    await supersedeTouches("closing_followup", input.closingId);
+  }
+  // Verloren ist kein Ende — der Lead bekommt ein Recycling-Datum, dessen
+  // Wartezeit vom Verlustgrund abhängt (§ Konzept-Diskussion, Migration 0032).
+  // 'falsche_zielgruppe' bekommt dort bewusst keins.
+  if (input.outcome === "verloren") await scheduleRecycle("closing", input.closingId, lostReasonCode);
+
   revalidatePath(`/closing/${input.closingId}`, "page");
   revalidatePath("/termine", "page");
   revalidatePath("/crm", "page");
@@ -174,6 +268,9 @@ export async function deleteClosingCall(id: string): Promise<{ error?: string }>
 
   const { error } = await supabase.from("closing_calls").delete().eq("id", id);
   if (error) return { error: error.message };
+
+  await deleteTouchesForEntity("closing", id);
+  await deleteTouchesForEntity("closing_followup", id);
 
   if (settingId) {
     await supabase

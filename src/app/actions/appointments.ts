@@ -6,6 +6,7 @@ import { berlinInputToIso } from "@/lib/apptTime";
 import { SELECTABLE_CHANNELS, type SelectableChannelKey } from "@/lib/channels";
 import { ownerUserIdOfList } from "@/lib/personResolution";
 import { logCallAttempt } from "@/app/actions/phoneAttempts";
+import { generateSettingCascade } from "@/app/actions/reminders";
 import { revalidatePath } from "next/cache";
 
 // Termin=Ja → erzeugt automatisch einen Setting-Call-Eintrag und nimmt den Lead
@@ -220,6 +221,12 @@ export async function convertContactToSetting(input: {
     settingCallId = sc.id;
   }
 
+  // Erinnerungs-Kaskade neu berechnen — deckt sowohl das erste Buchen als
+  // auch ein nachträglich geändertes Datum ab (regenerateOffsetTouches
+  // supersedet vorher offene Touches selbst). Fail-soft, blockiert die
+  // Buchung nicht.
+  if (settingCallId) await generateSettingCascade(settingCallId);
+
   // Kontakt terminieren + aus dem Follow-up-Flow nehmen. Kein revalidatePath:
   // das Board refresht selbst (onSaved), alle anderen Routen sind dynamisch.
   //
@@ -308,6 +315,8 @@ export async function createManualSetting(input: {
     .select("id")
     .single();
   if (scErr || !sc) return { error: scErr?.message ?? "Termin konnte nicht angelegt werden." };
+
+  await generateSettingCascade(sc.id);
 
   revalidatePath("/termine", "page");
   return { settingCallId: sc.id };
@@ -424,6 +433,9 @@ export async function convertPhoneLeadToSetting(input: {
     if (scErr || !sc) return { error: scErr?.message ?? "Setting-Eintrag fehlgeschlagen." };
     settingCallId = sc.id;
   }
+
+  // Erinnerungs-Kaskade neu berechnen — siehe Kommentar in convertContactToSetting.
+  if (settingCallId) await generateSettingCascade(settingCallId);
 
   const { error: upErr } = await supabase
     .from("phone_leads")
