@@ -132,9 +132,29 @@ begin
     end if;
 
   elsif p_origin = 'setting' then
+    -- Die Absage ohne Aussicht steht gleichberechtigt neben den beiden Status:
+    -- Sie lässt `status` bewusst unangetastet (meist 'offen'), damit ein
+    -- abgesagter Termin über `show_status is null` aus dem Nenner der Show- und
+    -- Quali-Quote fällt, statt sie zu verfälschen (0032, Abschnitt 3). Ohne
+    -- diesen Zweig wäre genau der Preis dafür, dass die Ablage „Abgesagt ohne
+    -- Aussicht" NIE eine Wiedervorlage bekommt — obwohl `recycle_tasks` unten
+    -- genau diesen Zweig abfragt und ihn damit anzeigen könnte.
+    --
+    -- Die Wartezeit teilt sie sich mit dem toten Lead
+    -- (`days_default_setting_dead`). Ein eigener Absage-Wert wäre eine weitere
+    -- Zahl in den Einstellungen, deren Unterschied zum Nachbarn niemand
+    -- erklären kann — eine geteilte Frist ist ehrlicher als eine erfundene.
+    -- 'unqualifiziert' behält seinen eigenen Wert und geht vor: ein Termin, der
+    -- stattfand und den Lead aussortiert hat, sagt mehr als seine Absage.
+    -- Dasselbe gilt für den No-Show ohne Antwort: Die Kette endet laut Konzept
+    -- bei „Ziel ist es eine klare Antwort zu erhalten" und danach „Ablauf geht
+    -- erneut von vorne los" — das Recycling IST dieses Von-vorne. Auch hier
+    -- bleibt `status` unangetastet, damit die No-Show-Quote stimmt.
     select sc.disqualify_reason_code, sc.recycle_attempt_count,
            (sc.recycle_excluded_at is not null or sc.revived_at is not null
-            or sc.status not in ('dead', 'unqualifiziert')),
+            or (sc.status not in ('dead', 'unqualifiziert')
+                and sc.cancel_outlook is distinct from 'ohne_aussicht'
+                and sc.no_show_resolution is distinct from 'ohne_antwort')),
            case when sc.status = 'unqualifiziert'
                 then s.days_default_setting_disqualified
                 else s.days_default_setting_dead end
@@ -352,6 +372,21 @@ grant execute on function public.recycle_tasks (uuid, date, uuid) to authenticat
 -- cancelled_at und liefe beim ersten Statuswechsel auseinander — derselbe
 -- Fehler, den call_assignees hinterlassen hat. Nebeneffekt der Ableitung: die
 -- Listen sind am ersten Tag automatisch gefüllt.
+--
+-- Fünf der sechs Listen kennen nur die beiden Termin-Tabellen — sie leiten sich
+-- aus Absage, Disqualifizierung, Verlust und No-Show ab, also aus Ereignissen,
+-- die es nur an einem Termin gibt. Die Sperrliste ist die Ausnahme: Gesperrt
+-- wird über `recycle_excluded_at`, und das steht auf ALLEN VIER
+-- Recycling-Tabellen. „Endgültig sperren" ist im Nachfassen-Board für alle vier
+-- Ursprünge anklickbar; blieben `contacts` und `phone_leads` hier draußen,
+-- verschwände ein so gesperrter LinkedIn- oder Telefon-Kontakt aus jeder
+-- Ansicht — und ein Kontaktverbot, das niemand sieht, ist keines. Genau das ist
+-- der Grund, aus dem diese eine Liste org-weit liefert.
+
+-- Der Rückgabetyp trägt seit der Aufnahme der beiden Lead-Ursprünge eine
+-- Spalte mehr; `create or replace` kann einen Rückgabetyp nicht wechseln
+-- (Muster recycle_tasks weiter oben).
+drop function if exists public.dropout_lists (uuid, text, uuid);
 
 create or replace function public.dropout_lists (
   p_workspace_id      uuid,
@@ -372,7 +407,12 @@ returns table (
   recycle_attempt_count integer,
   excluded         boolean,
   revived_at       timestamptz,
-  reschedule_count integer
+  reschedule_count integer,
+  -- Nur für die beiden Lead-Ursprünge gefüllt: LinkedIn-Kontakte und
+  -- Telefon-Leads haben keine eigene Detailseite, der Verweis führt zu ihrer
+  -- Liste. Bei Terminen bleibt die Spalte NULL — dort führt der Verweis auf
+  -- /setting/<id> bzw. /closing/<id>.
+  list_id          uuid
 )
 language plpgsql
 stable
@@ -409,7 +449,8 @@ begin
              else sc.cancel_reason end,
            coalesce(sc.cancelled_at, sc.updated_at, sc.created_at),
            sc.next_recycle_at, sc.recycle_attempt_count,
-           sc.recycle_excluded_at is not null, sc.revived_at, sc.reschedule_count
+           sc.recycle_excluded_at is not null, sc.revived_at, sc.reschedule_count,
+           null::uuid
       from public.setting_calls sc
       left join public.profiles p on p.user_id = coalesce(sc.assigned_user_id, sc.created_by_user_id)
      where sc.workspace_id = p_workspace_id
@@ -431,7 +472,8 @@ begin
            case p_list when 'kein_close' then cc.lost_reason else cc.cancel_reason end,
            coalesce(cc.cancelled_at, cc.updated_at, cc.created_at),
            cc.next_recycle_at, cc.recycle_attempt_count,
-           cc.recycle_excluded_at is not null, cc.revived_at, cc.reschedule_count
+           cc.recycle_excluded_at is not null, cc.revived_at, cc.reschedule_count,
+           null::uuid
       from public.closing_calls cc
       left join public.profiles p on p.user_id = coalesce(cc.assigned_user_id, cc.created_by_user_id)
      where cc.workspace_id = p_workspace_id
@@ -444,6 +486,51 @@ begin
              when 'gesperrt'            then cc.recycle_excluded_at is not null
              else false
            end
+
+    union all
+
+    -- LinkedIn-Kontakt, dauerhaft gesperrt. Nur diese eine Liste: ein Kontakt
+    -- hat keine Absage, keine Disqualifizierung und keinen Verlustgrund — die
+    -- übrigen fünf Listen beschreiben Ereignisse, die es an ihm nicht gibt.
+    -- Die Person kommt über die LISTE (owner_name hat Vorrang vor dem
+    -- Ersteller, docs §2), nicht über eine Zuweisung: die gibt es nur an
+    -- Terminen, deshalb bleibt assigned_user_id hier NULL.
+    select 'linkedin'::text, c.id, c.name, c.company, l.owner_name,
+           null::uuid,
+           -- Warum der Lead terminal wurde ('fu_exhausted'), sofern das
+           -- Recycling ihn je erfasst hat. Einen Freitext dazu gibt es nicht —
+           -- `notes` ist ein Notizfeld, kein Grund.
+           c.recycle_reason_code, null::text,
+           coalesce(c.recycle_excluded_at, c.updated_at, c.created_at),
+           c.next_recycle_at, c.recycle_attempt_count,
+           c.recycle_excluded_at is not null, null::timestamptz, 0,
+           c.list_id
+      from public.contacts c
+      join public.lists l on l.id = c.list_id
+     where c.workspace_id = p_workspace_id
+       and p_list = 'gesperrt'
+       and c.recycle_excluded_at is not null
+       -- Wirkt heute nie (die Sperrliste nullt v_user oben), steht aber wie in
+       -- jedem anderen Zweig da: sonst wäre der Personenfilter eine Regel, die
+       -- an genau einer Stelle fehlt.
+       and (v_user is null or public.list_owned_by_user(l.owner_name, l.created_by_user_id, v_user))
+
+    union all
+
+    -- Telefon-Lead, dauerhaft gesperrt. Gleiche Begründung wie oben.
+    select 'telefon'::text, pl.id, pl.decider_name, pl.company, pll.owner_name,
+           null::uuid,
+           pl.recycle_reason_code, null::text,
+           coalesce(pl.recycle_excluded_at, pl.updated_at, pl.created_at),
+           pl.next_recycle_at, pl.recycle_attempt_count,
+           pl.recycle_excluded_at is not null, null::timestamptz, 0,
+           pl.list_id
+      from public.phone_leads pl
+      join public.phone_lists pll on pll.id = pl.list_id
+     where pl.workspace_id = p_workspace_id
+       and p_list = 'gesperrt'
+       and pl.recycle_excluded_at is not null
+       and (v_user is null or public.list_owned_by_user(pll.owner_name, pll.created_by_user_id, v_user))
   ) rows;
 end;
 $$;
@@ -466,3 +553,36 @@ grant execute on function public.dropout_lists (uuid, text, uuid) to authenticat
 -- Die Sperrliste ignoriert die Datensicht (als Mitglied mit data_scope='own'
 -- aufrufen; muss auch fremde gesperrte Leads zeigen):
 --   select count(*) from public.dropout_lists('<workspace>', 'gesperrt');
+--
+-- Die Sperrliste deckt ALLE VIER Recycling-Tabellen ab. Die erste Abfrage zeigt
+-- die Zusammensetzung, die zweite ist der eigentliche Test: sie zählt gesperrte
+-- LinkedIn- und Telefon-Kontakte, die es NICHT in die Liste schaffen — muss 0
+-- ergeben. Vor der Erweiterung waren das alle davon, und ein Kontaktverbot, das
+-- niemand sieht, ist keines:
+--   select entity_type, count(*) from public.dropout_lists('<workspace>', 'gesperrt')
+--    group by 1 order by 1;
+--   select (select count(*) from public.contacts
+--            where workspace_id = '<workspace>' and recycle_excluded_at is not null)
+--        + (select count(*) from public.phone_leads
+--            where workspace_id = '<workspace>' and recycle_excluded_at is not null)
+--        - (select count(*) from public.dropout_lists('<workspace>', 'gesperrt')
+--            where entity_type in ('linkedin', 'telefon')) as fehlend;
+--
+-- Nur die beiden Lead-Ursprünge tragen eine list_id, die Termine nie — sonst
+-- zeigt der Verweis in der Ablage ins Leere. Beide müssen 0 ergeben:
+--   select count(*) from public.dropout_lists('<workspace>', 'gesperrt')
+--    where entity_type in ('linkedin', 'telefon') and list_id is null;
+--   select count(*) from public.dropout_lists('<workspace>', 'gesperrt')
+--    where entity_type in ('setting', 'closing') and list_id is not null;
+--
+-- Abgesagte Erstgespräche bekommen eine Wiedervorlage: `schedule_recycle` gibt
+-- für ein Setting mit cancel_outlook='ohne_aussicht' ein Datum zurück (NULL
+-- hieße, der Status-Riegel greift weiterhin) …
+--   select public.schedule_recycle('<workspace>', 'setting', '<setting mit ohne_aussicht>');
+-- … und die Zeile landet damit in `recycle_tasks`, sobald das Datum fällig ist:
+--   select count(*) from public.recycle_tasks('<workspace>', current_date + 400)
+--    where origin = 'setting';
+--
+-- Gegenprobe: ein Termin, der WEDER dead/unqualifiziert noch ohne Aussicht
+-- abgesagt ist, bekommt weiterhin nichts — muss NULL liefern:
+--   select public.schedule_recycle('<workspace>', 'setting', '<offener Termin>');

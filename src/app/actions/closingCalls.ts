@@ -9,6 +9,7 @@ import {
   deleteTouchesForEntity,
   generateClosingCascade,
   generateFollowUpCascade,
+  generateKeinCloseChain,
   supersedeTouches,
 } from "@/app/actions/reminders";
 import { scheduleRecycle } from "@/app/actions/recycle";
@@ -37,6 +38,12 @@ export type ClosingCallPatch = {
   follow_up_due?: string | null;
   /** Präziser Nachfass-Zeitpunkt (Migration 0031) — Basis der Erinnerungs-Kaskade. */
   follow_up_due_at?: string | null;
+  /**
+   * Wiedervorlage des Recyclings. Gesetzt wird sie ausschließlich von
+   * `schedule_recycle()`; schreibbar ist sie hier nur, um sie beim Eintragen
+   * eines Verlustgrunds ZURÜCKZUNEHMEN — siehe `setClosingOutcome`.
+   */
+  next_recycle_at?: string | null;
   recording_link?: string | null;
   objections_handled?: string | null;
   objections_open?: string | null;
@@ -62,6 +69,21 @@ function withFollowUpDateSynced(patch: ClosingCallPatch): ClosingCallPatch {
     ...patch,
     follow_up_due: patch.follow_up_due_at ? berlinDateISO(patch.follow_up_due_at) : null,
   };
+}
+
+/**
+ * Der CHECK aus 0032 bindet `no_show_resolution` an `show_status='no_show'`.
+ * Wandert der Show-Status auf etwas anderes — oder zurück auf NULL —, muss der
+ * Ausgang mitgehen, sonst weist Postgres das ganze UPDATE ab: der Nutzer sähe
+ * eine Constraint-Meldung, wo er nur den No-Show-Schalter umgelegt hat.
+ *
+ * Bewusst als zweite kurze Kopie neben derselben Funktion in settingCalls.ts —
+ * ein `"use server"`-Modul darf nur async Funktionen exportieren, ein geteilter
+ * Helfer bräuchte also eine dritte Datei für vier Zeilen.
+ */
+function withNoShowResolutionCleared(patch: ClosingCallPatch): ClosingCallPatch & { no_show_resolution?: null } {
+  if (!("show_status" in patch) || patch.show_status === "no_show") return patch;
+  return { ...patch, no_show_resolution: null };
 }
 
 // Nicht nur "RLS hat die Zeile durchgelassen": fuer einen Plattform-Admin
@@ -98,7 +120,7 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
     previousShowStatus = (current as { show_status: "show" | "no_show" | null } | null)?.show_status ?? null;
   }
 
-  const { error } = await supabase.from("closing_calls").update(patch).eq("id", id);
+  const { error } = await supabase.from("closing_calls").update(withNoShowResolutionCleared(patch)).eq("id", id);
   if (error) return { error: error.message };
 
   // Termin (Closing-Call selbst) verschoben — z. B. per Drag&Drop im
@@ -200,6 +222,15 @@ export async function setClosingOutcome(input: {
     patch.lost_reason = input.lostReason?.trim() || null;
     patch.follow_up_due = null;
     patch.follow_up_due_at = null;
+    // Eine bereits geplante Wiedervorlage wird ZUERST abgeräumt. Der Grund ist
+    // nachträglich änderbar („Auch nachträglich änderbar" steht im Dialog), und
+    // 'falsche_zielgruppe' wie 'kein_fit' bekommen nie ein Datum — ein CHECK aus
+    // 0033 hält das fest. Ohne dieses Nullen scheiterte genau der Wechsel von
+    // „Timing" auf „Kein Fit" an diesem CHECK, und der Nutzer bekäme eine rohe
+    // Postgres-Meldung, obwohl er nur einen Grund umgestellt hat. Für alle
+    // anderen Gründe ist es folgenlos: `schedule_recycle()` rechnet die
+    // Wartezeit unmittelbar danach ohnehin ab heute neu aus.
+    patch.next_recycle_at = null;
   } else {
     patch.follow_up_due = input.followUpDue ?? null;
     patch.follow_up_due_at = input.followUpDueAt ?? null;
@@ -224,7 +255,10 @@ export async function setClosingOutcome(input: {
     patch.show_status = "show";
   }
 
-  const { error } = await supabase.from("closing_calls").update(withFollowUpDateSynced(patch)).eq("id", input.closingId);
+  const { error } = await supabase
+    .from("closing_calls")
+    .update(withNoShowResolutionCleared(withFollowUpDateSynced(patch)))
+    .eq("id", input.closingId);
   if (error) return { error: error.message };
 
   // Ein Ergebnis entscheidet das Schicksal des Closing-Termins — dessen
@@ -239,14 +273,23 @@ export async function setClosingOutcome(input: {
     await supersedeTouches("closing_followup", input.closingId);
   }
   // Verloren ist kein Ende — der Lead bekommt ein Recycling-Datum, dessen
-  // Wartezeit vom Verlustgrund abhängt. 'falsche_zielgruppe' bekommt dort
-  // bewusst keins.
+  // Wartezeit vom Verlustgrund abhängt. 'falsche_zielgruppe' und 'kein_fit'
+  // bekommen dort bewusst keins: der eine Lead hätte nie in den Funnel gehört,
+  // beim anderen hat das Gespräch gezeigt, dass es nicht passt.
   //
   // Der Code wird NICHT mitgeschickt: `schedule_recycle()` liest ihn aus der
   // Zeile, die einen Satz weiter oben geschrieben wurde. Ein vom Client
   // gelieferter Grund war per direktem POST frei wählbar — und damit jede
   // beliebige Wartezeit.
-  if (input.outcome === "verloren") await scheduleRecycle("closing", input.closingId);
+  if (input.outcome === "verloren") {
+    await scheduleRecycle("closing", input.closingId);
+    // „Kein Abschluss" ist kein Schweigen: erst die Zusammenfassung, dann —
+    // falls keine Antwort kommt — das Nachhaken. Anker ist das EREIGNIS, also
+    // dieser Moment, nicht der (womöglich Tage zurückliegende) Termin. Fail-soft
+    // wie alle Kaskaden-Aufrufe: eine ausgefallene Kette darf ein eingetragenes
+    // Ergebnis nicht zurückrollen.
+    await generateKeinCloseChain(input.closingId);
+  }
 
   revalidatePath(`/closing/${input.closingId}`, "page");
   revalidatePath("/termine", "page");

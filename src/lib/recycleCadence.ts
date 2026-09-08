@@ -69,6 +69,7 @@ export const RECYCLE_REASON_LABELS: Record<string, string> = {
   vertrauen: "Vertrauen",
   ghosting: "Ghosting",
   falsche_zielgruppe: "Falsche Zielgruppe",
+  kein_fit: "Kein Fit",
   sonstiges: "Sonstiges",
   dead: "Dead",
   fu_exhausted: "Ohne Antwort",
@@ -98,8 +99,11 @@ const RECYCLE_REASON_FALLBACK_HINT = "es gibt vielleicht Neues zu besprechen";
  * kurzer "Breakup"-Touch zuerst (Recherche: die Absage-Nachricht bekommt oft
  * die höchste Antwortquote der ganzen Sequenz), danach das lange Intervall.
  *
- * `falsche_zielgruppe` liefert bewusst `null` — der Lead war nie der
- * richtige Fit, kein automatisches Recycling (§ Konzept-Diskussion).
+ * `falsche_zielgruppe` und `kein_fit` liefern bewusst `null` — der eine Lead
+ * hätte nie in den Funnel gehört, beim anderen hat das Gespräch gezeigt, dass
+ * es nicht passt. In beiden Fällen kein automatisches Recycling; die Regel
+ * steht wortgleich in `schedule_recycle()` (Migration 0033) und als CHECK auf
+ * `closing_calls`.
  */
 export function recycleIntervalDays(
   origin: RecycleOrigin,
@@ -114,6 +118,7 @@ export function recycleIntervalDays(
   // origin === "closing" — Grund entscheidet.
   switch (reason) {
     case "falsche_zielgruppe":
+    case "kein_fit":
       return null;
     case "timing":
       return settings.days_timing;

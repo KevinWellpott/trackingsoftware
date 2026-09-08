@@ -8,10 +8,12 @@ import {
   createNoShowTouch,
   deleteTouchesForEntity,
   generateClosingCascade,
+  generateClosingKickoff,
   generateSettingCascade,
+  getPipelineSettings,
   supersedeTouches,
 } from "@/app/actions/reminders";
-import { scheduleRecycle } from "@/app/actions/recycle";
+import { clearRecycle, excludeFromRecycle, scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
 
 // Setting-Call bearbeiten (Script-Antworten + strukturierte Felder + Status)
@@ -52,29 +54,24 @@ export type SettingCallPatch = {
   wa_phone?: string | null;
   /** Zeitstempel der dokumentierten Einwilligung zur WhatsApp-Kontaktierung (UWG). */
   wa_consent_at?: string | null;
+  /**
+   * Dokumentierte Verweigerung „will keine Nummer rausgeben" (Entscheidung E10).
+   * Muss schreibbar sein, sonst ist die begründete Ausnahme beim Übergang
+   * Qualifiziert → Closing nicht erfassbar — und eine Verweigerung wäre von einer
+   * Erfassungslücke nicht zu unterscheiden. Die CHECKs aus 0032 verlangen dabei:
+   * gesetzt nur OHNE `wa_phone`, und `wa_consent_at` nur MIT einer Nummer.
+   */
+  wa_refused_at?: string | null;
 };
 
-// Die Pruefung stuetzt sich nicht mehr allein darauf, dass RLS die Zeile
-// durchgelassen hat: fuer einen Plattform-Admin laesst RLS JEDE Zeile durch.
-// Massgeblich ist die aktive Organisation — sonst koennte eine alte URL aus
-// einer anderen Organisation dort hineinschreiben.
 async function canAccessSettingCall(id: string): Promise<boolean> {
-  const access = await getAccessContext();
-  if (!access) return false;
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("setting_calls")
-    .select("id")
-    .eq("id", id)
-    .eq("workspace_id", access.workspace_id)
-    .maybeSingle();
-  return Boolean(data);
+  return canAccessAppointment("setting", id);
 }
 
 export async function updateSettingCall(id: string, patch: SettingCallPatch): Promise<{ error?: string }> {
   if (!(await canAccessSettingCall(id))) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
-  const { error } = await supabase.from("setting_calls").update(patch).eq("id", id);
+  const { error } = await supabase.from("setting_calls").update(withNoShowResolutionCleared(patch)).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath(`/setting/${id}`, "page");
   revalidatePath("/termine", "page");
@@ -100,11 +97,17 @@ export async function setSettingOutcome(input: {
   if (input.outcome === "qualifiziert") return createClosingFromSetting(input.settingId);
 
   const supabase = await createClient();
-  const patch: SettingCallPatch = { status: input.outcome };
+  // Lokal erweitert um den No-Show-Ausgang: der gehoert NICHT in
+  // `SettingCallPatch`, sonst schriebe ihn ein direkter POST auf
+  // `updateSettingCall` an `setNoShowResolution` und dessen Pruefung vorbei.
+  const patch: SettingCallPatch & { no_show_resolution?: NoShowResolution | null } = { status: input.outcome };
 
   if (input.outcome === "no_show") {
     patch.show_status = "no_show";
     patch.follow_up_due = input.followUpDue ?? null;
+    // Ein neuer No-Show ist ein neues Ereignis — der Ausgang des vorherigen
+    // ('antwort' o. ae.) beschreibt ihn nicht mehr.
+    patch.no_show_resolution = null;
     // Zähler trägt die No-Show-Historie über spätere Neuterminierungen hinweg.
     const { data } = await supabase
       .from("setting_calls")
@@ -120,7 +123,10 @@ export async function setSettingOutcome(input: {
     patch.follow_up_due = null;
   }
 
-  const { error } = await supabase.from("setting_calls").update(patch).eq("id", input.settingId);
+  const { error } = await supabase
+    .from("setting_calls")
+    .update(withNoShowResolutionCleared(patch))
+    .eq("id", input.settingId);
   if (error) return { error: error.message };
 
   // Ein Ergebnis entscheidet das Schicksal des Termins — die Bestätigungs-
@@ -164,6 +170,11 @@ export async function rescheduleSetting(
       status: "offen",
       show_status: null,
       follow_up_due: null,
+      // Muss mit: der CHECK aus 0032 laesst `no_show_resolution` nur neben
+      // `show_status='no_show'` stehen. Der Ersatztermin ist damit ein
+      // fluechtiger Vermerk — dauerhaft bleibt die Historie in `no_show_count`
+      // und im neuen `appointment_at`.
+      no_show_resolution: null,
     })
     .eq("id", settingId);
   if (error) return { error: error.message };
@@ -263,11 +274,14 @@ export async function createClosingFromSetting(
 
   // Qualifiziert heißt: er war da. Wiedervorlage aus einem früheren No-Show/
   // Unqualifiziert entfällt, sonst bliebe der Call im Nachfassen-Board hängen.
-  const qualifiedPatch: SettingCallPatch = {
+  const qualifiedPatch: SettingCallPatch & { no_show_resolution?: NoShowResolution | null } = {
     status: "closing_gelegt",
     closing_scheduled: true,
     show_status: "show",
     follow_up_due: null,
+    // Zwingend zusammen mit `show_status`: siehe `withNoShowResolutionCleared`.
+    // Ein qualifiziertes Setting ist kein No-Show mehr.
+    no_show_resolution: null,
   };
 
   // Bereits vorhandenen Closing-Call wiederverwenden
@@ -345,6 +359,11 @@ export async function createClosingFromSetting(
 
   await supersedeTouches("setting", settingId, ["setting_msg"]);
   await generateClosingCascade(closing.id);
+  // Die Nachricht direkt nach der Qualifizierung — Anker ist das ANLEGEN des
+  // Closings, nicht sein Termin. Bewusst nur in diesem Zweig: der Zweig oben
+  // loest auch ein laengst bestehendes Closing auf („Zum Closing →"), und dort
+  // wuerde jeder Klick die Kette mit neuen Faelligkeiten neu aufsetzen.
+  await generateClosingKickoff(closing.id);
 
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
@@ -396,5 +415,367 @@ export async function deleteSettingCall(id: string): Promise<{ error?: string }>
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
+  return {};
+}
+
+/* ------------------------------------------------------------------ *
+ * Termin-Lebenszyklus: verschoben · abgesagt · disqualifiziert · No-Show-Ausgang
+ * ------------------------------------------------------------------ */
+
+// Die Ereignisse, die im Konzept ZWISCHEN den Kästen stehen. Bisher wurden sie
+// als Statuswechsel verbucht und waren danach nicht mehr auseinanderzuhalten:
+// „abgesagt", „vom Lead verschoben" und „niemand erschienen" sahen alle wie ein
+// stiller Sprung auf einen anderen `status` aus.
+//
+// Alle drei Actions liegen HIER und nicht je zur Hälfte in closingCalls.ts:
+// `setting_calls` und `closing_calls` tragen seit 0032 dieselben
+// Lebenszyklus-Spalten, nur die Zeitspalte heißt anders. Zwei fast gleiche
+// Kopien wären zwei Stellen, an denen die Regel „nur der Lead zählt" auseinander
+// laufen kann.
+
+/** Beide Termin-Tabellen — die gemeinsamen Actions lösen den Unterschied intern auf. */
+export type AppointmentEntity = "setting" | "closing";
+
+/** Absage-Gründe (CHECK aus Migration 0032). */
+export type CancelReasonCode = "kein_neuer_termin" | "krank" | "familiaer" | "beruflich" | "preis" | "sonstiges";
+
+/** Wie es nach der Absage weitergeht. Beide Zweige haben eine Ablage-Ansicht. */
+export type CancelOutlook = "ohne_aussicht" | "neuer_termin";
+
+export type NoShowResolution = "antwort" | "ohne_antwort" | "ersatztermin";
+
+/** Disqualifizierungs-Gründe (CHECK aus Migration 0032, nur Setting). */
+export type DisqualifyReasonCode =
+  | "geld"
+  | "kein_budget"
+  | "kein_bedarf"
+  | "falscher_zeitpunkt"
+  | "kein_entscheider"
+  | "falsche_zielgruppe"
+  | "keine_zusammenarbeit"
+  | "sonstiges";
+
+// Die Listen bleiben modul-intern: ein `"use server"`-Modul darf ausschließlich
+// async Funktionen exportieren, ein exportiertes Array wäre ein Build-Fehler.
+const CANCEL_REASON_CODES: readonly CancelReasonCode[] = [
+  "kein_neuer_termin",
+  "krank",
+  "familiaer",
+  "beruflich",
+  "preis",
+  "sonstiges",
+];
+const CANCEL_OUTLOOKS: readonly CancelOutlook[] = ["ohne_aussicht", "neuer_termin"];
+const NO_SHOW_RESOLUTIONS: readonly NoShowResolution[] = ["antwort", "ohne_antwort", "ersatztermin"];
+const DISQUALIFY_REASON_CODES: readonly DisqualifyReasonCode[] = [
+  "geld",
+  "kein_budget",
+  "kein_bedarf",
+  "falscher_zeitpunkt",
+  "kein_entscheider",
+  "falsche_zielgruppe",
+  "keine_zusammenarbeit",
+  "sonstiges",
+];
+
+const APPOINTMENT_TABLE = { setting: "setting_calls", closing: "closing_calls" } as const;
+
+/** Der EINZIGE strukturelle Unterschied der beiden Tabellen für diese Actions. */
+const APPOINTMENT_TIME_COLUMN = { setting: "appointment_at", closing: "call_at" } as const;
+
+/**
+ * Server Actions sind per direktem POST erreichbar — ohne diese Prüfung liefe
+ * ein beliebiger String in den CHECK der Datenbank, und der Nutzer bekäme eine
+ * rohe Postgres-Meldung statt einer Ansage. (Muster `isLostReasonCode`.)
+ */
+function isOneOf<T extends string>(codes: readonly T[], value: unknown): value is T {
+  return typeof value === "string" && (codes as readonly string[]).includes(value);
+}
+
+/**
+ * Der CHECK aus 0032 bindet `no_show_resolution` an `show_status='no_show'`.
+ * Wandert der Show-Status auf etwas anderes — oder zurück auf NULL —, muss der
+ * Ausgang mitgehen, sonst weist Postgres das ganze UPDATE ab: der Nutzer sähe
+ * eine Constraint-Meldung, wo er nur ein Häkchen umgelegt hat.
+ */
+function withNoShowResolutionCleared<T extends { show_status?: "show" | "no_show" | null }>(patch: T): T {
+  if (!("show_status" in patch) || patch.show_status === "no_show") return patch;
+  return { ...patch, no_show_resolution: null };
+}
+
+// Die Pruefung stuetzt sich nicht allein darauf, dass RLS die Zeile
+// durchgelassen hat: fuer einen Plattform-Admin laesst RLS JEDE Zeile durch.
+// Massgeblich ist die aktive Organisation — sonst koennte eine alte URL aus
+// einer anderen Organisation dort hineinschreiben.
+async function canAccessAppointment(entityType: AppointmentEntity, id: string): Promise<boolean> {
+  const access = await getAccessContext();
+  if (!access) return false;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from(APPOINTMENT_TABLE[entityType])
+    .select("id")
+    .eq("id", id)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  return Boolean(data);
+}
+
+function revalidateAppointment(entityType: AppointmentEntity, id: string): void {
+  revalidatePath(`/${entityType}/${id}`, "page");
+  revalidatePath("/termine", "page");
+  revalidatePath("/erinnerungen", "page");
+  revalidatePath("/nachfassen", "page");
+  revalidatePath("/", "layout");
+}
+
+/** Berlin-Wandzeit ("2026-07-27T10:00") oder bereits ISO-UTC — wie `moveSettingAppointment`. */
+function toAppointmentIso(value: string): string | null {
+  return value.endsWith("Z") ? value : berlinInputToIso(value);
+}
+
+export type PostponeResult = {
+  error?: string;
+  /** Kontingent überschritten. Eine WARNUNG, keine Sperre — die Oberfläche muss sie aktiv bestätigen lassen. */
+  warn?: "limit";
+  /** Stand des Zählers nach dieser Verschiebung. */
+  count?: number;
+  max?: number;
+};
+
+/**
+ * Termin verschieben — eine Action für beide Tabellen.
+ *
+ * `byLead` ist der ganze Punkt: `reschedule_count` zählt NUR Verschiebungen
+ * durch den LEAD. Der Kalender-Drag und die interne Umplanung des Verkäufers
+ * gehören nicht dazu, sonst misst der Zähler die Disziplin des eigenen Teams
+ * statt der Verbindlichkeit des Leads — und die Warnung träfe die Falschen.
+ * Ein Ersatztermin nach No-Show zählt ebenfalls nicht (Entscheidung E9); der
+ * läuft über `rescheduleSetting`, ist ein frischer Anlauf und rührt den Zähler
+ * hier gar nicht erst an.
+ *
+ * Über dem Kontingent wird GEMELDET, nicht blockiert (Entscheidung E6): die
+ * Oberfläche zeigt die Warnung, lässt sie bestätigen und schlägt die Ablage
+ * „abgesagt ohne Aussicht" vor.
+ */
+export async function postponeAppointment(
+  entityType: AppointmentEntity,
+  id: string,
+  newIso: string,
+  byLead: boolean,
+): Promise<PostponeResult> {
+  if (!(await canAccessAppointment(entityType, id))) return { error: "Keine Berechtigung." };
+  const appointmentIso = toAppointmentIso(newIso);
+  if (!appointmentIso) return { error: "Ungültiger Termin." };
+
+  const supabase = await createClient();
+  const table = APPOINTMENT_TABLE[entityType];
+  const { data } = await supabase
+    .from(table)
+    .select("reschedule_count, cancelled_at")
+    .eq("id", id)
+    .maybeSingle();
+  const current = data as { reschedule_count: number | null; cancelled_at: string | null } | null;
+  if (!current) return { error: "Termin nicht gefunden." };
+  // Ein abgesagter Termin bekommt hier kein neues Datum: die Zeile stünde
+  // danach zugleich als abgesagt und als terminiert da, und die Kaskade räumt
+  // für `cancelled_at` jeden Touch ab — der Termin wäre lautlos ohne
+  // Erinnerung. Der Weg zurück führt über einen neuen Termin.
+  if (current.cancelled_at) {
+    return { error: "Der Termin ist abgesagt — bitte einen neuen Termin anlegen statt zu verschieben." };
+  }
+
+  const count = (current.reschedule_count ?? 0) + (byLead ? 1 : 0);
+  const patch: Record<string, unknown> = { [APPOINTMENT_TIME_COLUMN[entityType]]: appointmentIso };
+  if (byLead) {
+    patch.reschedule_count = count;
+    patch.last_reschedule_at = new Date().toISOString();
+  }
+
+  const { error } = await supabase.from(table).update(patch).eq("id", id);
+  if (error) return { error: error.message };
+
+  if (entityType === "setting") {
+    await mirrorAppointmentToSource(id, appointmentIso);
+    await generateSettingCascade(id);
+  } else {
+    await generateClosingCascade(id);
+  }
+  revalidateAppointment(entityType, id);
+
+  // Die Warnung hängt am STAND des Zählers, nicht am einzelnen Klick: „dieser
+  // Lead hat viermal verschoben" bleibt wahr, auch wenn gerade der Verkäufer
+  // umgeplant hat.
+  const { settings } = await getPipelineSettings();
+  const max = settings.max_reschedules;
+  return count > max ? { warn: "limit", count, max } : { count, max };
+}
+
+/**
+ * Termin absagen. `outlook` trennt die beiden Fälle, die im Konzept getrennt
+ * bleiben müssen: 'ohne_aussicht' landet in der Ablage, 'neuer_termin' in der
+ * Liste der offenen Ersatztermine — keiner der beiden darf aus der Oberfläche
+ * fallen.
+ *
+ * Der Grund ist fachlich Pflicht („Grund der Absage muss erfasst werden!"),
+ * erzwungen aber HIER über den Rückgabewert und nicht per Constraint: der
+ * Trigger dazu kommt bewusst erst nach dem Verifikationsfenster, damit die
+ * laufende Produktion nicht an einem Update ohne Code zerbricht.
+ *
+ * `status` und `show_status` bleiben unangetastet — 0032 hat für die Absage
+ * absichtlich eigene Spalten bekommen: ein abgesagter Termin fällt über
+ * `show_status is null` korrekt aus dem Show-Quoten-Nenner, statt als No-Show
+ * zu zählen.
+ *
+ * Genau daraus folgt der Nachsatz für 'ohne_aussicht': Weil der Status stehen
+ * bleibt, erkennt kein Statuswechsel das Ende des Vorgangs — die Wiedervorlage
+ * muss hier ausdrücklich eingeplant werden, sonst verschwände der Lead in der
+ * Ablage und käme nie wieder heraus. `schedule_recycle()` lässt den Zweig seit
+ * derselben Migration zu, die `recycle_tasks` bereits danach fragen ließ.
+ *
+ * Nur beim Erstgespräch. Ein abgesagtes CLOSING bekommt hier bewusst nichts:
+ * Der Zweig von `recycle_tasks`, der Closings liefert, hängt an
+ * `status='verloren'`, und die Wartezeit eines Closings hängt am
+ * `lost_reason_code`, den eine bloße Absage nicht hat. Ein Datum wäre dort
+ * unsichtbar und grundlos zugleich. Der Weg für ein Closing, das wirklich vorbei
+ * ist, führt über „verloren" mit Grund — der plant das Recycling mit der
+ * richtigen Frist ein.
+ */
+export async function cancelAppointment(
+  entityType: AppointmentEntity,
+  id: string,
+  input: { reasonCode: CancelReasonCode; reasonText?: string | null; outlook: CancelOutlook },
+): Promise<{ error?: string }> {
+  if (!(await canAccessAppointment(entityType, id))) return { error: "Keine Berechtigung." };
+  if (!isOneOf(CANCEL_REASON_CODES, input.reasonCode)) return { error: "Bitte einen Grund für die Absage angeben." };
+  if (!isOneOf(CANCEL_OUTLOOKS, input.outlook)) {
+    return { error: "Bitte angeben, ob es einen neuen Termin geben soll." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from(APPOINTMENT_TABLE[entityType])
+    .update({
+      cancelled_at: new Date().toISOString(),
+      cancel_reason_code: input.reasonCode,
+      // Leerer Freitext wird NULL statt "" — sonst steht in der Detailseite eine
+      // leere Zeile, die wie eine Angabe aussieht.
+      cancel_reason: input.reasonText?.trim() || null,
+      cancel_outlook: input.outlook,
+    })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  // Abgesagt heißt: es gibt nichts mehr zu bestätigen. Ohne dieses Entwerten
+  // erinnert die App an einen Termin, den beide Seiten abgeräumt haben.
+  // Gemeint ist der TERMIN — ein am selben Closing vereinbarter Nachfass-Kontakt
+  // (`closing_followup`) hängt an `follow_up_due_at` und bleibt bewusst stehen.
+  await supersedeTouches(entityType, id);
+
+  // „Ohne Aussicht" ist ein totes Ende wie 'dead' — also eine Wiedervorlage
+  // statt eines stillen Verschwindens. Fail-soft wie jeder Kaskaden- und
+  // Recycling-Aufruf: eine ausgefallene Wiedervorlage darf die Absage selbst
+  // nicht zurückrollen; die Ablage zeigt den Vorgang dann ohne Datum, und
+  // „Recycling vorziehen" holt ihn von Hand zurück.
+  if (entityType === "setting" && input.outlook === "ohne_aussicht") {
+    await scheduleRecycle("setting", id);
+  }
+
+  revalidateAppointment(entityType, id);
+  return {};
+}
+
+/**
+ * Grund der Disqualifizierung festhalten (nur Setting — ein Closing hat dafür
+ * `lost_reason_code`).
+ *
+ * `keine_zusammenarbeit` ist die rote Notiz „kein weiteres kontaktieren!" aus
+ * dem Konzept: Der Lead bekommt kein Wiedervorlage-Datum, sondern ein
+ * Kontaktverbot. `falsche_zielgruppe` bekommt ebenfalls nie eines — dort ist
+ * es keine Sperre, sondern schlicht der falsche Fit.
+ *
+ * Beide müssen ein BEREITS gesetztes Datum wieder abräumen: `setSettingOutcome
+ * ('dead')` plant das Recycling sofort ein, der Grund wird oft erst danach
+ * eingetragen. `schedule_recycle()` allein genügt hier also nicht — die
+ * Funktion kennt nur den Moment ihres eigenen Aufrufs.
+ */
+export async function setDisqualifyReason(
+  id: string,
+  input: { code: DisqualifyReasonCode; text?: string | null },
+): Promise<{ error?: string }> {
+  if (!(await canAccessSettingCall(id))) return { error: "Keine Berechtigung." };
+  if (!isOneOf(DISQUALIFY_REASON_CODES, input.code)) return { error: "Bitte einen Grund auswählen." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("setting_calls")
+    .update({ disqualify_reason_code: input.code, disqualify_reason: input.text?.trim() || null })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  // Nicht fail-soft: ein Kontaktverbot, das lautlos scheitert, ist keines.
+  if (input.code === "keine_zusammenarbeit") {
+    const res = await excludeFromRecycle("setting", id);
+    if (res.error) return { error: `Grund gespeichert, Kontaktverbot fehlgeschlagen: ${res.error}` };
+  } else if (input.code === "falsche_zielgruppe") {
+    const res = await clearRecycle("setting", id);
+    if (res.error) return { error: `Grund gespeichert, Wiedervorlage nicht entfernt: ${res.error}` };
+  }
+
+  revalidateAppointment("setting", id);
+  return {};
+}
+
+/**
+ * Ausgang eines No-Shows festhalten.
+ *
+ * 'ohne_antwort' ist der einzige saubere Auslöser für die Ablage-Ansicht
+ * „No-Show ohne Antwort" — vorher war dieser Fall von „noch nicht nachgefasst"
+ * nicht zu unterscheiden.
+ *
+ * Zulässig nur bei `show_status='no_show'`; genau das erzwingt auch der CHECK
+ * aus 0032. Geprüft wird trotzdem hier, damit der Nutzer eine Ansage bekommt
+ * statt einer Constraint-Meldung.
+ */
+export async function setNoShowResolution(
+  entityType: AppointmentEntity,
+  id: string,
+  resolution: NoShowResolution,
+): Promise<{ error?: string }> {
+  if (!(await canAccessAppointment(entityType, id))) return { error: "Keine Berechtigung." };
+  if (!isOneOf(NO_SHOW_RESOLUTIONS, resolution)) return { error: "Unbekannter No-Show-Ausgang." };
+
+  const supabase = await createClient();
+  const table = APPOINTMENT_TABLE[entityType];
+  const { data } = await supabase.from(table).select("show_status").eq("id", id).maybeSingle();
+  const showStatus = (data as { show_status: string | null } | null)?.show_status ?? null;
+  if (showStatus !== "no_show") {
+    return { error: "Nur für einen Termin, bei dem niemand erschienen ist." };
+  }
+
+  const { error } = await supabase.from(table).update({ no_show_resolution: resolution }).eq("id", id);
+  if (error) return { error: error.message };
+
+  // Antwort und Ersatztermin beenden die No-Show-Kette — die zweite Stufe fragt
+  // „keine Antwort?" und wäre nach einer Antwort eine peinliche Dopplung.
+  // 'ohne_antwort' lässt sie stehen: dort IST das Ausbleiben das Ergebnis.
+  if (resolution !== "ohne_antwort") {
+    await supersedeTouches(entityType, id, [entityType === "closing" ? "no_show_closing" : "no_show_setting"]);
+  }
+
+  // Bleibt die Antwort aus, ist die Kette zu Ende — und das Konzept sagt an
+  // dieser Stelle "ABLAUF GEHT ERNEUT VON VORNE LOS". Genau das ist das
+  // Recycling: der Lead kommt nach der konfigurierten Wartezeit zurueck,
+  // statt in der Ablage liegen zu bleiben. Ohne diesen Aufruf fragt
+  // `recycle_tasks` den Zweig zwar ab, aber niemand traegt je ein Datum ein.
+  //
+  // Nur fuer das Erstgespraech: der Closing-Zweig von `recycle_tasks` haengt
+  // an `status='verloren'`, ein Datum auf einem bloss nicht erschienenen
+  // Closing waere unsichtbar. Der saubere Weg dort ist "verloren" mit Grund,
+  // weil daran auch die richtige Wartezeit haengt.
+  if (entityType === "setting" && resolution === "ohne_antwort") {
+    await scheduleRecycle("setting", id);
+  }
+
+  revalidateAppointment(entityType, id);
   return {};
 }

@@ -173,6 +173,14 @@ export type SettingCall = {
  *
  * `falsche_zielgruppe` ist der einzige Code, der nicht das Closing bewertet,
  * sondern die Stufe davor: Er macht messbar, wer falsch qualifiziert.
+ *
+ * `kein_fit` (CHECK erweitert in Migration 0032) ist das Closing-Pendant zu
+ * `keine_zusammenarbeit` beim Erstgespräch — die rote Konzept-Notiz „kein
+ * weiteres kontaktieren!". Er steht neben `falsche_zielgruppe` und nicht in
+ * ihm auf: „falsche Zielgruppe" heißt, der Lead hätte nie in den Funnel
+ * gehört (ein Fehler der Qualifizierung), „kein Fit" heißt, das Gespräch hat
+ * gezeigt, dass es nicht passt (ein Ergebnis des Closings). Beide bekommen nie
+ * ein Recycling-Datum — bei allen anderen Gründen hängt die Wartezeit am Code.
  */
 export type ClosingLostReasonCode =
   | "preis"
@@ -183,9 +191,12 @@ export type ClosingLostReasonCode =
   | "vertrauen"
   | "ghosting"
   | "falsche_zielgruppe"
+  | "kein_fit"
   | "sonstiges";
 
-/** Auswahl-Reihenfolge im UI: häufigste Gründe zuerst, „Sonstiges" zuletzt. */
+/** Auswahl-Reihenfolge im UI: häufigste Gründe zuerst, „Sonstiges" zuletzt.
+    Die beiden Gründe ohne Recycling stehen direkt nebeneinander — sie sind das
+    Ende der Auswahl und dieselbe Art von Entscheidung. */
 export const CLOSING_LOST_REASON_CODES: readonly ClosingLostReasonCode[] = [
   "preis",
   "timing",
@@ -195,6 +206,7 @@ export const CLOSING_LOST_REASON_CODES: readonly ClosingLostReasonCode[] = [
   "vertrauen",
   "ghosting",
   "falsche_zielgruppe",
+  "kein_fit",
   "sonstiges",
 ];
 
@@ -211,6 +223,7 @@ export const CLOSING_LOST_REASON_LABELS: Record<ClosingLostReasonCode, string> =
   vertrauen: "Vertrauen",
   ghosting: "Ghosting",
   falsche_zielgruppe: "Falsche Zielgruppe",
+  kein_fit: "Kein Fit",
   sonstiges: "Sonstiges",
 };
 

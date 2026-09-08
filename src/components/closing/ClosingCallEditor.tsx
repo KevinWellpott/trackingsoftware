@@ -11,6 +11,13 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 // Alias: diese Datei hat ein eigenes, privates <Toggle> fuer die Modal-Felder.
 import { Toggle as UiToggle } from "@/components/ui/Toggle";
 import { SettingMirror, type SettingContext } from "@/components/closing/SettingMirror";
+import { CascadePanel } from "@/components/termine/CascadePanel";
+import {
+  AppointmentLifecycleBar,
+  CancelledBanner,
+  RescheduleHint,
+} from "@/components/termine/AppointmentLifecycleBar";
+import type { AppointmentLifecycle } from "@/components/termine/lifecycleMeta";
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { CLOSING_BLOCKS, LEGACY_CLOSING_BLOCKS } from "@/lib/scripts";
 import {
@@ -42,7 +49,13 @@ import { useEffect, useRef, useState, useTransition } from "react";
 type UserOption = { user_id: string; username: string };
 
 type Props = {
-  call: ClosingCall;
+  /**
+   * Die Lebenszyklus-Spalten aus 0032 stehen als `Partial` daneben, statt in
+   * `ClosingCall` — dieselbe Begründung wie im Setting-Editor: Die Detailseite
+   * lädt mit `select("*")`, der geteilte Typ trägt aber die Achsen aller
+   * Auswertungen, und diese Felder braucht bisher nur der Editor.
+   */
+  call: ClosingCall & Partial<AppointmentLifecycle>;
   users: UserOption[];
   /**
    * Nur Admins duerfen umverteilen — identisch zum Setting. Vorher stand das
@@ -273,6 +286,11 @@ export function ClosingCallEditor({
   // existiert die Ansicht. Ohne Setting gibt es den Umschalter gar nicht.
   const [settingOpen, setSettingOpen] = useState(Boolean(settingContext));
 
+  // Das Kaskaden-Panel holt seine Daten über eine Server-Action und hängt nicht
+  // an den Props der Seite — router.refresh() erreicht es deshalb nicht.
+  const [cascadeToken, setCascadeToken] = useState(0);
+  const bumpCascade = () => setCascadeToken((t) => t + 1);
+
   useEffect(() => {
     return () => {
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
@@ -314,6 +332,9 @@ export function ClosingCallEditor({
       setStatus(outcome);
       close();
       flashSaved();
+      // „Verloren" startet die Kein-Close-Kette, „Nachfassen" die Kaskade vor
+      // dem vereinbarten Rückkontakt — beides muss das Panel sofort zeigen.
+      bumpCascade();
       router.refresh();
     });
   }
@@ -339,6 +360,8 @@ export function ClosingCallEditor({
     const value = showStatus === next ? null : next;
     setShowStatus(value);
     save({ show_status: value });
+    // Ein echter Übergang auf 'no_show' startet serverseitig die No-Show-Kette.
+    bumpCascade();
   }
 
   // Setzt alles zurueck, was das ERGEBNIS beschreibt. Script-Antworten,
@@ -587,6 +610,9 @@ export function ClosingCallEditor({
             // Uhrzeit bestaetigt) — kein Autosave pro Tastendruck.
             if (v === isoToLocalInput(call.call_at)) return;
             save({ call_at: localInputToIso(v) }, { refresh: true });
+            // Ein neuer Termin heißt neue Fälligkeiten — das Panel darf nicht
+            // die alten weiterzeigen.
+            bumpCascade();
           }}
           ariaLabel="Termin"
         />
@@ -709,6 +735,24 @@ export function ClosingCallEditor({
           <RotateCcw size={13} /> Zurücksetzen
         </button>
 
+        {/* Termin-Ereignisse neben der Korrektur, nicht bei den Ergebnissen:
+            Verschieben und Absagen sagen nichts über den Ausgang des Gesprächs
+            und rühren `status`/`show_status` bewusst nicht an. */}
+        <AppointmentLifecycleBar
+          entityType="closing"
+          id={call.id}
+          appointmentAt={call.call_at}
+          showStatus={showStatus}
+          lifecycle={call}
+          disabled={isPending}
+          onChanged={() => {
+            flashSaved();
+            bumpCascade();
+            router.refresh();
+          }}
+        />
+        <RescheduleHint lifecycle={call} />
+
         {status === "gewonnen" && currentDealVolume != null && !Number.isNaN(currentDealVolume) && (
           <span className="tnum" style={metaText}>
             {formatEur(currentDealVolume)}
@@ -799,9 +843,19 @@ export function ClosingCallEditor({
         </div>
       )}
 
+      {/* ── Abgesagt (Migration 0032) ── */}
+      <CancelledBanner lifecycle={call} />
+
       {/* ── Zuweisung + Call-Details: beides ganz oben ── */}
       {assignCard}
       {detailsCard}
+
+      {/* ── Erinnerungs-Kaskade dieses Termins ──
+          Steht im Termin-Layout und nicht nur auf /erinnerungen: Wer das
+          Closing öffnet, muss sehen, welche Nachricht als nächste rausgeht und
+          über welchen Kanal. Beim Closing kommt der Kanal vom verknüpften
+          Setting — nur dort steht die persönliche Nummer. */}
+      <CascadePanel entityType="closing" entityId={call.id} reloadToken={cascadeToken} />
 
       {/* ── Umschalter: Setting neben dem Script ── */}
       {settingContext && (
@@ -984,8 +1038,8 @@ export function ClosingCallEditor({
               onChange={setLostReasonCode}
             />
           </div>
-          {/* Der Freitext bleibt — nur nicht mehr als Pflicht. Neun Codes
-              koennen „will erst nach der Messe" nicht abbilden; Code =
+          {/* Der Freitext bleibt — nur nicht mehr als Pflicht. Eine feste
+              Codeliste kann „will erst nach der Messe" nicht abbilden; Code =
               Statistik, Freitext = Gedaechtnis. */}
           <div>
             <span style={fieldLabel}>Notiz (optional)</span>

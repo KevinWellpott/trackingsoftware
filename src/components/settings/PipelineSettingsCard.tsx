@@ -93,8 +93,10 @@ const ATTEMPTS_FIELD: FieldSpec = {
 };
 
 // Reihenfolge = Erzähl-Reihenfolge: kurze Wartezeit zuerst, lange zuletzt.
-// 'falsche_zielgruppe' hat bewusst kein Feld — dieser Lead war nie der
-// richtige Fit und bekommt nie ein Recycling-Datum.
+// 'falsche_zielgruppe' und 'kein_fit' haben bewusst kein Feld — der eine Lead
+// haette nie in den Funnel gehoert, beim anderen hat das Gespraech gezeigt,
+// dass es nicht passt. Beide bekommen nie ein Recycling-Datum, eine Wartezeit
+// waere dort eine Einstellung ohne Wirkung.
 const LOST_REASON_FIELDS: FieldSpec[] = [
   { field: "days_ghosting_breakup", label: "Ghosting — Breakup-Touch (Tage)", min: DAY_MIN, max: DAY_MAX },
   { field: "days_timing", label: "Timing (Tage)", min: DAY_MIN, max: DAY_MAX },

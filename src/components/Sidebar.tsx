@@ -7,6 +7,7 @@ import { SearchTrigger } from "@/components/search/SearchDialog";
 import { ViewTree } from "@/components/listen/ViewTree";
 import type { ViewNode } from "@/lib/listViews";
 import {
+  Archive,
   BarChart2,
   BellRing,
   Building2,
@@ -957,6 +958,18 @@ export function SidebarContent({
           label="Nachfassen"
           onClick={onClose}
           title="Tägliche Wiedervorlage: LinkedIn-Follow-ups, Telefon-Rückrufe, Setting/Closing"
+        />
+        {/* Die Gegenrichtung zu den beiden Zeilen darueber: dort steht, was
+            noch ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
+            Bereich verschwaende ein abgesagter oder verlorener Vorgang
+            lautlos; die Sperrliste darin ist die einzige Ansicht der App, die
+            die Datensicht bewusst ignoriert. */}
+        <NavLink
+          href="/ablage"
+          icon={Archive}
+          label="Ablage"
+          onClick={onClose}
+          title="Ausgeschiedene Vorgänge: abgesagt, disqualifiziert, kein Close, No-Show ohne Antwort — plus die org-weite Sperrliste"
         />
 
         {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).

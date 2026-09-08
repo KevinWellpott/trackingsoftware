@@ -3,9 +3,11 @@
 import {
   createClosingFromSetting,
   rescheduleSetting,
+  setDisqualifyReason,
   setSettingOutcome,
   updateSettingCall,
   deleteSettingCall,
+  type DisqualifyReasonCode,
   type SettingCallPatch,
 } from "@/app/actions/settingCalls";
 import { AssigneeSelect } from "@/components/assignees/AssigneeSelect";
@@ -15,13 +17,31 @@ import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { DateTimeField } from "@/components/ui/DateTimeField";
+import { CascadePanel } from "@/components/termine/CascadePanel";
+import {
+  AppointmentLifecycleBar,
+  CancelledBanner,
+  RescheduleHint,
+} from "@/components/termine/AppointmentLifecycleBar";
+import { DisqualifyReasonFields } from "@/components/termine/lifecycleUi";
+import { DISQUALIFY_REASON_LABELS, type SettingLifecycle } from "@/components/termine/lifecycleMeta";
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { channelLabel } from "@/lib/channels";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { LEGACY_SETTING_BLOCKS, SETTING_BLOCKS, SETTING_GOLD_BLOCKS } from "@/lib/scripts";
 import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
 import type { SettingCall, SettingStatus } from "@/lib/types";
-import { ArrowRight, CalendarClock, Check, ChevronRight, FileText, MessageSquareQuote, RotateCcw, UserX, Users } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarClock,
+  Check,
+  ChevronRight,
+  FileText,
+  MessageSquareQuote,
+  RotateCcw,
+  UserX,
+  Users,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
@@ -39,7 +59,15 @@ import { useEffect, useRef, useState, useTransition } from "react";
 type UserOption = { user_id: string; username: string };
 
 type Props = {
-  call: SettingCall;
+  /**
+   * Die Lebenszyklus-Spalten aus Migration 0032 stehen als `Partial` daneben,
+   * statt in `SettingCall` (src/lib/types.ts): Die Detailseite lädt mit
+   * `select("*")`, zur Laufzeit sind sie also da — der geteilte Typ trägt aber
+   * die Achsen aller Auswertungen, und diese Felder braucht bisher nur der
+   * Editor. `Partial` deckt zusätzlich den Fall ab, dass 0032 noch nicht
+   * eingespielt ist.
+   */
+  call: SettingCall & Partial<SettingLifecycle>;
   users: UserOption[];
   /** Nur Admins duerfen umverteilen; alle anderen sehen die Zuordnung fest. */
   canAssign?: boolean;
@@ -193,6 +221,9 @@ export function SettingCallEditor({
   const [recordingLink, setRecordingLink] = useState(call.recording_link ?? "");
   const [waPhone, setWaPhone] = useState(call.wa_phone ?? "");
   const [waConsent, setWaConsent] = useState(Boolean(call.wa_consent_at));
+  // „Will keine Nummer rausgeben" (E10) — eine dokumentierte Ausnahme, kein
+  // leeres Feld. Nur so ist sie von einer Erfassungslücke zu unterscheiden.
+  const [waRefused, setWaRefused] = useState(Boolean(call.wa_refused_at));
   const [notes, setNotes] = useState(call.notes ?? "");
   const [closingDone, setClosingDone] = useState(call.status === "closing_gelegt");
   // Id des angelegten Closings (nach createClosingFromSetting bekannt; bei
@@ -212,6 +243,20 @@ export function SettingCallEditor({
   // weder im Kalender noch in der Wochenplanung auf.
   const [closingModalOpen, setClosingModalOpen] = useState(false);
   const [closingAt, setClosingAt] = useState(toDatetimeLocal(call.closing_at));
+
+  // Grund der Disqualifizierung: im Dialog „Unqualifiziert" erfasst (dort
+  // entsteht der Zustand) und über „Grund nachtragen" korrigierbar.
+  const [disqualifyCode, setDisqualifyCode] = useState<DisqualifyReasonCode | null>(
+    call.disqualify_reason_code ?? null,
+  );
+  const [disqualifyText, setDisqualifyText] = useState(call.disqualify_reason ?? "");
+  const [disqualifyOnlyOpen, setDisqualifyOnlyOpen] = useState(false);
+
+  // Das Kaskaden-Panel lädt seine Daten selbst; nach jedem Eingriff in den
+  // Termin muss es das erneut tun. router.refresh() erreicht es nicht — es
+  // hängt an einer Server-Action, nicht an den Props der Seite.
+  const [cascadeToken, setCascadeToken] = useState(0);
+  const bumpCascade = () => setCascadeToken((t) => t + 1);
 
   useEffect(() => {
     return () => {
@@ -291,6 +336,7 @@ export function SettingCallEditor({
       setFollowUpDue(due);
       setError(null);
       flashSaved();
+      bumpCascade();
       router.refresh();
     });
   }
@@ -299,12 +345,22 @@ export function SettingCallEditor({
     setModalError(null);
     setSkipFollowUp(false);
     setFollowUpDate(followUpDue ?? addDaysISO(localDateISO(), FOLLOW_UP_DEFAULT_DAYS[outcome]));
+    setDisqualifyCode(call.disqualify_reason_code ?? null);
+    setDisqualifyText(call.disqualify_reason ?? "");
     setFollowUpModal(outcome);
   }
 
   function submitFollowUpOutcome(outcome: FollowUpOutcome) {
     if (!skipFollowUp && !followUpDate) {
       setModalError("Bitte ein Datum wählen oder „Kein Nachfassen“ ankreuzen.");
+      return;
+    }
+    // „Unqualifiziert" IST die Disqualifizierung — der Grund gehört deshalb in
+    // denselben Schritt und nicht in einen zweiten Dialog daneben. Ohne Code
+    // steht die Zeile später in der Ablage „Disqualifiziert" ohne Grund, und
+    // die Auswertung „woran scheitert die Qualifizierung" bleibt leer.
+    if (outcome === "unqualifiziert" && !disqualifyCode) {
+      setModalError("Bitte einen Grund auswählen.");
       return;
     }
     const due = skipFollowUp ? null : followUpDate;
@@ -314,11 +370,49 @@ export function SettingCallEditor({
         setModalError(res.error);
         return;
       }
+      if (outcome === "unqualifiziert" && disqualifyCode) {
+        // Nicht fail-soft weitergereicht: „Zusammenarbeit macht keinen Sinn"
+        // setzt ein Kontaktverbot, und ein lautlos gescheitertes Kontaktverbot
+        // ist keines (setDisqualifyReason meldet das ausdrücklich zurück).
+        const reasonRes = await setDisqualifyReason(call.id, {
+          code: disqualifyCode,
+          text: disqualifyText.trim() || null,
+        });
+        if (reasonRes?.error) {
+          setModalError(reasonRes.error);
+          setStatus(outcome);
+          router.refresh();
+          return;
+        }
+      }
       setStatus(outcome);
       setShowStatus(outcome === "no_show" ? "no_show" : "show");
       setFollowUpDue(due);
       setFollowUpModal(null);
       setError(null);
+      flashSaved();
+      bumpCascade();
+      router.refresh();
+    });
+  }
+
+  /** Grund nachtragen, wenn Status und Grund auseinanderliefen (Bestandszeilen). */
+  function submitDisqualifyOnly() {
+    if (!disqualifyCode) {
+      setModalError("Bitte einen Grund auswählen.");
+      return;
+    }
+    startTransition(async () => {
+      const res = await setDisqualifyReason(call.id, {
+        code: disqualifyCode,
+        text: disqualifyText.trim() || null,
+      });
+      if (res?.error) {
+        setModalError(res.error);
+        return;
+      }
+      setModalError(null);
+      setDisqualifyOnlyOpen(false);
       flashSaved();
       router.refresh();
     });
@@ -343,6 +437,7 @@ export function SettingCallEditor({
       setRescheduleOpen(false);
       setError(null);
       flashSaved();
+      bumpCascade();
       router.refresh();
     });
   }
@@ -352,6 +447,41 @@ export function SettingCallEditor({
     setClosingModalOpen(true);
   }
 
+  /**
+   * Kontaktweg für die Closing-Kaskade (Entscheidung E10).
+   *
+   * Ohne Nummer und ohne dokumentierte Verweigerung hätte das Closing keinen
+   * verlässlichen Kanal: `resolveFollowUpChannel` fiele auf den Akquise-Kanal
+   * zurück, und bei Ads/Social/Sonstige gibt es gar keinen — die drei
+   * Erinnerungen vor dem Abschlussgespräch stünden dann ohne Weg da.
+   */
+  const waReady = waRefused || waPhone.trim().length > 0;
+
+  /**
+   * Nummer bzw. Verweigerung speichern. Die beiden CHECKs aus 0032 sind hier
+   * der Grund für das gemeinsame Patch: `wa_refused_at` darf nur OHNE Nummer
+   * stehen, `wa_consent_at` nur MIT einer — einzeln geschrieben weist Postgres
+   * die Zeile ab, und der Nutzer sähe eine Constraint-Meldung.
+   */
+  function saveWaContact(next: { phone: string; consent: boolean; refused: boolean }) {
+    if (next.refused) {
+      setWaPhone("");
+      setWaConsent(false);
+      save({ wa_phone: null, wa_consent_at: null, wa_refused_at: new Date().toISOString() });
+      return;
+    }
+    const phone = next.phone.trim() || null;
+    // Ohne Nummer keine Einwilligung — der CHECK aus 0032 verlangt es, und ein
+    // gesetztes Häkchen neben einem leeren Feld behauptete etwas, das nirgends
+    // gespeichert ist.
+    if (!phone && next.consent) setWaConsent(false);
+    save({
+      wa_phone: phone,
+      wa_consent_at: phone && next.consent ? new Date().toISOString() : null,
+      wa_refused_at: null,
+    });
+  }
+
   /** Legt das Closing an — nur aus dem Modal heraus, also immer mit Termin. */
   function handleCreateClosing() {
     const iso = berlinInputToIso(closingAt);
@@ -359,7 +489,29 @@ export function SettingCallEditor({
       setModalError("Bitte einen Termin für das Closing angeben.");
       return;
     }
+    if (!waReady) {
+      setModalError(
+        "Ohne persönliche Nummer kein Closing — bitte eintragen oder „Will keine Nummer rausgeben“ wählen.",
+      );
+      return;
+    }
     startTransition(async () => {
+      // Erst der Kontaktweg, dann das Closing: `generateClosingCascade` löst den
+      // Kanal beim Anlegen auf und liest dafür genau diese Felder am Setting.
+      const contact = await updateSettingCall(
+        call.id,
+        waRefused
+          ? { wa_phone: null, wa_consent_at: null, wa_refused_at: new Date().toISOString() }
+          : {
+              wa_phone: waPhone.trim() || null,
+              wa_consent_at: waPhone.trim() && waConsent ? new Date().toISOString() : null,
+              wa_refused_at: null,
+            },
+      );
+      if (contact?.error) {
+        setModalError(contact.error);
+        return;
+      }
       const res = await createClosingFromSetting(call.id, iso);
       if (res?.error) {
         setModalError(res.error);
@@ -374,6 +526,7 @@ export function SettingCallEditor({
       setFollowUpDue(null);
       if (res.closingId) setClosingId(res.closingId);
       flashSaved();
+      bumpCascade();
       router.refresh();
     });
   }
@@ -479,6 +632,30 @@ export function SettingCallEditor({
           <RotateCcw size={13} /> Zurücksetzen
         </button>
 
+        {/* Die Termin-Ereignisse stehen bei der Korrektur, nicht bei den
+            Ergebnissen: Verschieben und Absagen sagen nichts über den Ausgang
+            des Gesprächs aus — sie rühren Status und Show-Quote bewusst nicht
+            an (Migration 0032 hat dafür eigene Spalten). */}
+        <AppointmentLifecycleBar
+          entityType="setting"
+          id={call.id}
+          appointmentAt={call.appointment_at}
+          showStatus={showStatus}
+          lifecycle={call}
+          disabled={isPending}
+          onChanged={() => {
+            flashSaved();
+            bumpCascade();
+            router.refresh();
+          }}
+          onErsatztermin={() => {
+            setModalError(null);
+            setRescheduleAt(toDatetimeLocal(call.appointment_at));
+            setRescheduleOpen(true);
+          }}
+        />
+        <RescheduleHint lifecycle={call} />
+
         <span style={{ flex: 1 }} />
 
         {savedTick && (
@@ -495,7 +672,9 @@ export function SettingCallEditor({
           </span>
         )}
 
-        {/* Rechts: die drei Aktionen. Closing anlegen ist der eine CTA. */}
+        {/* Rechts stehen nur noch die ERGEBNISSE des Gesprächs; Verschieben und
+            Absagen sind links zu den Korrekturen gewandert. Closing anlegen
+            bleibt der eine CTA. */}
         <button
           type="button"
           className="outcome-btn"
@@ -506,19 +685,6 @@ export function SettingCallEditor({
         >
           Unqualifiziert
         </button>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => {
-            setModalError(null);
-            setRescheduleOpen(true);
-          }}
-          disabled={isPending || status === "closing_gelegt"}
-          style={{ height: "var(--h-control-lg)" }}
-        >
-          <CalendarClock size={15} /> Verlegen
-        </button>
-
         {closingDone ? (
           <>
             <span className="badge badge-green">
@@ -566,16 +732,38 @@ export function SettingCallEditor({
                 : "Kein Nachfassen gesetzt."}
             </div>
           </div>
+          {/* Ein Ersatztermin ist KEIN Verschieben (Entscheidung E9): er zählt
+              nicht aufs Kontingent, setzt den Call auf „Offen" zurück und
+              startet die Kaskade komplett neu. Deshalb bleibt er auf seinem
+              eigenen Weg (`rescheduleSetting`) und steht hier, wo der No-Show
+              steht — nicht in der allgemeinen Aktionsleiste. */}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setModalError(null);
+              setRescheduleAt(toDatetimeLocal(call.appointment_at));
+              setRescheduleOpen(true);
+            }}
+            disabled={isPending}
+            style={{ height: "var(--h-control-lg)", flexShrink: 0 }}
+          >
+            <CalendarClock size={15} /> Ersatztermin eintragen
+          </button>
         </div>
       )}
 
-      {/* ── Unqualifiziert mit Wiedervorlage ── */}
-      {status === "unqualifiziert" && followUpDue && (
+      {/* ── Abgesagt (Migration 0032) ── */}
+      <CancelledBanner lifecycle={call} />
+
+      {/* ── Unqualifiziert: Wiedervorlage und Grund ── */}
+      {(status === "unqualifiziert" || status === "dead") && (
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "0.5rem",
+            gap: "0.75rem",
+            flexWrap: "wrap",
             background: "var(--color-warning-bg)",
             border: "1px solid var(--color-warning-border)",
             borderRadius: "var(--radius-lg)",
@@ -586,7 +774,31 @@ export function SettingCallEditor({
           }}
         >
           <CalendarClock size={14} style={{ flexShrink: 0 }} />
-          Nachfassen am {formatDueDate(followUpDue)} — steht im Nachfassen-Board.
+          <span style={{ flex: "1 1 240px", minWidth: 0 }}>
+            {call.disqualify_reason_code
+              ? DISQUALIFY_REASON_LABELS[call.disqualify_reason_code]
+              : "Ohne Grund erfasst"}
+            {call.disqualify_reason?.trim() ? ` · ${call.disqualify_reason.trim()}` : ""}
+            {followUpDue ? ` · Nachfassen am ${formatDueDate(followUpDue)}` : ""}
+          </span>
+          {/* Ohne Code steht die Zeile in der Ablage „Disqualifiziert" ohne
+              Grund — dort ist sie dann nicht auswertbar und niemand weiß, warum
+              der Lead liegt, wo er liegt. */}
+          <button
+            type="button"
+            className="ui-btn"
+            data-variant="ghost"
+            onClick={() => {
+              setModalError(null);
+              setDisqualifyCode(call.disqualify_reason_code ?? null);
+              setDisqualifyText(call.disqualify_reason ?? "");
+              setDisqualifyOnlyOpen(true);
+            }}
+            disabled={isPending}
+            style={{ minHeight: 28, padding: "0 var(--sp-5)", fontSize: "var(--fs-sm)", flexShrink: 0 }}
+          >
+            {call.disqualify_reason_code ? "Grund ändern" : "Grund nachtragen"}
+          </button>
         </div>
       )}
 
@@ -648,7 +860,13 @@ export function SettingCallEditor({
           Nachfass-Erinnerungskaskade (Migration 0031). wa_consent_at
           dokumentiert die Einwilligung (UWG-Pflicht, auch B2B): eine reine
           Termin-/Service-Nachricht ist danach unkritisch, eine Nachricht
-          ohne dokumentierten Beleg nicht. */}
+          ohne dokumentierten Beleg nicht.
+
+          Dritter Zustand seit Entscheidung E10: „will keine Nummer rausgeben".
+          Ohne ihn wäre eine Verweigerung von einer Erfassungslücke nicht zu
+          unterscheiden — und genau das entscheidet, ob die Kaskade auf den
+          Akquise-Kanal zurückfallen darf oder ob schlicht jemand vergessen hat
+          zu fragen. */}
       <div
         style={{
           display: "flex",
@@ -669,13 +887,14 @@ export function SettingCallEditor({
         <input
           type="tel"
           value={waPhone}
+          disabled={waRefused}
           onChange={(e) => setWaPhone(e.target.value)}
           onBlur={() => {
             if (waPhone.trim() === (call.wa_phone ?? "")) return;
-            save({ wa_phone: waPhone.trim() || null });
+            saveWaContact({ phone: waPhone, consent: waConsent, refused: false });
           }}
-          placeholder="Persönliche Nummer des Entscheiders"
-          style={{ ...fieldInput, flex: "1 1 220px", width: "auto" }}
+          placeholder={waRefused ? "Keine Nummer — bewusst so erfasst" : "Persönliche Nummer des Entscheiders"}
+          style={{ ...fieldInput, flex: "1 1 220px", width: "auto", opacity: waRefused ? 0.5 : 1 }}
         />
         <label
           style={{
@@ -684,21 +903,50 @@ export function SettingCallEditor({
             gap: "0.4rem",
             fontSize: "0.75rem",
             color: "var(--text-muted)",
-            cursor: "pointer",
+            cursor: waRefused ? "default" : "pointer",
+            opacity: waRefused ? 0.5 : 1,
             flexShrink: 0,
           }}
         >
           <input
             type="checkbox"
             checked={waConsent}
+            disabled={waRefused}
             onChange={(e) => {
               setWaConsent(e.target.checked);
-              save({ wa_consent_at: e.target.checked ? new Date().toISOString() : null });
+              saveWaContact({ phone: waPhone, consent: e.target.checked, refused: false });
             }}
           />
           Einwilligung zur WhatsApp-Kontaktierung erhalten
         </label>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            fontSize: "0.75rem",
+            color: waRefused ? "var(--color-warning-text)" : "var(--text-muted)",
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={waRefused}
+            onChange={(e) => {
+              setWaRefused(e.target.checked);
+              saveWaContact({ phone: waPhone, consent: waConsent, refused: e.target.checked });
+            }}
+          />
+          Will keine Nummer rausgeben
+        </label>
       </div>
+
+      {/* ── Erinnerungs-Kaskade dieses Termins ──
+          Steht bewusst im Termin-Layout und nicht nur auf /erinnerungen: Wer
+          das Setting öffnet, muss sehen, welche Nachricht als nächste rausgeht
+          und über welchen Kanal. */}
+      <CascadePanel entityType="setting" entityId={call.id} reloadToken={cascadeToken} />
 
       {/* ── Kontext aus der Quelle ──
           Die frühere blaue Karte ist weg (Vorgabe: „Antwort aus LinkedIn auch
@@ -946,6 +1194,18 @@ export function SettingCallEditor({
               Kein Nachfassen
             </label>
 
+            {/* „Unqualifiziert" ist die Disqualifizierung — Grund im selben
+                Schritt, nicht in einem zweiten Dialog daneben. */}
+            {followUpModal === "unqualifiziert" && (
+              <DisqualifyReasonFields
+                code={disqualifyCode}
+                text={disqualifyText}
+                onCode={setDisqualifyCode}
+                onText={setDisqualifyText}
+                disabled={isPending}
+              />
+            )}
+
             {modalError && (
               <div
                 style={{
@@ -999,6 +1259,73 @@ export function SettingCallEditor({
             <DateTimeField value={closingAt} onChange={setClosingAt} ariaLabel="Closing-Termin" />
           </div>
 
+          {/* ── Kontaktweg (Entscheidung E10) ──
+              Pflicht mit begründeter Ausnahme: Die drei Erinnerungen vor dem
+              Abschlussgespräch brauchen einen Weg zum Entscheider. Ohne Nummer
+              fällt die Kaskade auf den Akquise-Kanal zurück — den gibt es aber
+              nur bei LinkedIn und Telefon; bei Ads, Social Media und Sonstige
+              stünde der Termin ganz ohne Erinnerung da. Deshalb hier abfragen,
+              wo der Übergang stattfindet, und nicht irgendwann später. */}
+          <div>
+            <span style={fieldLabel}>Persönliche Nummer des Entscheiders *</span>
+            <input
+              type="tel"
+              value={waPhone}
+              disabled={waRefused}
+              onChange={(e) => setWaPhone(e.target.value)}
+              placeholder={waRefused ? "Keine Nummer — bewusst so erfasst" : "z. B. +49 170 1234567"}
+              style={{ ...fieldInput, opacity: waRefused ? 0.5 : 1 }}
+            />
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                marginTop: "0.5rem",
+                fontSize: "0.75rem",
+                color: "var(--text-muted)",
+                cursor: waRefused ? "default" : "pointer",
+                opacity: waRefused ? 0.5 : 1,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={waConsent}
+                disabled={waRefused}
+                onChange={(e) => setWaConsent(e.target.checked)}
+              />
+              Einwilligung zur WhatsApp-Kontaktierung erhalten
+            </label>
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                marginTop: "0.35rem",
+                fontSize: "0.75rem",
+                color: waRefused ? "var(--color-warning-text)" : "var(--text-muted)",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={waRefused}
+                onChange={(e) => {
+                  setWaRefused(e.target.checked);
+                  if (e.target.checked) setWaConsent(false);
+                }}
+              />
+              Will keine Nummer rausgeben
+            </label>
+            <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", lineHeight: 1.45, color: "var(--text-subtle)" }}>
+              {waRefused
+                ? `Festgehalten als bewusste Ausnahme — die Erinnerungen laufen dann über ${channelLabel(call.source_type, "den Akquise-Kanal")}.`
+                : waConsent
+                  ? "Mit dokumentierter Einwilligung laufen die Erinnerungen über WhatsApp."
+                  : "Ohne dokumentierte Einwilligung laufen die Erinnerungen über den Akquise-Kanal — die Nummer bleibt trotzdem am Termin."}
+            </p>
+          </div>
+
           {modalError && (
             <div
               style={{
@@ -1018,9 +1345,18 @@ export function SettingCallEditor({
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
-              disabled={isPending || !closingAt}
+              disabled={isPending || !closingAt || !waReady}
               onClick={handleCreateClosing}
-              style={{ ...modalButton("primary"), opacity: isPending || !closingAt ? 0.6 : 1 }}
+              title={
+                waReady
+                  ? undefined
+                  : "Ohne persönliche Nummer kein Closing — außer der Lead gibt bewusst keine heraus."
+              }
+              style={{
+                ...modalButton("primary"),
+                opacity: isPending || !closingAt || !waReady ? 0.6 : 1,
+                cursor: isPending || !closingAt || !waReady ? "default" : "pointer",
+              }}
             >
               Closing anlegen
             </button>
@@ -1031,12 +1367,15 @@ export function SettingCallEditor({
         </div>
       </Modal>
 
-      {/* ── Modal: Termin verlegen ── */}
+      {/* ── Modal: Ersatztermin ──
+          Nicht dasselbe wie „Verschieben": Hier beginnt ein neuer Anlauf — der
+          Call geht zurück auf „Offen", die Kaskade startet komplett neu (E9),
+          und das Verschiebe-Kontingent des Leads bleibt unberührt. */}
       <Modal
         open={rescheduleOpen}
         onClose={() => setRescheduleOpen(false)}
-        title="Termin verlegen"
-        subtitle="Der Call geht zurück auf „Offen“. Ein vorheriger No-Show bleibt in der Auswertung erhalten."
+        title="Ersatztermin eintragen"
+        subtitle="Neuer Anlauf: Der Call geht zurück auf „Offen“ und bekommt die volle Erinnerungs-Kaskade. Ein vorheriger No-Show bleibt in der Auswertung erhalten."
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           <div>
@@ -1070,6 +1409,64 @@ export function SettingCallEditor({
               Termin speichern
             </button>
             <button type="button" onClick={() => setRescheduleOpen(false)} style={modalButton("ghost")}>
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal: Disqualifizierungs-Grund nachtragen ──
+          Für Zeilen, die schon unqualifiziert oder dead sind, aber noch keinen
+          Code tragen — vor allem Bestandsdaten aus der Zeit vor 0032. */}
+      <Modal
+        open={disqualifyOnlyOpen}
+        onClose={() => setDisqualifyOnlyOpen(false)}
+        title="Grund der Disqualifizierung"
+        subtitle="Ändert den Status nicht — er hält nur fest, woran es lag."
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+          <DisqualifyReasonFields
+            code={disqualifyCode}
+            text={disqualifyText}
+            onCode={setDisqualifyCode}
+            onText={setDisqualifyText}
+            disabled={isPending}
+          />
+
+          {modalError && (
+            <div
+              style={{
+                background: "var(--color-error-bg)",
+                border: "1px solid var(--color-error-border)",
+                color: "var(--color-error-text)",
+                borderRadius: "var(--radius-sm)",
+                padding: "0.5rem 0.75rem",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+              }}
+            >
+              {modalError}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+            <button
+              type="button"
+              disabled={isPending || !disqualifyCode}
+              onClick={submitDisqualifyOnly}
+              style={{
+                ...modalButton("primary", {
+                  bg: STATUS_META.unqualifiziert.bg,
+                  fg: STATUS_META.unqualifiziert.color,
+                  border: STATUS_META.unqualifiziert.border,
+                }),
+                opacity: isPending || !disqualifyCode ? 0.6 : 1,
+                cursor: isPending || !disqualifyCode ? "default" : "pointer",
+              }}
+            >
+              Grund speichern
+            </button>
+            <button type="button" onClick={() => setDisqualifyOnlyOpen(false)} style={modalButton("ghost")}>
               Abbrechen
             </button>
           </div>
