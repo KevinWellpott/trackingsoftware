@@ -536,9 +536,10 @@ function TaskCard({ task }: { task: NachfassenTask }) {
               type="button"
               disabled={isPending}
               onClick={() =>
-                runAction(
-                  markRecycleContacted(task.recycle_origin!, task.entity_id, task.recycle_reason ?? null),
-                )
+                // Der Grund kommt seit Migration 0033 aus der Ursprungszeile,
+                // nicht mehr vom Client — sonst liesse sich per direktem POST
+                // jede beliebige Wartezeit ausloesen (actions/recycle.ts).
+                runAction(markRecycleContacted(task.recycle_origin!, task.entity_id))
               }
               style={{
                 ...linkBtnStyle,

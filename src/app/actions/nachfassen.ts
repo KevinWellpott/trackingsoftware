@@ -6,8 +6,10 @@ import { revalidatePath } from "next/cache";
 import { localDateISO, addDaysISO } from "@/lib/dates";
 import { FU_MAX_STAGE, nextFollowUpAfter } from "@/lib/followup";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import { getRecycleSettings, loadRecycleTasksRaw, scheduleRecycle } from "@/app/actions/recycle";
-import { recycleTemplateField, renderRecycleTemplate, type RecycleOrigin } from "@/lib/recycleCadence";
+import { loadRecycleTasks, scheduleRecycle } from "@/app/actions/recycle";
+import { getTemplateBundles } from "@/app/actions/reminders";
+import { renderResolved, type TemplateKey } from "@/lib/messageTemplates";
+import { renderRecycleTemplate, type RecycleOrigin } from "@/lib/recycleCadence";
 
 // Nachfassen-Union (LinkedIn-FU + Telefon-Rückruf + Closing-Nachfassen +
 // Setting-Wiedervorlage) über die nachfassen_tasks-RPC + vorbereiteter
@@ -50,6 +52,25 @@ function linkedinFollowUpText(name: string | null, fu: number | null): string {
     default:
       return `${hi}ich melde mich nochmal kurz bei dir.`;
   }
+}
+
+/** Ursprung → Vorlagen-Schlüssel im gemeinsamen Katalog (messageTemplates.ts). */
+const RECYCLE_TEMPLATE_KEY: Record<RecycleOrigin, TemplateKey> = {
+  linkedin: "recycle_linkedin",
+  telefon: "recycle_telefon",
+  setting: "recycle_setting",
+  closing: "recycle_closing",
+};
+
+/**
+ * Der grund-spezifische Anlass für {anlass} bleibt in recycleCadence.ts: die
+ * Zuordnung Grund → Aufhänger ("vielleicht passt der Zeitpunkt inzwischen
+ * besser") ist Fachwissen und darf nicht ein zweites Mal entstehen. Gerendert
+ * wird hier nur noch der nackte Platzhalter — den Rest des Textes macht die
+ * Vorlagenkette.
+ */
+function recycleAnlass(reason: string | null): string {
+  return renderRecycleTemplate("{anlass}", { leadName: null, company: null, reason });
 }
 
 export type NachfassenResult = {
@@ -182,9 +203,15 @@ export async function getNachfassenTasks(options?: {
   // ohne Antwort steht nicht mehr im LinkedIn-Zweig, ein toter Telefon-Lead
   // nicht mehr im Rückruf-Zweig usw.), deshalb kein Konflikt mit contactInfo/
   // leadInfo von oben.
-  const recycleRows = await loadRecycleTasksRaw(access);
+  const { tasks: recycleRows } = await loadRecycleTasks();
   if (recycleRows.length > 0) {
-    const recycleSettings = await getRecycleSettings();
+    // Absender ist die ZUSTÄNDIGE Person der Aufgabe, nicht der Betrachter —
+    // ein Owner in der Team-Sicht bekäme sonst seine eigenen Texte unter
+    // fremdem Namen. Listen-Aufgaben (LinkedIn/Telefon) tragen keine Zuweisung;
+    // dort gilt weiter die aktive Datensicht.
+    //
+    // EINE Query für alle Karten: je Karte geladen wäre das sofort n+1.
+    const bundles = await getTemplateBundles(recycleRows.map((r) => r.assigned_user_id ?? scopeUserId));
 
     const rLinkedinIds = recycleRows.filter((r) => r.origin === "linkedin").map((r) => r.entity_id);
     const rTelefonIds = recycleRows.filter((r) => r.origin === "telefon").map((r) => r.entity_id);
@@ -204,11 +231,19 @@ export async function getNachfassenTasks(options?: {
     }
 
     for (const r of recycleRows) {
-      const text = renderRecycleTemplate(recycleSettings[recycleTemplateField(r.origin)], {
-        leadName: r.lead_name,
-        company: r.company,
-        reason: r.reason,
-      });
+      // Vorrangkette persönlich > Organisation > Auslieferung (resolveTemplate);
+      // der Freitext neben dem Grund steht als {notiz} zur Verfügung — Code ist
+      // Statistik, Freitext ist Gedächtnis.
+      const { body: text } = renderResolved(
+        RECYCLE_TEMPLATE_KEY[r.origin],
+        bundles.get(r.assigned_user_id ?? scopeUserId),
+        {
+          leadName: r.lead_name,
+          company: r.company,
+          anlass: recycleAnlass(r.reason),
+          notiz: r.reason_note,
+        },
+      );
       let list_id: string | null = null;
       let phone: string | null = null;
       if (r.origin === "linkedin") list_id = rContactList.get(r.entity_id) ?? null;
@@ -319,8 +354,9 @@ export async function advanceLinkedInFollowUp(contactId: string): Promise<{ erro
   // FU3 erledigt, ohne dass je geantwortet wurde: der Flow endet hier für
   // immer (nextDate === null) — eines der vier "toten Enden" (§ Konzept-
   // Diskussion). Statt spurlos zu verschwinden, bekommt der Kontakt ein
-  // Recycling-Datum. Kein Verlustgrund-Code bei LinkedIn, reason=null.
-  if (nextDate === null && done >= FU_MAX_STAGE) await scheduleRecycle("linkedin", contactId, null);
+  // Recycling-Datum. Ohne Grund-Argument: Grund und Status liest
+  // `schedule_recycle()` selbst aus der Zeile.
+  if (nextDate === null && done >= FU_MAX_STAGE) await scheduleRecycle("linkedin", contactId);
   revalidatePath("/nachfassen", "page");
   revalidatePath(`/lists/${(c as { list_id: string }).list_id}`, "page");
   revalidatePath("/", "layout");

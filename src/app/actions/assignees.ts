@@ -74,6 +74,30 @@ export async function setAssignee(
     .eq("workspace_id", access.workspace_id);
   if (error) return { error: error.message };
 
+  // Offene Erinnerungen ziehen mit. Ihr `assigned_user_id` ist ein Snapshot,
+  // damit eine spaetere Umverteilung die Historie nicht umschreibt — genau
+  // deshalb bleiben ERLEDIGTE und entwertete Touches unangetastet. Fuer noch
+  // offene, zukuenftige Touches waere derselbe Snapshot aber ein Fehler: der
+  // Termin gehoerte Person B, die Erinnerungen haengen weiter bei A, und bei
+  // `data_scope='own'` bekommt B sie nie zu sehen.
+  //
+  // Fail-soft wie alle Kaskaden-Pfade: eine misslungene Nachfuehrung darf die
+  // Zuweisung selbst nicht zurueckdrehen.
+  if (userId) {
+    const entityType = entity === "setting_call" ? "setting" : "closing";
+    const types = entityType === "setting" ? ["setting"] : ["closing", "closing_followup"];
+    const { error: touchError } = await supabase
+      .from("reminder_touches")
+      .update({ assigned_user_id: userId })
+      .eq("workspace_id", access.workspace_id)
+      .eq("entity_id", entityId)
+      .in("entity_type", types)
+      .is("superseded_at", null)
+      .is("done_at", null);
+    if (touchError) console.error("setAssignee: Erinnerungen nicht nachgefuehrt", touchError);
+    revalidatePath("/erinnerungen", "page");
+  }
+
   revalidatePath(`/${entity === "setting_call" ? "setting" : "closing"}/${entityId}`, "page");
   revalidatePath("/termine", "page");
   // Die Zuweisung ist die Personenachse aller Auswertungen — Dashboards und

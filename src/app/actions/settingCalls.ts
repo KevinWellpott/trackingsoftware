@@ -14,10 +14,13 @@ import {
 import { scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
 
-const OFFSET_TOUCHES = ["offset_1", "offset_2", "offset_3"] as const;
-
 // Setting-Call bearbeiten (Script-Antworten + strukturierte Felder + Status)
 // und bei Qualifikation einen Closing-Call erzeugen.
+//
+// `supersedeTouches` wird jetzt nach KASKADEN-ART eingegrenzt, nicht mehr nach
+// Touch-Typ: 'setting_msg' ist die geplante Bestätigungs-Kaskade vor dem
+// Termin. Alles andere am selben Setting (No-Show-Kette) bleibt dabei bewusst
+// stehen — es beschreibt ein Ereignis, keine Vorankündigung.
 
 export type SettingCallPatch = {
   call_at?: string | null;
@@ -123,13 +126,13 @@ export async function setSettingOutcome(input: {
   // Ein Ergebnis entscheidet das Schicksal des Termins — die Bestätigungs-
   // Kaskade ist damit obsolet. No-Show bekommt zusätzlich sofort einen
   // eigenen, dringlichen Nachfass-Touch (kein geplanter Offset).
-  await supersedeTouches("setting", input.settingId, OFFSET_TOUCHES);
+  await supersedeTouches("setting", input.settingId, ["setting_msg"]);
   if (input.outcome === "no_show") await createNoShowTouch("setting", input.settingId);
   // 'dead' ist eines der vier "toten Enden" (§ Konzept-Diskussion) — bekommt
-  // ein Recycling-Datum statt endgültig zu verschwinden. Kein Verlustgrund-
-  // Code am Setting, deshalb reason=null (recycleCadence.ts nimmt den
-  // generischen days_setting_dead-Wert).
-  if (input.outcome === "dead") await scheduleRecycle("setting", input.settingId, null);
+  // ein Recycling-Datum statt endgültig zu verschwinden. Ohne Grund-Argument:
+  // Grund und Status liest `schedule_recycle()` selbst aus der Zeile — ein vom
+  // Client geschickter Grund konnte jede beliebige Wartezeit auslösen.
+  if (input.outcome === "dead") await scheduleRecycle("setting", input.settingId);
 
   revalidatePath(`/setting/${input.settingId}`, "page");
   revalidatePath("/termine", "page");
@@ -286,7 +289,7 @@ export async function createClosingFromSetting(
     // Das Setting ist qualifiziert — seine eigene Kaskade ist damit erledigt;
     // das Closing bekommt (spätestens jetzt, ggf. mit neu gefülltem Termin)
     // seine eigene.
-    await supersedeTouches("setting", settingId, OFFSET_TOUCHES);
+    await supersedeTouches("setting", settingId, ["setting_msg"]);
     await generateClosingCascade(existing.id);
 
     revalidatePath("/termine", "page");
@@ -340,7 +343,7 @@ export async function createClosingFromSetting(
     .update({ ...qualifiedPatch, closing_at: closingAt })
     .eq("id", settingId);
 
-  await supersedeTouches("setting", settingId, OFFSET_TOUCHES);
+  await supersedeTouches("setting", settingId, ["setting_msg"]);
   await generateClosingCascade(closing.id);
 
   revalidatePath("/termine", "page");

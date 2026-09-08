@@ -15,8 +15,12 @@ import { scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
 
 // Closing-Call bearbeiten. Terminal: gewonnen (→ CRM), verloren, nachfassen.
-
-const OFFSET_TOUCHES = ["offset_1", "offset_2", "offset_3"] as const;
+//
+// `supersedeTouches` grenzt jetzt nach KASKADEN-ART ein, nicht mehr nach
+// Touch-Typ: 'closing_msg' ist die geplante Bestätigungs-Kaskade vor dem
+// Closing-Termin. Die Ereignis-Ketten am selben Closing (Kickoff, No-Show,
+// „kein Abschluss") bleiben bewusst stehen — sie beschreiben Geschehenes, keine
+// Vorankündigung.
 
 export type ClosingCallPatch = {
   call_at?: string | null;
@@ -101,7 +105,7 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
   // Kalender, das hier landet, weil es kein eigenes moveClosingAppointment
   // gibt: Kaskade gegen den neuen Zeitpunkt neu aufbauen.
   if ("call_at" in patch) {
-    await supersedeTouches("closing", id, OFFSET_TOUCHES);
+    await supersedeTouches("closing", id, ["closing_msg"]);
     await generateClosingCascade(id);
   }
   // Nachfass-Zeitpunkt geändert (unabhängig vom Ergebnis-Dialog, z. B. beim
@@ -225,7 +229,7 @@ export async function setClosingOutcome(input: {
 
   // Ein Ergebnis entscheidet das Schicksal des Closing-Termins — dessen
   // eigene Kaskade ist damit obsolet, unabhängig vom Outcome.
-  await supersedeTouches("closing", input.closingId, OFFSET_TOUCHES);
+  await supersedeTouches("closing", input.closingId, ["closing_msg"]);
   if (input.outcome === "nachfassen") {
     // Neuer Nachfass-Zeitpunkt: Kaskade dagegen neu aufbauen.
     await supersedeTouches("closing_followup", input.closingId);
@@ -235,9 +239,14 @@ export async function setClosingOutcome(input: {
     await supersedeTouches("closing_followup", input.closingId);
   }
   // Verloren ist kein Ende — der Lead bekommt ein Recycling-Datum, dessen
-  // Wartezeit vom Verlustgrund abhängt (§ Konzept-Diskussion, Migration 0032).
-  // 'falsche_zielgruppe' bekommt dort bewusst keins.
-  if (input.outcome === "verloren") await scheduleRecycle("closing", input.closingId, lostReasonCode);
+  // Wartezeit vom Verlustgrund abhängt. 'falsche_zielgruppe' bekommt dort
+  // bewusst keins.
+  //
+  // Der Code wird NICHT mitgeschickt: `schedule_recycle()` liest ihn aus der
+  // Zeile, die einen Satz weiter oben geschrieben wurde. Ein vom Client
+  // gelieferter Grund war per direktem POST frei wählbar — und damit jede
+  // beliebige Wartezeit.
+  if (input.outcome === "verloren") await scheduleRecycle("closing", input.closingId);
 
   revalidatePath(`/closing/${input.closingId}`, "page");
   revalidatePath("/termine", "page");

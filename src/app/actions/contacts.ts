@@ -211,7 +211,8 @@ export async function updateContact(
     (patch.answered ?? current.answered) !== true &&
     patch.follow_up_number !== current.follow_up_number
   ) {
-    await scheduleRecycle("linkedin", contactId, null);
+    // Ohne Grund-Argument: den liest `schedule_recycle()` selbst aus der Zeile.
+    await scheduleRecycle("linkedin", contactId);
   }
 
   return {};

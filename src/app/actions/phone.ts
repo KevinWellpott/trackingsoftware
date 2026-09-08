@@ -345,10 +345,10 @@ export async function setPhoneLeadOutcome(input: {
   if (error) return { error: error.message };
 
   // 'dead' ist eines der vier "toten Enden" (§ Konzept-Diskussion) — bekommt
-  // ein Recycling-Datum statt endgültig zu verschwinden. Kein Verlustgrund-
-  // Code am Telefon-Lead, deshalb reason=null (recycleCadence.ts nimmt den
-  // generischen days_phone_dead-Wert).
-  if (input.outcome === "dead") await scheduleRecycle("telefon", input.leadId, null);
+  // ein Recycling-Datum statt endgültig zu verschwinden. Ohne Grund-Argument:
+  // Grund, Status und Wartezeit bestimmt `schedule_recycle()` aus der Zeile —
+  // ein vom Client geschickter Grund konnte jede beliebige Wartezeit auslösen.
+  if (input.outcome === "dead") await scheduleRecycle("telefon", input.leadId);
 
   // Anwahl protokollieren — NACH dem Update, weil logCallAttempt den Lead-Stand
   // als Snapshot liest (Status entscheidet über den Topf, mailbox/gatekeeper/
