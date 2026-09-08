@@ -3,7 +3,8 @@
 // für einen konkreten Termin aus — mehr nicht. Lesen, Schreiben und
 // Zuständigkeit liegen in den Server-Actions.
 //
-// Ersetzt computeCascadeDueAts() aus reminderCascade.ts. Zwei Unterschiede:
+// Ersetzt das frühere feste Offset-Tripel aus reminderCascade.ts (T-3 Tage/
+// T-1 Tag/T-1 Stunde, inzwischen dort entfernt). Zwei Unterschiede:
 //
 //  1. Die Stufen sind Daten (cascade_steps), nicht drei feste Offsets. Damit
 //     tragen Setting und Closing eigene Abstände, die Mail-Spur eigene Stufen,
@@ -240,3 +241,28 @@ export const CASCADE_KIND_LABELS: Record<CascadeKind, string> = {
   no_show_closing: "No-Show Closing",
   kein_close: "Kein Abschluss",
 };
+
+/** Anzeige-Reihenfolge = Reihenfolge der Registry oben (Erzähl-Reihenfolge). */
+const CASCADE_ORDER = Object.keys(CASCADE_KIND_LABELS) as CascadeKind[];
+
+/** Sortierschlüssel für Tabellen; Unbekanntes ans Ende statt raus. */
+export function cascadeRank(kind: CascadeKind): number {
+  const i = CASCADE_ORDER.indexOf(kind);
+  return i < 0 ? CASCADE_ORDER.length : i;
+}
+
+/**
+ * Beschriftung EINER Stufe aus ihren strukturellen Feldern — Kaskade plus
+ * Stufennummer. Bewusst nicht über `template_key`: Der ist ein Snapshot und
+ * kann auf zwei Stufen derselbe sein, taugt also nicht als Gruppenname. Die
+ * Erinnerungs-Liste beschriftet umgekehrt über die Vorlage, weil dort die
+ * konkrete Nachricht gemeint ist, nicht die Stufe.
+ */
+export function cascadeStepLabel(touch: {
+  touch_kind: TouchKind;
+  cascade_kind: CascadeKind;
+  step_no: number;
+}): string {
+  const kind = CASCADE_KIND_LABELS[touch.cascade_kind] ?? touch.cascade_kind;
+  return `${kind} · ${touch.touch_kind === "sofort" ? "Sofort-Bestätigung" : `Stufe ${touch.step_no}`}`;
+}

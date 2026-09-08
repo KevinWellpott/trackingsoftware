@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/platform";
 import { Button, IconButton, type ButtonSize } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { countLabel } from "@/lib/lifecycleLabels";
 
 // Organisation loeschen — die destruktivste Aktion der App. An `workspaces`
 // haengen 15 Fremdschluessel mit `on delete cascade`; es geht der komplette
@@ -27,21 +28,10 @@ import { Modal } from "@/components/ui/Modal";
 // funktioniert. Zwei Loesch-Wege mit unterschiedlichem Verhalten waeren genau
 // bei der gefaehrlichsten Aktion die schlechteste Idee.
 
-const COUNT_LABELS: Record<string, string> = {
-  lists: "LinkedIn-Listen",
-  contacts: "Kontakte",
-  list_views: "Smart Views",
-  phone_lists: "Telefonlisten",
-  phone_leads: "Telefon-Leads",
-  csv_imports: "CSV-Importe",
-  setting_calls: "Setting-Termine",
-  closing_calls: "Closing-Termine",
-  call_assignees: "Zuweisungen",
-  organic_lists: "Organic-Listen",
-  organic_posts: "Organic-Posts",
-  performance_targets: "Ziele",
-  followup_templates: "FU-Vorlagen",
-};
+// Die Beschriftungen der Zaehler stehen in @/lib/lifecycleLabels — dieselbe
+// Map braucht die Umzugsvorschau. Doppelt gepflegt fehlten hier zuletzt genau
+// die Tabellen der neuen Migrationen (Erinnerungen, Vorlagen, Anwahlen), und
+// die Vorschau zeigte rohe Tabellennamen.
 
 export function DeleteOrgButton({
   workspaceId,
@@ -241,7 +231,7 @@ export function DeleteOrgButton({
                               }}
                             >
                               <span style={{ color: "var(--text-muted)" }}>
-                                {COUNT_LABELS[key] ?? key}
+                                {countLabel(key)}
                               </span>
                               <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{n}</span>
                             </div>

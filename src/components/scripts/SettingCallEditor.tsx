@@ -365,25 +365,27 @@ export function SettingCallEditor({
     }
     const due = skipFollowUp ? null : followUpDate;
     startTransition(async () => {
-      const res = await setSettingOutcome({ settingId: call.id, outcome, followUpDue: due });
+      // Grund und Status gehen in EINEM Aufruf raus — und damit in einem
+      // UPDATE. Der Trigger aus Migration 0035 verbietet, dass der Zustand
+      // „unqualifiziert ohne Grund" überhaupt entsteht; ein zweiter Aufruf, der
+      // den Grund nachreicht, käme zu spät und die Disqualifizierung bräche.
+      const res = await setSettingOutcome({
+        settingId: call.id,
+        outcome,
+        followUpDue: due,
+        disqualify:
+          outcome === "unqualifiziert" && disqualifyCode
+            ? { code: disqualifyCode, text: disqualifyText.trim() || null }
+            : null,
+      });
       if (res?.error) {
         setModalError(res.error);
+        // Der Fehler kann auch NACH dem Schreiben entstehen — „Zusammenarbeit
+        // macht keinen Sinn" setzt zusätzlich ein Kontaktverbot, und das meldet
+        // die Action ausdrücklich zurück, statt es lautlos scheitern zu lassen.
+        // Deshalb den echten Stand nachladen, statt die alte Ansicht zu lassen.
+        router.refresh();
         return;
-      }
-      if (outcome === "unqualifiziert" && disqualifyCode) {
-        // Nicht fail-soft weitergereicht: „Zusammenarbeit macht keinen Sinn"
-        // setzt ein Kontaktverbot, und ein lautlos gescheitertes Kontaktverbot
-        // ist keines (setDisqualifyReason meldet das ausdrücklich zurück).
-        const reasonRes = await setDisqualifyReason(call.id, {
-          code: disqualifyCode,
-          text: disqualifyText.trim() || null,
-        });
-        if (reasonRes?.error) {
-          setModalError(reasonRes.error);
-          setStatus(outcome);
-          router.refresh();
-          return;
-        }
       }
       setStatus(outcome);
       setShowStatus(outcome === "no_show" ? "no_show" : "show");

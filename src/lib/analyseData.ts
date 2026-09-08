@@ -13,6 +13,7 @@
 // Components importieren.
 
 import { buildOwnScope, type AccessContext } from "@/lib/access";
+import type { CascadeKind, TouchKind } from "@/lib/cascadeEngine";
 import type { ChannelKey } from "@/lib/channels";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
@@ -354,16 +355,26 @@ export function phoneLeadDay(l: { first_call_at: string | null; created_at: stri
   return l.first_call_at ?? berlinDateISO(l.created_at);
 }
 
-// ── Erinnerungs-Kaskade (Migration 0031) ────────────────────
+// ── Erinnerungs-Kaskade (Migration 0032) ────────────────────
 
 export type ReminderTouchEntityType = "setting" | "closing" | "closing_followup";
-export type ReminderTouchType = "offset_1" | "offset_2" | "offset_3" | "no_show";
 
 export type AnalyseReminderTouch = {
   id: string;
   entity_type: ReminderTouchEntityType;
+  /** Generierte Spalte: `coalesce(setting_call_id, closing_call_id)`. */
   entity_id: string;
-  touch_type: ReminderTouchType;
+  /**
+   * WELCHE Art Touch: `cascade` = geplante Stufe VOR dem Termin · `chain` =
+   * Stufe einer Kette NACH einem Ereignis (No-Show, Kein Close) · `sofort` =
+   * Ersatz-Touch, wenn der Termin für jede geplante Stufe zu kurzfristig war.
+   * Ersetzt zusammen mit `cascade_kind`/`step_no` das frühere `touch_type`
+   * (`offset_1..3`/`no_show`) aus der nie eingespielten ersten Fassung.
+   */
+  touch_kind: TouchKind;
+  cascade_kind: CascadeKind;
+  /** Stufennummer innerhalb der Kaskade; `sofort` liegt kollisionsfrei auf 0. */
+  step_no: number;
   due_at: string;
   appointment_at: string;
   channel: string | null;
@@ -372,17 +383,33 @@ export type AnalyseReminderTouch = {
   created_by_user_id: string | null;
 };
 
+export type ReminderTouchData = {
+  rows: AnalyseReminderTouch[];
+  /**
+   * `false` = die Abfrage ist gescheitert (Migration 0032 fehlt, Spalte
+   * umbenannt, Tabelle weg). Ohne dieses Flag war „nichts geladen" von „keine
+   * Erinnerungen im Zeitraum" nicht zu unterscheiden — genau daran hing der
+   * Fehler, den diese Datei zuletzt still verdeckte, als sie noch die alte
+   * Spalte `touch_type` selektierte. Muster: `loadCallAttempts`
+   * (src/lib/phoneAttemptsData.ts).
+   */
+  available: boolean;
+};
+
+// ACHTUNG: namentliche Spaltenliste (siehe SETTING_COLUMNS). Alle drei
+// Stufen-Spalten stammen aus `reminder_touches` v2 (Migration 0032).
 const REMINDER_TOUCH_COLUMNS =
-  "id, entity_type, entity_id, touch_type, due_at, appointment_at, channel, done_at, assigned_user_id, created_by_user_id";
+  "id, entity_type, entity_id, touch_kind, cascade_kind, step_no, due_at, appointment_at, " +
+  "channel, done_at, assigned_user_id, created_by_user_id";
 
 /**
  * Reminder-Touches für die "Erinnerungs-Disziplin"-Blöcke in Setting- und
- * Closing-Tab. `entity_id` hat bewusst keinen Fremdschlüssel (Migration
- * 0031 — polymorph über zwei mögliche Zieltabellen), ein Embedded-Relation-
- * Select ist deshalb nicht möglich; die Verknüpfung zum jeweiligen Termin
- * läuft im aufrufenden Tab über eine Map auf die bereits geladenen
- * setting_calls/closing_calls — exakt das Muster, das `ClosingTab.tsx` mit
- * `settingById` bereits für die Abschluss-Geschwindigkeit nutzt.
+ * Closing-Tab. Die Verknüpfung zum jeweiligen Termin läuft im aufrufenden Tab
+ * über eine Map auf die bereits geladenen setting_calls/closing_calls — exakt
+ * das Muster, das `ClosingTab.tsx` mit `settingById` bereits für die
+ * Abschluss-Geschwindigkeit nutzt. Ein Embedded-Relation-Select wäre seit v2
+ * zwar möglich (echte FKs), würde aber dieselben Termine ein zweites Mal
+ * laden.
  *
  * Zählt auch superseded Touches mit, WENN sie erledigt wurden — eine
  * Neuterminierung macht einen offenen Touch obsolet, aber ein VORHER
@@ -396,19 +423,21 @@ export async function loadReminderTouches(
   access: AccessContext,
   canCompare: boolean,
   entityTypes: readonly ReminderTouchEntityType[],
-): Promise<AnalyseReminderTouch[]> {
-  const rows = await fetchAllRows((f, t) => {
-    let q = supabase
-      .from("reminder_touches")
-      .select(REMINDER_TOUCH_COLUMNS)
-      .eq("workspace_id", access.workspace_id)
-      .in("entity_type", entityTypes)
-      .or("done_at.not.is.null,superseded_at.is.null");
-    if (!canCompare) q = q.or(assignedOrCreatedBy(access.user.id));
-    return q.order("id").range(f, t);
-  }).catch((err) => {
-    console.error("analyseData:", err instanceof Error ? err.message : err);
-    return [];
-  });
-  return rows as unknown as AnalyseReminderTouch[];
+): Promise<ReminderTouchData> {
+  try {
+    const rows = await fetchAllRows((f, t) => {
+      let q = supabase
+        .from("reminder_touches")
+        .select(REMINDER_TOUCH_COLUMNS)
+        .eq("workspace_id", access.workspace_id)
+        .in("entity_type", entityTypes)
+        .or("done_at.not.is.null,superseded_at.is.null");
+      if (!canCompare) q = q.or(assignedOrCreatedBy(access.user.id));
+      return q.order("id").range(f, t);
+    });
+    return { rows: rows as unknown as AnalyseReminderTouch[], available: true };
+  } catch (err) {
+    console.error("analyseData/reminderTouches:", err instanceof Error ? err.message : err);
+    return { rows: [], available: false };
+  }
 }

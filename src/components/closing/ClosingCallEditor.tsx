@@ -4,7 +4,7 @@ import { deleteClosingCall, setClosingOutcome, updateClosingCall, type ClosingCa
 import { AssigneeSelect } from "@/components/assignees/AssigneeSelect";
 import { DangerZone } from "@/components/ui/DangerZone";
 import { ScriptRunner } from "@/components/scripts/ScriptRunner";
-import { DatePicker } from "@/components/ui/DatePicker";
+import { DatePicker, formatDateDe } from "@/components/ui/DatePicker";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -55,7 +55,11 @@ type Props = {
    * lädt mit `select("*")`, der geteilte Typ trägt aber die Achsen aller
    * Auswertungen, und diese Felder braucht bisher nur der Editor.
    */
-  call: ClosingCall & Partial<AppointmentLifecycle>;
+  call: ClosingCall &
+    Partial<AppointmentLifecycle> & {
+      /** Software-Onboarding (ebenfalls 0032) — steht aus demselben Grund daneben. */
+      onboarding_at?: string | null;
+    };
   users: UserOption[];
   /**
    * Nur Admins duerfen umverteilen — identisch zum Setting. Vorher stand das
@@ -270,6 +274,10 @@ export function ClosingCallEditor({
   const [dealVolume, setDealVolume] = useState(call.deal_volume == null ? "" : String(Number(call.deal_volume)));
   const [paymentType, setPaymentType] = useState(call.payment_type ?? "Einmal");
   const [contractStart, setContractStart] = useState(call.contract_start ? call.contract_start.slice(0, 10) : "");
+  // Onboarding-Tag: eine Angabe, kein Ablauf. Vorbelegt aus dem Call, damit der
+  // Dialog beim erneuten Öffnen eines gewonnenen Deals nachtragbar bleibt —
+  // genau wie Deal-Volumen und Vertragsstart daneben.
+  const [onboardingAt, setOnboardingAt] = useState(call.onboarding_at ? call.onboarding_at.slice(0, 10) : "");
   const [signatureReceived, setSignatureReceived] = useState<boolean>(Boolean(call.signature_received));
   // Verlustgrund: Code = Statistik (Pflicht), Freitext = Gedaechtnis (optional).
   // Beide werden aus dem Call vorbelegt, damit ein bereits verlorenes Closing
@@ -380,6 +388,7 @@ export function ClosingCallEditor({
     setDealVolume("");
     setPaymentType("Einmal");
     setContractStart("");
+    setOnboardingAt("");
     setSignatureReceived(false);
     setLostReasonCode(null);
     setLostReason("");
@@ -392,6 +401,7 @@ export function ClosingCallEditor({
         deal_volume: null,
         payment_type: null,
         contract_start: null,
+        onboarding_at: null,
         signature_received: false,
         lost_reason: null,
         lost_reason_code: null,
@@ -759,6 +769,14 @@ export function ClosingCallEditor({
             {call.payment_type ? ` · ${call.payment_type}` : ""}
           </span>
         )}
+        {/* Neben der Deal-Größe, weil beide zum selben Ergebnis gehören: Was ist
+            der Abschluss wert — und ab wann wird geliefert? Ohne diese Zeile
+            stünde das Datum nur im Dialog und wäre faktisch unsichtbar. */}
+        {status === "gewonnen" && call.onboarding_at && (
+          <span className="tnum" style={metaText}>
+            Onboarding {formatDateDe(call.onboarding_at)}
+          </span>
+        )}
         {status === "nachfassen" && followUpLabel && (
           <span className="tnum" style={metaText}>
             Wiedervorlage {followUpLabel}
@@ -959,6 +977,21 @@ export function ClosingCallEditor({
               placeholder="Datum wählen"
             />
           </div>
+          {/* Onboarding-Tag direkt unter dem Vertragsstart: beide beschreiben,
+              wann es losgeht — der eine kaufmännisch, der andere praktisch.
+              Bewusst nur DIESES eine Feld und keine Onboarding-Strecke: das
+              Konzept nennt genau eine Angabe. „Noch offen" ist ein gültiger
+              Stand, deshalb clearable und kein Pflichtfeld. */}
+          <div>
+            <span style={fieldLabel}>Software-Onboarding</span>
+            <DatePicker
+              variant="input"
+              value={onboardingAt || null}
+              onChange={(v) => setOnboardingAt(v ?? "")}
+              clearable
+              placeholder="Noch offen"
+            />
+          </div>
           <div>
             <span style={fieldLabel}>Unterschrift</span>
             <Toggle value={signatureReceived} onChange={setSignatureReceived} label="Unterschrift erhalten" />
@@ -992,6 +1025,7 @@ export function ClosingCallEditor({
                     dealVolume: vol != null && !Number.isNaN(vol) ? vol : null,
                     paymentType: paymentType || null,
                     contractStart: contractStart || null,
+                    onboardingAt: onboardingAt || null,
                     signatureReceived,
                   },
                   () => setWonOpen(false),

@@ -44,3 +44,18 @@ Getroffen von Simon am 2026-09-08 im Gespräch. Quelle des Soll-Konzepts: Excali
 Simon hat bestätigt: **Migrationen 0031 und 0032 sind nicht eingespielt** — auf keiner Datenbank.
 Damit steht Entscheidung 3 („0031/0032 direkt umbauen") endgültig, und M0 reduziert sich auf eine
 Bestätigungsmessung, sobald ein `SUPABASE_ACCESS_TOKEN` in der Umgebung liegt.
+
+## Nachtrag 2026-09-08 — Migrationen eingespielt
+
+0031, 0032, 0033 und 0034 liegen auf der **Produktions-Datenbank**. Verifikation bestanden:
+Katalog 31 Einträge, je Organisation eine `pipeline_settings`-Zeile und 21 `cascade_steps`
+(davon 16 aktiv).
+
+**Damit sind diese vier Dateien eingefroren.** Jede weitere Schema-Änderung braucht eine neue
+Nummer. Beim Einspielen zu beachten: Die Supabase-Konsole fährt ein Skript in einer Transaktion —
+ein Abbruch rollt die ganze Datei zurück. Wird eine Datei in Teilen ausgeführt (markierter Text),
+entsteht dagegen ein Halbzustand; genau das ist bei 0031 passiert.
+
+**Die Datenbank ist dem ausgelieferten Code voraus.** Der Branch ist nicht gemergt, `main` kennt
+weder `/ablage` noch den Vorlagen-Editor. Das ist der geplante Verifikationszustand und
+gefahrlos, weil die ausgelieferte App keine der neuen Tabellen liest.

@@ -1,0 +1,4 @@
+{
+  "//": "Nur ein Scope-Marker: Ohne ihn liest Node die Testdateien erst als CommonJS und parst sie danach erneut als ES-Modul (MODULE_TYPELESS_PACKAGE_JSON). Bewusst hier statt in der Wurzel-package.json — dort wuerde \"type\": \"module\" die Konfigurationsdateien des Next-Builds mitziehen.",
+  "type": "module"
+}

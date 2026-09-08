@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/platform";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
+import { countLabel, moveWarningText } from "@/lib/lifecycleLabels";
 
 // Nutzer zwischen Organisationen verschieben — immer zweistufig: erst Vorschau
 // (reine Leseoperation), dann Bestaetigung. Der Umzug beruehrt bis zu 14
@@ -21,20 +22,8 @@ import { Select } from "@/components/ui/Select";
 //   PullUserPanel   — "hol jemanden HIERHER" (unten auf der Zielorganisation)
 // Beide nutzen dieselbe Vorschau und dieselben Server-Actions.
 
-const COUNT_LABELS: Record<string, string> = {
-  lists: "LinkedIn-Listen",
-  contacts: "Kontakte",
-  list_views: "Smart Views",
-  phone_lists: "Telefonlisten",
-  phone_leads: "Telefon-Leads",
-  csv_imports: "CSV-Importe",
-  setting_calls: "Setting-Termine",
-  closing_calls: "Closing-Termine",
-  organic_lists: "Organic-Listen",
-  organic_posts: "Organic-Posts",
-  performance_targets: "Ziele",
-  followup_templates: "FU-Vorlagen",
-};
+// Beschriftungen der Zaehler und der Warnungen: @/lib/lifecycleLabels — dieselbe
+// Map traegt die Loeschvorschau (siehe DeleteOrgButton).
 
 function PreviewPanel({
   preview,
@@ -88,7 +77,7 @@ function PreviewPanel({
                 key={key}
                 style={{ display: "flex", justifyContent: "space-between", gap: "var(--sp-3)", fontSize: "var(--fs-xs)" }}
               >
-                <span style={{ color: "var(--text-muted)" }}>{COUNT_LABELS[key] ?? key}</span>
+                <span style={{ color: "var(--text-muted)" }}>{countLabel(key)}</span>
                 <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{n}</span>
               </div>
             ))}
@@ -110,7 +99,12 @@ function PreviewPanel({
           {preview.warnings.map((w) => (
             <div key={w.code} style={{ display: "flex", gap: "var(--sp-3)", alignItems: "flex-start" }}>
               <AlertTriangle size={13} color="var(--warning-fg)" style={{ flexShrink: 0, marginTop: 1 }} />
-              <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning-fg)" }}>{w.text}</span>
+              {/* Der Text kommt fertig aus preview_move_user; moveWarningText
+                  springt nur ein, wenn ein Code ohne Text ankommt — eine leere
+                  Warnzeile waere die eine, die niemand liest. */}
+              <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning-fg)" }}>
+                {moveWarningText(w)}
+              </span>
             </div>
           ))}
         </div>

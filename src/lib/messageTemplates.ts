@@ -271,7 +271,7 @@ export type Placeholder = (typeof PLACEHOLDERS)[number];
 export const PLACEHOLDER_LABELS: Record<Placeholder, string> = {
   vorname: "Vorname des Leads",
   nachname: "Nachname des Leads",
-  name: "Voller Name — Alias auf {vorname}",
+  name: "Wie {vorname} — bleibt für gespeicherte Listen-Texte erhalten",
   firma: "Firma des Leads",
   datum: "Datum des Termins",
   uhrzeit: "Uhrzeit des Termins",
@@ -328,23 +328,39 @@ function valuesFor(ctx: TemplateContext): Record<Placeholder, string> {
 const TOKEN_RE = /\{([A-Za-zÄÖÜäöüß_]+)\}/g;
 
 /**
- * Aufräumen, nachdem leere Platzhalter zum Leerstring kollabiert sind. Ohne
- * diesen Schritt ergibt "Hallo {vorname} von {firma}," bei fehlender Firma
- * wörtlich "Hallo dir von ,". Bewusst gelöst durch Normalisieren statt durch
- * eine zweite Vorlagensyntax mit optionalen Blöcken — die vergrößerte genau
- * die Oberfläche, die dieses Modul zusammenzieht.
+ * Markiert die Stelle eines Platzhalters, der zu nichts aufgelöst hat. Ein
+ * Zeichen, das in echtem Text nicht vorkommt — nur so kann `tidy()` einen
+ * verwaisten Rest von normalem Text unterscheiden.
+ */
+const EMPTY_MARK = String.fromCharCode(0);
+
+/** Verbindungswörter, die ohne ihr Bezugswort sinnlos werden. */
+const CONNECTORS = "von|bei|für|aus|in|mit|zu|an|nach|über|um";
+
+/**
+ * Aufräumen, nachdem leere Platzhalter weggefallen sind. Ohne diesen Schritt
+ * ergibt "Hallo {vorname} von {firma}," bei fehlender Firma wörtlich
+ * "Hallo dir von ,". Bewusst gelöst durch Normalisieren statt durch eine
+ * zweite Vorlagensyntax mit optionalen Blöcken — die vergrößerte genau die
+ * Oberfläche, die dieses Modul zusammenzieht.
+ *
+ * Entscheidend ist, dass ein Verbindungswort NUR zusammen mit dem leer
+ * gefallenen Platzhalter verschwindet, zu dem es gehört. Eine frühere Fassung
+ * strich jedes Verbindungswort vor einem Satzzeichen — und traf damit
+ * ausgerechnet die abgetrennte deutsche Vorsilbe: aus "ich bringe die
+ * Unterlagen mit." wurde "ich bringe die Unterlagen.", lautlos und in jedem
+ * selbst geschriebenen Text.
  */
 function tidy(text: string): string {
   return text
-    // Verwaiste Verbindungswörter vor einem Satzzeichen
-    .replace(/\s+(von|bei|für|aus|in|mit|zu)\s*(?=[,.;:!?])/gi, "")
-    // Verwaiste Verbindungswörter am Zeilenende
-    .replace(/\s+(von|bei|für|aus|in|mit|zu)\s*$/gim, "")
+    // Verbindungswort samt dem leeren Platzhalter, an dem es hing
+    .replace(new RegExp(`\\s*\\b(?:${CONNECTORS})\\b\\s*${EMPTY_MARK}`, "gi"), "")
+    // Übrige leere Platzhalter
+    .replace(new RegExp(`\\s*${EMPTY_MARK}`, "g"), "")
     // Leerzeichen vor Satzzeichen
     .replace(/[ \t]+([,.;:!?])/g, "$1")
     // Doppelte Satzzeichen, die durch den Wegfall entstanden sind
     .replace(/([,;:])\s*\1+/g, "$1")
-    .replace(/\s+([,.;:!?])/g, "$1")
     // Mehrfache Leerzeichen einkochen, Zeilenumbrüche erhalten
     .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]+\n/g, "\n")
@@ -362,7 +378,11 @@ export function renderTemplate(template: string, ctx: TemplateContext): string {
   const values = valuesFor(ctx);
   const filled = template.replace(TOKEN_RE, (match, rawToken: string) => {
     const token = rawToken.toLowerCase() as Placeholder;
-    return token in values ? values[token] : match;
+    if (!(token in values)) return match;
+    // Leere Werte hinterlassen eine Marke statt eines Leerstrings, damit
+    // `tidy()` gleich danach unterscheiden kann, ob ein Verbindungswort
+    // tatsaechlich verwaist ist oder einfach zum Satz gehoert.
+    return values[token] || EMPTY_MARK;
   });
   return tidy(filled);
 }

@@ -32,6 +32,13 @@ export type ClosingCallPatch = {
   payment_type?: string | null;
   signature_received?: boolean | null;
   contract_start?: string | null;
+  /**
+   * Tag des Software-Onboardings (date, Migration 0032). Steht bewusst neben
+   * `contract_start` statt darin aufzugehen: Der Vertrag beginnt an dem Tag, an
+   * dem gezahlt wird, das Onboarding an dem, an dem gearbeitet wird — die beiden
+   * fallen regelmäßig auseinander. Bleibt leer, solange kein Termin steht.
+   */
+  onboarding_at?: string | null;
   lost_reason?: string | null;
   /** Zählbarer Verlustgrund (Migration 0029) — die Statistik hängt daran. */
   lost_reason_code?: ClosingLostReasonCode | null;
@@ -174,6 +181,8 @@ export async function setClosingOutcome(input: {
   dealVolume?: number | null;
   paymentType?: string | null;
   contractStart?: string | null;
+  /** Tag des Software-Onboardings — optional, auch bei einem gewonnenen Deal. */
+  onboardingAt?: string | null;
   signatureReceived?: boolean | null;
   /** Freitext zum Verlust — Kontext, seit 0029 NICHT mehr erzwungen. */
   lostReason?: string | null;
@@ -211,6 +220,9 @@ export async function setClosingOutcome(input: {
     patch.deal_volume = input.dealVolume ?? null;
     patch.payment_type = input.paymentType ?? null;
     patch.contract_start = input.contractStart ?? null;
+    // Ohne Angabe bewusst NULL statt eines geratenen Datums: „Onboarding steht
+    // noch nicht" ist eine gültige Aussage, ein erfundener Tag wäre eine falsche.
+    patch.onboarding_at = input.onboardingAt ?? null;
     patch.signature_received = input.signatureReceived ?? null;
     patch.follow_up_due = null;
     patch.follow_up_due_at = null;

@@ -85,22 +85,55 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
  *
  * no_show/unqualifiziert nehmen optional eine Wiedervorlage (YYYY-MM-DD) auf, die
  * den Call ins Nachfassen-Board hebt. qualifiziert legt direkt das Closing an.
+ *
+ * `disqualify` ist bei 'unqualifiziert' PFLICHT und wird im SELBEN UPDATE
+ * geschrieben wie der Status. Der Trigger aus Migration 0035 prueft, ob der
+ * Zustand „unqualifiziert ohne Grund" in DIESEM Statement neu entsteht — ein
+ * zweiter Request, der den Grund nachreicht (so lief es bis hierher ueber
+ * `setDisqualifyReason`), kaeme also immer zu spaet. Nebenbei ist die Regel
+ * damit auch dann nicht verletzbar, wenn zwischen zwei Requests abgebrochen
+ * wird.
  */
 export async function setSettingOutcome(input: {
   settingId: string;
   outcome: SettingOutcome;
   followUpDue?: string | null;
+  /** Nur bei `outcome='unqualifiziert'` sinnvoll — no_show und dead haben keinen Grundcode. */
+  disqualify?: { code: DisqualifyReasonCode; text?: string | null } | null;
 }): Promise<{ error?: string; closingId?: string }> {
   if (!(await canAccessSettingCall(input.settingId))) return { error: "Keine Berechtigung." };
 
   // Qualifiziert = Closing. Ein Schritt, kein Zwischenstatus.
   if (input.outcome === "qualifiziert") return createClosingFromSetting(input.settingId);
 
+  // Vorpruefung statt roher Postgres-Meldung (Muster `isOneOf`): Server Actions
+  // sind per direktem POST erreichbar, und der Trigger wuerde einen fehlenden
+  // oder erfundenen Code zwar abweisen — aber mit einer Exception, die der
+  // Nutzer als Constraint-Text zu sehen bekaeme.
+  let disqualify: { code: DisqualifyReasonCode; text: string | null } | null = null;
+  if (input.outcome === "unqualifiziert") {
+    const code = input.disqualify?.code;
+    if (!isOneOf(DISQUALIFY_REASON_CODES, code)) {
+      return { error: "Bitte einen Grund für die Disqualifizierung auswählen." };
+    }
+    // Leerer Freitext wird NULL statt "" — sonst steht in der Detailseite eine
+    // leere Zeile, die wie eine Angabe aussieht (wie in `cancelAppointment`).
+    disqualify = { code, text: input.disqualify?.text?.trim() || null };
+  }
+
   const supabase = await createClient();
   // Lokal erweitert um den No-Show-Ausgang: der gehoert NICHT in
   // `SettingCallPatch`, sonst schriebe ihn ein direkter POST auf
   // `updateSettingCall` an `setNoShowResolution` und dessen Pruefung vorbei.
-  const patch: SettingCallPatch & { no_show_resolution?: NoShowResolution | null } = { status: input.outcome };
+  //
+  // Der Disqualifikationsgrund steht aus demselben Grund nicht in
+  // `SettingCallPatch`: ueber `updateSettingCall` liefe er an der Pruefung UND
+  // an den Folgen des Grundes (Kontaktverbot) vorbei.
+  const patch: SettingCallPatch & {
+    no_show_resolution?: NoShowResolution | null;
+    disqualify_reason_code?: DisqualifyReasonCode | null;
+    disqualify_reason?: string | null;
+  } = { status: input.outcome };
 
   if (input.outcome === "no_show") {
     patch.show_status = "no_show";
@@ -123,6 +156,13 @@ export async function setSettingOutcome(input: {
     patch.follow_up_due = null;
   }
 
+  // Nur ein Feld im selben Objekt — genau darin liegt der ganze Punkt: EIN
+  // UPDATE schreibt Status und Grund, der Trigger sieht nie einen Zwischenstand.
+  if (disqualify) {
+    patch.disqualify_reason_code = disqualify.code;
+    patch.disqualify_reason = disqualify.text;
+  }
+
   const { error } = await supabase
     .from("setting_calls")
     .update(withNoShowResolutionCleared(patch))
@@ -140,10 +180,22 @@ export async function setSettingOutcome(input: {
   // Client geschickter Grund konnte jede beliebige Wartezeit auslösen.
   if (input.outcome === "dead") await scheduleRecycle("setting", input.settingId);
 
+  // Die Folgen des GRUNDES — dieselbe Funktion wie beim Nachtragen an einer
+  // Bestandszeile, damit Kontaktverbot und „nie Recycling" auf beiden Wegen
+  // greifen und nicht davon abhaengen, wie der Grund hereinkam.
+  const consequence = disqualify
+    ? await applyDisqualifyConsequences(input.settingId, disqualify.code)
+    : {};
+
   revalidatePath(`/setting/${input.settingId}`, "page");
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
+  // Bewusst NACH dem Revalidieren: Status und Grund stehen bereits in der Zeile,
+  // nur die Folge fehlt — die Oberflaeche muss den echten Stand zeigen und
+  // trotzdem die Meldung bekommen (ein lautlos gescheitertes Kontaktverbot ist
+  // keines).
+  if (consequence.error) return { error: `Ergebnis gespeichert, ${consequence.error}` };
   return {};
 }
 
@@ -685,8 +737,9 @@ export async function cancelAppointment(
 }
 
 /**
- * Grund der Disqualifizierung festhalten (nur Setting — ein Closing hat dafür
- * `lost_reason_code`).
+ * Was AUS DEM GRUND folgt — unabhängig davon, ob er zusammen mit dem Status
+ * gesetzt („Unqualifiziert"-Dialog, `setSettingOutcome`) oder an einer
+ * Bestandszeile nachgetragen wird (`setDisqualifyReason`).
  *
  * `keine_zusammenarbeit` ist die rote Notiz „kein weiteres kontaktieren!" aus
  * dem Konzept: Der Lead bekommt kein Wiedervorlage-Datum, sondern ein
@@ -697,6 +750,33 @@ export async function cancelAppointment(
  * ('dead')` plant das Recycling sofort ein, der Grund wird oft erst danach
  * eingetragen. `schedule_recycle()` allein genügt hier also nicht — die
  * Funktion kennt nur den Moment ihres eigenen Aufrufs.
+ *
+ * Bewusst nicht fail-soft (anders als Kaskade und Recycling-Planung): ein
+ * Kontaktverbot, das lautlos scheitert, ist keines. Der Aufrufer stellt der
+ * Meldung voran, WAS bereits gespeichert ist.
+ */
+async function applyDisqualifyConsequences(
+  id: string,
+  code: DisqualifyReasonCode,
+): Promise<{ error?: string }> {
+  if (code === "keine_zusammenarbeit") {
+    const res = await excludeFromRecycle("setting", id);
+    if (res.error) return { error: `Kontaktverbot fehlgeschlagen: ${res.error}` };
+  } else if (code === "falsche_zielgruppe") {
+    const res = await clearRecycle("setting", id);
+    if (res.error) return { error: `Wiedervorlage nicht entfernt: ${res.error}` };
+  }
+  return {};
+}
+
+/**
+ * Grund der Disqualifizierung NACHTRAGEN, ohne den Status erneut zu setzen
+ * (nur Setting — ein Closing hat dafür `lost_reason_code`).
+ *
+ * Der Weg bleibt bestehen, obwohl `setSettingOutcome` den Grund inzwischen
+ * selbst mitschreibt: Bestandszeilen stehen schon auf 'unqualifiziert' (oder
+ * 'dead') ohne Code und müssen aus der Ablage heraus nachpflegbar sein — genau
+ * dafür lässt der Trigger aus 0035 diesen Fall ausdrücklich zu.
  */
 export async function setDisqualifyReason(
   id: string,
@@ -712,16 +792,10 @@ export async function setDisqualifyReason(
     .eq("id", id);
   if (error) return { error: error.message };
 
-  // Nicht fail-soft: ein Kontaktverbot, das lautlos scheitert, ist keines.
-  if (input.code === "keine_zusammenarbeit") {
-    const res = await excludeFromRecycle("setting", id);
-    if (res.error) return { error: `Grund gespeichert, Kontaktverbot fehlgeschlagen: ${res.error}` };
-  } else if (input.code === "falsche_zielgruppe") {
-    const res = await clearRecycle("setting", id);
-    if (res.error) return { error: `Grund gespeichert, Wiedervorlage nicht entfernt: ${res.error}` };
-  }
+  const consequence = await applyDisqualifyConsequences(id, input.code);
 
   revalidateAppointment("setting", id);
+  if (consequence.error) return { error: `Grund gespeichert, ${consequence.error}` };
   return {};
 }
 
