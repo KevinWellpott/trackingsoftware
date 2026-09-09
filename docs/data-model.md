@@ -583,6 +583,8 @@ Termin-Definitionen aus §5, die Kaskaden-Engine und die Tagesgrenzen sämtliche
 
 ## 7. Schema-Drift-Warnung
 
+**Migrationen laufen in der Supabase-Konsole nicht zuverlässig vollständig.** Wird im Editor Text markiert, führt „Run" nur die Markierung aus — der Rest der Datei bleibt liegen, ohne Fehlermeldung. Zweimal nachgewiesen: Migration `…0027` hatte auf der Produktions-DB nur `preview_delete_workspace` angelegt, nicht `platform_delete_workspace` (nachgezogen am 9. September 2026; bis dahin scheiterte „Organisation löschen" im Admin-Bereich — was niemandem auffiel, weil man es erst im Ernstfall merkt). Dasselbe am 8. September bei `…0031`, wo `template_catalog` entstand, `message_templates` aber nicht. **Nach jedem Einspielen deshalb den Verifikationsblock am Dateiende fahren** — er steht genau dafür dort.
+
 Der Migrationsordner ist fast, aber nicht 100 % vollständig:
 - Migrationen `…000002` und `…000004` fehlen im Repo (Nummerierungslücke).
 - Migration 0014 erwähnt explizit einen Alt-CHECK auf `answer_category` „aus der nicht im Repo vorhandenen Alt-Migration".
