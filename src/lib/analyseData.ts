@@ -155,6 +155,22 @@ export type AnalyseSettingCall = {
   created_at: string;
   show_status: "show" | "no_show" | null;
   status: SettingStatus;
+  /**
+   * Absage (Migration 0032). `null` = nicht abgesagt — und das ist der
+   * Normalfall, nicht die Ausnahme.
+   *
+   * Eine Absage lässt `status` bewusst unangetastet (meist `offen`) und setzt
+   * kein `show_status`. Für die Show- und Quali-Quote fällt sie damit von
+   * selbst aus dem Nenner. NICHT von selbst fällt sie aus den STUFEN des
+   * Funnels: Dort ist „Termine Setting" eine reine Menge und trüge einen
+   * abgesagten Termin als garantierte Null durch jede Durchlaufquote (docs §5,
+   * Entscheidung K5). Deshalb liest der Funnel-Tab dieses Feld.
+   */
+  cancelled_at: string | null;
+  /** `ohne_aussicht` | `neuer_termin` — CHECK-Paar zu `cancelled_at`. */
+  cancel_outlook: "ohne_aussicht" | "neuer_termin" | null;
+  /** Zählbarer Absagegrund; Beschriftung über `dropoutReasonLabel`. */
+  cancel_reason_code: string | null;
   no_show_count: number | null;
   meeting_kind: "link" | "telefon" | null;
   branche: string | null;
@@ -167,12 +183,14 @@ export type AnalyseSettingCall = {
 };
 
 // ACHTUNG: Die Liste ist namentlich. Fehlt eine Spalte in der Datenbank, weist
-// PostgREST die GESAMTE Abfrage ab — `phone` setzt Migration 0029 voraus, sie
-// muss vor dem Deploy eingespielt sein (docs §7).
+// PostgREST die GESAMTE Abfrage ab — `phone` setzt Migration 0029 voraus,
+// `cancelled_at`/`cancel_outlook`/`cancel_reason_code` setzen 0032 voraus. Beide
+// müssen vor dem Deploy eingespielt sein (docs §7).
 const SETTING_COLUMNS =
   "id, created_by_user_id, assigned_user_id, source_type, source_detail, source_contact_id, " +
   "source_phone_lead_id, appointment_at, call_at, created_at, phone, show_status, " +
-  "status, no_show_count, meeting_kind, branche, has_budget_8k, sole_decider, can_decide_now, clear_need, " +
+  "status, cancelled_at, cancel_outlook, cancel_reason_code, " +
+  "no_show_count, meeting_kind, branche, has_budget_8k, sole_decider, can_decide_now, clear_need, " +
   "ist_pain, warmth";
 
 /**
@@ -233,6 +251,10 @@ export type AnalyseClosingCall = {
   created_at: string;
   show_status: "show" | "no_show" | null;
   status: "offen" | "gewonnen" | "verloren" | "nachfassen";
+  /** Absage (Migration 0032) — Begründung wie bei `AnalyseSettingCall`. */
+  cancelled_at: string | null;
+  cancel_outlook: "ohne_aussicht" | "neuer_termin" | null;
+  cancel_reason_code: string | null;
   deal_volume: number | null;
   payment_type: string | null;
   /** Freitext-Notiz zum Verlust — Kontext, nicht zählbar. */
@@ -246,9 +268,11 @@ export type AnalyseClosingCall = {
   contract_start: string | null;
 };
 
-// `lost_reason_code` setzt Migration 0029 voraus (siehe SETTING_COLUMNS).
+// `lost_reason_code` setzt Migration 0029 voraus, die drei Absage-Spalten 0032
+// (siehe SETTING_COLUMNS).
 const CLOSING_COLUMNS =
   "id, created_by_user_id, assigned_user_id, setting_call_id, call_at, created_at, show_status, status, " +
+  "cancelled_at, cancel_outlook, cancel_reason_code, " +
   "deal_volume, payment_type, lost_reason, lost_reason_code, signature_received, contract_start";
 
 export async function loadClosingCalls(
@@ -439,5 +463,198 @@ export async function loadReminderTouches(
   } catch (err) {
     console.error("analyseData/reminderTouches:", err instanceof Error ? err.message : err);
     return { rows: [], available: false };
+  }
+}
+
+// ── Lead-Recycling (Migration 0033) ─────────────────────────
+
+/** Die vier „toten Enden", an denen ein Lead ins Recycling fällt (docs §1). */
+export type RecycleOriginKey = "linkedin" | "telefon" | "setting" | "closing";
+
+/**
+ * Eine Zeile, die das Recycling angefasst hat — aus einer der VIER
+ * Ursprungstabellen, auf eine gemeinsame Form gebracht (Muster:
+ * `src/lib/compare/facts.ts`). Ohne diese Vereinheitlichung bräuchte die
+ * Auswertung vier Schleifen für eine Kennzahl.
+ */
+export type AnalyseRecycleRow = {
+  origin: RecycleOriginKey;
+  /**
+   * Grund-Code nach derselben Coalesce-Kette wie `recycle_tasks` (0033) —
+   * sonst gruppiert die Auswertung anders, als das Nachfassen-Board die
+   * Aufgabe beschriftet hat.
+   */
+  reason: string;
+  /** `recycle_attempt_count` — 0 heißt: eingeplant, aber nie angefasst. */
+  attempts: number;
+  /** `recycle_last_contacted_at` (timestamptz) — der letzte Versuch. */
+  last_contacted_at: string | null;
+  /** `recycle_responded_at` — der einzige Beleg, dass Recycling wirkt. */
+  responded_at: string | null;
+  /** `recycle_excluded_at` — dauerhaft gesperrt, kein weiterer Versuch. */
+  excluded_at: string | null;
+  /** `next_recycle_at` (date) — noch im Rennen. */
+  next_recycle_at: string | null;
+  /** Personenachse LinkedIn/Telefon: Owner der Elternliste (docs §2). */
+  owner_name: string | null;
+  /** Personenachse Setting/Closing: `personOf()`-Kandidaten. */
+  assigned_user_id: string | null;
+  created_by_user_id: string | null;
+};
+
+export type RecycleData = {
+  rows: AnalyseRecycleRow[];
+  /**
+   * `pipeline_settings.max_attempts` der Organisation. `null` = nicht lesbar
+   * (fehlende Zeile, oder ein Plattform-Admin in fremder Org, der dort kein
+   * Mitglied ist) — die Kennzahl „am Deckel" entfällt dann, statt gegen einen
+   * geratenen Deckel zu rechnen.
+   */
+  maxAttempts: number | null;
+  /** false = Migration 0033 fehlt oder die Abfrage ist gescheitert. */
+  available: boolean;
+};
+
+/**
+ * Nur Zeilen, die das Recycling überhaupt angefasst hat. Ohne diesen Filter
+ * lägen hier vier komplette Tabellen für eine Auswertung, die sich für ein
+ * paar Hundert Zeilen interessiert.
+ *
+ * Die drei Zweige sind die drei Zustände, die es gibt: eingeplant
+ * (`next_recycle_at`), mindestens einmal versucht (`recycle_attempt_count`),
+ * endgültig gesperrt (`recycle_excluded_at`).
+ */
+const RECYCLE_TOUCHED =
+  "next_recycle_at.not.is.null,recycle_attempt_count.gt.0,recycle_excluded_at.not.is.null";
+
+/**
+ * Vier Select-Ausdrücke, ausgeschrieben und ausdrücklich als `string` getippt.
+ *
+ * Beides ist Absicht. Ein zusammengesetzter Ausdruck (`\`… ${PARENT}!inner(…)\``)
+ * bleibt ein Template-Literal-TYP, und supabase-js zerlegt den beim
+ * Typprüfen — zwei weitere Einbettungen haben damit schon einmal das
+ * Instanziierungs-Budget des Projekts gesprengt, woraufhin `tsc` Fehler in
+ * ganz anderen Dateien meldete (siehe die Begründung an `TOUCH_CONTACT_SELECT`
+ * in src/app/actions/nachfassen.ts). Als `string` entfällt die Zerlegung; die
+ * Form der Antwort steht dafür ausdrücklich in `RawRecycle`.
+ */
+const RECYCLE_COLS =
+  "recycle_reason_code, recycle_attempt_count, recycle_last_contacted_at, " +
+  "recycle_responded_at, recycle_excluded_at, next_recycle_at";
+
+const RECYCLE_CONTACT_SELECT: string =
+  `id, ${RECYCLE_COLS}, lists!inner(owner_name, created_by_user_id)`;
+const RECYCLE_PHONE_SELECT: string =
+  `id, ${RECYCLE_COLS}, phone_lists!inner(owner_name, created_by_user_id)`;
+const RECYCLE_SETTING_SELECT: string =
+  `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}`;
+const RECYCLE_CLOSING_SELECT: string =
+  `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, lost_reason_code`;
+
+type RawRecycle = {
+  recycle_reason_code: string | null;
+  recycle_attempt_count: number | null;
+  recycle_last_contacted_at: string | null;
+  recycle_responded_at: string | null;
+  recycle_excluded_at: string | null;
+  next_recycle_at: string | null;
+  assigned_user_id?: string | null;
+  created_by_user_id?: string | null;
+  lost_reason_code?: string | null;
+  lists?: { owner_name: string | null } | null;
+  phone_lists?: { owner_name: string | null } | null;
+};
+
+/**
+ * Alle Recycling-Zeilen der Organisation — BEWUSST ohne Zeitraumfilter.
+ *
+ * Zwei Gründe: Der maßgebliche Stichtag der Wiederbelebungsquote ist
+ * `recycle_last_contacted_at`, der der Sperrungen `recycle_excluded_at` — zwei
+ * Zeitachsen, die kein einzelner SQL-Filter zugleich bedient. Und die
+ * Auswertung braucht den ÄLTESTEN Versuch überhaupt, um „im Zeitraum gab es
+ * das noch nicht" von „niemand hat nachgefasst" zu unterscheiden (Muster
+ * `loadCallAttempts`, docs §3).
+ */
+export async function loadRecycleData(
+  supabase: Client,
+  access: AccessContext,
+  canCompare: boolean,
+): Promise<RecycleData> {
+  const ws = access.workspace_id;
+
+  type Page = PromiseLike<{ data: RawRecycle[] | null; error: { message: string } | null }>;
+
+  const leadPage =
+    (table: "contacts" | "phone_leads", parent: "lists" | "phone_lists", select: string) =>
+    (f: number, t: number): Page => {
+      let q = supabase.from(table).select(select).eq("workspace_id", ws).or(RECYCLE_TOUCHED);
+      // Personen-Scope an der ELTERNLISTE, mit owner_name-Vorrang — identisch
+      // zu loadContacts/loadPhoneLeads.
+      if (!canCompare) q = q.or(listOwnerScope(access), { referencedTable: parent });
+      return q.order("id").range(f, t) as unknown as Page;
+    };
+
+  const apptPage =
+    (table: "setting_calls" | "closing_calls", select: string) =>
+    (f: number, t: number): Page => {
+      let q = supabase.from(table).select(select).eq("workspace_id", ws).or(RECYCLE_TOUCHED);
+      if (!canCompare) q = q.or(assignedOrCreatedBy(access.user.id));
+      return q.order("id").range(f, t) as unknown as Page;
+    };
+
+  try {
+    const [contacts, phoneLeads, settings, closings] = await Promise.all([
+      fetchAllRows<RawRecycle>(leadPage("contacts", "lists", RECYCLE_CONTACT_SELECT)),
+      fetchAllRows<RawRecycle>(leadPage("phone_leads", "phone_lists", RECYCLE_PHONE_SELECT)),
+      fetchAllRows<RawRecycle>(apptPage("setting_calls", RECYCLE_SETTING_SELECT)),
+      fetchAllRows<RawRecycle>(apptPage("closing_calls", RECYCLE_CLOSING_SELECT)),
+    ]);
+
+    // Die Coalesce-Ketten stehen wörtlich so in `recycle_tasks` (0033). Beim
+    // Closing steht `lost_reason_code` dazwischen: Der Recycling-Grund wird
+    // erst von `schedule_recycle()` gestempelt — eine Zeile, die vorher
+    // gesperrt wurde, hätte sonst gar keinen Grund, obwohl der Verlustgrund
+    // danebensteht.
+    const map = (
+      rows: RawRecycle[],
+      origin: RecycleOriginKey,
+      fallback: (r: RawRecycle) => string,
+    ): AnalyseRecycleRow[] =>
+      rows.map((r) => ({
+        origin,
+        reason: r.recycle_reason_code ?? fallback(r),
+        attempts: Number(r.recycle_attempt_count) || 0,
+        last_contacted_at: r.recycle_last_contacted_at ?? null,
+        responded_at: r.recycle_responded_at ?? null,
+        excluded_at: r.recycle_excluded_at ?? null,
+        next_recycle_at: r.next_recycle_at ?? null,
+        owner_name: r.lists?.owner_name ?? r.phone_lists?.owner_name ?? null,
+        assigned_user_id: r.assigned_user_id ?? null,
+        created_by_user_id: r.created_by_user_id ?? null,
+      }));
+
+    const rows = [
+      ...map(contacts, "linkedin", () => "fu_exhausted"),
+      ...map(phoneLeads, "telefon", () => "dead"),
+      ...map(settings, "setting", () => "dead"),
+      ...map(closings, "closing", (r) => r.lost_reason_code ?? "sonstiges"),
+    ];
+
+    // Eigener Zweig: Ein fehlender Deckel kostet EINE Kennzahl, nicht die
+    // Sektion. `maybeSingle()` liefert bei fehlender Zeile null ohne Fehler.
+    const settingsRes = await supabase
+      .from("pipeline_settings")
+      .select("max_attempts")
+      .eq("workspace_id", ws)
+      .maybeSingle();
+    const maxAttempts =
+      settingsRes.error || !settingsRes.data
+        ? null
+        : Number((settingsRes.data as { max_attempts: number | null }).max_attempts) || null;
+
+    return { rows, maxAttempts, available: true };
+  } catch (err) {
+    console.error("analyseData/recycle:", err instanceof Error ? err.message : err);
+    return { rows: [], maxAttempts: null, available: false };
   }
 }

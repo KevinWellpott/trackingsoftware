@@ -3,8 +3,9 @@ import { NachfassenBoard } from "@/components/nachfassen/NachfassenBoard";
 import { BackLink } from "@/components/ui/BackLink";
 import { PageHeader } from "@/components/ui/PageHeader";
 
-// Nachfassen: Union-Tasklist aller fälligen Aufgaben (LinkedIn + Telefon + Closing)
-// mit vorbereitetem Kopier-Text — kein Auto-Versand.
+// Nachfassen: Union-Tasklist aller fälligen Aufgaben aus fünf Quellen —
+// LinkedIn-Follow-up, Telefon-Rückruf, Erstgespräch- und Closing-Wiedervorlage
+// sowie Recycling — mit vorbereitetem Kopier-Text, kein Auto-Versand.
 
 export default async function NachfassenPage({
   searchParams,
@@ -13,7 +14,7 @@ export default async function NachfassenPage({
 }) {
   const sp = await searchParams;
   const showingAll = sp.alle === "1";
-  const { tasks, hiddenOlder } = await getNachfassenTasks({ includeOlder: showingAll });
+  const { tasks, hiddenOlder, recyclingAvailable } = await getNachfassenTasks({ includeOlder: showingAll });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
@@ -22,10 +23,18 @@ export default async function NachfassenPage({
       <PageHeader
         eyebrow="Wiedervorlage"
         title="Nachfassen"
-        meta="Alle fälligen Aufgaben aus LinkedIn, Telefon und Closing — mit fertigem Text zum Kopieren."
+        meta={
+          "Was ist heute fällig? Follow-ups, Rückrufe, Wiedervorlagen aus Erstgespräch und Closing " +
+          "sowie fällige Recycling-Versuche — jeweils mit fertigem Text zum Kopieren."
+        }
       />
 
-      <NachfassenBoard tasks={tasks} hiddenOlder={hiddenOlder} showingAll={showingAll} />
+      <NachfassenBoard
+        tasks={tasks}
+        hiddenOlder={hiddenOlder}
+        showingAll={showingAll}
+        recyclingAvailable={recyclingAvailable}
+      />
     </div>
   );
 }

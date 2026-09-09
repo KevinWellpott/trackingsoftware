@@ -28,6 +28,8 @@ import {
   type DropoutEntity,
   type DropoutListKey,
 } from "@/lib/dropoutLists";
+import type { DossierEntityKind } from "@/lib/leadDossier";
+import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { ownerColor } from "@/lib/ownerColor";
@@ -65,6 +67,8 @@ const ENTITY_META: Record<
     /** null = kein Ziel auflösbar (Lead ohne Liste) — der Knopf bleibt dann aus. */
     href: (row: DropoutRow) => string | null;
     linkLabel: string;
+    /** Anker des Lead-Dossiers — `entity_id` ist immer die Ursprungszeile. */
+    dossier: DossierEntityKind;
   }
 > = {
   setting: {
@@ -73,6 +77,7 @@ const ENTITY_META: Record<
     icon: <ClipboardCheck size={12} />,
     href: (row) => `/setting/${row.entity_id}`,
     linkLabel: "Zum Setting",
+    dossier: "setting",
   },
   closing: {
     label: "Closing",
@@ -80,6 +85,7 @@ const ENTITY_META: Record<
     icon: <Handshake size={12} />,
     href: (row) => `/closing/${row.entity_id}`,
     linkLabel: "Zum Closing",
+    dossier: "closing",
   },
   linkedin: {
     label: "LinkedIn-Kontakt",
@@ -87,6 +93,7 @@ const ENTITY_META: Record<
     icon: <AtSign size={12} />,
     href: (row) => (row.list_id ? `/lists/${row.list_id}` : null),
     linkLabel: "Zur Liste",
+    dossier: "contact",
   },
   telefon: {
     label: "Telefon-Lead",
@@ -94,6 +101,7 @@ const ENTITY_META: Record<
     icon: <Phone size={12} />,
     href: (row) => (row.list_id ? `/telefon/${row.list_id}` : null),
     linkLabel: "Zur Liste",
+    dossier: "phone_lead",
   },
 };
 
@@ -220,6 +228,7 @@ function DropoutCard({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [dossierOpen, setDossierOpen] = useState(false);
 
   const meta = ENTITY_META[row.entity_type];
   const href = meta.href(row);
@@ -412,6 +421,21 @@ function DropoutCard({
           </button>
         )}
 
+        {/* Die Akte zum abgelegten Vorgang. Hier trägt sie mehr als auf den
+            Arbeitslisten: Bevor man einen toten Lead vorzieht oder dauerhaft
+            sperrt, ist der Verlauf die einzige Grundlage für die Entscheidung —
+            und der Verweis daneben führt bei LinkedIn- und Telefon-Zeilen nur
+            zur Liste, nicht zum Lead. Der einzige Weg zur Historie einer
+            solchen Zeile führt über das Dossier. */}
+        <button
+          type="button"
+          onClick={() => setDossierOpen(true)}
+          style={ghostBtn}
+          title="Alles zu diesem Lead — Verlauf, Kanäle, Notizen"
+        >
+          <Users size={12} /> Dossier
+        </button>
+
         {blocked ? (
           <button type="button" disabled style={disabledBtn} title={blocked}>
             <ChevronsRight size={12} /> Recycling vorziehen
@@ -474,6 +498,13 @@ function DropoutCard({
           {blocked}
         </span>
       )}
+
+      <LeadDossierSheet
+        open={dossierOpen}
+        onClose={() => setDossierOpen(false)}
+        kind={meta.dossier}
+        id={row.entity_id}
+      />
     </article>
   );
 }

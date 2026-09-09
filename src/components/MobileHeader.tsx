@@ -3,12 +3,20 @@
 import { Menu } from "lucide-react";
 import { SearchTrigger } from "@/components/search/SearchDialog";
 import type { ViewNode } from "@/lib/listViews";
+import type { NavCounts } from "@/lib/navCounts";
 import { useState } from "react";
 import { MobileDrawer } from "./Sidebar";
 
 // Topbar (COMPONENTS.md §10.2): 56px, Glass-Nav-Rezept, sticky. Sie blendet
 // bei Scroll nicht aus — das hier ist eine App, kein Marketing-Header.
 // Auf Mobile traegt sie zusaetzlich den Drawer-Trigger.
+//
+// Der Punkt am Menue-Knopf ist die mobile Haelfte der Aufgaben-Zaehler: Auf
+// dem Desktop stehen sie in der Seitenleiste, hier liegt die komplette
+// Navigation hinter einem Knopf. Ohne den Punkt waere die Zahl auf genau dem
+// Geraet unsichtbar, auf dem sie am ehesten gebraucht wird. Bewusst nur ein
+// Punkt und keine Zahl: WELCHER Eintrag etwas hat, steht eine Beruehrung
+// weiter — drei Zahlen auf einem 36px-Knopf waeren keine.
 
 type Props = {
   workspaceName: string;
@@ -36,10 +44,15 @@ type Props = {
     isForeign: boolean;
     orgs: { id: string; name: string }[];
   };
+  navCounts?: NavCounts;
 };
 
-export function MobileHeader({ workspaceName, username, workspaceId, lists, viewTree, phoneLists, dataScope, dataView, orgSwitch }: Props) {
+export function MobileHeader({ workspaceName, username, workspaceId, lists, viewTree, phoneLists, dataScope, dataView, orgSwitch, navCounts }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const pending = [navCounts?.nachfassen, navCounts?.erinnerungen, navCounts?.ablage];
+  const total = pending.reduce((n, c) => n + (c?.total ?? 0), 0);
+  const overdue = pending.reduce((n, c) => n + (c?.overdue ?? 0), 0);
 
   return (
     <>
@@ -65,8 +78,14 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, view
           <SearchTrigger variant="icon" />
           <button
             onClick={() => setDrawerOpen(true)}
-            aria-label="Menü öffnen"
+            aria-label={total > 0 ? `Menü öffnen — ${total} offene Aufgaben` : "Menü öffnen"}
+            title={
+              total > 0
+                ? `${total} offene Aufgaben${overdue > 0 ? `, davon ${overdue} überfällig` : ""}`
+                : undefined
+            }
             style={{
+              position: "relative",
               background: "transparent",
               border: "1px solid var(--border-default)",
               borderRadius: "var(--r-full)",
@@ -80,6 +99,22 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, view
             }}
           >
             <Menu size={18} />
+            {total > 0 && (
+              <span
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  top: 5,
+                  right: 5,
+                  width: 7,
+                  height: 7,
+                  borderRadius: "var(--r-full)",
+                  // Derselbe Semantik-Ton wie die Zaehler in der Seitenleiste:
+                  // Gold heisst „zu spaet", Orange nur „da liegt etwas".
+                  background: overdue > 0 ? "var(--warning-fg)" : "var(--orange-500)",
+                }}
+              />
+            )}
           </button>
         </div>
       </header>
@@ -96,6 +131,7 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, view
         dataScope={dataScope}
         dataView={dataView}
         orgSwitch={orgSwitch}
+        navCounts={navCounts}
       />
     </>
   );

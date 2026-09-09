@@ -1,19 +1,21 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-  CalendarCheck, Coins, Euro, Filter, GitBranch, Handshake, MessageCircle, PhoneCall, TrendingUp, UserRound,
+  CalendarCheck, CalendarX, Coins, Euro, Filter, GitBranch, Handshake, MessageCircle, PhoneCall, TrendingUp,
+  UserRound,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { loadClosingCalls, loadSettingCalls } from "@/lib/analyseData";
 import {
-  NUM, buildBuckets, bucketOf, closingEffDate, eur, ownerKey, pct, settingEffDate,
+  NUM, buildBuckets, bucketOf, closingEffDate, eur, fmtPct, ownerKey, pct, settingEffDate,
   type FunnelModus, type Granularity, type QuelleKey,
 } from "@/lib/analyse";
 import { berlinDateISO } from "@/lib/apptTime";
 import { CHANNELS, channelLabel, channelOf, type ChannelKey } from "@/lib/channels";
+import { dropoutReasonLabel } from "@/lib/dropoutLists";
 import { personOf } from "@/lib/personResolution";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
-import { MetricTable, StatRow, type MetricRow } from "@/components/analyse/AnalyseTables";
+import { Footnote, MetricTable, StatRow, type MetricRow } from "@/components/analyse/AnalyseTables";
 import { BarFunnel, KpiHero, KpiRow } from "@/components/analyse/AnalyseViz";
 import { CumulativeProgressChart } from "@/components/analyse/CumulativeProgressChart";
 
@@ -93,6 +95,22 @@ import { CumulativeProgressChart } from "@/components/analyse/CumulativeProgress
 //    `source_type` — die Regel des Setting-Tabs, inklusive case-insensitiver
 //    Normalisierung (siehe `srcOf`). Gegen die dadurch mögliche Zeilenflut
 //    steht eine Sammelzeile, keine Mindestmenge (Begründung dort).
+//
+// ── Absagen (Entscheidung K5) ─────────────────────────────────────────────
+// 9) ABGESAGTE TERMINE ZÄHLEN HIER NICHT MEHR MIT. Seit dem Nachfassen-Umbau
+//    trägt ein abgesagter Termin `cancelled_at`; sein `show_status` bleibt
+//    leer. Für die Show- und die Quali-Quote fiel er damit von selbst aus dem
+//    Nenner — nicht aber aus den STUFEN dieses Trichters, wo „Termine Setting"
+//    eine reine Menge ist. Eine Absage stand dort als garantierte Null in jeder
+//    Durchlaufquote: Ab dem Deploy wäre jede Quote gesunken, ohne dass sich am
+//    Vertrieb etwas geändert hätte — derselbe Zahlensprung, vor dem docs §5
+//    warnt. Der Funnel misst Konversion und schließt sie deshalb aus.
+//    Übersicht, Setting-Tab und Kalender behalten sie: dort ist die Frage
+//    Kapazität („wie viele Termine standen im Kalender"), und die beantwortet
+//    ein abgesagter Termin sehr wohl.
+//    Damit die Zahl nicht verschwindet, sondern SICHTBAR wird, steht sie als
+//    eigene Sektion „Absagen" unter dem Trichter — mitsamt dem Nenner, der die
+//    Brücke zwischen beiden Tabs schlägt (siehe `cancelInfo`).
 
 type Member = { user_id: string; username: string };
 
@@ -485,6 +503,62 @@ export async function FunnelTab({
     map[k] = (map[k] ?? 0) + n;
   };
 
+  // ── Absagen (Entscheidung K5) ───────────────────────────────
+  // Zwei getrennte Töpfe, weil Setting- und Closing-Absagen verschiedene
+  // Grundgesamtheiten haben — eine gemeinsame Quote mischte zwei Nenner.
+  //
+  // NENNER = ALLE Termine des Fensters, abgesagte EINGESCHLOSSEN. Das ist der
+  // einzige ehrliche Nenner: Eine Absage kann jeden geplanten Termin treffen,
+  // und nur so gilt „Trichter-Termine + Absagen = Termine im Setting-Tab" —
+  // die Absagequote ist damit genau die Brücke zwischen den beiden Zahlen, die
+  // sich zwischen den Tabs unterscheiden. Der naheliegende Nenner „Termine mit
+  // erfasstem Ergebnis" (wie bei der Show-Quote) wäre hier strukturell falsch:
+  // ein abgesagter Termin bekommt NIE ein show_status und stünde nie im
+  // eigenen Nenner — die Quote wäre konstant 0 %.
+  //
+  // Beide Töpfe zählen auf dem eigenen Termindatum, also in PERIODENsicht,
+  // unabhängig vom Zählweise-Umschalter: Eine Absage ist ein Ereignis des
+  // Termins, nicht seiner Kohorte. Für Settings ist das ohnehin dieselbe
+  // Menge; für Closings sagt es die Meta-Zeile.
+  type CancelAgg = {
+    total: number;
+    cancelled: number;
+    ohneAussicht: number;
+    neuerTermin: number;
+  };
+  const ZERO_CANCEL = (): CancelAgg => ({ total: 0, cancelled: 0, ohneAussicht: 0, neuerTermin: 0 });
+  const cancelSetting = ZERO_CANCEL();
+  const cancelClosing = ZERO_CANCEL();
+  /** Absagegründe über BEIDE Termin-Arten — der CHECK ist derselbe (0032). */
+  const cancelReasons = new Map<string, number>();
+
+  const addCancel = (
+    agg: CancelAgg,
+    r: { cancelled_at: string | null; cancel_outlook: string | null; cancel_reason_code: string | null },
+  ): void => {
+    agg.total += 1;
+    if (!r.cancelled_at) return;
+    agg.cancelled += 1;
+    if (r.cancel_outlook === "ohne_aussicht") agg.ohneAussicht += 1;
+    else if (r.cancel_outlook === "neuer_termin") agg.neuerTermin += 1;
+    const code = r.cancel_reason_code ?? "";
+    cancelReasons.set(code, (cancelReasons.get(code) ?? 0) + 1);
+  };
+
+  /**
+   * Älteste erfasste Absage überhaupt — ohne Zeitraum- und ohne Personenfilter,
+   * über beide Tabellen. Ohne diesen Anker läse sich ein Fenster von VOR dem
+   * Umbau wie „es wurde nie abgesagt", obwohl es damals schlicht kein Feld
+   * dafür gab: Es gibt bewusst keinen Backfill. Muster: `firstCalledAt` im
+   * Anruf-Log (src/lib/phoneAttemptsData.ts).
+   */
+  const earliestCancel = (rows: { cancelled_at: string | null }[], start: string | null): string | null =>
+    rows.reduce<string | null>(
+      (min, r) => (r.cancelled_at && (min === null || r.cancelled_at < min) ? r.cancelled_at : min),
+      start,
+    );
+  const firstCancelledAt = earliestCancel(closingRows, earliestCancel(settingRows, null));
+
   // ── Setting-Calls ───────────────────────────────────────────
   // `srcOfSetting` deckt ALLE Settings ab, auch die außerhalb des Fensters: in
   // der Periodensicht kann ein Closing zu einem älteren Termin gehören, und
@@ -507,6 +581,14 @@ export async function FunnelTab({
     if (day < from || day > toEff) continue;
     const name = resolvePerson(r);
     if (!name) continue;
+
+    // Absagequote ZUERST — ihr Nenner ist die volle Menge, also auch der
+    // Termin, den die Zeile darunter gerade aus dem Trichter nimmt.
+    if (quelle === "alle" || channel === quelle) addCancel(cancelSetting, r);
+    // Ab hier läuft nur noch, was wirklich stattgefunden hat oder ansteht:
+    // Ein abgesagter Termin hat weder Show noch Qualifizierung noch Closing und
+    // stünde als garantierte Null in jeder Durchlaufquote (Punkt 9 oben).
+    if (r.cancelled_at) continue;
 
     const show = r.show_status === "show";
     const quali = isQualified(r);
@@ -543,6 +625,19 @@ export async function FunnelTab({
     // der Kohortensicht gibt es gar keine Obergrenze für das Closing-Datum
     // (das Closing folgt seinem Termin) — dort ist dies die einzige Bremse.
     if (closingEffDate(r) > heute) continue;
+
+    // Absagequote der Closings: immer auf dem eigenen Termindatum, auch in der
+    // Kohortensicht (Begründung bei `cancelSetting`). Die Herkunft kommt über
+    // das Setting, damit der Quellenfilter greift wie überall sonst.
+    const cancelDay = closingEffDate(r);
+    if (cancelDay >= from && cancelDay <= toEff) {
+      const cancelChannel =
+        ((r.setting_call_id ? srcOfSetting.get(r.setting_call_id) : null) ?? SRC_OHNE).channel;
+      if (resolvePerson(r) && (quelle === "alle" || cancelChannel === quelle)) {
+        addCancel(cancelClosing, r);
+      }
+    }
+    if (r.cancelled_at) continue;
 
     const inCohort = r.setting_call_id ? cohort.get(r.setting_call_id) : undefined;
 
@@ -721,13 +816,54 @@ export async function FunnelTab({
 
   const quelleLabel = quelle === "alle" ? "Alle Quellen" : channelLabel(quelle);
   const modusLabel = modus === "kohorte" ? "Kohorte" : "Periode";
+
+  // ── Absagen: Kennzahlen und Ehrlichkeit über die Datenlage ───
+  const cancelTotal = cancelSetting.cancelled + cancelClosing.cancelled;
+  /**
+   * Deckt der Zeitraum die Erfassung überhaupt ab? Vor dem Umbau gab es das
+   * Feld nicht — dort heißt „keine Absage" nicht „niemand hat abgesagt",
+   * sondern „wurde damals nicht erfasst". Eine 0 % wäre an dieser Stelle eine
+   * Falschaussage, deshalb `null` (die Anzeige zeigt „—") plus eine Zeile mit
+   * dem Grund. Wortgleiches Muster: die Leitkachel „Anwahlen" im Telefon-Tab.
+   */
+  const cancelStartDay = firstCancelledAt ? berlinDateISO(firstCancelledAt) : null;
+  const cancelCovers = cancelStartDay !== null && cancelStartDay <= to;
+  const cancelNote = !cancelCovers
+    ? cancelStartDay === null
+      ? "bisher keine Absage erfasst — die Felder dafür gibt es erst seit dem Nachfassen-Umbau, und es gibt keinen Backfill."
+      : `Absagen werden erst seit dem ${fmtDay(cancelStartDay)} erfasst; dieser Zeitraum liegt davor.`
+    : cancelStartDay > from
+      ? `Absagen sind erst ab dem ${fmtDay(cancelStartDay)} erfasst — für die Tage davor steht im Zähler zwangsläufig nichts.`
+      : null;
+  const settingCancelRate = cancelCovers ? pct(cancelSetting.cancelled, cancelSetting.total) : null;
+  const closingCancelRate = cancelCovers ? pct(cancelClosing.cancelled, cancelClosing.total) : null;
+
+  const cancelReasonRows: MetricRow[] = [...cancelReasons.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "de"))
+    .map(([code, n]) => ({
+      key: code || "ohne",
+      // Ein unbekannter Code wird roh gezeigt statt still als „Sonstiges"
+      // verbucht — dieselbe Regel wie in der Ablage.
+      label: code ? dropoutReasonLabel(code) : "Ohne Angabe",
+      share: cancelTotal === 0 ? null : n / cancelTotal,
+      values: { n },
+    }));
+
+  /**
+   * Der Zusatz in jeder Meta-Zeile, die eine Trichterstufe zeigt. Er steht da
+   * IMMER, auch bei null Absagen: Er beschreibt die Definition, nicht den
+   * Befund — und eine unerklärte Abweichung zwischen zwei Tabs ist schlimmer
+   * als beide Varianten.
+   */
+  const ohneAbsagen =
+    cancelTotal > 0 ? ` · ohne ${cancelTotal.toLocaleString("de-DE")} Absagen` : " · ohne Absagen";
   // Die Zeitgrenze steht IN der Meta-Zeile, nicht nur im Info-Text: Sie ist der
   // Grund, warum dieselbe Woche hier weniger Termine zeigt als im Setting-Tab,
   // und diese Frage stellt sich beim Lesen der Zahl — nicht erst beim Klick.
   const windowLabel = futureOnly
     ? `${fmtDay(from)} – ${fmtDay(to)} · noch kein Termin stattgefunden`
     : `${fmtDay(from)} – ${fmtDay(toEff)}${clamped ? " · nur bis heute" : ""}`;
-  const rangeMeta = `${windowLabel} · ${quelleLabel} · ${modusLabel}`;
+  const rangeMeta = `${windowLabel} · ${quelleLabel} · ${modusLabel}${ohneAbsagen}`;
   /**
    * Meta-Zeile der einen Sektion, die dem Quellenfilter NICHT folgen kann:
    * „Wo kommt der Umsatz her?" teilt den Gesamtumsatz auf die Kanäle auf. Mit
@@ -774,6 +910,24 @@ export async function FunnelTab({
       Übersicht ist &bdquo;Termine im Zeitraum&ldquo; bewusst die volle Zahl inklusive der anstehenden — das
       ist dort eine Kapazitätsfrage. Deshalb dürfen beide Tabs für denselben Zeitraum verschiedene
       Termin-Zahlen zeigen.
+    </p>
+  );
+
+  /**
+   * Der Absagen-Ausschluss, ebenfalls in JEDER Sektion mit Trichterstufen. Er
+   * ist der ZWEITE Grund, warum die Termin-Zahl hier kleiner sein darf als im
+   * Setting-Tab — wer nur die Zeitgrenze liest, hält die verbleibende Differenz
+   * für einen Fehler.
+   */
+  const absagenInfo = (
+    <p style={INFO_P}>
+      <strong style={INFO_STRONG}>Ohne abgesagte Termine.</strong> Ein abgesagter Termin
+      (<code>cancelled_at</code>) hat nie stattgefunden: keine Show, keine Qualifizierung, kein Closing. Als
+      Stufe mitgezählt wäre er eine garantierte Null in jeder Durchlaufquote — jede Quote wäre ab dem Tag
+      gesunken, an dem die Absage-Erfassung anlief, ohne dass sich am Vertrieb etwas geändert hätte.
+      Übersicht, Setting-Tab und Kalender behalten sie dagegen: Dort ist die Frage, wie viele Termine im
+      Kalender standen (Kapazität), und die beantwortet auch ein abgesagter Termin. Wie groß der Unterschied
+      ist, steht in der Sektion &bdquo;Absagen&ldquo;.
     </p>
   );
 
@@ -968,6 +1122,7 @@ export async function FunnelTab({
             <InfoText>
               <p style={INFO_P}>{modusHint}</p>
               {zeitgrenzeInfo}
+              {absagenInfo}
               <p style={INFO_P}>
                 Alle sechs Stufen kommen aus <code>setting_calls</code> und <code>closing_calls</code>;
                 &bdquo;Qualifiziert&ldquo; ist dieselbe Definition wie im Setting-Tab (erschienen <em>und</em>{" "}
@@ -984,6 +1139,107 @@ export async function FunnelTab({
         </AnalyseSection>
       </div>
 
+      {/* ── Absagen ──────────────────────────────────────────────
+             Steht direkt UNTER dem Trichter, nicht irgendwo weiter unten: Sie
+             ist die Erklärung für die Zahl, die man gerade gelesen hat. Eine
+             ausgeschlossene Größe, die nirgends mehr auftaucht, ist aus Sicht
+             des Lesers verschwunden — und eine verschwundene Zahl ist genauso
+             schlimm wie eine verfälschte. Startet zugeklappt: Die Kernaussage
+             steht in der Meta-Zeile. */}
+      <div className="fade-up" style={{ animationDelay: "255ms" }}>
+        <AnalyseSection
+          title="Absagen"
+          icon={CalendarX}
+          meta={
+            cancelCovers
+              ? `${fmtPct(settingCancelRate)} der Settingtermine · ${cancelTotal.toLocaleString("de-DE")} Absagen`
+              : "noch keine Absagen erfasst"
+          }
+          collapsible
+          defaultOpen={false}
+          info={
+            <InfoText>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Absagequote = abgesagte Termine ÷ ALLE Termine des Zeitraums</strong>{" "}
+                — abgesagte eingeschlossen. Das ist der einzige ehrliche Nenner: Eine Absage kann jeden
+                geplanten Termin treffen, und nur so gilt &bdquo;Termine im Trichter + Absagen = Termine im
+                Setting-Tab&ldquo;. Diese Quote ist damit genau die Brücke zwischen den beiden Zahlen, die
+                sich zwischen den Tabs unterscheiden.
+              </p>
+              <p style={INFO_P}>
+                Der Nenner der Show-Quote (&bdquo;Termine mit erfasstem Ergebnis&ldquo;) taugt hier
+                <strong style={INFO_STRONG}> nicht</strong>: Ein abgesagter Termin bekommt nie ein
+                Erschienen-Kennzeichen, stünde also nie im eigenen Nenner — die Quote läge konstant bei 0 %.
+              </p>
+              <p style={INFO_P}>
+                Beide Quoten zählen auf dem eigenen Termindatum, also in <em>Periodensicht</em> — unabhängig
+                vom Zählweise-Umschalter oben. Eine Absage ist ein Ereignis des Termins, nicht seiner Kohorte.
+                Für die Settingtermine ist das ohnehin dieselbe Menge; bei den Closings kann die Zahl in der
+                Kohortensicht deshalb neben dem Trichter stehen, statt sich mit ihm zu addieren.
+              </p>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Ohne Aussicht</strong> heißt: kein Ersatztermin in Sicht — der Lead
+                geht in die Ablage und später ins Recycling. <strong style={INFO_STRONG}>Neuer Termin</strong>{" "}
+                heißt: verschoben, die Kaskade startet neu. Zwei sehr verschiedene Ereignisse unter einem Wort,
+                deshalb stehen sie getrennt.
+              </p>
+            </InfoText>
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
+            <StatRow
+              items={[
+                {
+                  label: "Absagequote Setting",
+                  value: fmtPct(settingCancelRate),
+                  tone: settingCancelRate !== null && settingCancelRate >= 20 ? "warning" : "default",
+                },
+                {
+                  label: "Absagequote Closing",
+                  value: fmtPct(closingCancelRate),
+                  tone: closingCancelRate !== null && closingCancelRate >= 20 ? "warning" : "default",
+                },
+                {
+                  label: "Ohne Aussicht",
+                  value: cancelCovers
+                    ? (cancelSetting.ohneAussicht + cancelClosing.ohneAussicht).toLocaleString("de-DE")
+                    : "—",
+                },
+                {
+                  label: "Neuer Termin",
+                  value: cancelCovers
+                    ? (cancelSetting.neuerTermin + cancelClosing.neuerTermin).toLocaleString("de-DE")
+                    : "—",
+                },
+              ]}
+            />
+            <div>
+              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
+                Warum abgesagt wurde
+                {/* Nenner beider Quoten offen hinschreiben — eine Quote ohne
+                    ihre Basis ist bei kleinen Mengen eine Zufallszahl. */}
+                {cancelCovers && ` · Basis ${cancelSetting.total.toLocaleString("de-DE")} Setting- und ${cancelClosing.total.toLocaleString("de-DE")} Closingtermine`}
+              </div>
+              <MetricTable
+                label="Grund"
+                columns={[{ key: "n", label: "Absagen", format: "int", emphasis: true }]}
+                rows={cancelReasonRows}
+                minWidth={320}
+                emptyHint={
+                  cancelCovers
+                    ? "Im Zeitraum wurde kein Termin abgesagt."
+                    : "Für diesen Zeitraum gibt es noch keine Absage-Erfassung."
+                }
+              />
+            </div>
+            {/* Muster Anruf-Log: „leer" heißt hier „gab es damals noch nicht",
+                nicht „niemand hat abgesagt". Ohne diesen Satz läse sich eine
+                0 % als Erfolg, obwohl sie nur das Deploy-Datum beschreibt. */}
+            {cancelNote && <Footnote>{cancelNote}</Footnote>}
+          </div>
+        </AnalyseSection>
+      </div>
+
       {/* ── Fortschritt im Zeitraum ──────────────────────────────
              Startet zugeklappt: ein Verlaufs-Chart beantwortet keine Frage,
              die man beim Öffnen der Seite stellt — er beantwortet die zweite. */}
@@ -994,7 +1250,7 @@ export async function FunnelTab({
           // Der Quellenfilter steht auch hier in der Meta-Zeile: Die Kurven
           // folgen ihm, und ohne den Hinweis wirkte eine gefilterte Kurve wie
           // ein Einbruch statt wie ein Ausschnitt.
-          meta={`kumuliert · ${quelleLabel}`}
+          meta={`kumuliert · ${quelleLabel}${ohneAbsagen}`}
           collapsible
           defaultOpen={false}
           info={
@@ -1009,6 +1265,7 @@ export async function FunnelTab({
                   : "Zählweise Periode: Jede Stufe liegt im Bucket ihres eigenen Stichtags."}
               </p>
               {zeitgrenzeInfo}
+              {absagenInfo}
             </InfoText>
           }
         >
@@ -1042,7 +1299,7 @@ export async function FunnelTab({
           <AnalyseSection
             title="Je Quelle"
             icon={GitBranch}
-            meta="derselbe Trichter, aufgeschlüsselt nach Herkunft"
+            meta={`derselbe Trichter, aufgeschlüsselt nach Herkunft${ohneAbsagen}`}
             collapsible
             info={
               <InfoText>
@@ -1071,6 +1328,7 @@ export async function FunnelTab({
                   keine Mindestmenge, weil sonst gerade die kleine Quelle mit dem großen Abschluss wegfiele.
                 </p>
                 {zeitgrenzeInfo}
+                {absagenInfo}
               </InfoText>
             }
           >

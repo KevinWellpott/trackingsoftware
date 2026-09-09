@@ -69,6 +69,13 @@ export const METRICS: readonly CompareMetric[] = [
   { key: "quali", label: "Qualifiziert", group: "Setting", num: "setting_quali", format: "int", hint: "erschienen + qualifiziert/Closing gelegt" },
   { key: "qualiquote", label: "Quali-Quote", group: "Setting", num: "setting_quali", den: "setting_shows", format: "pct" },
   { key: "setting_dead", label: "Dead (Setting)", group: "Setting", num: "setting_dead", format: "int" },
+  // Nenner sind ALLE Termine, abgesagte eingeschlossen — eine Absage kann jeden
+  // geplanten Termin treffen, und nur so gilt „Termine im Funnel + Absagen =
+  // Termine hier". Der Nenner der Show-Quote waere hier strukturell falsch: Ein
+  // abgesagter Termin bekommt nie ein `show_status` und stuende nie im eigenen
+  // Nenner, die Quote laege konstant bei 0 %.
+  { key: "absagen", label: "Absagen (Setting)", group: "Setting", num: "setting_cancelled", format: "int" },
+  { key: "absagequote", label: "Absagequote (Setting)", group: "Setting", num: "setting_cancelled", den: "settings", format: "pct", hint: "alle Termine im Nenner, abgesagte eingeschlossen" },
 
   // ── Closing ────────────────────────────────────────────────
   { key: "closings", label: "Closings", group: "Closing", num: "closings", format: "int" },
@@ -80,6 +87,7 @@ export const METRICS: readonly CompareMetric[] = [
   // Abschlussrate im Closing-Tab. Ein Deal kann nur gewonnen werden, wenn das
   // Gespraech stattgefunden hat.
   { key: "winrate", label: "Abschlussrate", group: "Closing", num: "won", den: "closing_shows", format: "pct", hint: "gewonnen je erschienenem Closing" },
+  { key: "closing_absagequote", label: "Absagequote (Closing)", group: "Closing", num: "closing_cancelled", den: "closings", format: "pct", hint: "alle Closingtermine im Nenner, abgesagte eingeschlossen" },
 
   // ── Wert ───────────────────────────────────────────────────
   // Die Verhältnisse hier sind PERIODEN-Kennzahlen: Der Deal aus dem August
@@ -141,8 +149,10 @@ const MEASURE_SOURCE: Record<MeasureKey, MetricSource> = {
   setting_decided: "setting",
   setting_quali: "setting",
   setting_dead: "setting",
+  setting_cancelled: "setting",
   closings: "closing",
   closing_shows: "closing",
+  closing_cancelled: "closing",
   won: "closing",
   lost: "closing",
   revenue: "closing",

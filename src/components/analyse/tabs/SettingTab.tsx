@@ -779,6 +779,17 @@ export async function SettingTab({
                 Unqualifizierte stehen gar nicht erst im Nenner: Gemessen wird die Konsequenz des Setters, nicht
                 die Lead-Qualität.
               </p>
+              <p style={INFO_P}>
+                <strong style={INFO_STRONG}>Abgesagte Termine zählen in &bdquo;Termine&ldquo; mit.</strong> Dieser
+                Tab beantwortet eine Kapazitätsfrage — wie viele Termine standen im Kalender —, und die
+                beantwortet auch ein abgesagter Termin. Der Funnel-Tab zählt aus <em>zwei</em> Gründen weniger:
+                Er lässt Absagen weg, weil er Konversion misst — und er schneidet bei heute ab, weil ein Termin,
+                der erst noch bevorsteht, weder Show noch Closing haben kann. Die Absagequote dort erklärt
+                deshalb nur den ersten Teil der Differenz: In einem abgeschlossenen Zeitraum ist sie die ganze,
+                in einem laufenden kommen die noch anstehenden Termine hinzu. Auf die drei Quoten hier wirkt
+                sich beides nicht aus — weder eine Absage noch ein noch offener Termin bekommt ein
+                Erschienen-Kennzeichen, beide fallen aus deren Nennern ohnehin heraus.
+              </p>
             </InfoText>
           }
         >

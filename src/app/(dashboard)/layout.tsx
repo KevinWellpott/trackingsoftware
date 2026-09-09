@@ -5,6 +5,7 @@ import { QuickAddLinkedIn } from "@/components/quicktrack/QuickAddLinkedIn";
 import { SidebarContent } from "@/components/Sidebar";
 import { ForeignOrgBanner } from "@/components/ForeignOrgBanner";
 import { buildViewTree, type ViewRow } from "@/lib/listViews";
+import { loadNavCounts } from "@/lib/navCounts";
 import { redirect } from "next/navigation";
 
 export default async function DashboardLayout({
@@ -44,12 +45,19 @@ export default async function DashboardLayout({
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
 
-  const [{ data: lists }, { data: phoneListsData }, { data: viewRows }, dataViewUsers] = await Promise.all([
-    listsQuery,
-    phoneListsQuery,
-    viewsQuery,
-    access.can_switch_view ? listDataViewUsers(access.workspace_id) : Promise.resolve([]),
-  ]);
+  const [{ data: lists }, { data: phoneListsData }, { data: viewRows }, dataViewUsers, navCounts] =
+    await Promise.all([
+      listsQuery,
+      phoneListsQuery,
+      viewsQuery,
+      access.can_switch_view ? listDataViewUsers(access.workspace_id) : Promise.resolve([]),
+      // Faellige Aufgaben je Navigationseintrag. Haengt sich in dieses Buendel
+      // ein, statt danach zu laufen — die Zaehler kosten dadurch einen
+      // Roundtrip, keine Summe. Wirft nie und wartet nie laenger als seine
+      // eigene Frist; kommt nichts zurueck, rendert die Navigation ohne Zahlen
+      // (src/lib/navCounts.ts).
+      loadNavCounts(supabase, access),
+    ]);
 
   const sidebarLists = (lists ?? []).map((l) => ({
     id: l.id,
@@ -111,6 +119,7 @@ export default async function DashboardLayout({
             users: dataViewUsers,
           }}
           orgSwitch={orgSwitch}
+          navCounts={navCounts}
         />
       </aside>
 
@@ -133,6 +142,7 @@ export default async function DashboardLayout({
               users: dataViewUsers,
             }}
             orgSwitch={orgSwitch}
+            navCounts={navCounts}
           />
         </div>
 

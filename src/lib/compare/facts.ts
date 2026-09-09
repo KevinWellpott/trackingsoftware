@@ -271,6 +271,12 @@ export function buildFacts(src: CompareSources): CompareData {
       setting_decided: r.show_status === "show" || r.show_status === "no_show" ? 1 : 0,
       setting_quali: isQualifiedSetting(r) ? 1 : 0,
       setting_dead: r.status === "dead" ? 1 : 0,
+      // Der Termin bleibt in `settings` stehen — die Vergleichsseite zaehlt
+      // Termine wie Setting-Tab und Uebersicht in der ABSOLUTEN Definition
+      // (Kapazitaet). Nur der Funnel-Tab schliesst Absagen aus, weil er
+      // Konversion misst. Hier steht die Absage deshalb als eigene Messgroesse
+      // daneben, statt eine der beiden Zaehlweisen still zu erzwingen.
+      setting_cancelled: r.cancelled_at ? 1 : 0,
     });
   }
 
@@ -289,6 +295,7 @@ export function buildFacts(src: CompareSources): CompareData {
       won: won ? 1 : 0,
       lost: r.status === "verloren" ? 1 : 0,
       revenue: won ? Number(r.deal_volume) || 0 : 0,
+      closing_cancelled: r.cancelled_at ? 1 : 0,
     });
   }
 

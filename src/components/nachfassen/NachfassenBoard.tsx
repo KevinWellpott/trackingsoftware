@@ -3,6 +3,11 @@
 import { advanceLinkedInFollowUp, markLinkedInAnswered, type NachfassenTask } from "@/app/actions/nachfassen";
 import { excludeFromRecycle, markRecycleContacted, markRecycleResponded } from "@/app/actions/recycle";
 import { RECYCLE_REASON_LABELS } from "@/lib/recycleCadence";
+import { TEMPLATE_SOURCE_LABELS } from "@/lib/messageTemplates";
+import { contactAgeDays, lastContactLabel } from "@/lib/contactGap";
+import { isOverdue, type DueGranularity } from "@/lib/dueState";
+import type { DossierEntityKind } from "@/lib/leadDossier";
+import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import {
   AlertTriangle,
@@ -16,20 +21,27 @@ import {
   ClipboardCheck,
   Clock,
   Copy,
+  Database,
   Handshake,
   History,
   Phone,
   RefreshCw,
+  Users,
   UserX,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
-// Nachfassen-Board (Client): Union-Tasklist aus LinkedIn-FUs, Telefon-Rückrufen
-// und Closing-Nachfassen. Kernwert: fertiger Text zum Kopieren — KEIN Auto-Versand.
+// Nachfassen-Board (Client): Union-Tasklist aus fünf Quellen — LinkedIn-Follow-up,
+// Telefon-Rückruf, Erstgespräch-Wiedervorlage, Closing-Wiedervorlage und
+// Recycling. Kernwert: fertiger Text zum Kopieren — KEIN Auto-Versand.
 // Layout: Summary-Chips → Kanal-Tabs → FU-Schnellauswahl → einklappbare Sektionen
 // mit kompaktem Karten-Grid.
+//
+// Die Texte kommen aus dem Vorlagen-Katalog und tragen ihre Herkunft als Badge
+// (Liste / persönlich / Organisation / Auslieferung) — eine wirkende Vorlage
+// kann damit nicht mehr unsichtbar sein.
 
 type Props = {
   tasks: NachfassenTask[];
@@ -37,6 +49,8 @@ type Props = {
   hiddenOlder: number;
   /** true, wenn ?alle=1 aktiv ist und auch ältere Leads geladen wurden. */
   showingAll: boolean;
+  /** false = Recycling-Schema fehlt (Migration 0033). NICHT „nichts fällig". */
+  recyclingAvailable: boolean;
 };
 
 type ChannelFilter = "alle" | NachfassenTask["source"];
@@ -98,10 +112,43 @@ const FILTERS: { value: ChannelFilter; label: string }[] = [
   { value: "recycling", label: "Recycling" },
 ];
 
-/** Fällig-Zeitpunkt de-DE (Europe/Berlin). Datum-only-Strings ohne Uhrzeit formatieren. */
-function formatDue(iso: string): string {
-  const dateOnly = !iso.includes("T");
-  const d = new Date(dateOnly ? `${iso}T00:00:00` : iso);
+/** Kompaktes Datum für den Kontaktfrequenz-Hinweis: "07.09., 14:30". */
+function formatContactMoment(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Berlin",
+  }).format(d);
+}
+
+/**
+ * Zeitkörnung je Quelle. Vier der fünf sind Tages-Aufgaben; nur der
+ * Telefon-Rückruf trägt eine mit dem Lead VERABREDETE Uhrzeit (`callback_at`).
+ *
+ * Das steht hier und nicht am Datentyp, weil `nachfassen_tasks` die
+ * Tages-Spalten nach `timestamptz` castet: Aus dem 06.09. wird Mitternacht
+ * UTC, in Berlin 02:00. Nach dem Datentyp gelesen wäre jedes Follow-up ab
+ * zwei Uhr morgens „überfällig" — und weil die RPC nur Fälliges liefert,
+ * schlicht alles (lib/dueState.ts).
+ */
+const DUE_GRANULARITY: Record<NachfassenTask["source"], DueGranularity> = {
+  linkedin: "day",
+  telefon: "moment",
+  setting: "day",
+  closing: "day",
+  recycling: "day",
+};
+
+/** Fällig-Zeitpunkt de-DE (Europe/Berlin). Tages-Aufgaben ohne Uhrzeit. */
+function formatDue(iso: string, granularity: DueGranularity): string {
+  // Eine Uhrzeit, die niemand verabredet hat, ist keine Angabe, sondern eine
+  // Behauptung — bei Tages-Aufgaben stünde dort immer „02:00 Uhr".
+  const dateOnly = granularity === "day" || !iso.includes("T");
+  const d = new Date(iso.includes("T") ? iso : `${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
   const datePart = new Intl.DateTimeFormat("de-DE", {
     weekday: "short",
@@ -132,21 +179,27 @@ function formatDueShort(iso: string): string {
   }).format(d);
 }
 
-function isOverdue(iso: string): boolean {
-  const dateOnly = !iso.includes("T");
-  if (dateOnly) {
-    // Datum-only: überfällig, wenn der Tag (Europe/Berlin) vor heute liegt
-    const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(new Date());
-    return iso < today;
-  }
-  const d = new Date(iso);
-  return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
-}
-
 function dueSortKey(t: NachfassenTask): number {
   if (!t.due_at) return Number.MAX_SAFE_INTEGER;
   const d = new Date(t.due_at.includes("T") ? t.due_at : `${t.due_at}T00:00:00`);
   return Number.isNaN(d.getTime()) ? Number.MAX_SAFE_INTEGER : d.getTime();
+}
+
+/**
+ * Welche Akte gehört zu dieser Aufgabe?
+ *
+ * Die fünf Quellen tragen in `entity_id` je eine andere Tabelle. Beim Recycling
+ * steht die Tabelle nicht in `source` (das sagt nur „Recycling"), sondern in
+ * `recycle_origin` — dieselbe Fallunterscheidung, die auch die Aktionsknöpfe
+ * darunter treffen.
+ */
+function dossierTargetOf(task: NachfassenTask): DossierEntityKind | null {
+  const origin = task.source === "recycling" ? task.recycle_origin : task.source;
+  if (origin === "linkedin") return "contact";
+  if (origin === "telefon") return "phone_lead";
+  if (origin === "setting") return "setting";
+  if (origin === "closing") return "closing";
+  return null;
 }
 
 const linkBtnStyle: React.CSSProperties = {
@@ -225,9 +278,12 @@ function TaskCard({ task }: { task: NachfassenTask }) {
   const [copied, setCopied] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dossierOpen, setDossierOpen] = useState(false);
 
   const meta = CHANNEL_META[task.source];
-  const overdue = task.due_at ? isOverdue(task.due_at) : false;
+  const granularity = DUE_GRANULARITY[task.source];
+  const overdue = isOverdue(task.due_at, granularity);
+  const dossierKind = dossierTargetOf(task);
 
   if (hidden) return null;
 
@@ -360,20 +416,62 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         </div>
       </div>
 
-      {/* ── Fälligkeit ── */}
-      {task.due_at && (
+      {/* ── Fälligkeit + Herkunft des Textes ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap" }}>
+        {task.due_at && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.3rem",
+              fontSize: "0.6875rem",
+              fontWeight: 600,
+              color: overdue ? "var(--color-error-text)" : "var(--text-secondary)",
+            }}
+          >
+            {overdue ? (
+              <AlertTriangle size={11} style={{ flexShrink: 0 }} />
+            ) : (
+              <Clock size={11} style={{ flexShrink: 0 }} />
+            )}
+            {overdue
+              ? `überfällig seit ${formatDue(task.due_at, granularity)}`
+              : `fällig ${formatDue(task.due_at, granularity)}`}
+          </span>
+        )}
+        <Badge
+          tone="neutral"
+          style={{ marginLeft: "auto", height: 18, fontSize: "var(--fs-2xs)" }}
+          title="Herkunft des Textes"
+        >
+          {TEMPLATE_SOURCE_LABELS[task.text_source]}
+        </Badge>
+      </div>
+
+      {/* ── Weiche Kontaktfrequenz-Warnung (Entscheidung K3) ──────────────
+          Hinweis, keine Sperre: die Aufgabe bleibt vollständig bedienbar.
+          Der Abstand steht als ZAHL da und nicht als „kürzlich": Ob man
+          trotzdem schreibt, entscheidet sich an „vorgestern" anders als an
+          „heute früh" — dieselbe Beschriftung wie im Dossier
+          (lastContactLabel), damit beide Seiten dieselbe Zahl gleich nennen.
+          Was die Karte sieht, ist dabei WENIGER als das Dossier (nur erledigte
+          Erinnerungen und Recycling-Versuche); der Verweis daneben führt zur
+          vollständigen Akte.                                               */}
+      {task.recent_contact_at && (
         <span
+          title="Aus den erledigten Erinnerungen und Recycling-Versuchen dieser Organisation. Pitches, Anwahlen und geführte Termine stehen im Dossier — dort kann der letzte Kontakt jünger sein."
           style={{
             display: "inline-flex",
-            alignItems: "center",
+            alignItems: "flex-start",
             gap: "0.3rem",
             fontSize: "0.6875rem",
-            fontWeight: 600,
-            color: overdue ? "var(--color-error-text)" : "var(--text-secondary)",
+            fontWeight: 500,
+            color: "var(--warning-fg)",
           }}
         >
-          {overdue ? <AlertTriangle size={11} style={{ flexShrink: 0 }} /> : <Clock size={11} style={{ flexShrink: 0 }} />}
-          {overdue ? `überfällig seit ${formatDue(task.due_at)}` : `fällig ${formatDue(task.due_at)}`}
+          <AlertTriangle size={11} style={{ flexShrink: 0, marginTop: 2 }} />
+          Zuletzt kontaktiert {lastContactLabel(contactAgeDays(task.recent_contact_at))} (
+          {formatContactMoment(task.recent_contact_at)}) — bewusst kein Stopp, nur ein Hinweis.
         </span>
       )}
 
@@ -580,10 +678,36 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           </>
         )}
 
+        {/* Gesprächsvorbereitung, deshalb VOR dem Anruf und ohne die
+            Arbeitsliste zu verlassen: das Dossier öffnet als Overlay und lädt
+            erst beim Öffnen (acht Abfragen je Karte im Voraus wären der Preis
+            für etwas, das man je Sitzung einmal liest). Neben den
+            Sprung-Knöpfen, weil es dieselbe Frage beantwortet — wo komme ich
+            an diesen Lead heran —, nur ohne wegzunavigieren. */}
+        {dossierKind && (
+          <button
+            type="button"
+            onClick={() => setDossierOpen(true)}
+            style={{ ...linkBtnStyle, cursor: "pointer" }}
+            title="Alles zu diesem Lead — Verlauf, Kanäle, Notizen"
+          >
+            <Users size={12} /> Dossier
+          </button>
+        )}
+
         {error && (
           <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-error-text)" }}>{error}</span>
         )}
       </div>
+
+      {dossierKind && (
+        <LeadDossierSheet
+          open={dossierOpen}
+          onClose={() => setDossierOpen(false)}
+          kind={dossierKind}
+          id={task.entity_id}
+        />
+      )}
     </div>
   );
 }
@@ -624,6 +748,18 @@ const SECTION_META: Record<
   setting: { icon: <ClipboardCheck size={12} />, bg: "rgb(139 92 246 / 0.10)", color: "var(--stage-setting)", tone: "neutral" },
   closing: { icon: <Handshake size={12} />, bg: "var(--success-bg)", color: "var(--success-fg)", tone: "success" },
   recycling: { icon: <RefreshCw size={12} />, bg: "var(--surface-3)", color: "var(--text-muted)", tone: "neutral" },
+};
+
+/**
+ * Die Sektionen, deren Vorgänge zusätzlich in /erinnerungen stehen — und was
+ * dort konkret liegt. Nur diese beiden: LinkedIn-Follow-ups, Telefon-Rückrufe
+ * und Recycling erzeugen keine Kaskade (das Recycling eines verlorenen
+ * Closings folgt Wochen NACH dessen „Kein Abschluss"-Kette; ein Verweis
+ * zeigte dort auf lauter erledigte Stufen).
+ */
+const SECTION_CROSSLINK: Record<string, string | undefined> = {
+  closing: "Stundengenaue Bestätigungs-Erinnerungen zu diesen Kontakten",
+  setting: "No-Show-Kette zu den nicht erschienenen Terminen",
 };
 
 /* ── Einklappbare Sektion: Header (Chevron + Kachel + Titel + Badge + Divider + Meta) ── */
@@ -707,18 +843,24 @@ function CollapsibleSection({
           </span>
         )}
       </button>
-      {/* Einzige Ueberschneidung mit /erinnerungen: ein Closing im Status
-          'nachfassen' erzeugt dort zusaetzlich bis zu 3 stundengenaue
-          Bestaetigungs-Touches vor dem vereinbarten Kontakt-Zeitpunkt. Hinweis
-          statt Duplizierung der Logik hier — welche Karte konkret eine aktive
-          Kaskade hat, weiss nur /erinnerungen. */}
-      {!collapsed && section.key === "closing" && (
+      {/* Ueberschneidung mit /erinnerungen — Hinweis statt Duplizierung der
+          Logik: WELCHE Karte konkret eine offene Kaskade hat, weiss nur
+          /erinnerungen. Seit dem Nachfassen-Umbau sind es ZWEI Stellen, nicht
+          mehr die eine aus docs §1:
+           · Closing im Status 'nachfassen' → bis zu 3 stundengenaue
+             Bestaetigungs-Touches vor dem vereinbarten Kontakt.
+           · Setting im Status 'no_show' → die No-Show-Kette
+             (setSettingOutcome → createNoShowTouch). Die Sektion traegt
+             daneben die Unqualifizierten, die dort NICHTS haben — deshalb
+             steht der Verweis an der Sektion und nicht auf jeder Karte: die
+             RPC liefert den Status nicht mit. */}
+      {!collapsed && SECTION_CROSSLINK[section.key] && (
         <div style={{ margin: "0 0 0.625rem 1.75rem" }}>
           <Link
             href="/erinnerungen"
             style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.6875rem", color: "var(--orange-300)", textDecoration: "none" }}
           >
-            <Clock size={11} /> Stundengenaue Bestätigungs-Erinnerungen zu diesen Kontakten → Erinnerungen
+            <Clock size={11} /> {SECTION_CROSSLINK[section.key]} → Erinnerungen
           </Link>
         </div>
       )}
@@ -731,7 +873,42 @@ function CollapsibleSection({
   );
 }
 
-export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
+/* ── Fehlendes Schema: NICHT der grüne Leerzustand ────────────────────
+   Anders als auf /erinnerungen und in /ablage fällt hier nicht die ganze
+   Seite aus — vier der fünf Quellen hängen an einer älteren Migration und
+   arbeiten weiter. Der Hinweis steht deshalb neben den Aufgaben und sagt
+   ausdrücklich, WELCHER Teil fehlt.                                      */
+function RecyclingUnavailable() {
+  return (
+    <div
+      className="card"
+      style={{
+        padding: "var(--sp-6) var(--sp-7)",
+        marginBottom: "var(--sp-6)",
+        display: "flex",
+        gap: "var(--sp-5)",
+        alignItems: "flex-start",
+        background: "var(--danger-bg)",
+        borderColor: "rgb(214 90 82 / 0.28)",
+      }}
+    >
+      <Database size={18} style={{ flexShrink: 0, marginTop: 2, color: "var(--danger-fg)" }} />
+      <div>
+        <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--danger-fg)" }}>
+          Recycling ist nicht verfügbar
+        </div>
+        <p style={{ margin: "var(--sp-3) 0 0", fontSize: "var(--fs-sm)", color: "var(--text-secondary)", maxWidth: "62ch" }}>
+          Die Funktion <code>recycle_tasks</code> fehlt in der Datenbank — die Migration ist noch nicht eingespielt.
+          Das ist ausdrücklich <strong>nicht</strong> dasselbe wie &bdquo;kein Lead ist wieder dran&ldquo;: Verlorene
+          Closings und tote Leads werden gerade gar nicht wiedervorgelegt. Die vier übrigen Quellen unten sind davon
+          nicht betroffen. Ein Administrator spielt die Migration im Supabase-SQL-Editor ein.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function NachfassenBoard({ tasks, hiddenOlder, showingAll, recyclingAvailable }: Props) {
   const [filter, setFilter] = useState<ChannelFilter>("alle");
   // FU-Schnellauswahl: null = alle FU-Stufen, 1–3 = nur diese Sektion anzeigen
   const [fuFilter, setFuFilter] = useState<number | null>(null);
@@ -757,7 +934,7 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
   }, [tasks]);
 
   const overdueCount = useMemo(
-    () => tasks.reduce((n, t) => (t.due_at && isOverdue(t.due_at) ? n + 1 : n), 0),
+    () => tasks.reduce((n, t) => (isOverdue(t.due_at, DUE_GRANULARITY[t.source]) ? n + 1 : n), 0),
     [tasks],
   );
 
@@ -813,8 +990,15 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
 
   const showFuPills = counts.linkedin > 0 && (filter === "alle" || filter === "linkedin");
 
+  // Ein Filter auf eine Quelle, die gerade gar nicht liefern KANN, führt in
+  // einen Leerzustand, der wie „nichts fällig" aussieht — genau die
+  // Verwechslung, die der Hinweis oben ausräumt.
+  const visibleFilters = recyclingAvailable ? FILTERS : FILTERS.filter((f) => f.value !== "recycling");
+
   return (
     <div>
+      {!recyclingAvailable && <RecyclingUnavailable />}
+
       {/* ── Summary-Strip: kompakte Kennzahlen aus den Tasks ── */}
       <div style={{ display: "flex", gap: "var(--sp-4)", flexWrap: "wrap", marginBottom: "var(--sp-7)" }}>
         <StatChip icon={<CalendarClock size={12} />} label="Fällig gesamt" value={counts.alle} />
@@ -822,12 +1006,14 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll }: Props) {
         <StatChip icon={<AtSign size={12} />} label="Follow-ups" value={counts.linkedin} />
         <StatChip icon={<Phone size={12} />} label="Rückrufe" value={counts.telefon} />
         <StatChip icon={<ClipboardCheck size={12} />} label="Setting" value={counts.setting} />
-        <StatChip icon={<RefreshCw size={12} />} label="Recycling" value={counts.recycling} />
+        {/* Ohne Schema wäre die 0 eine Behauptung über die Daten, die niemand
+            geprüft hat — die Kachel entfällt, der Hinweis oben trägt die Aussage. */}
+        {recyclingAvailable && <StatChip icon={<RefreshCw size={12} />} label="Recycling" value={counts.recycling} />}
       </div>
 
       {/* ── Kanal-Filter ── */}
       <div style={{ display: "flex", gap: "var(--sp-3)", flexWrap: "wrap", marginBottom: "var(--sp-5)" }}>
-        {FILTERS.map((f) => {
+        {visibleFilters.map((f) => {
           const active = filter === f.value;
           const meta = f.value !== "alle" ? CHANNEL_META[f.value] : null;
           return (

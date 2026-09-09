@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { LineChart, Scale, Users } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { loadClosingCalls, loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
+import { loadClosingCalls, loadRecycleData, loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
 import { personOf } from "@/lib/personResolution";
 import {
   CHANNELS, CHANNEL_NO_VOLUME, channelOf, channelVolumeLabel, hasVolume,
@@ -15,6 +15,7 @@ import {
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { CumulativeProgressChart } from "@/components/analyse/CumulativeProgressChart";
+import { RecycleSection } from "@/components/analyse/RecycleSection";
 
 // Übersicht: eine GROBE Übersicht über den ganzen Funnel — „wie lief es im
 // Zeitraum XY absolut". Keine Ursachenforschung, das machen die Fach-Tabs.
@@ -547,13 +548,18 @@ export async function UebersichtTab({
   const eff = canCompare ? null : access.user.id;
   const rpcArgs = { p_workspace_id: access.workspace_id, p_effective_user_id: eff };
 
-  const [liRes, liPrevRes, phRes, phPrevRes, settings, closings] = await Promise.all([
+  const [liRes, liPrevRes, phRes, phPrevRes, settings, closings, recycle] = await Promise.all([
     supabase.rpc("rpc_owner_day_metrics", { ...rpcArgs, p_from: from, p_to: to }),
     supabase.rpc("rpc_owner_day_metrics", { ...rpcArgs, p_from: prevFrom, p_to: prevTo }),
     supabase.rpc("rpc_phone_day_metrics", { ...rpcArgs, p_from: from, p_to: to }),
     supabase.rpc("rpc_phone_day_metrics", { ...rpcArgs, p_from: prevFrom, p_to: prevTo }),
     loadSettingCalls(supabase, access, canCompare),
     loadClosingCalls(supabase, access, canCompare),
+    // Vierter Datenstrom des Tabs: die Recycling-Zeilen aller vier Ursprünge.
+    // Sie liegen HIER und nicht in einem Fach-Tab, weil die Frage „lohnt das
+    // Recycling?" erst im Vergleich der Ursprünge eine Antwort hat
+    // (Begründung ausführlich in RecycleSection.tsx).
+    loadRecycleData(supabase, access, canCompare),
   ]);
 
   if (liRes.error) {
@@ -787,6 +793,18 @@ export async function UebersichtTab({
                 wie im Setting-Tab.
               </span>
               <span>
+                <B>Abgesagte Termine zählen hier mit.</B> Diese Übersicht beantwortet eine Kapazitätsfrage — wie
+                viele Termine standen im Kalender —, und die beantwortet auch ein abgesagter Termin. Der
+                Funnel-Tab lässt gleich <em>zwei</em> Gruppen weg: Absagen, weil ein Termin, der nie
+                stattgefunden hat, dort als garantierte Null in jeder Durchlaufquote stünde — und alles nach
+                heute, weil ein Termin von morgen weder Show noch Closing haben kann. Beide Tabs dürfen für
+                denselben Zeitraum deshalb verschiedene Termin-Zahlen zeigen. Die Absagequote im Funnel-Tab
+                erklärt davon nur den ersten Teil: In einem abgeschlossenen Zeitraum ist sie die ganze
+                Differenz, in einem laufenden kommen die noch anstehenden Termine dazu. Auf die Show- und die
+                Quali-Quote wirkt sich beides nicht aus — weder eine Absage noch ein noch offener Termin bekommt
+                ein Erschienen-Kennzeichen, beide fallen aus deren Nenner ohnehin heraus.
+              </span>
+              <span>
                 Die kleine farbige Zeile in jeder Zelle ist die Veränderung zur Vorperiode: Mengen und Umsatz relativ
                 in %, Quoten in Prozentpunkten (pp). Ohne Vergleichswert steht dort nichts.
               </span>
@@ -889,6 +907,21 @@ export async function UebersichtTab({
           </AnalyseSection>
         </div>
       )}
+
+      {/* ══ 4 · Recycling ══
+          Ganz unten und zugeklappt: Die Frage „lohnt das Recycling?" stellt
+          sich nicht beim Öffnen der Seite, sondern wenn jemand die Wartezeiten
+          in den Pipeline-Einstellungen anfassen will. Bis dahin steht sie im
+          Weg. Die Meta-Zeile trägt die eine Zahl, für die man aufklappt. */}
+      <div className="fade-up" style={{ animationDelay: "180ms" }}>
+        <RecycleSection
+          data={recycle}
+          from={from}
+          to={to}
+          selectedMembers={selectedMembers}
+          allSelected={allSelected}
+        />
+      </div>
     </>
   );
 }

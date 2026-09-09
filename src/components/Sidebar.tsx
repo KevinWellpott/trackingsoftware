@@ -6,6 +6,7 @@ import { createListForm } from "@/app/actions/lists";
 import { SearchTrigger } from "@/components/search/SearchDialog";
 import { ViewTree } from "@/components/listen/ViewTree";
 import type { ViewNode } from "@/lib/listViews";
+import { ABLAGE_COUNT_LABEL, type NavCount, type NavCounts } from "@/lib/navCounts";
 import {
   Archive,
   BarChart2,
@@ -41,6 +42,13 @@ import { ownerInitials } from "@/lib/ownerColor";
 // FARBREGEL DIESER DATEI: ausschliesslich Graustufen + Orange. Keine Kanal-,
 // Owner- oder Semantikfarben — die Navigation ist die ruhigste Flaeche der
 // App, Orange markiert allein „hier bist du" bzw. „das ist aktiv".
+//
+// EINE dokumentierte Ausnahme: der Ueberfaellig-Ton der Aufgaben-Zaehler
+// (.count-pill[data-tone="overdue"], Gold). Ohne ihn saehe „drei Aufgaben
+// warten" genauso aus wie „drei sind zu spaet", und der Zaehler verlaere
+// genau das, wofuer er da ist. Es ist der vorhandene Semantik-Ton aus
+// globals.css, kein neuer — und er kommt nur an einer Stelle vor, an der eine
+// Zahl steht.
 
 /** Ab wie vielen Listen die Sidebar auf die Uebersichtsseite verweist. */
 const SIDEBAR_LIST_CAP = 7;
@@ -78,6 +86,8 @@ type Props = {
   workspaceName: string;
   username: string;
   workspaceId: string;
+  /** Faellige Aufgaben je Eintrag; `null` je Zweig = nicht ermittelbar. */
+  navCounts?: NavCounts;
   lists: SidebarList[];
   /** Smart-View-Baum unter der LinkedIn-Sektion. */
   viewTree?: ViewNode[];
@@ -113,6 +123,8 @@ function NavLink({
   onClick,
   exact = false,
   title,
+  count,
+  countLabel,
 }: {
   href: string;
   icon: React.ElementType;
@@ -124,18 +136,49 @@ function NavLink({
   /** Tooltip — vor allem fuer Zeilen, die sich vom Namen her aehneln
       (Erinnerungen vs. Nachfassen) und ohne Erklaerung verwechselbar waeren. */
   title?: string;
+  /** Faellige Aufgaben. `null` = nicht ermittelbar, 0 = nichts faellig —
+      beide zeigen KEIN Abzeichen (eine 0 neben jedem Eintrag ist Rauschen,
+      und eine 0 ohne Datengrundlage waere obendrein gelogen). */
+  count?: NavCount | null;
+  /**
+   * Was gezaehlt wird, als [Einzahl, Mehrzahl] — vollstaendig ausformuliert
+   * („Aufgabe faellig", „Absage ohne eingetragenen Ersatztermin"). Bewusst
+   * kein festes Verb im Code: Der Ablage-Zaehler zaehlt keine Faelligkeiten,
+   * und „3 Absagen faellig" waere schlicht falsch.
+   */
+  countLabel?: [singular: string, plural: string];
 }) {
   const pathname = usePathname();
   // Aktiv auch auf Unterseiten (/setting/abc → „Setting"); "/" nur exakt.
   const isActive = exact
     ? pathname === href
     : pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
+  const shows = Boolean(count && count.total > 0);
+  const overdue = Boolean(count && count.overdue > 0);
+  const noun = count && count.total === 1 ? (countLabel?.[0] ?? "Eintrag") : (countLabel?.[1] ?? "Einträge");
+  // Der Zaehler haengt seine Erklaerung an den Tooltip der Zeile, statt eine
+  // zweite zu erfinden: zwei Tooltips uebereinander sind einer zu viel.
+  const countTitle = shows
+    ? `${count!.total} ${noun}${count!.overdue > 0 ? `, davon ${count!.overdue} überfällig` : ""}`
+    : null;
+  const fullTitle = [title, countTitle].filter(Boolean).join(" — ") || undefined;
+
   return (
-    <Link href={href} onClick={onClick} className={`sidebar-link${isActive ? " active" : ""}`} title={title}>
+    <Link href={href} onClick={onClick} className={`sidebar-link${isActive ? " active" : ""}`} title={fullTitle}>
       <Icon size={16} style={{ flexShrink: 0 }} />
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {label}
       </span>
+      {shows && (
+        <span
+          className="count-pill"
+          data-tone={overdue ? "overdue" : undefined}
+          style={{ flexShrink: 0 }}
+          aria-label={countTitle ?? undefined}
+        >
+          {count!.total}
+        </span>
+      )}
     </Link>
   );
 }
@@ -723,6 +766,7 @@ export function SidebarContent({
   dataScope = "workspace",
   dataView,
   orgSwitch,
+  navCounts,
   onClose,
 }: Props) {
   const pathname = usePathname();
@@ -951,6 +995,11 @@ export function SidebarContent({
           label="Erinnerungen"
           onClick={onClose}
           title="Stundengenaue Termin-Bestätigung vor Setting/Closing/Nachfass-Kontakt"
+          // Gezaehlt wird, was HEUTE dran ist — nicht das ganze Sieben-Tage-
+          // Fenster der Seite. Ein Zaehler, der auch Uebermorgen mitzaehlt,
+          // geht nie auf null und mahnt an, was noch gar nicht faellig ist.
+          count={navCounts?.erinnerungen}
+          countLabel={["Erinnerung heute fällig", "Erinnerungen heute fällig"]}
         />
         <NavLink
           href="/nachfassen"
@@ -958,6 +1007,8 @@ export function SidebarContent({
           label="Nachfassen"
           onClick={onClose}
           title="Tägliche Wiedervorlage: LinkedIn-Follow-ups, Telefon-Rückrufe, Setting/Closing"
+          count={navCounts?.nachfassen}
+          countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
         />
         {/* Die Gegenrichtung zu den beiden Zeilen darueber: dort steht, was
             noch ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
@@ -970,6 +1021,11 @@ export function SidebarContent({
           label="Ablage"
           onClick={onClose}
           title="Ausgeschiedene Vorgänge: abgesagt, disqualifiziert, kein Close, No-Show ohne Antwort — plus die org-weite Sperrliste"
+          // Bewusst NICHT die Summe aller sechs Listen: Fuenf davon sind ein
+          // Aktenschrank, der nie auf null geht. Gezaehlt wird die eine Liste
+          // mit offener Handlung (navCounts.ts).
+          count={navCounts?.ablage}
+          countLabel={ABLAGE_COUNT_LABEL}
         />
 
         {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).
@@ -1260,6 +1316,7 @@ export function MobileDrawer({
   dataScope,
   dataView,
   orgSwitch,
+  navCounts,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1272,6 +1329,7 @@ export function MobileDrawer({
   dataScope?: DataScope;
   dataView?: DataViewState;
   orgSwitch?: OrgSwitchState;
+  navCounts?: NavCounts;
 }) {
   if (!open) return null;
   return (
@@ -1300,6 +1358,7 @@ export function MobileDrawer({
           dataScope={dataScope}
           dataView={dataView}
           orgSwitch={orgSwitch}
+          navCounts={navCounts}
           onClose={onClose}
         />
       </div>

@@ -19,6 +19,9 @@ import {
 import { CASCADE_KIND_LABELS, type CascadeKind } from "@/lib/cascadeEngine";
 import type { ReminderEntityType, TouchChannel } from "@/lib/reminderCascade";
 import { berlinDateISO, formatTerminParts } from "@/lib/apptTime";
+import { CONTACT_GAP_WARN_DAYS, contactAgeDays, lastContactLabel } from "@/lib/contactGap";
+import type { DossierEntityKind } from "@/lib/leadDossier";
+import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select, type SelectOption } from "@/components/ui/Select";
@@ -38,6 +41,7 @@ import {
   Phone,
   Undo2,
   UserCog,
+  Users,
 } from "lucide-react";
 
 // "Meine Erinnerungen" — eine Karte je TERMIN, nicht je Kaskadenstufe.
@@ -61,16 +65,10 @@ import {
  * Konstanten & Beschriftungen
  * ------------------------------------------------------------------ */
 
-/**
- * Weiche Warnung, wenn derselbe Lead vor weniger als so vielen Tagen schon
- * kontaktiert wurde. Bewusst eine Code-Konstante und KEINE Organisations-
- * einstellung: eine konfigurierbare Sperre verschöbe Fälligkeiten und
- * kollidierte mit "Erinnerung 3, eine Stunde vorher".
- *
- * Die Vor-Termin-Kaskade (`touch_kind === 'cascade'`) ist ausgenommen — drei
- * Kontakte in drei Tagen sind dort gewollt und die Warnung wäre nur Rauschen.
- */
-const CONTACT_GAP_WARN_DAYS = 3;
+// Die Warnschwelle (CONTACT_GAP_WARN_DAYS) steht in `lib/contactGap.ts` —
+// dieselbe Zahl gilt im Nachfassen-Board. Die Vor-Termin-Kaskade
+// (`touch_kind === 'cascade'`) ist hier ausgenommen: drei Kontakte in drei
+// Tagen sind dort gewollt, und die Warnung wäre nur Rauschen.
 
 const CHANNEL_META: Record<TouchChannel, { label: string; icon: React.ReactNode }> = {
   linkedin: { label: "LinkedIn", icon: <AtSign size={11} /> },
@@ -80,7 +78,15 @@ const CHANNEL_META: Record<TouchChannel, { label: string; icon: React.ReactNode 
 
 const ENTITY_META: Record<
   ReminderEntityType,
-  { label: string; stage: StageKey; assignee: AssigneeEntity; href: (id: string) => string; linkLabel: string }
+  {
+    label: string;
+    stage: StageKey;
+    assignee: AssigneeEntity;
+    href: (id: string) => string;
+    linkLabel: string;
+    /** Anker des Lead-Dossiers — `entity_id` ist die Termin-Zeile selbst. */
+    dossier: DossierEntityKind;
+  }
 > = {
   setting: {
     label: "Erstgespräch",
@@ -88,6 +94,7 @@ const ENTITY_META: Record<
     assignee: "setting_call",
     href: (id) => `/setting/${id}`,
     linkLabel: "Zum Setting",
+    dossier: "setting",
   },
   closing: {
     label: "Closing",
@@ -95,6 +102,7 @@ const ENTITY_META: Record<
     assignee: "closing_call",
     href: (id) => `/closing/${id}`,
     linkLabel: "Zum Closing",
+    dossier: "closing",
   },
   // Der vereinbarte Nachfass-Kontakt ist ein eigener "Termin" mit eigener
   // Kaskade, hängt aber an derselben Closing-Zeile — daher dieselbe Route.
@@ -104,6 +112,7 @@ const ENTITY_META: Record<
     assignee: "closing_call",
     href: (id) => `/closing/${id}`,
     linkLabel: "Zum Closing",
+    dossier: "closing",
   },
 };
 
@@ -440,7 +449,7 @@ function ActiveStep({
   channel,
   assignedUsername,
   overdue,
-  recentlyContacted,
+  recentContactAt,
   busy,
   onDone,
 }: {
@@ -449,7 +458,8 @@ function ActiveStep({
   channel: TouchChannel | null;
   assignedUsername: string | null;
   overdue: boolean;
-  recentlyContacted: boolean;
+  /** Zeitpunkt des letzten Kontakts, wenn er die Warnschwelle unterschreitet. */
+  recentContactAt: string | null;
   busy: boolean;
   onDone: (outcome: TouchOutcome) => void;
 }) {
@@ -511,8 +521,15 @@ function ActiveStep({
         </span>
       </div>
 
-      {recentlyContacted && (
+      {/* Der Abstand steht als ZAHL da, nicht als „weniger als 3 Tage": Ob man
+          trotzdem schreibt, entscheidet sich an „vorgestern" anders als an
+          „heute früh". Dieselbe Beschriftung wie im Dossier
+          (lastContactLabel) — und derselbe Vorbehalt: Diese Karte kennt nur
+          die erledigten Erinnerungen, das Dossier zusätzlich Pitches,
+          Anwahlen und geführte Termine. */}
+      {recentContactAt && (
         <span
+          title="Aus den erledigten Erinnerungen dieses Leads. Pitches, Anwahlen und geführte Termine stehen im Dossier — dort kann der letzte Kontakt jünger sein."
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -522,7 +539,8 @@ function ActiveStep({
           }}
         >
           <AlertTriangle size={12} style={{ flexShrink: 0 }} />
-          Kürzlich schon kontaktiert (weniger als {CONTACT_GAP_WARN_DAYS} Tage) — bewusst kein Stopp, nur ein Hinweis.
+          Zuletzt kontaktiert {lastContactLabel(contactAgeDays(recentContactAt))} ({whenLabel(recentContactAt)}) —
+          bewusst kein Stopp, nur ein Hinweis.
         </span>
       )}
 
@@ -634,7 +652,7 @@ function TerminCard({
   sender,
   doneBy,
   nowMs,
-  recentlyContacted,
+  recentContactAt,
   selectable,
   selected,
   onSelect,
@@ -644,7 +662,7 @@ function TerminCard({
   sender: SenderAccount | undefined;
   doneBy: Record<string, string>;
   nowMs: number;
-  recentlyContacted: boolean;
+  recentContactAt: string | null;
   selectable: boolean;
   selected: boolean;
   onSelect: (key: string, next: boolean) => void;
@@ -652,6 +670,7 @@ function TerminCard({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [dossierOpen, setDossierOpen] = useState(false);
 
   const meta = ENTITY_META[card.entityType];
   const bundle = card.assignedUserId ? bundles[card.assignedUserId] : undefined;
@@ -671,6 +690,17 @@ function TerminCard({
     }
     return [...map.entries()];
   }, [card.touches]);
+
+  // Steht derselbe Vorgang zusätzlich als Tages-Eintrag in /nachfassen?
+  const crossLink = useMemo<string | null>(() => {
+    if (card.entityType === "closing_followup") {
+      return "Derselbe Nachfass-Kontakt steht dort als Tages-Eintrag (Closing-Wiedervorlage).";
+    }
+    if (card.touches.some((t) => t.cascade_kind === "no_show_setting")) {
+      return "Der nicht erschienene Termin steht dort als Tages-Eintrag (Setting-Wiedervorlage).";
+    }
+    return null;
+  }, [card.entityType, card.touches]);
 
   function run(work: () => Promise<{ error?: string } | void>) {
     setError(null);
@@ -793,10 +823,30 @@ function TerminCard({
         <span style={{ fontVariantNumeric: "tabular-nums" }}>
           {appt ? `${appt.date}, ${appt.time} Uhr` : "Termin —"}
         </span>
-        <Link href={meta.href(card.entityId)} style={{ ...ghostBtn, marginLeft: "auto" }}>
+        {/* Gesprächsvorbereitung, deshalb VOR dem Termin und ohne die
+            Arbeitsliste zu verlassen: das Dossier öffnet als Overlay und lädt
+            erst beim Öffnen. Es steht neben dem Sprung in den Editor, weil es
+            dieselbe Frage beantwortet — was weiß ich über diesen Lead —, nur
+            ohne wegzunavigieren. */}
+        <button
+          type="button"
+          onClick={() => setDossierOpen(true)}
+          style={{ ...ghostBtn, marginLeft: "auto" }}
+          title="Alles zu diesem Lead — Verlauf, Kanäle, Notizen"
+        >
+          <Users size={12} /> Dossier
+        </button>
+        <Link href={meta.href(card.entityId)} style={ghostBtn}>
           {meta.linkLabel} <ArrowUpRight size={12} />
         </Link>
       </div>
+
+      <LeadDossierSheet
+        open={dossierOpen}
+        onClose={() => setDossierOpen(false)}
+        kind={meta.dossier}
+        id={card.entityId}
+      />
 
       <SenderLine sender={sender} channel={card.channel} assignedUsername={card.assignedUsername} />
 
@@ -835,7 +885,7 @@ function TerminCard({
                     channel={card.channel}
                     assignedUsername={card.assignedUsername}
                     overdue={overdue}
-                    recentlyContacted={recentlyContacted}
+                    recentContactAt={recentContactAt}
                     busy={isPending}
                     onDone={(outcome) => markDone(t.id, outcome)}
                   />
@@ -861,11 +911,19 @@ function TerminCard({
             <CheckCheck size={12} /> Ganze Kaskade abhaken ({card.open.length})
           </button>
         )}
-        {/* Einzige echte Überschneidung mit /nachfassen: derselbe Nachfass-
-            Kontakt steht dort zusätzlich als Tages-Eintrag. */}
-        {card.entityType === "closing_followup" && (
+        {/* Überschneidung mit /nachfassen — ZWEI Stellen, nicht mehr die eine
+            aus docs §1:
+             · der vereinbarte Nachfass-Kontakt eines Closings (`follow_up_due`
+               → Tages-Eintrag dort, `follow_up_due_at` → Kaskade hier),
+             · die No-Show-Kette eines Erstgesprächs: `setSettingOutcome`
+               schreibt beides in einem Zug — `follow_up_due` (+1 Tag) für die
+               Wiedervorlage und `createNoShowTouch` für diese Kette.
+            Der Verweis statt einer Dublette: WELCHE Wiedervorlage heute fällig
+            ist, entscheidet /nachfassen — hier steht nur die Uhrzeit-Spur. */}
+        {crossLink && (
           <Link
             href="/nachfassen"
+            title={crossLink}
             style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", textDecoration: "none" }}
           >
             Auch in Nachfassen →
@@ -970,14 +1028,15 @@ export function ErinnerungenBoard({ mine, team, canTeamView, bundles, senders, d
     setSelected((prev) => (next ? [...new Set([...prev, key])] : prev.filter((k) => k !== key)));
   }
 
-  function recentlyContacted(card: TerminCardModel): boolean {
+  /** Letzter Kontakt zu diesem Lead, sofern er die Warnschwelle unterschreitet. */
+  function recentContactOf(card: TerminCardModel): string | null {
     const next = card.open[0];
     // Die Vor-Termin-Kaskade ist ausgenommen: drei Kontakte in drei Tagen sind
-    // dort gewollt (siehe CONTACT_GAP_WARN_DAYS).
-    if (!next || next.touch_kind === "cascade" || nowMs == null) return false;
+    // dort gewollt (siehe CONTACT_GAP_WARN_DAYS in lib/contactGap.ts).
+    if (!next || next.touch_kind === "cascade" || nowMs == null) return null;
     const last = lastContact.get(card.leadKey);
-    if (!last) return false;
-    return nowMs - new Date(last).getTime() < CONTACT_GAP_WARN_DAYS * 86_400_000;
+    if (!last) return null;
+    return nowMs - new Date(last).getTime() < CONTACT_GAP_WARN_DAYS * 86_400_000 ? last : null;
   }
 
   /**
@@ -1131,7 +1190,7 @@ export function ErinnerungenBoard({ mine, team, canTeamView, bundles, senders, d
                     sender={senders[card.entityId]}
                     doneBy={doneBy}
                     nowMs={nowMs}
-                    recentlyContacted={recentlyContacted(card)}
+                    recentContactAt={recentContactOf(card)}
                     selectable={selectable}
                     selected={selected.includes(card.key)}
                     onSelect={toggleCard}
@@ -1168,7 +1227,7 @@ export function ErinnerungenBoard({ mine, team, canTeamView, bundles, senders, d
                 sender={senders[card.entityId]}
                 doneBy={doneBy}
                 nowMs={nowMs ?? 0}
-                recentlyContacted={false}
+                recentContactAt={null}
                 selectable={selectable}
                 selected={selected.includes(card.key)}
                 onSelect={toggleCard}

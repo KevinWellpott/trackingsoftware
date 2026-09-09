@@ -44,9 +44,19 @@ export type MeasureKey =
   | "setting_decided"
   | "setting_quali"
   | "setting_dead"
+  /**
+   * Abgesagte Termine (`cancelled_at`, Migration 0032). Zähler der
+   * Absagequote; ihr Nenner ist `settings`, also ALLE Termine des Fensters —
+   * eine Absage kann jeden geplanten Termin treffen. `setting_decided` taugt
+   * dafür nicht: Ein abgesagter Termin bekommt nie ein `show_status` und
+   * stünde nie im eigenen Nenner.
+   */
+  | "setting_cancelled"
   // Closing (closing_calls)
   | "closings"
   | "closing_shows"
+  /** Abgesagte Abschlussgespräche — Begründung wie `setting_cancelled`. */
+  | "closing_cancelled"
   | "won"
   | "lost"
   | "revenue";
