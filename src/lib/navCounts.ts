@@ -148,6 +148,11 @@ async function countNachfassen(supabase: Supabase, access: AccessContext): Promi
   ]);
 
   if (tasks.error || recycle.error) return null;
+  // Fehlt die exakte Zahl EINER Quelle, gibt es keinen Zähler — dieselbe Regel
+  // wie bei der Ablage. `(count ?? 0)` hätte die fehlende Quelle stillschweigend
+  // als „nichts fällig" verbucht: genau die halbe Wahrheit, gegen die eine Zeile
+  // weiter oben schon der Fehlerfall steht.
+  if (tasks.count == null || recycle.count == null) return null;
 
   const rows: DueRow[] = [
     ...((tasks.data ?? []) as unknown as { source: string; due_at: string | null }[]).map((r) => ({
@@ -161,7 +166,7 @@ async function countNachfassen(supabase: Supabase, access: AccessContext): Promi
       granularity: "day" as DueGranularity,
     })),
   ];
-  return tally(rows, (tasks.count ?? 0) + (recycle.count ?? 0));
+  return tally(rows, tasks.count + recycle.count);
 }
 
 /**

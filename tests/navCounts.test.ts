@@ -202,43 +202,32 @@ describe("Nachfassen-Zähler", () => {
     assert.equal(counts.ablage?.total, 1);
   });
 
-  test(
-    "eine fehlende Gesamtzahl darf nicht als 0 durchgehen",
-    {
-      todo:
-        "countNachfassen rechnet (tasks.count ?? 0) + (recycle.count ?? 0) und reicht das Ergebnis " +
-        "als exakte Zahl weiter. Ein fehlender count einer Quelle zählt damit still als 0 — genau " +
-        "die halbe Wahrheit, gegen die der Kommentar der Funktion argumentiert. Siehe Bericht.",
-    },
-    async (t) => {
-      t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-      const counts = await loadNavCounts(
-        supabase(
-          {
-            nachfassen_tasks: { data: [{ source: "linkedin", due_at: "2026-09-08" }], count: 5 },
-            // Antwort ohne Content-Range: Zeilen ja, Gesamtzahl nein.
-            recycle_tasks: {
-              data: [
-                { due_at: "2026-09-08" },
-                { due_at: "2026-09-08" },
-                { due_at: "2026-09-08" },
-              ],
-              count: null,
-            },
+  test("eine fehlende Gesamtzahl darf nicht als 0 durchgehen", async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
+    const counts = await loadNavCounts(
+      supabase(
+        {
+          nachfassen_tasks: { data: [{ source: "linkedin", due_at: "2026-09-08" }], count: 5 },
+          // Antwort ohne Content-Range: Zeilen ja, Gesamtzahl nein.
+          recycle_tasks: {
+            data: [{ due_at: "2026-09-08" }, { due_at: "2026-09-08" }, { due_at: "2026-09-08" }],
+            count: null,
           },
-          [],
-        ),
-        zugriff(),
-      );
+        },
+        [],
+      ),
+      zugriff(),
+    );
 
-      // Soll: entweder gar kein Zähler (wie bei einem Fehler) oder die Zeilen
-      // mitzählen — nur nicht drei Aufgaben stillschweigend unterschlagen.
-      assert.ok(
-        counts.nachfassen === null || counts.nachfassen.total === 8,
-        `stiller Unterzähler: ${JSON.stringify(counts.nachfassen)}`,
-      );
-    },
-  );
+    // `(count ?? 0)` hätte hier 5 gemeldet und die drei Recycling-Aufgaben
+    // stillschweigend unterschlagen. Kein Zähler ist die einzige ehrliche
+    // Antwort — dieselbe wie bei einem Fehler und wie bei der Ablage: die drei
+    // geholten Zeilen sind wegen des Deckels von 500 auch keine belastbare
+    // Ersatzzahl.
+    assert.equal(counts.nachfassen, null);
+    // ... und die beiden anderen Zähler stehen trotzdem.
+    assert.deepEqual(counts.erinnerungen, { total: 0, overdue: 0 });
+  });
 });
 
 describe("Erinnerungs-Zähler", () => {

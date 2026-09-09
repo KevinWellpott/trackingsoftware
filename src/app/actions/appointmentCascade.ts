@@ -47,6 +47,8 @@ export type AppointmentCascadeTouch = {
   appointment_at: string;
   outcome: string | null;
   done_at: string | null;
+  /** Gesetzt = entwertet (Soft-Delete). Sagt nur DASS, nie warum — der Grund wird abgeleitet. */
+  superseded_at: string | null;
 };
 
 export type AppointmentCascadeView = {
@@ -56,6 +58,14 @@ export type AppointmentCascadeView = {
   steps: CascadeStep[];
   /** Nur die noch gültigen Touches dieses Termins (superseded_at is null). */
   touches: AppointmentCascadeTouch[];
+  /**
+   * Die ENTWERTETEN Touches desselben Termins (`superseded_at` gesetzt). Sie
+   * kommen mit, weil eine entwertete Kaskade sonst wortlos aus dem Panel
+   * verschwindet — und ein leeres Panel von einem Fehler nicht zu unterscheiden
+   * ist. Dieselbe Begründung wie bei den entfallenen Stufen, die das Panel
+   * schon immer im Klartext benennt.
+   */
+  supersededTouches: AppointmentCascadeTouch[];
   /** Live aufgelöst, nicht der Snapshot in der Zeile — eine nachgetragene Einwilligung wirkt sofort. */
   channel: TouchChannel | null;
   /** Vorlagen der ZUSTÄNDIGEN Person, nicht des Betrachters. */
@@ -66,12 +76,21 @@ export type AppointmentCascadeView = {
   meetLink: string | null;
   appointmentAt: string | null;
   cancelledAt: string | null;
+  /**
+   * Ergebnis-Zustand des Termins. Nur dafür da, die Entwertung zu BEGRÜNDEN:
+   * `superseded_at` trägt keinen Grund, und eine Spalte dafür zu erfinden wäre
+   * eine zweite Wahrheit neben `status`/`show_status` (Muster Ablage — die
+   * Zugehörigkeit wird aus dem Zeilenzustand abgeleitet, nicht gespeichert).
+   */
+  status: string | null;
+  showStatus: string | null;
 };
 
 const EMPTY: AppointmentCascadeView = {
   available: false,
   steps: [],
   touches: [],
+  supersededTouches: [],
   channel: null,
   bundle: EMPTY_TEMPLATE_BUNDLE,
   assignedUsername: null,
@@ -80,6 +99,8 @@ const EMPTY: AppointmentCascadeView = {
   meetLink: null,
   appointmentAt: null,
   cancelledAt: null,
+  status: null,
+  showStatus: null,
 };
 
 /** Kanalquelle: beim Closing steht die WhatsApp-Nummer am verknüpften Setting. */
@@ -105,7 +126,7 @@ function channelFor(row: ChannelSource | null): TouchChannel | null {
 
 const TOUCH_COLUMNS =
   "id, entity_type, cascade_kind, touch_kind, step_no, requires_no_response, template_key, " +
-  "due_at, appointment_at, outcome, done_at";
+  "due_at, appointment_at, outcome, done_at, superseded_at";
 
 type RawTouch = Omit<AppointmentCascadeTouch, "template_key"> & { template_key: string };
 
@@ -147,6 +168,8 @@ export async function getAppointmentCascade(
   let meetLink: string | null = null;
   let appointmentAt: string | null = null;
   let cancelledAt: string | null = null;
+  let status: string | null = null;
+  let showStatus: string | null = null;
   let assignedUserId: string | null = null;
   let source: ChannelSource | null = null;
 
@@ -154,7 +177,7 @@ export async function getAppointmentCascade(
     const { data } = await supabase
       .from("setting_calls")
       .select(
-        "lead_name, company, meet_link, appointment_at, cancelled_at, assigned_user_id, created_by_user_id, source_type, wa_phone, wa_consent_at, wa_refused_at",
+        "lead_name, company, meet_link, appointment_at, cancelled_at, status, show_status, assigned_user_id, created_by_user_id, source_type, wa_phone, wa_consent_at, wa_refused_at",
       )
       .eq("id", entityId)
       .eq("workspace_id", access.workspace_id)
@@ -166,6 +189,8 @@ export async function getAppointmentCascade(
           meet_link: string | null;
           appointment_at: string | null;
           cancelled_at: string | null;
+          status: string | null;
+          show_status: string | null;
           assigned_user_id: string | null;
           created_by_user_id: string | null;
         })
@@ -176,6 +201,8 @@ export async function getAppointmentCascade(
     meetLink = row.meet_link;
     appointmentAt = row.appointment_at;
     cancelledAt = row.cancelled_at;
+    status = row.status;
+    showStatus = row.show_status;
     // personOf()-Regel: Zuweisung schlägt Ersteller (docs §2).
     assignedUserId = row.assigned_user_id ?? row.created_by_user_id;
     source = row;
@@ -183,7 +210,7 @@ export async function getAppointmentCascade(
     const { data } = await supabase
       .from("closing_calls")
       .select(
-        "lead_name, company, meet_link, call_at, cancelled_at, assigned_user_id, created_by_user_id, setting_call_id",
+        "lead_name, company, meet_link, call_at, cancelled_at, status, show_status, assigned_user_id, created_by_user_id, setting_call_id",
       )
       .eq("id", entityId)
       .eq("workspace_id", access.workspace_id)
@@ -194,6 +221,8 @@ export async function getAppointmentCascade(
       meet_link: string | null;
       call_at: string | null;
       cancelled_at: string | null;
+      status: string | null;
+      show_status: string | null;
       assigned_user_id: string | null;
       created_by_user_id: string | null;
       setting_call_id: string | null;
@@ -204,6 +233,8 @@ export async function getAppointmentCascade(
     meetLink = row.meet_link;
     appointmentAt = row.call_at;
     cancelledAt = row.cancelled_at;
+    status = row.status;
+    showStatus = row.show_status;
     assignedUserId = row.assigned_user_id ?? row.created_by_user_id;
     if (row.setting_call_id) {
       const { data: parent } = await supabase
@@ -218,20 +249,24 @@ export async function getAppointmentCascade(
   const { steps, available: stepsAvailable } = await getCascadeSteps();
 
   let touches: AppointmentCascadeTouch[] = [];
+  let supersededTouches: AppointmentCascadeTouch[] = [];
   let touchesAvailable = true;
+  // Die entwerteten Zeilen kommen bewusst MIT: eine Kaskade, die nach einem
+  // Ergebnis abgeräumt wurde, verschwände sonst wortlos aus dem Panel.
   const { data: rawTouches, error } = await supabase
     .from("reminder_touches")
     .select(TOUCH_COLUMNS)
     .eq("workspace_id", access.workspace_id)
     .eq("entity_id", entityId)
-    .is("superseded_at", null)
     .order("due_at", { ascending: true })
     .order("step_no", { ascending: true });
   if (error) {
     touchesAvailable = !isMissingSchema(error);
     if (touchesAvailable) console.error("[appointmentCascade]", error.message);
   } else {
-    touches = keepKnownTemplate((rawTouches ?? []) as unknown as RawTouch[]);
+    const rows = (rawTouches ?? []) as unknown as RawTouch[];
+    touches = keepKnownTemplate(rows.filter((r) => !r.superseded_at));
+    supersededTouches = keepKnownTemplate(rows.filter((r) => r.superseded_at));
   }
 
   const bundles = assignedUserId ? await getTemplateBundles([assignedUserId]) : null;
@@ -249,6 +284,7 @@ export async function getAppointmentCascade(
     available: stepsAvailable && touchesAvailable,
     steps,
     touches,
+    supersededTouches,
     channel: channelFor(source),
     bundle: (assignedUserId ? bundles?.get(assignedUserId) : null) ?? EMPTY_TEMPLATE_BUNDLE,
     assignedUsername,
@@ -257,5 +293,7 @@ export async function getAppointmentCascade(
     meetLink,
     appointmentAt,
     cancelledAt,
+    status,
+    showStatus,
   };
 }

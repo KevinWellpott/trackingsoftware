@@ -114,6 +114,19 @@ function buildGroups(
     else byKind.set(t.cascade_kind, [t]);
   }
 
+  // ── Entwertete Stufen, deren Kaskade KEINE gültige Zeile mehr hat. Eine
+  //    Kaskade, die entwertet und sofort neu erzeugt wurde (Umterminieren),
+  //    steht damit nur einmal da — als die gültige, die sie ist. Je Stufe
+  //    bleibt eine Zeile: mehrfaches Entwerten derselben Stufe ist die
+  //    Vorgeschichte, nicht drei verschiedene Nachrichten.
+  const supersededOnly = new Map<CascadeKind, AppointmentCascadeTouch[]>();
+  for (const t of view.supersededTouches) {
+    if (byKind.has(t.cascade_kind)) continue;
+    const list = supersededOnly.get(t.cascade_kind);
+    if (!list) supersededOnly.set(t.cascade_kind, [t]);
+    else if (!list.some((x) => x.step_no === t.step_no)) list.push(t);
+  }
+
   const groups: CascadeGroup[] = [];
 
   // ── Die geplante Kaskade: entlang der KONFIGURATION, nicht entlang der
@@ -125,6 +138,11 @@ function buildGroups(
   byKind.delete(scheduledKind);
 
   if (planned.length > 0 || scheduledTouches.length > 0) {
+    // Wurde die geplante Kaskade entwertet, ist der zeitliche Rückschluss aus
+    // `skipReason` hier falsch: Die Stufen waren geplant, sie sind abgeräumt
+    // worden. Der Grund kommt deshalb je Stufe aus der entwerteten Zeile.
+    const supersededHere = supersededOnly.get(scheduledKind) ?? null;
+    supersededOnly.delete(scheduledKind);
     const rows: StepRow[] = [];
     // Der Sofort-Touch (step_no 0) steht vor den geplanten Stufen: er entsteht
     // genau dann, wenn keine einzige mehr passte, und ist sofort fällig.
@@ -137,11 +155,17 @@ function buildGroups(
         rows.push({ key: touch.id, kind: "touch", touch });
         continue;
       }
+      // Nur eine Stufe, für die es wirklich eine entwertete Zeile gibt, wird als
+      // entwertet begründet. Eine, die es nie gab, bleibt beim zeitlichen Grund
+      // — sonst behauptete das Panel eine Nachricht, die nie geplant war.
+      const superseded = supersededHere?.find((t) => t.step_no === step.step_no) ?? null;
       rows.push({
         key: `skip-${scheduledKind}-${step.step_no}`,
         kind: "skipped",
         label: TEMPLATE_META[step.template_key]?.label ?? `Stufe ${step.step_no}`,
-        reason: skipReason(step, view.appointmentAt, nowMs, view.cancelledAt),
+        reason: superseded
+          ? supersededReason(scheduledKind, view, superseded)
+          : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt),
       });
     }
     groups.push({ cascadeKind: scheduledKind, rows, sortKey: "0" });
@@ -158,8 +182,51 @@ function buildGroups(
     });
   }
 
+  // ── Ganz entwertete Kaskaden zuletzt: sie beschreiben, was NICHT mehr
+  //    ansteht, und dürfen den offenen Stufen nicht die Aufmerksamkeit nehmen.
+  for (const [kind, list] of supersededOnly) {
+    groups.push({
+      cascadeKind: kind,
+      rows: list.map((t) => ({
+        key: `sup-${t.id}`,
+        kind: "skipped" as const,
+        label: stepLabelOf(t.template_key, t.touch_kind, t.step_no),
+        reason: supersededReason(kind, view, t),
+      })),
+      sortKey: `2:${kind}`,
+    });
+  }
+
   groups.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
   return groups;
+}
+
+/**
+ * Warum eine Kaskade keine gültige Stufe mehr hat — im Klartext, aus demselben
+ * Grund wie bei `skipReason`: Eine Kaskade, die nach einem Ergebnis wortlos
+ * verschwindet, ist von einem Fehler nicht zu unterscheiden.
+ *
+ * Einen Grund schreibt `superseded_at` NICHT mit, und eine Spalte dafür wäre
+ * eine zweite Wahrheit neben `status`/`show_status` — abgeleitet wird deshalb
+ * aus dem Zustand des Termins. Wo der Zustand nichts hergibt, sagt der Text
+ * genau das und behauptet keinen Anlass, den niemand geprüft hat.
+ *
+ * Die Reihenfolge trägt zweimal: Eine bereits ERLEDIGTE Stufe ging real raus —
+ * ihr „geht nicht mehr raus" wäre schlicht falsch, deshalb steht sie ganz vorn.
+ * Und der No-Show-Fall steht VOR dem Ergebnis-Fall, weil ein korrigierter
+ * Show-Status den Status der Zeile („no_show") stehen lässt — die Kette wäre
+ * sonst mit dem Ergebnis begründet, das sie gerade widerlegt.
+ */
+function supersededReason(kind: CascadeKind, view: AppointmentCascadeView, touch: AppointmentCascadeTouch): string {
+  if (touch.done_at) return `Erledigt ${whenLabel(touch.done_at)} — die Stufe steht nur noch in der Historie.`;
+  if (view.cancelledAt) return "Entwertet — der Termin ist abgesagt.";
+  if ((kind === "no_show_setting" || kind === "no_show_closing") && view.showStatus !== "no_show") {
+    return "Entwertet — der Termin gilt inzwischen als stattgefunden. Die Nachfrage nach dem Nicht-Erscheinen ginge sonst real raus.";
+  }
+  if (view.status && view.status !== "offen") {
+    return "Entwertet — das Ergebnis des Termins steht fest; diese Stufe geht nicht mehr raus.";
+  }
+  return "Entwertet — eine spätere Änderung am Termin hat diese Stufe abgeräumt.";
 }
 
 /**
