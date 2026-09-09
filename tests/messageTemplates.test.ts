@@ -234,6 +234,66 @@ describe("renderTemplate", () => {
     assert.equal(renderTemplate("[{datum}][{uhrzeit}]", { leadName: "Max" }), "[][]");
   });
 
+  test("kein Auslieferungstext lässt einen Trenner zurück, wenn der Wert fehlt", () => {
+    // Der teure Fall: „Erstgespräch wieder aufnehmen — {firma}." ging bei einem
+    // Kontakt ohne Firma wörtlich als „Erstgespräch wieder aufnehmen —." raus,
+    // „unser Termin am {datum}" bei einem Termin ohne Datum als „unser Termin
+    // am". `tidy()` räumt NUR Verbindungswörter aus CONNECTORS weg — ein
+    // Gedankenstrich, ein Doppelpunkt und die zusammengezogenen Präpositionen
+    // (am/im/zum/beim …) bleiben stehen. Deshalb muss jeder optionale Wert im
+    // Katalog hinter einem dieser Verbindungswörter oder hinter einem
+    // abgeschlossenen Satz sitzen.
+    //
+    // {anlass} ist bewusst gefüllt: In den vier Recycling-Texten kann er nicht
+    // leer werden (RECYCLE_REASON_FALLBACK_HINT in lib/recycleCadence.ts), und
+    // die Anlass-Texte sind kleingeschriebene Teilsätze, die genau den Platz
+    // hinter dem Gedankenstrich brauchen.
+    const leer = { anlass: "vielleicht passt der Zeitpunkt inzwischen besser" };
+
+    const HAENGENDER_TRENNER = /[—–:]\s*(?:[.,;:!?]|$)/;
+    // an/in/zu/bei/… stehen in CONNECTORS und werden mitgenommen; die
+    // zusammengezogenen Formen nicht — und die können, anders als „mit" oder
+    // „an", nie eine abgetrennte Vorsilbe am Satzende sein.
+    const HAENGENDE_PRAEPOSITION = /\b(?:am|im|beim|zum|zur|vom|ins|aufs|fürs)\s*(?:[.,;:!?]|$)/i;
+
+    for (const key of TEMPLATE_KEYS) {
+      const def = TEMPLATE_DEFAULTS[key];
+      for (const [teil, text] of [
+        ["Text", def.body],
+        ["Betreff", def.subject],
+      ] as const) {
+        if (!text) continue;
+        const out = renderTemplate(text, leer);
+        assert.ok(!HAENGENDER_TRENNER.test(out), `${key} (${teil}): hängender Trenner in "${out}"`);
+        assert.ok(!HAENGENDE_PRAEPOSITION.test(out), `${key} (${teil}): hängende Präposition in "${out}"`);
+        assert.ok(!/\s[,;:!?]/.test(out), `${key} (${teil}): Leerzeichen vor Satzzeichen in "${out}"`);
+        assert.ok(out.trim().length > 0, `${key} (${teil}) fällt ohne Werte komplett weg`);
+      }
+    }
+  });
+
+  test("die drei Aufgaben-Texte lesen sich mit und ohne Firma", () => {
+    // Namentlich festgehalten, weil genau diese drei auf /nachfassen bei jedem
+    // Kontakt ohne Firma sichtbar werden — LinkedIn-Kontakte haben oft keine.
+    const ohne = { leadName: "Anna Schmidt" };
+    const mit = { ...ohne, company: "Acme GmbH" };
+
+    assert.equal(renderTemplate(TEMPLATE_DEFAULTS.setting_wiedervorlage.body, ohne), "Erstgespräch wieder aufnehmen.");
+    assert.equal(
+      renderTemplate(TEMPLATE_DEFAULTS.setting_wiedervorlage.body, mit),
+      "Erstgespräch mit Acme GmbH wieder aufnehmen.",
+    );
+
+    assert.equal(renderTemplate(TEMPLATE_DEFAULTS.closing_wiedervorlage.body, ohne), "Closing nachfassen.");
+    assert.equal(renderTemplate(TEMPLATE_DEFAULTS.closing_wiedervorlage.body, mit), "Closing bei Acme GmbH nachfassen.");
+
+    assert.equal(renderTemplate(TEMPLATE_DEFAULTS.telefon_rueckruf.body, ohne), "Rückruf vereinbart — jetzt anrufen.");
+    assert.equal(
+      renderTemplate(TEMPLATE_DEFAULTS.telefon_rueckruf.body, mit),
+      "Rückruf vereinbart — jetzt bei Acme GmbH anrufen.",
+    );
+  });
+
   test("alle Auslieferungstexte rendern ohne Restklammer", () => {
     const ctx = {
       leadName: "Anna Schmidt",

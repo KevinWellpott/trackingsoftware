@@ -15,20 +15,31 @@ import { revalidatePath } from "next/cache";
 
 export type AssigneeEntity = "setting_call" | "closing_call";
 
-async function canAccessEntity(entity: AssigneeEntity, entityId: string): Promise<boolean> {
-  // RLS allein reicht nicht mehr: fuer einen Plattform-Admin ist jede Zeile
-  // zugreifbar. Massgeblich ist die aktive Organisation.
+/**
+ * Zugriff pruefen UND den Ersteller mitlesen.
+ *
+ * RLS allein reicht nicht: fuer einen Plattform-Admin ist jede Zeile
+ * zugreifbar. Massgeblich ist die aktive Organisation.
+ *
+ * `created_by_user_id` kommt mit, weil die Zuweisung „Niemand" die Erinnerungen
+ * genau dorthin ziehen muss — das ist der Wert, den `personOf()` danach
+ * liefert. Ein zweiter Roundtrip dafuer waere dieselbe Zeile ein zweites Mal.
+ */
+async function loadEntity(
+  entity: AssigneeEntity,
+  entityId: string,
+): Promise<{ created_by_user_id: string | null } | null> {
   const access = await getAccessContext();
-  if (!access) return false;
+  if (!access) return null;
   const supabase = await createClient();
   const table = entity === "setting_call" ? "setting_calls" : "closing_calls";
   const { data } = await supabase
     .from(table)
-    .select("id")
+    .select("id, created_by_user_id")
     .eq("id", entityId)
     .eq("workspace_id", access.workspace_id)
     .maybeSingle();
-  return Boolean(data);
+  return (data as { created_by_user_id: string | null } | null) ?? null;
 }
 
 /**
@@ -49,7 +60,8 @@ export async function setAssignee(
   const access = await getAccessContext();
   if (!access) return { error: "Nicht angemeldet." };
   if (!access.can_switch_view) return { error: "Keine Berechtigung." };
-  if (!(await canAccessEntity(entity, entityId))) return { error: "Keine Berechtigung." };
+  const row = await loadEntity(entity, entityId);
+  if (!row) return { error: "Keine Berechtigung." };
 
   const supabase = await createClient();
 
@@ -83,12 +95,22 @@ export async function setAssignee(
   //
   // Fail-soft wie alle Kaskaden-Pfade: eine misslungene Nachfuehrung darf die
   // Zuweisung selbst nicht zurueckdrehen.
-  if (userId) {
+  //
+  // „Niemand" (userId = null) ist dabei KEIN Sonderfall, sondern der wichtigste:
+  // Der Termin faellt danach ueber `personOf()` auf seinen Ersteller zurueck —
+  // genau dorthin muessen die Erinnerungen mit. Standen sie weiter beim
+  // bisherigen Zustaendigen, sah dieser bei `data_scope='own'` eine Karte ohne
+  // Lead-Namen (der Termin selbst ist ihm durch die RLS entzogen), waehrend der
+  // Ersteller sie nie zu Gesicht bekaeme. Die Spalte bleibt dabei belegt: der
+  // Trigger `reminder_touches_require_assignee` greift nur beim INSERT, aber
+  // eine Erinnerung ohne Zustaendige ist eine, die niemand sieht.
+  const touchAssignee = userId ?? row.created_by_user_id;
+  if (touchAssignee) {
     const entityType = entity === "setting_call" ? "setting" : "closing";
     const types = entityType === "setting" ? ["setting"] : ["closing", "closing_followup"];
     const { error: touchError } = await supabase
       .from("reminder_touches")
-      .update({ assigned_user_id: userId })
+      .update({ assigned_user_id: touchAssignee })
       .eq("workspace_id", access.workspace_id)
       .eq("entity_id", entityId)
       .in("entity_type", types)

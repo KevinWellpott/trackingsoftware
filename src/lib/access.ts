@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import type { Workspace } from "@/lib/types";
@@ -66,7 +67,37 @@ async function resolvePlatformAdmin(
   return data === true;
 }
 
-export async function getAccessContext(): Promise<AccessContext | null> {
+/**
+ * Der Zugriffskontext EINER Anfrage — gecacht mit React `cache()`.
+ *
+ * Warum überhaupt: Die Funktion kostet je Aufruf bis zu sechs Roundtrips in
+ * drei Wellen (auth.getUser → Mitgliedschaft ‖ is_platform_admin ‖ profiles →
+ * workspaces, dazu ggf. Datensicht-Ziel und Org-Liste), und sie läuft pro
+ * Seitenaufruf mehrfach: das Layout braucht sie, die Seite selbst, und jede
+ * aufgerufene Server-Funktion holt sie sich erneut, weil sie als direkter POST
+ * erreichbar ist und ihre Berechtigung deshalb SELBST prüfen muss (siehe
+ * `loadRecycleTasks`). Diese Selbstprüfung ist richtig und bleibt — sie darf
+ * nur nicht jedes Mal wieder an die Datenbank gehen. Auf /nachfassen waren das
+ * vier Durchläufe, auf /settings sechs.
+ *
+ * Warum `cache()` aus React und NICHT `use cache`/`unstable_cache`: Der Kontext
+ * hängt an Cookies (Datensicht `pt_data_view_user_id`, aktive Organisation
+ * `pt_active_workspace_id`) und am angemeldeten Konto. Ein Cache, der über
+ * Anfragen hinweg hält, zeigte dem nächsten Nutzer fremde Daten.
+ * `cache()` kann das strukturell nicht: Der Speicher hängt am React-Request
+ * (`ReactSharedInternals.A` → `request.cache`, je gerendertem Request eine
+ * frische Map) und wird über AsyncLocalStorage aufgelöst. Ohne laufenden
+ * Request — in einer Server Action, in einem Route Handler — greift gar keine
+ * Memoisierung, die Funktion läuft dann wie bisher jedes Mal durch. Damit ist
+ * die Reichweite höchstens EIN Render, nie zwei Anfragen und nie zwei Nutzer.
+ *
+ * Innerhalb eines Renders kann sich der Kontext auch nicht ändern: Server
+ * Components dürfen keine Cookies schreiben. Die beiden Aktionen, die es tun
+ * (`setDataViewForm`, `setActiveOrgForm`), lesen den Kontext ausschließlich
+ * VOR dem Schreiben und beenden sich danach mit `redirect()` — die neue Sicht
+ * entsteht in der nächsten Anfrage mit eigenem Cache.
+ */
+export const getAccessContext = cache(async function getAccessContext(): Promise<AccessContext | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -203,9 +234,19 @@ export async function getAccessContext(): Promise<AccessContext | null> {
     is_foreign_org: isForeignOrg,
     available_workspaces: availableWorkspaces,
   };
-}
+});
 
-export async function listDataViewUsers(workspaceId: string): Promise<DataViewUser[]> {
+/**
+ * Ebenfalls pro Anfrage gecacht, aus demselben Grund und mit derselben
+ * Reichweite: Layout und Seite fragen die Mitgliederliste derselben
+ * Organisation regelmäßig beide ab (/telefon, /termine, /analyse, /team,
+ * /erinnerungen). Der Schlüssel ist die `workspaceId` — zwei Organisationen
+ * teilen sich keinen Eintrag —, und gelesen wird weiterhin als der angemeldete
+ * Nutzer durch die RLS.
+ */
+export const listDataViewUsers = cache(async function listDataViewUsers(
+  workspaceId: string,
+): Promise<DataViewUser[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("workspace_members")
@@ -231,7 +272,7 @@ export async function listDataViewUsers(workspaceId: string): Promise<DataViewUs
       data_scope: row.data_scope ?? "workspace",
     }))
     .sort((a, b) => a.username.localeCompare(b.username, "de"));
-}
+});
 
 // created_by_user_id ist "wer hat den DB-Eintrag angelegt" (z.B. ein Owner,
 // der über das Owner-Dropdown eine Liste FÜR ein anderes Teammitglied

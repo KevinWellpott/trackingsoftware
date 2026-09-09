@@ -452,6 +452,33 @@ async function loadClosingEntity(
 }
 
 /**
+ * Wem die Erinnerungen dieses Termins gehören — `personOf()`-Regel als
+ * Snapshot: Zuweisung schlägt Ersteller.
+ *
+ * Der Ersteller-Fallback greift NICHT in fremder Organisation. Dort ist der
+ * Angemeldete ein Plattform-Admin und bewusst kein Mitglied: Die Anlagepfade
+ * (`createManualSetting`, `convertContactToSetting`, `createClosingFromSetting`,
+ * `reviveDropout`) setzen `assigned_user_id` deshalb auf NULL, schreiben aber
+ * `created_by_user_id` = seine UUID. Ohne diese Ausnahme fiele die Kaskade
+ * genau darauf zurück und legte in den Kundendaten Erinnerungen an, die einem
+ * Konto gehören, das dort nicht existiert: Sie tauchen in KEINEM „Meine
+ * Erinnerungen" auf (der Filter ist `assigned_user_id = eigene id`), erscheinen
+ * in der Team-Ansicht des Kunden unter einem fremden Namen und verletzen die
+ * Invariante aus 0036 („keine aktive Erinnerung gehört einem Nicht-Mitglied").
+ *
+ * Mit `null` greift stattdessen der ausformulierte Abbruch in `applyPlan` — der
+ * Admin sieht, dass der Termin noch niemandem gehört, statt lautlos ohne
+ * Kaskade dazustehen.
+ */
+function assigneeFor(
+  access: AccessContext,
+  row: { assigned_user_id: string | null; created_by_user_id: string | null },
+): string | null {
+  if (access.is_foreign_org) return row.assigned_user_id;
+  return row.assigned_user_id ?? row.created_by_user_id;
+}
+
+/**
  * Plan schreiben — Entwerten und Neuanlegen in EINEM Aufruf.
  *
  * Der Insert-Trigger aus 0032 weist eine Zeile ohne zuständige Person ab, und
@@ -543,7 +570,7 @@ async function generateScheduled(
       // personOf()-Regel: Zuweisung schlägt Ersteller. Als Snapshot festgehalten,
       // damit ein späteres setAssignee() eine historische Erinnerung nicht
       // lautlos zwischen Personen verschiebt.
-      row.assigned_user_id ?? row.created_by_user_id,
+      assigneeFor(access, row),
       row.channel,
     );
   } catch (e) {
@@ -597,7 +624,7 @@ async function generateChain(
       entityId,
       kind,
       plan,
-      row.assigned_user_id ?? row.created_by_user_id,
+      assigneeFor(access, row),
       row.channel,
     );
   } catch (e) {

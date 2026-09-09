@@ -57,12 +57,25 @@ function embeddedOwner(row: unknown, relation: "lists" | "phone_lists"): string 
  * Quell-Lead → Owner der Liste. Für Quellen ohne Vorlaufkanal (Ads, Social,
  * Sonstige, manuell) gibt es kein Konto — die Karte lässt die Zeile dann weg,
  * statt eine Person zu raten.
+ *
+ * Diese Kette kann für einen Nutzer mit `data_scope='own'` MITTENDRIN abreißen,
+ * ohne dass irgendetwas fehlschlägt: Die Zeilensicherheit auf `setting_calls`
+ * kennt nur `created_by_user_id` und `assigned_user_id` (docs §2), die auf
+ * `lists`/`phone_lists` nur den eigenen Besitz. Wem also ein Closing zugewiesen
+ * ist, dessen Erstgespräch aber einem Kollegen gehört, der sieht die Quellzeile
+ * nicht — und bekam bisher gar keine Absender-Zeile. Genau dasselbe Nichts wie
+ * bei einer Quelle, die legitim kein Konto hat (Ads, Social, Sonstige). Deshalb
+ * wird der Abriss jetzt als eigener Zustand zurückgegeben (`unresolved`) und
+ * auf der Karte benannt. Das weicht keine Rechte auf: Zurück geht nur, DASS es
+ * hier nicht ermittelbar ist — kein Name, keine Liste, keine fremde Zeile.
  */
 async function loadSenderAccounts(
   workspaceId: string,
   touches: ReminderTouchWithContext[],
 ): Promise<Record<string, SenderAccount>> {
   const out: Record<string, SenderAccount> = {};
+  /** „Kette abgerissen" — Kanal unbekannt, Konto nicht ermittelbar. */
+  const UNRESOLVED: SenderAccount = { ownerName: null, kind: null, unresolved: true };
   const settingIds = new Set<string>();
   const closingIds = new Set<string>();
   for (const t of touches) {
@@ -75,8 +88,11 @@ async function loadSenderAccounts(
     const supabase = await createClient();
 
     // (1) Closing → Setting. Ein Closing ohne Setting-Bezug (direkt angelegt
-    //     oder beim Org-Umzug gekappt) bekommt schlicht kein Konto.
+    //     oder beim Org-Umzug gekappt) bekommt schlicht kein Konto — das ist
+    //     etwas anderes als ein Closing, das wir gar nicht lesen dürfen,
+    //     deshalb der Merker `closingSeen`.
     const parentOf = new Map<string, string>();
+    const closingSeen = new Set<string>();
     if (closingIds.size > 0) {
       const { data } = await supabase
         .from("closing_calls")
@@ -84,6 +100,7 @@ async function loadSenderAccounts(
         .eq("workspace_id", workspaceId)
         .in("id", [...closingIds]);
       for (const r of (data ?? []) as unknown as { id: string; setting_call_id: string | null }[]) {
+        closingSeen.add(r.id);
         if (!r.setting_call_id) continue;
         parentOf.set(r.id, r.setting_call_id);
         settingIds.add(r.setting_call_id);
@@ -130,16 +147,39 @@ async function loadSenderAccounts(
     }
 
     // (4) Auf die Termine zurückspielen — für ein Closing über sein Setting.
+    //     Drei Ausgänge, die vorher alle „keine Zeile" hießen: aufgelöst ·
+    //     legitim kein Konto · nicht ermittelbar.
     for (const t of touches) {
       const settingId = t.setting_call_id ?? (t.closing_call_id ? parentOf.get(t.closing_call_id) : undefined);
-      if (!settingId) continue;
-      const origin = originOf.get(settingId);
-      if (!origin) continue;
-      if (origin.contactId) {
-        out[t.entity_id] = { ownerName: contactOwner.get(origin.contactId) ?? null, kind: "linkedin" };
-      } else if (origin.leadId) {
-        out[t.entity_id] = { ownerName: leadOwner.get(origin.leadId) ?? null, kind: "telefon" };
+      if (!settingId) {
+        // Kein Setting in der Hand: Entweder das Closing hat wirklich keines
+        // (dann gibt es auch kein Konto), oder wir durften es nicht lesen.
+        if (t.closing_call_id && !closingSeen.has(t.closing_call_id)) out[t.entity_id] = UNRESOLVED;
+        continue;
       }
+      const origin = originOf.get(settingId);
+      // Das Erstgespräch liegt außerhalb der Datensicht — über die Herkunft
+      // lässt sich damit gar nichts sagen, auch nicht „gibt es nicht".
+      if (!origin) {
+        out[t.entity_id] = UNRESOLVED;
+        continue;
+      }
+      if (origin.contactId) {
+        // Kein Name heißt hier: Kontakt oder Liste nicht sichtbar, oder die
+        // Liste trägt gar keinen Inhaber (Altbestand). Der Kanal steht fest,
+        // das Konto nicht.
+        const owner = contactOwner.get(origin.contactId) ?? null;
+        out[t.entity_id] = owner
+          ? { ownerName: owner, kind: "linkedin" }
+          : { ownerName: null, kind: "linkedin", unresolved: true };
+      } else if (origin.leadId) {
+        const owner = leadOwner.get(origin.leadId) ?? null;
+        out[t.entity_id] = owner
+          ? { ownerName: owner, kind: "telefon" }
+          : { ownerName: null, kind: "telefon", unresolved: true };
+      }
+      // Sonst: Quelle ohne Vorlaufkanal (Ads, Social, Sonstige, manuell) — es
+      // GIBT kein Konto. Keine Zeile ist hier die richtige Antwort.
     }
   } catch (e) {
     // Ohne Konto-Zeile ist die Karte unvollständig, aber benutzbar — ein

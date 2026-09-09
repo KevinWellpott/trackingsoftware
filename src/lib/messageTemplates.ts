@@ -163,44 +163,61 @@ export type TemplateText = { body: string; subject?: string };
  * löscht sie wieder (Muster setFollowupTemplate). Damit können SQL und TS nicht
  * auseinanderlaufen, und eine Textverbesserung wirkt sofort bei jedem Kunden,
  * der den Text nie angefasst hat.
+ *
+ * REGEL für jeden Text hier: Vor einem optionalen Platzhalter darf kein
+ * TRENNER stehen, den `tidy()` nicht mitnehmen kann — kein Gedankenstrich, kein
+ * Doppelpunkt, keine zusammengezogene Präposition ("am", "zum", "beim"), die
+ * nicht in CONNECTORS steht. `tidy()` räumt nur Verbindungswörter aus der
+ * CONNECTORS-Liste weg; alles andere bleibt sichtbar stehen. „Erstgespräch
+ * wieder aufnehmen — {firma}." wurde ohne Firma wörtlich zu „Erstgespräch
+ * wieder aufnehmen —.", „unser Termin am {datum}" ohne Termin zu „unser Termin
+ * am". Deshalb sitzt der optionale Wert hier überall entweder hinter einem
+ * Verbindungswort (mit/bei/für/zu/um …) oder hinter einem abgeschlossenen Satz.
+ * Der Test „kein Auslieferungstext lässt einen Trenner zurück" hält das fest.
+ *
+ * Genau EINE Ausnahme: {anlass} in den vier Recycling-Texten steht hinter einem
+ * Gedankenstrich. Der Wert kann dort nicht leer werden — `renderRecycleTemplate`
+ * fällt immer auf RECYCLE_REASON_FALLBACK_HINT zurück —, und die Anlass-Texte
+ * sind kleingeschriebene Teilsätze ("vielleicht passt der Zeitpunkt inzwischen
+ * besser"), die genau diesen Platz brauchen.
  */
 export const TEMPLATE_DEFAULTS: Record<TemplateKey, TemplateText> = {
-  setting_msg_1: { body: "Hi {vorname}, unser Termin am {datum} steht noch wie geplant?" },
+  setting_msg_1: { body: "Hi {vorname}, unser Termin für {datum} steht noch wie geplant?" },
   setting_msg_2: { body: "Hi {vorname}, wird ein cooles Meeting morgen um {uhrzeit}." },
   setting_msg_3: {
-    body: "Hi {vorname}, unser Termin ist ja gleich — wollte dir noch einmal den Link durchschicken: {link}",
+    body: "Hi {vorname}, unser Termin ist ja gleich — wollte dir noch einmal den Link durchschicken. {link}",
   },
   setting_mail_1: {
-    subject: "Unser Termin am {datum}",
+    subject: "Unser Termin für {datum}",
     body: "Hallo {vorname},\n\nkurze Erinnerung an unseren Termin morgen um {uhrzeit}.\n\nViele Grüße\n{absender}",
   },
   setting_mail_2: {
-    subject: "Gleich geht es los — {uhrzeit}",
-    body: "Hallo {vorname},\n\nunser Termin startet in einer Stunde. Hier ist der Link: {link}\n\nViele Grüße\n{absender}",
+    subject: "Es geht gleich los um {uhrzeit}",
+    body: "Hallo {vorname},\n\nunser Termin startet in einer Stunde. Ich schicke dir den Link noch einmal mit. {link}\n\nViele Grüße\n{absender}",
   },
 
   closing_kickoff: {
-    body: "Hi {vorname}, hat mich gefreut! Wie besprochen halten wir am {datum} um {uhrzeit} fest — ich schicke dir alles Weitere rechtzeitig.",
+    body: "Hi {vorname}, hat mich gefreut! Der Termin für {datum} um {uhrzeit} steht — ich schicke dir alles Weitere rechtzeitig.",
   },
-  closing_msg_1: { body: "Hi {vorname}, der Termin am {datum} steht noch wie geplant?" },
+  closing_msg_1: { body: "Hi {vorname}, der Termin für {datum} steht noch wie geplant?" },
   closing_msg_2: { body: "Hi {vorname}, wird ein cooles Meeting morgen um {uhrzeit}." },
   closing_msg_3: {
-    body: "Hi {vorname}, unser Termin ist ja gleich — wollte dir noch einmal den Link durchschicken: {link}",
+    body: "Hi {vorname}, unser Termin ist ja gleich — wollte dir noch einmal den Link durchschicken. {link}",
   },
   closing_mail_1: {
-    subject: "Unser Termin am {datum}",
-    body: "Hallo {vorname},\n\nich freue mich auf unseren Termin am {datum} um {uhrzeit}.\n\nViele Grüße\n{absender}",
+    subject: "Unser Termin für {datum}",
+    body: "Hallo {vorname},\n\nich freue mich auf unseren Termin für {datum} um {uhrzeit}.\n\nViele Grüße\n{absender}",
   },
   closing_mail_2: {
     subject: "Erinnerung: morgen um {uhrzeit}",
     body: "Hallo {vorname},\n\nkurze Erinnerung an unseren Termin morgen um {uhrzeit}.\n\nViele Grüße\n{absender}",
   },
   closing_mail_3: {
-    subject: "Gleich geht es los — {uhrzeit}",
-    body: "Hallo {vorname},\n\nunser Termin startet in einer Stunde. Hier ist der Link: {link}\n\nViele Grüße\n{absender}",
+    subject: "Es geht gleich los um {uhrzeit}",
+    body: "Hallo {vorname},\n\nunser Termin startet in einer Stunde. Ich schicke dir den Link noch einmal mit. {link}\n\nViele Grüße\n{absender}",
   },
 
-  followup_msg_1: { body: "Hi {vorname}, wie besprochen melde ich mich am {datum} bei dir zurück." },
+  followup_msg_1: { body: "Hi {vorname}, wie besprochen melde ich mich {datum} bei dir zurück." },
   followup_msg_2: { body: "Hi {vorname}, wir hatten für morgen um {uhrzeit} gesprochen — passt das noch?" },
   followup_msg_3: { body: "Hi {vorname}, ich melde mich gleich wie vereinbart bei dir." },
 
@@ -218,7 +235,7 @@ export const TEMPLATE_DEFAULTS: Record<TemplateKey, TemplateText> = {
   },
 
   kein_close_1: {
-    body: "Hi {vorname}, danke für das Gespräch. Ich fasse dir das Besprochene zusammen — sag mir gern, was du zum Thema {notiz} noch brauchst.",
+    body: "Hi {vorname}, danke für das Gespräch. Ich fasse dir das Besprochene zusammen — sag mir gern, was du zu {notiz} noch brauchst.",
   },
   kein_close_2: {
     body: "Hi {vorname}, ich wollte nochmal nachhören: Gibt es zu {notiz} noch offene Punkte, oder sollen wir es für den Moment ruhen lassen?",
@@ -243,9 +260,9 @@ export const TEMPLATE_DEFAULTS: Record<TemplateKey, TemplateText> = {
     body: "Hi {name}, letzter Versuch von meiner Seite: Soll ich das Thema für dich noch offen halten oder erstmal zur Seite legen?",
   },
 
-  telefon_rueckruf: { body: "Rückruf vereinbart — {firma} anrufen." },
-  setting_wiedervorlage: { body: "Erstgespräch wieder aufnehmen — {firma}." },
-  closing_wiedervorlage: { body: "Closing nachfassen — {firma}." },
+  telefon_rueckruf: { body: "Rückruf vereinbart — jetzt bei {firma} anrufen." },
+  setting_wiedervorlage: { body: "Erstgespräch mit {firma} wieder aufnehmen." },
+  closing_wiedervorlage: { body: "Closing bei {firma} nachfassen." },
 };
 
 /* ------------------------------------------------------------------ *

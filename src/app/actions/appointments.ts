@@ -379,11 +379,20 @@ export async function convertPhoneLeadToSetting(input: {
   if (meeting.error) return { error: meeting.error };
   const { meetLink, meetingKind, phone } = meeting;
 
-  // Bereits vorhandenen Setting-Eintrag wiederverwenden (kein Duplikat)
+  // Bereits vorhandenen Setting-Eintrag wiederverwenden (kein Duplikat).
+  //
+  // Bewusst der JÜNGSTE statt „der eine": Seit der Rückholung aus der Ablage
+  // (Entscheidung K10, actions/revive.ts) kann derselbe Telefon-Lead zwei
+  // Termine tragen — den terminalen ersten Anlauf und den zurückgeholten
+  // zweiten. Ein `maybeSingle()` ohne Grenze wirft dort einen PostgREST-Fehler
+  // und blockierte ausgerechnet das Terminieren eines zurückgeholten Leads;
+  // und gemeint ist ohnehin der laufende Anlauf, nicht der abgeschlossene.
   const { data: existingSc } = await supabase
     .from("setting_calls")
     .select("id")
     .eq("source_phone_lead_id", input.phoneLeadId)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   // Nur ein NEUER Setting-Eintrag ist der Anruf, der zum Termin geführt hat.

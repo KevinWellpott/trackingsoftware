@@ -15,7 +15,7 @@ import {
   type TemplateSource,
 } from "@/lib/messageTemplates";
 import { renderRecycleTemplate, type RecycleOrigin } from "@/lib/recycleCadence";
-import { CONTACT_GAP_WARN_DAYS } from "@/lib/contactGap";
+import { contactGapWindowStart, isWithinContactGap } from "@/lib/contactGap";
 
 // Nachfassen-Union: LinkedIn-Follow-up · Telefon-Rückruf · Erstgespräch-
 // Wiedervorlage · Closing-Wiedervorlage (RPC `nachfassen_tasks`) PLUS Recycling
@@ -326,7 +326,13 @@ export async function getNachfassenTasks(options?: {
   const senderIds = [
     ...new Set([scopeUserId, ...recycle.tasks.map((r) => r.assigned_user_id ?? scopeUserId)]),
   ];
-  const contactSince = new Date(Date.now() - CONTACT_GAP_WARN_DAYS * 86_400_000).toISOString();
+  // EIN Zeitpunkt für Ladefenster und Auswertung: liefe die Uhr zwischen beiden
+  // weiter, könnte ein Kontakt geladen und danach anders beurteilt werden als
+  // der daneben.
+  const nowIso = new Date().toISOString();
+  // Ladefenster, nicht die Schwelle selbst: gefiltert wird gleich exakt über
+  // `isWithinContactGap` (Berliner Kalendertage), siehe lib/contactGap.ts.
+  const contactSince = contactGapWindowStart(nowIso);
 
   const [contactRows, leadRows, bundles, touchContacts] = await Promise.all([
     selectByIds<ContactRow>(contactIds, (chunk) =>
@@ -370,8 +376,6 @@ export async function getNachfassenTasks(options?: {
     else touchContacts.set(key, [event]);
   }
 
-  const contactCutoff = Date.now() - CONTACT_GAP_WARN_DAYS * 86_400_000;
-
   /** Letzter Kontakt zu diesem Lead aus einem ANDEREN Vorgang, sonst null. */
   function recentContactFor(task: {
     lead_name: string | null;
@@ -383,7 +387,10 @@ export async function getNachfassenTasks(options?: {
     let latest: string | null = null;
     for (const ev of touchContacts.get(key) ?? []) {
       if (ev.entityId === task.entity_id) continue;
-      if (new Date(ev.at).getTime() < contactCutoff) continue;
+      // Dieselbe Auswertung wie im Board und dieselbe Körnung wie die
+      // Beschriftung („vor 2 Tagen") — eine Karte, die warnt, muss ihre eigene
+      // Zahl erklären können.
+      if (!isWithinContactGap(ev.at, nowIso)) continue;
       if (!latest || ev.at > latest) latest = ev.at;
     }
     return latest;

@@ -147,6 +147,19 @@ async function updateRecycleRow(
  * der Versuch an `max_attempts`, nullt dieselbe Anweisung die Wiedervorlage.
  * Der Deckel steht damit in der Datenbank statt im App-Code, wo ihn zwei
  * gleichzeitige Klicks aushebeln konnten.
+ *
+ * Danach wird die NÄCHSTE Fälligkeit neu eingeplant. `recycle_attempt()` lässt
+ * `next_recycle_at` unangetastet (außer am Deckel, wo es nullt) — und der alte
+ * Wert liegt per Definition in der Vergangenheit, sonst wäre die Aufgabe gar
+ * nicht erst erschienen. Ohne diesen zweiten Aufruf stand dieselbe Karte am
+ * nächsten Tag unverändert wieder da, die konfigurierte Wartezeit zwischen zwei
+ * Versuchen fand nie statt, und die zweite Ghosting-Stufe (`days_ghosting` nach
+ * dem kurzen Breakup-Touch) war unerreichbar, weil sie `recycle_attempt_count
+ * > 0` verlangt.
+ *
+ * Kein Deckel-Check hier: `schedule_recycle()` liest den frisch erhöhten
+ * Zähler selbst und gibt bei `>= max_attempts` kein Datum aus — der eine Riegel
+ * bleibt in der Datenbank, statt hier eine zweite Kopie zu bekommen.
  */
 export async function markRecycleContacted(
   origin: RecycleOrigin,
@@ -167,6 +180,9 @@ export async function markRecycleContacted(
       error: isMissingSchema(error) ? "Recycling ist nicht verfügbar — Migration 0033 fehlt." : error.message,
     };
   }
+  // Fail-soft wie jeder Recycling-Aufruf: ein misslungenes Neu-Einplanen darf
+  // den bereits gezählten Versuch nicht zurückrollen.
+  await scheduleRecycle(origin, entityId);
   revalidatePath("/nachfassen");
   return { attemptCount: typeof data === "number" ? data : undefined };
 }

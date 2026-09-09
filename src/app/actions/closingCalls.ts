@@ -148,6 +148,18 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
   // — closing_calls kennt kein eigenes No-Show-Outcome, nur den Schalter.
   if (showStatusChanging && patch.show_status === "no_show" && previousShowStatus !== "no_show") {
     await createNoShowTouch("closing", id);
+  } else if (showStatusChanging && patch.show_status !== "no_show" && previousShowStatus === "no_show") {
+    // Der Weg ZURÜCK muss die Kette abräumen, die der Weg HIN angelegt hat.
+    // Sonst liegt in /erinnerungen weiter der Text „wir waren gerade verabredet
+    // — ist etwas dazwischengekommen?" für einen Lead, der erschienen ist; die
+    // Karte ist eine Kopier-Werkbank, der Satz ginge real raus.
+    await supersedeTouches("closing", id, ["no_show_closing"]);
+  }
+  // „Ergebnis zurücksetzen" (handleReset im Closing-Editor) dreht den Status auf
+  // 'offen'. Damit ist auch der Verlust zurückgenommen — die „kein Abschluss"-
+  // Kette beschreibt ein Ereignis, das es nicht mehr gibt.
+  if ("status" in patch && patch.status === "offen") {
+    await supersedeTouches("closing", id, ["kein_close"]);
   }
 
   revalidatePath(`/closing/${id}`, "page");

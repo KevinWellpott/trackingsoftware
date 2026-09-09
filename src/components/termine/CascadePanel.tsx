@@ -141,7 +141,7 @@ function buildGroups(
         key: `skip-${scheduledKind}-${step.step_no}`,
         kind: "skipped",
         label: TEMPLATE_META[step.template_key]?.label ?? `Stufe ${step.step_no}`,
-        reason: skipReason(step, view.appointmentAt, nowMs),
+        reason: skipReason(step, view.appointmentAt, nowMs, view.cancelledAt),
       });
     }
     groups.push({ cascadeKind: scheduledKind, rows, sortKey: "0" });
@@ -165,17 +165,29 @@ function buildGroups(
 /**
  * Warum eine konfigurierte Stufe keine Zeile hat — im Klartext.
  *
- * Zwei verschiedene Fälle, die man auseinanderhalten muss: Die Stufe passte
- * zeitlich nicht mehr (der Normalfall bei kurzfristigen Terminen, kein Fehler),
- * oder es wurde für diesen Termin überhaupt nie eine Kaskade erzeugt (dann ist
- * etwas schiefgegangen). Unterschieden wird an der Fälligkeit: läge sie noch in
- * der Zukunft, müsste die Zeile da sein.
+ * Drei verschiedene Fälle, die man auseinanderhalten muss: Der Termin ist
+ * abgesagt (dann sind die Stufen bewusst entwertet), die Stufe passte zeitlich
+ * nicht mehr (der Normalfall bei kurzfristigen Terminen, kein Fehler), oder es
+ * wurde für diesen Termin überhaupt nie eine Kaskade erzeugt (dann ist etwas
+ * schiefgegangen). Unterschieden wird am Absage-Zeitpunkt und danach an der
+ * Fälligkeit: läge sie noch in der Zukunft, müsste die Zeile da sein.
+ *
+ * Der Absage-Fall MUSS zuerst kommen: Ein in fünf Tagen abgesagter Termin fiel
+ * sonst in den Zukunft-Zweig und riet direkt unter dem Absage-Banner „Termin
+ * speichern oder verschieben erzeugt die Kaskade neu" — ein Rat, den
+ * `postponeAppointment` bei einem abgesagten Termin ausdrücklich abweist.
  *
  * Bewusst NICHT über `planScheduledCascade` gerechnet: dessen `skipped` misst
  * gegen JETZT, nicht gegen den Planungszeitpunkt — bei einem Termin von gestern
  * wäre danach jede Stufe „entfallen", auch die längst verschickte.
  */
-function skipReason(step: CascadeStep, appointmentAt: string | null, nowMs: number): string {
+function skipReason(
+  step: CascadeStep,
+  appointmentAt: string | null,
+  nowMs: number,
+  cancelledAt: string | null,
+): string {
+  if (cancelledAt) return "Entwertet — der Termin ist abgesagt.";
   if (!appointmentAt) return "Entfällt — der Termin hat keinen Zeitpunkt.";
   const due = shiftBerlinMinutes(appointmentAt, -step.offset_minutes);
   if (due && new Date(due).getTime() > nowMs) {

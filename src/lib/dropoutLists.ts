@@ -231,6 +231,73 @@ export function listFeedsRecycling(list: DropoutListKey, entity: DropoutEntity):
     : list === "abgesagt" || list === "disqualifiziert" || list === "no_show_ohne_antwort";
 }
 
+/* ------------------------------------------------------------------ *
+ * Darf der Vorgang zurückgeholt werden? (Entscheidung K10)
+ * ------------------------------------------------------------------ */
+
+export type ReviveGate = {
+  entity: DropoutEntity;
+  /** `revived_at` gesetzt — es gibt bereits einen Nachfolge-Termin. */
+  revived: boolean;
+  /** `recycle_excluded_at` gesetzt. */
+  excluded: boolean;
+};
+
+/**
+ * `null` = „Zurückholen" ist möglich, sonst der Satz, der es sperrt.
+ *
+ * Dieselbe Bauform wie `recycleBlockedReason`: EINE Funktion für die Anzeige
+ * (Knopf aus, Grund am Knopf) und für die Ausführung — die Server-Action prüft
+ * trotzdem selbst, weil sie per direktem POST erreichbar ist.
+ *
+ * Die drei Riegel haben je einen eigenen Grund:
+ *  · LinkedIn-Kontakte und Telefon-Leads können gar nicht Vorgänger sein — die
+ *    Rückhol-Verweise aus 0032 (`revived_from_setting_call_id` /
+ *    `revived_from_closing_call_id`) zeigen ausschließlich auf die beiden
+ *    Termin-Tabellen. Für einen Lead ist der Weg zurück ein Termin aus seiner
+ *    Liste heraus, nicht diese Aktion.
+ *  · Ein gesperrter Vorgang darf keinen neuen Termin bekommen, sonst wäre das
+ *    Kontaktverbot durch einen Klick daneben ausgehebelt.
+ *  · Zweimal zurückholen ergäbe zwei Nachfolger für eine Vorgängerzeile — die
+ *    Kette wäre nicht mehr eindeutig lesbar, und das Dossier zeigte zwei
+ *    „zweite Anläufe" nebeneinander.
+ */
+export function reviveBlockedReason(gate: ReviveGate): string | null {
+  if (gate.entity === "linkedin" || gate.entity === "telefon") {
+    return "Nur Termine lassen sich zurückholen — ein Lead bekommt seinen neuen Termin aus seiner Liste heraus.";
+  }
+  if (gate.excluded) {
+    return "Dauerhaft gesperrt — ein neuer Termin widerspräche der Sperre.";
+  }
+  if (gate.revived) {
+    return "Bereits zurückgeholt — der neue Termin steht schon.";
+  }
+  return null;
+}
+
+/**
+ * Die Zähler der VORGÄNGERZEILE in einem Satzteil.
+ *
+ * Warum sie überhaupt sichtbar sein müssen: Ein zurückgeholter Vorgang startet
+ * bewusst mit `reschedule_count = 0` („frischer Anlauf", Entscheidung E9) —
+ * damit ist die Verschiebe-Obergrenze aus E6 durch Absagen-und-Zurückholen
+ * umgehbar. Der Zähler wird deshalb NICHT übernommen (das änderte rückwirkend
+ * die Bedeutung von E6), sondern die Historie danebengestellt: „diesen Lead
+ * gab es schon einmal, und er hat damals dreimal verschoben."
+ *
+ * `null` = beide Zähler stehen auf 0, es gibt nichts zu berichten; dann bleibt
+ * die Zeile in der Karte weg, statt „0× verschoben" zu behaupten.
+ * `noShowCount === null` heißt „gibt es an dieser Tabelle nicht" —
+ * `closing_calls` führt keinen No-Show-Zähler (nur `setting_calls`, Migration
+ * 0018).
+ */
+export function lineageCounterSummary(rescheduleCount: number, noShowCount: number | null): string | null {
+  const parts: string[] = [];
+  if (rescheduleCount > 0) parts.push(`${rescheduleCount}× verschoben`);
+  if (noShowCount != null && noShowCount > 0) parts.push(`${noShowCount}× nicht erschienen`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export type RecycleGate = {
   entity: DropoutEntity;
   /** `recycle_excluded_at` gesetzt. */

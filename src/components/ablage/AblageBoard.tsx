@@ -13,6 +13,7 @@ import {
   ClipboardCheck,
   Database,
   Handshake,
+  History,
   Inbox,
   Lock,
   Phone,
@@ -24,12 +25,14 @@ import { pullRecycleForward, type DropoutRow } from "@/app/actions/dropout";
 import {
   dropoutListMeta,
   dropoutReasonLabel,
+  lineageCounterSummary,
   listFeedsRecycling,
   type DropoutEntity,
   type DropoutListKey,
 } from "@/lib/dropoutLists";
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
+import { ReviveDialog } from "@/components/ablage/ReviveDialog";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { ownerColor } from "@/lib/ownerColor";
@@ -41,18 +44,23 @@ import { ownerColor } from "@/lib/ownerColor";
 // Nächstes. Der Grund steht deshalb doppelt: als Code (zählbar, gleich
 // beschriftet wie überall sonst) UND als Freitext daneben, wenn es einen gibt.
 //
-// Zwei Aktionen, mehr nicht:
+// Drei Aktionen, mehr nicht:
 //   · „Recycling vorziehen" setzt die Wiedervorlage auf heute — der Vorgang
 //     erscheint dann in der Recycling-Sektion von /nachfassen. Ist das nicht
 //     möglich, steht der Grund am ausgeschalteten Knopf statt einer
 //     Fehlermeldung nach dem Klick (recycleBlockedReason, lib/dropoutLists.ts).
 //   · „Endgültig sperren" schreibt das dauerhafte Kontaktverbot — die einzige
 //     Aktion hier, die etwas wegnimmt, deshalb mit Rückfrage.
+//   · „Zurückholen" (Entscheidung K10) legt einen NEUEN Erstgesprächs-Termin
+//     an; die alte Zeile bleibt terminal und bekommt nur `revived_at`. Sperren
+//     nach demselben Muster über `reviveBlockedReason`.
 //
-// „Zurückholen" (Entscheidung K10) steht bewusst als ausgeschalteter Knopf da:
-// ein zurückgeholter Lead wird ein NEUER Vorgang mit eigener Anlagestrecke.
-// Eine halb funktionierende Fassung, die nur den alten Termin wiederbelebt,
-// wäre schlimmer als keine.
+// Die Kette bleibt in beide Richtungen sichtbar: Eine Karte, die selbst aus
+// einer Rückholung entstanden ist, zeigt die Zähler ihrer VORGÄNGERZEILE —
+// sonst sähe ein Lead, der über Absagen und Rückholungen fünfmal verschoben
+// hat, hier wie ein unbeschriebenes Blatt aus (der neue Vorgang startet
+// bewusst bei `reschedule_count = 0`, Entscheidung E9 gegen E6). Umgekehrt
+// führt eine zurückgeholte Zeile zu ihrem Nachfolger.
 
 // Vier Ursprünge. Termine haben eine eigene Detailseite, LinkedIn-Kontakte und
 // Telefon-Leads nicht — deren Verweis führt auf ihre LISTE, wortgleich zum
@@ -229,6 +237,7 @@ function DropoutCard({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [dossierOpen, setDossierOpen] = useState(false);
+  const [reviveOpen, setReviveOpen] = useState(false);
 
   const meta = ENTITY_META[row.entity_type];
   const href = meta.href(row);
@@ -239,6 +248,13 @@ function DropoutCard({
   // Liste kein Recycling speisen, stünde derselbe Satz auf jeder Karte — den
   // trägt dann eine Zeile am Fuß des Boards.
   const rowCouldFeed = listFeedsRecycling(list, row.entity_type);
+  const predecessor = row.lineage.predecessor;
+  const successor = row.lineage.successor;
+  // „3× verschoben · 1× nicht erschienen" — leer, wenn der Vorgänger sauber
+  // blieb; dann verschweigt die Karte nichts, sondern hat nichts zu melden.
+  const predecessorCounters = predecessor
+    ? lineageCounterSummary(predecessor.reschedule_count, predecessor.no_show_count)
+    : null;
 
   function run(work: () => Promise<{ error?: string } | void>) {
     setError(null);
@@ -385,6 +401,58 @@ function DropoutCard({
         )}
       </div>
 
+      {/* Der zweite Anlauf trägt die Historie des ersten nicht in seinen
+          Zählern (frischer Anlauf, E9) — also steht sie hier daneben. Ohne das
+          wäre „absagen und zurückholen" ein lautloser Weg an der
+          Verschiebe-Obergrenze aus E6 vorbei. */}
+      {predecessor && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "var(--sp-3)",
+            padding: "var(--sp-4) var(--sp-5)",
+            borderRadius: "var(--r-sm)",
+            background: "var(--info-bg)",
+            border: "1px solid rgb(78 128 214 / 0.28)",
+            fontSize: "var(--fs-xs)",
+            lineHeight: "var(--lh-base)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <History size={12} style={{ flexShrink: 0, marginTop: 2, color: "var(--info-fg)" }} />
+          <span>
+            Zweiter Anlauf.{" "}
+            {predecessorCounters
+              ? `Der Vorgänger stand bei ${predecessorCounters} — die Zähler oben zählen erst ab dieser Rückholung.`
+              : "Die Zähler oben zählen erst ab dieser Rückholung."}{" "}
+            <Link
+              href={`/${predecessor.entity}/${predecessor.id}`}
+              style={{ color: "var(--info-fg)", textDecoration: "none", whiteSpace: "nowrap" }}
+            >
+              Zum Vorgänger <ArrowUpRight size={10} />
+            </Link>
+          </span>
+        </div>
+      )}
+
+      {successor && (
+        <Link
+          href={`/setting/${successor.id}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "var(--sp-3)",
+            fontSize: "var(--fs-xs)",
+            color: "var(--success-fg)",
+            textDecoration: "none",
+          }}
+        >
+          <RotateCcw size={11} /> Zurückgeholt — zum neuen Erstgespräch
+          {successor.appointment_at ? ` am ${formatDay(successor.appointment_at)}` : ""}
+        </Link>
+      )}
+
       {dueNow && (
         <Link
           href="/nachfassen"
@@ -468,11 +536,21 @@ function DropoutCard({
           </button>
         )}
 
-        {/* Platzhalter für Entscheidung K10 — bewusst ohne Funktion; der
-            Hinweis dazu steht einmal am Fuß des Boards. */}
-        <button type="button" disabled style={disabledBtn} title="Noch nicht angeschlossen (Entscheidung K10).">
-          <RotateCcw size={12} /> Zurückholen
-        </button>
+        {row.revive_blocked ? (
+          <button type="button" disabled style={disabledBtn} title={row.revive_blocked}>
+            <RotateCcw size={12} /> Zurückholen
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setReviveOpen(true)}
+            title="Neues Erstgespräch für diesen Lead anlegen. Die alte Zeile bleibt terminal stehen."
+            style={{ ...ghostBtn, cursor: isPending ? "default" : "pointer" }}
+          >
+            <RotateCcw size={12} /> Zurückholen
+          </button>
+        )}
 
         {error && (
           <span style={{ fontSize: "var(--fs-xs)", fontWeight: 500, color: "var(--danger-fg)" }}>{error}</span>
@@ -504,6 +582,18 @@ function DropoutCard({
         onClose={() => setDossierOpen(false)}
         kind={meta.dossier}
         id={row.entity_id}
+      />
+
+      {/* Erst beim Schließen neu laden: In „Ersatztermin offen" verschwindet
+          die Karte durch die Rückholung, und mit ihr der Verweis auf den neuen
+          Termin — der steht deshalb im Modal, solange es offen ist. */}
+      <ReviveDialog
+        open={reviveOpen}
+        onClose={(created) => {
+          setReviveOpen(false);
+          if (created) router.refresh();
+        }}
+        row={row}
       />
     </article>
   );
@@ -675,9 +765,10 @@ export function AblageBoard({
             </span>
           )}
           <span>
-            &bdquo;Zur&uuml;ckholen&ldquo; ist noch nicht angeschlossen: Ein zur&uuml;ckgeholter Lead wird ein
-            <strong> neuer Vorgang</strong> mit eigener Anlagestrecke, nicht der wiederbelebte alte Termin
-            (Entscheidung K10).
+            &bdquo;Zur&uuml;ckholen&ldquo; legt ein <strong>neues Erstgespr&auml;ch</strong> an; die alte Zeile
+            bleibt terminal stehen (Entscheidung K10). Ein zur&uuml;ckgedrehter Vorgang ver&auml;nderte
+            r&uuml;ckwirkend die Quoten eines abgeschlossenen Zeitraums. Der neue Termin beginnt mit leeren
+            Z&auml;hlern &mdash; die des Vorg&auml;ngers stehen daf&uuml;r auf seiner Karte.
           </span>
         </div>
       )}

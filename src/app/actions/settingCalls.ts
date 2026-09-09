@@ -71,10 +71,38 @@ async function canAccessSettingCall(id: string): Promise<boolean> {
 export async function updateSettingCall(id: string, patch: SettingCallPatch): Promise<{ error?: string }> {
   if (!(await canAccessSettingCall(id))) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
+
+  // Vorherigen show_status lesen, BEVOR geschrieben wird — dasselbe Muster wie
+  // in `updateClosingCall`. Der Anwesenheits-Schalter im Setting-Editor ist
+  // bewusst ein Toggle ohne Dialog und laeuft ueber genau diesen Pfad
+  // (`handleMarkShow` → `save({ show_status: 'show', … })`).
+  const showStatusChanging = "show_status" in patch;
+  let previousShowStatus: "show" | "no_show" | null = null;
+  if (showStatusChanging) {
+    const { data: current } = await supabase
+      .from("setting_calls")
+      .select("show_status")
+      .eq("id", id)
+      .maybeSingle();
+    previousShowStatus = (current as { show_status: "show" | "no_show" | null } | null)?.show_status ?? null;
+  }
+
   const { error } = await supabase.from("setting_calls").update(withNoShowResolutionCleared(patch)).eq("id", id);
   if (error) return { error: error.message };
+
+  // Der Weg ZURUECK muss die Kette abraeumen, die `setSettingOutcome('no_show')`
+  // angelegt hat. Ohne das steht in /erinnerungen weiter „wir waren gerade
+  // verabredet — ist etwas dazwischengekommen?" fuer einen Lead, der erschienen
+  // ist; die Karte ist eine Kopier-Werkbank, der Satz ginge real raus.
+  // Symmetrisch zu `setNoShowResolution('antwort'|'ersatztermin')`, das dieselbe
+  // Kaskaden-Art entwertet.
+  if (showStatusChanging && patch.show_status !== "no_show" && previousShowStatus === "no_show") {
+    await supersedeTouches("setting", id, ["no_show_setting"]);
+  }
+
   revalidatePath(`/setting/${id}`, "page");
   revalidatePath("/termine", "page");
+  revalidatePath("/erinnerungen", "page");
   return {};
 }
 
@@ -174,11 +202,27 @@ export async function setSettingOutcome(input: {
   // eigenen, dringlichen Nachfass-Touch (kein geplanter Offset).
   await supersedeTouches("setting", input.settingId, ["setting_msg"]);
   if (input.outcome === "no_show") await createNoShowTouch("setting", input.settingId);
-  // 'dead' ist eines der vier "toten Enden" (§ Konzept-Diskussion) — bekommt
-  // ein Recycling-Datum statt endgültig zu verschwinden. Ohne Grund-Argument:
-  // Grund und Status liest `schedule_recycle()` selbst aus der Zeile — ein vom
-  // Client geschickter Grund konnte jede beliebige Wartezeit auslösen.
-  if (input.outcome === "dead") await scheduleRecycle("setting", input.settingId);
+  // 'dead' UND 'unqualifiziert' sind tote Enden (§ Konzept-Diskussion) — beide
+  // bekommen ein Recycling-Datum statt endgültig zu verschwinden. Ohne
+  // Grund-Argument: Grund und Status liest `schedule_recycle()` selbst aus der
+  // Zeile — ein vom Client geschickter Grund konnte jede beliebige Wartezeit
+  // auslösen.
+  //
+  // 'unqualifiziert' hat dabei eine EIGENE Frist
+  // (`days_default_setting_disqualified`, Default 56 Tage = „Disqualifiziert
+  // 8 Wochen", Entscheidung #8) — `schedule_recycle()` wählt sie am Status.
+  // Ohne diesen Aufruf blieb die Einstellung wirkungslos: `recycle_tasks`
+  // fragt den Zweig `status in ('dead','unqualifiziert')` zwar ab, aber
+  // niemand trug je ein Datum ein.
+  //
+  // Die Reihenfolge ist unkritisch: `schedule_recycle()` liest den Grundcode
+  // aus derselben Zeile, in der er eine Anweisung weiter oben gelandet ist,
+  // und gibt für 'falsche_zielgruppe'/'keine_zusammenarbeit' ohnehin kein
+  // Datum aus. `applyDisqualifyConsequences` räumt gleich darunter zusätzlich
+  // ab, was ein FRÜHERER Aufruf gesetzt haben könnte.
+  if (input.outcome === "dead" || input.outcome === "unqualifiziert") {
+    await scheduleRecycle("setting", input.settingId);
+  }
 
   // Die Folgen des GRUNDES — dieselbe Funktion wie beim Nachtragen an einer
   // Bestandszeile, damit Kontaktverbot und „nie Recycling" auf beiden Wegen
@@ -704,10 +748,26 @@ export async function cancelAppointment(
   }
 
   const supabase = await createClient();
+  // Vorher lesen, wie `postponeAppointment` es tut. Der Knopf heißt bei einer
+  // bereits abgesagten Zeile „Absage ändern" und ruft dieselbe Action —
+  // eine reine GRUND-Korrektur darf aber weder den Absage-Zeitpunkt noch die
+  // Wiedervorlage neu setzen: `cancelled_at` trägt in der Ablage die Spalte
+  // „Eingang" (die Karte spränge auf heute nach oben), und `schedule_recycle()`
+  // rechnet `heute + Wartezeit` — wer drei Wochen später nur den Grund
+  // korrigiert, schöbe den Lead damit stillschweigend um Monate nach hinten.
+  const { data: before } = await supabase
+    .from(APPOINTMENT_TABLE[entityType])
+    .select("cancelled_at, cancel_outlook")
+    .eq("id", id)
+    .maybeSingle();
+  const previous = before as { cancelled_at: string | null; cancel_outlook: string | null } | null;
+  const wasCancelled = Boolean(previous?.cancelled_at);
+
   const { error } = await supabase
     .from(APPOINTMENT_TABLE[entityType])
     .update({
-      cancelled_at: new Date().toISOString(),
+      // Nur beim ERSTEN Mal stempeln — danach ist der Zeitpunkt Historie.
+      ...(wasCancelled ? {} : { cancelled_at: new Date().toISOString() }),
       cancel_reason_code: input.reasonCode,
       // Leerer Freitext wird NULL statt "" — sonst steht in der Detailseite eine
       // leere Zeile, die wie eine Angabe aussieht.
@@ -728,7 +788,13 @@ export async function cancelAppointment(
   // Recycling-Aufruf: eine ausgefallene Wiedervorlage darf die Absage selbst
   // nicht zurückrollen; die Ablage zeigt den Vorgang dann ohne Datum, und
   // „Recycling vorziehen" holt ihn von Hand zurück.
-  if (entityType === "setting" && input.outlook === "ohne_aussicht") {
+  //
+  // Eingeplant wird nur beim ÜBERGANG nach „ohne Aussicht" — also bei der
+  // ersten Absage oder wenn eine Korrektur den Ausblick von „neuer Termin" auf
+  // „ohne Aussicht" dreht. Stand er schon dort, hat die Zeile ihr Datum
+  // bereits; ein zweiter Aufruf rechnete es nur von heute neu.
+  const becomesHopeless = input.outlook === "ohne_aussicht" && previous?.cancel_outlook !== "ohne_aussicht";
+  if (entityType === "setting" && becomesHopeless) {
     await scheduleRecycle("setting", id);
   }
 

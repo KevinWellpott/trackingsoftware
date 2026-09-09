@@ -19,7 +19,7 @@ import {
 import { CASCADE_KIND_LABELS, type CascadeKind } from "@/lib/cascadeEngine";
 import type { ReminderEntityType, TouchChannel } from "@/lib/reminderCascade";
 import { berlinDateISO, formatTerminParts } from "@/lib/apptTime";
-import { CONTACT_GAP_WARN_DAYS, contactAgeDays, lastContactLabel } from "@/lib/contactGap";
+import { contactAgeDays, isWithinContactGap, lastContactLabel } from "@/lib/contactGap";
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
@@ -327,7 +327,36 @@ function SenderLine({
 }) {
   // WhatsApp läuft über die persönliche Nummer des Entscheiders und hat kein
   // Listen-Konto; Quellen ohne Vorlaufkanal (Ads, Social, Sonstige) auch nicht.
-  if (!sender?.ownerName || channel === "whatsapp") return null;
+  if (channel === "whatsapp") return null;
+
+  // Die Kette zur Quellliste ist abgerissen — fast immer, weil sie außerhalb
+  // der eigenen Datensicht liegt. Ehrlich benennen statt schweigen: „keine
+  // Zeile" hieße hier „nichts zu beachten", und das ist die eine Aussage, die
+  // sicher falsch ist.
+  if (!sender?.ownerName) {
+    if (!sender?.unresolved) return null;
+    const wovon =
+      sender.kind === "telefon"
+        ? "Über welche Telefonnummer angerufen werden muss"
+        : sender.kind === "linkedin"
+          ? "Über welches LinkedIn-Konto geschrieben werden muss"
+          : "Über welches Konto geschrieben werden muss";
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "flex-start",
+          gap: "var(--sp-3)",
+          fontSize: "var(--fs-xs)",
+          color: "var(--text-muted)",
+        }}
+        title="Die Herkunft dieses Termins liegt außerhalb deiner Datensicht oder die Quellliste trägt keinen Inhaber."
+      >
+        <UserCog size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>{wovon}, ist hier nicht ermittelbar — vor dem Senden kurz klären.</span>
+      </span>
+    );
+  }
 
   const via = sender.kind === "telefon" ? "die Telefonnummer" : "das LinkedIn-Konto";
   const mismatch = Boolean(assignedUsername) && assignedUsername !== sender.ownerName;
@@ -941,8 +970,21 @@ function TerminCard({
  * Board
  * ------------------------------------------------------------------ */
 
-/** Über welches Konto die Nachricht faktisch rausgeht (Owner der Quellliste). */
-export type SenderAccount = { ownerName: string | null; kind: "linkedin" | "telefon" | null };
+/**
+ * Über welches Konto die Nachricht faktisch rausgeht (Owner der Quellliste).
+ *
+ * `unresolved` trennt „hier gibt es kein Konto" von „hier lässt es sich nicht
+ * ermitteln". Der zweite Fall entsteht durch die Zeilensicherheit: Wer nur
+ * eigene Daten sieht, kann das Erstgespräch oder die Quellliste hinter einem
+ * ihm zugewiesenen Termin verborgen bekommen. Ohne die Unterscheidung fiel die
+ * Zeile stumm weg — die Karte behauptete damit, es sei nichts zu beachten,
+ * obwohl über das falsche Konto geschrieben zu werden droht.
+ */
+export type SenderAccount = {
+  ownerName: string | null;
+  kind: "linkedin" | "telefon" | null;
+  unresolved?: boolean;
+};
 
 type Props = {
   mine: ReminderInbox;
@@ -1036,7 +1078,9 @@ export function ErinnerungenBoard({ mine, team, canTeamView, bundles, senders, d
     if (!next || next.touch_kind === "cascade" || nowMs == null) return null;
     const last = lastContact.get(card.leadKey);
     if (!last) return null;
-    return nowMs - new Date(last).getTime() < CONTACT_GAP_WARN_DAYS * 86_400_000 ? last : null;
+    // Dieselbe Auswertung wie im Nachfassen-Board und dieselbe Körnung wie die
+    // Beschriftung darunter — beides in lib/contactGap.ts, nicht hier.
+    return isWithinContactGap(last, new Date(nowMs).toISOString()) ? last : null;
   }
 
   /**

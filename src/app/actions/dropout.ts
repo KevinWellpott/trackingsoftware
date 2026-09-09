@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, type AccessContext } from "@/lib/access";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { berlinDateISO } from "@/lib/apptTime";
 import { getPipelineSettings } from "@/app/actions/reminders";
@@ -11,6 +11,7 @@ import {
   isDropoutListKey,
   listFeedsRecycling,
   recycleBlockedReason,
+  reviveBlockedReason,
   type DropoutAppointmentEntity,
   type DropoutEntity,
   type DropoutListKey,
@@ -24,6 +25,12 @@ import {
 // ausschließlich am Recycling: vorziehen (`pullRecycleForward`) oder dauerhaft
 // sperren (`excludeFromRecycle` aus actions/recycle.ts, unverändert
 // weiterverwendet).
+//
+// Die dritte Aktion der Ablage — „Zurückholen" (Entscheidung K10) — steht
+// bewusst NICHT hier, sondern in actions/revive.ts: sie liest nicht die Ablage,
+// sondern legt einen Termin an, und ist damit eine Anlagestrecke wie
+// `createManualSetting`. Hier bleibt nur, was die Karte dafür anzeigen muss:
+// der Sperrgrund am Knopf und die Kette aus Vorgänger und Nachfolger.
 
 /* ------------------------------------------------------------------ *
  * Verfügbarkeits-Probe
@@ -100,10 +107,241 @@ export type DropoutRowRaw = {
   list_id: string | null;
 };
 
+/* ------------------------------------------------------------------ *
+ * Rückhol-Kette (Entscheidung K10)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Vorgänger und Nachfolger einer zurückgeholten Kette.
+ *
+ * Beides liefert `dropout_lists()` NICHT mit — die RPC liegt seit dem
+ * Einspielen von 0033 fest, und die Kette ist eine reine Anzeigehilfe. Sie
+ * wird deshalb app-seitig nachgeladen, mit denselben zwei Regeln wie überall:
+ * immer mit `workspace_id` gefiltert (für einen Plattform-Admin lässt RLS jede
+ * Zeile durch) und fail-soft (eine fehlende Kette darf die Ablage nicht
+ * abräumen).
+ */
+export type DropoutLineage = {
+  /**
+   * Die Zeile, AUS DER dieser Vorgang zurückgeholt wurde — mit ihren Zählern.
+   * Nur Erstgespräche können Nachfolger sein: `revived_from_*` steht auf
+   * `setting_calls`.
+   */
+  predecessor: {
+    entity: DropoutAppointmentEntity;
+    id: string;
+    reschedule_count: number;
+    /** null = die Tabelle führt keinen No-Show-Zähler (`closing_calls`). */
+    no_show_count: number | null;
+  } | null;
+  /** Der Termin, der AUS dieser Zeile zurückgeholt wurde. */
+  successor: { id: string; appointment_at: string | null } | null;
+};
+
+const EMPTY_LINEAGE: DropoutLineage = { predecessor: null, successor: null };
+
 export type DropoutRow = DropoutRowRaw & {
   /** null = „Recycling vorziehen" ist möglich, sonst der Grund dagegen. */
   recycle_blocked: string | null;
+  /** null = „Zurückholen" ist möglich, sonst der Grund dagegen. */
+  revive_blocked: string | null;
+  lineage: DropoutLineage;
 };
+
+type RevivedRow = {
+  id: string;
+  appointment_at: string | null;
+  revived_from_setting_call_id: string | null;
+  revived_from_closing_call_id: string | null;
+};
+
+function lineageKey(entity: DropoutAppointmentEntity, id: string): string {
+  return `${entity}:${id}`;
+}
+
+/**
+ * Die Rückhol-Ketten zu den geladenen Zeilen — Ergebnis geschlüsselt nach
+ * `<entity>:<id>` der ABLAGE-Zeile.
+ *
+ * Abgefragt werden bewusst ALLE Rückholungen der Organisation statt der zu den
+ * gelisteten IDs passenden: Rückholungen sind selten (eine Handvoll Zeilen),
+ * die Ablage wächst dagegen über Monate — ein `in`-Filter über tausende
+ * Ablage-IDs erzeugte eine URL, die PostgREST irgendwann abweist. Die Zähler
+ * der Vorgänger holt danach ein zweiter Zugriff, aber nur für die Vorgänger,
+ * die wirklich in dieser Ansicht gebraucht werden.
+ */
+async function loadLineage(
+  access: AccessContext,
+  rows: DropoutRowRaw[],
+): Promise<Map<string, DropoutLineage>> {
+  const out = new Map<string, DropoutLineage>();
+  const listed = new Set<string>();
+  for (const r of rows) {
+    if (isDropoutAppointmentEntity(r.entity_type)) listed.add(lineageKey(r.entity_type, r.entity_id));
+  }
+  if (listed.size === 0) return out;
+
+  const supabase = await createClient();
+
+  let revived: RevivedRow[];
+  try {
+    revived = await fetchAllRows<RevivedRow>((from, to) =>
+      supabase
+        .from("setting_calls")
+        .select("id, appointment_at, revived_from_setting_call_id, revived_from_closing_call_id")
+        .eq("workspace_id", access.workspace_id)
+        .or("revived_from_setting_call_id.not.is.null,revived_from_closing_call_id.not.is.null")
+        // Stabile Sortierung, sonst überlappen sich die Seiten (fetchAllRows).
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+  } catch (e) {
+    if (!isMissingSchema(e)) console.error("dropout lineage:", e instanceof Error ? e.message : e);
+    return out;
+  }
+
+  function entry(key: string): DropoutLineage {
+    const existing = out.get(key);
+    if (existing) return existing;
+    const fresh = { ...EMPTY_LINEAGE };
+    out.set(key, fresh);
+    return fresh;
+  }
+
+  // Nachfolger je Vorgängerzeile — und nebenbei die Umkehrung, aus der gleich
+  // die Vorgänger der gelisteten Zeilen fallen.
+  const predecessorOf = new Map<string, { entity: DropoutAppointmentEntity; id: string }>();
+  for (const r of revived) {
+    const pred = r.revived_from_setting_call_id
+      ? { entity: "setting" as const, id: r.revived_from_setting_call_id }
+      : r.revived_from_closing_call_id
+        ? { entity: "closing" as const, id: r.revived_from_closing_call_id }
+        : null;
+    if (!pred) continue;
+    predecessorOf.set(r.id, pred);
+    const key = lineageKey(pred.entity, pred.id);
+    if (listed.has(key)) {
+      entry(key).successor = { id: r.id, appointment_at: r.appointment_at };
+    }
+  }
+
+  const needBy: Record<DropoutAppointmentEntity, string[]> = { setting: [], closing: [] };
+  const predByListed = new Map<string, { entity: DropoutAppointmentEntity; id: string }>();
+  for (const r of rows) {
+    // Nur Erstgespräche tragen `revived_from_*` — ein Closing entsteht
+    // ausschließlich aus einem Setting und wird nie zurückgeholt.
+    if (r.entity_type !== "setting") continue;
+    const pred = predecessorOf.get(r.entity_id);
+    if (!pred) continue;
+    predByListed.set(lineageKey("setting", r.entity_id), pred);
+    needBy[pred.entity].push(pred.id);
+  }
+  if (predByListed.size === 0) return out;
+
+  const counters = new Map<string, { reschedule_count: number; no_show_count: number | null }>();
+  for (const entity of ["setting", "closing"] as const) {
+    const ids = needBy[entity];
+    if (ids.length === 0) continue;
+    // `no_show_count` gibt es nur am Erstgespräch (Migration 0018) — beim
+    // Closing bleibt die Spalte bewusst weg statt als 0 gelesen zu werden:
+    // „kein Zähler" und „Zähler steht auf 0" sind zwei verschiedene Aussagen.
+    const columns = entity === "setting" ? "id, reschedule_count, no_show_count" : "id, reschedule_count";
+    const { data, error } = await supabase
+      .from(TABLE_BY_ENTITY[entity])
+      .select(columns)
+      .eq("workspace_id", access.workspace_id)
+      .in("id", ids);
+    if (error || !data) continue;
+    for (const raw of data as unknown as {
+      id: string;
+      reschedule_count: number | null;
+      no_show_count?: number | null;
+    }[]) {
+      counters.set(lineageKey(entity, raw.id), {
+        reschedule_count: raw.reschedule_count ?? 0,
+        no_show_count: entity === "setting" ? raw.no_show_count ?? 0 : null,
+      });
+    }
+  }
+
+  for (const [key, pred] of predByListed) {
+    const c = counters.get(lineageKey(pred.entity, pred.id));
+    entry(key).predecessor = {
+      entity: pred.entity,
+      id: pred.id,
+      reschedule_count: c?.reschedule_count ?? 0,
+      no_show_count: c?.no_show_count ?? null,
+    };
+  }
+
+  return out;
+}
+
+/**
+ * Der maßgebliche Grund der SPERRLISTE — nachgeladen, weil `dropout_lists()`
+ * ihn dort nicht liefern kann.
+ *
+ * Die RPC wählt die Grund-Spalte per `case p_list`: 'disqualifiziert' nimmt
+ * `disqualify_reason_code`, 'kein_close' den `lost_reason_code`, ALLES ANDERE —
+ * also auch 'gesperrt' — den `cancel_reason_code`. Ein Erstgespräch landet in
+ * der Sperrliste aber typischerweise über `disqualify_reason_code =
+ * 'keine_zusammenarbeit'` (`applyDisqualifyConsequences`), ein Closing über
+ * seinen `lost_reason_code`. Beide haben gar keinen Absage-Grund, und die
+ * Karten trugen deshalb reihenweise den Warn-Badge „Ohne Grund" — ausgerechnet
+ * in der einen Liste, die die Frage „warum darf hier niemand mehr anrufen?"
+ * beantworten soll.
+ *
+ * App-seitig statt in SQL: 0033 ist eingefroren. Überschrieben wird nur, wo die
+ * RPC nichts geliefert hat — ein wirklich erfasster Absage-Grund bleibt stehen.
+ * Fail-soft wie die Rückhol-Kette: fällt der Nachschlag aus, steht dort wieder
+ * „Ohne Grund", die Liste selbst lädt weiter.
+ */
+async function loadBlockReasons(
+  access: AccessContext,
+  rows: DropoutRowRaw[],
+): Promise<Map<string, { reason_code: string | null; reason_text: string | null }>> {
+  const out = new Map<string, { reason_code: string | null; reason_text: string | null }>();
+  const supabase = await createClient();
+  // Nur Zeilen ohne Grund nachschlagen — und nur Termine: ein LinkedIn-Kontakt
+  // und ein Telefon-Lead haben weder Absage noch Disqualifizierung, ihr
+  // Recycling-Grund steht bereits in der Antwort der RPC.
+  const needBy: Record<DropoutAppointmentEntity, string[]> = { setting: [], closing: [] };
+  for (const r of rows) {
+    if (r.reason_code) continue;
+    if (isDropoutAppointmentEntity(r.entity_type)) needBy[r.entity_type].push(r.entity_id);
+  }
+
+  for (const entity of ["setting", "closing"] as const) {
+    const ids = needBy[entity];
+    if (ids.length === 0) continue;
+    const columns =
+      entity === "setting"
+        ? "id, disqualify_reason_code, disqualify_reason"
+        : "id, lost_reason_code, lost_reason";
+    const { data, error } = await supabase
+      .from(TABLE_BY_ENTITY[entity])
+      .select(columns)
+      .eq("workspace_id", access.workspace_id)
+      .in("id", ids);
+    if (error || !data) continue;
+    for (const raw of data as unknown as {
+      id: string;
+      disqualify_reason_code?: string | null;
+      disqualify_reason?: string | null;
+      lost_reason_code?: string | null;
+      lost_reason?: string | null;
+    }[]) {
+      const code = entity === "setting" ? raw.disqualify_reason_code : raw.lost_reason_code;
+      if (!code) continue;
+      out.set(`${entity}:${raw.id}`, {
+        reason_code: code,
+        reason_text: (entity === "setting" ? raw.disqualify_reason : raw.lost_reason) ?? null,
+      });
+    }
+  }
+
+  return out;
+}
 
 export type DropoutListResult = {
   rows: DropoutRow[];
@@ -151,9 +389,22 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
         .range(from, to),
     );
 
+    // Die Rückhol-Kette ist eine Anzeigehilfe und darf die Liste nicht
+    // aufhalten: sie hängt hinter derselben `available`-Antwort, liefert im
+    // Fehlerfall aber nur eine leere Map.
+    const lineage = await loadLineage(access, raw);
+    const blockReasons = list === "gesperrt" ? await loadBlockReasons(access, raw) : null;
+
     const rows = raw
       .map<DropoutRow>((r) => ({
         ...r,
+        ...(blockReasons?.get(`${r.entity_type}:${r.entity_id}`) ?? {}),
+        lineage: lineage.get(`${r.entity_type}:${r.entity_id}`) ?? EMPTY_LINEAGE,
+        revive_blocked: reviveBlockedReason({
+          entity: r.entity_type,
+          revived: Boolean(r.revived_at),
+          excluded: r.excluded,
+        }),
         recycle_blocked: recycleBlockedReason({
           entity: r.entity_type,
           excluded: r.excluded,

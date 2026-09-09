@@ -2,7 +2,15 @@
 
 import { advanceLinkedInFollowUp, markLinkedInAnswered, type NachfassenTask } from "@/app/actions/nachfassen";
 import { excludeFromRecycle, markRecycleContacted, markRecycleResponded } from "@/app/actions/recycle";
-import { RECYCLE_REASON_LABELS } from "@/lib/recycleCadence";
+// Bewusst `dropoutReasonLabel` statt der Recycling-Map: `schedule_recycle()`
+// stempelt bei einem Erstgespraech den DISQUALIFIKATIONS-Code in
+// `recycle_reason_code`, und von dessen acht Werten kennt die Recycling-Map nur
+// vier — ausgerechnet „Kein Budget" und „Falscher Zeitpunkt" standen als
+// „Unbekannt" auf der Karte, also die beiden Gruende, bei denen ein zweiter
+// Anlauf am meisten Sinn ergibt. `dropoutReasonLabel` deckt alle vier
+// Grund-Familien ab (und zeigt einen unbekannten Code roh, statt ihn still zu
+// verbuchen) — dieselbe Funktion, mit der die Ablage denselben Code beschriftet.
+import { dropoutReasonLabel } from "@/lib/dropoutLists";
 import { TEMPLATE_SOURCE_LABELS } from "@/lib/messageTemplates";
 import { contactAgeDays, lastContactLabel } from "@/lib/contactGap";
 import { isOverdue, type DueGranularity } from "@/lib/dueState";
@@ -407,7 +415,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
                 padding: "0.1rem 0.4rem",
               }}
             >
-              {(task.recycle_reason && RECYCLE_REASON_LABELS[task.recycle_reason]) || "Unbekannt"}
+              {dropoutReasonLabel(task.recycle_reason ?? null)}
               {typeof task.recycle_attempt === "number" && task.recycle_attempt > 0
                 ? ` · Versuch ${task.recycle_attempt + 1}`
                 : ""}

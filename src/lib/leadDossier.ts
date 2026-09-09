@@ -41,9 +41,12 @@ import { CASCADE_KIND_LABELS, type CascadeKind } from "@/lib/cascadeEngine";
 // wortgleich heissen, sonst liest sie sich wie drei verschiedene Zahlen.
 import { dayDiff, lastContactLabel } from "@/lib/contactGap";
 import { channelLabel } from "@/lib/channels";
+// Deckt alle vier Grund-Familien ab. Wichtig fuer `recycle_reason_code`: bei
+// einem Erstgespraech steht dort der DISQUALIFIKATIONS-Code, den die reine
+// Recycling-Map nicht kennt — er stuende sonst hier roh und in der Ablage
+// ausgeschrieben.
 import { dropoutReasonLabel } from "@/lib/dropoutLists";
 import { isTemplateKey, TEMPLATE_META } from "@/lib/messageTemplates";
-import { RECYCLE_REASON_LABELS } from "@/lib/recycleCadence";
 import {
   ALL_SETTING_BLOCKS,
   CLOSING_BLOCKS,
@@ -1328,7 +1331,7 @@ function addRecycleEvents(
     title: `Recycling-Versuch${row.recycle_attempt_count ? ` ${row.recycle_attempt_count}` : ""}`,
     detail: joinDetails([
       source === "linkedin" ? "LinkedIn" : source === "telefon" ? "Telefon" : null,
-      row.recycle_reason_code ? (RECYCLE_REASON_LABELS[row.recycle_reason_code] ?? row.recycle_reason_code) : null,
+      row.recycle_reason_code ? dropoutReasonLabel(row.recycle_reason_code) : null,
     ]),
     at: row.recycle_last_contacted_at,
     contactedLead: true,
@@ -1358,9 +1361,7 @@ function addRecycleEvents(
     id: `${prefix}:recycle_due`,
     source: "recycling",
     title: "Wiedervorlage (Recycling)",
-    detail: row.recycle_reason_code
-      ? (RECYCLE_REASON_LABELS[row.recycle_reason_code] ?? row.recycle_reason_code)
-      : null,
+    detail: row.recycle_reason_code ? dropoutReasonLabel(row.recycle_reason_code) : null,
     tone: "info",
     at: row.next_recycle_at,
   });

@@ -60,3 +60,39 @@ export function lastContactLabel(daysAgo: number | null): string {
   if (daysAgo === 1) return "gestern";
   return `vor ${daysAgo} Tagen`;
 }
+
+/**
+ * Warnt die Schwelle bei diesem Kontakt? Die EINE Stelle, an der die Zahl
+ * ausgewertet wird.
+ *
+ * Bis hierher stand die Auswertung dreimal als Rechnung im Code
+ * (`nowMs - last < CONTACT_GAP_WARN_DAYS * 86_400_000` im Erinnerungs-Board,
+ * zweimal dasselbe in actions/nachfassen.ts) — und zwar in 24-STUNDEN-BLÖCKEN,
+ * während die Beschriftung daneben (`contactAgeDays` → `lastContactLabel`) in
+ * BERLINER KALENDERTAGEN rechnet. Beides zusammen ergab Karten, auf denen „vor
+ * 3 Tagen" stand und trotzdem gewarnt wurde: Kontakt am 7.9. um 23:00, jetzt
+ * der 10.9. um 01:00 — drei Kalendertage, aber erst 50 Stunden. Die Konstante
+ * war zwar nur einmal definiert, ihre Bedeutung aber zweimal.
+ *
+ * Maßgeblich ist die Körnung der Beschriftung: Was der Nutzer liest, muss
+ * erklären, was er sieht.
+ */
+export function isWithinContactGap(atIso: string | null | undefined, nowIso?: string): boolean {
+  const days = contactAgeDays(atIso, nowIso);
+  return days != null && days < CONTACT_GAP_WARN_DAYS;
+}
+
+/**
+ * Untergrenze für das VORLADEN möglicher Vorkontakte (SQL-Fenster), als ISO.
+ *
+ * Bewusst großzügiger als `isWithinContactGap`: Ein Kontakt, der noch innerhalb
+ * der Schwelle liegt, kann bis zu `CONTACT_GAP_WARN_DAYS` volle Tage alt sein
+ * (00:00 des ältesten warnenden Kalendertages, betrachtet um 23:59 von heute).
+ * Das Fenster muss ihn deshalb einschließen; gefiltert wird danach exakt über
+ * `isWithinContactGap`. Ein knapperes Fenster verlöre genau die Randfälle, um
+ * derentwillen die beiden Körnungen überhaupt getrennt sind.
+ */
+export function contactGapWindowStart(nowIso?: string): string {
+  const now = nowIso ? Date.parse(nowIso) : Date.now();
+  return new Date(now - CONTACT_GAP_WARN_DAYS * DAY_MS).toISOString();
+}
