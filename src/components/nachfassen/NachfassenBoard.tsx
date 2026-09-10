@@ -33,6 +33,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { DateTimeField } from "@/components/ui/DateTimeField";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -1094,16 +1095,14 @@ const SECTION_META: Record<string, { icon: React.ReactNode } | undefined> = {
  * erledigte Stufen). Das gilt unverändert — es sind genau die beiden
  * Überschneidungen aus docs §1, und keine davon hing an LinkedIn.
  */
-const SECTION_CROSSLINK: Record<string, { label: string; title: string } | undefined> = {
+const SECTION_CROSSLINK: Record<string, { label: string; info: string } | undefined> = {
   closing: {
-    label: "Stundengenaue Bestätigungs-Erinnerungen zu diesen Kontakten, sofern welche bestehen",
-    title:
-      "Erinnerungen entstehen erst, wenn der Termin angelegt oder verschoben wird — für Vorgänge aus der Zeit davor steht dort nichts.",
+    label: "Bestätigungs-Erinnerungen",
+    info: "Zu diesen Kontakten können stundengenaue Bestätigungs-Erinnerungen laufen. Sie entstehen erst, wenn der Termin angelegt oder verschoben wird — für Vorgänge aus der Zeit davor steht dort nichts.",
   },
   setting: {
-    label: "No-Show-Kette zu den nicht erschienenen Terminen, sofern eine Kette läuft",
-    title:
-      "Die Kette startet in dem Moment, in dem „nicht erschienen“ als Ergebnis eingetragen wird — für früher eingetragene No-Shows steht dort nichts.",
+    label: "No-Show-Kette",
+    info: "Zu den nicht erschienenen Terminen kann eine No-Show-Kette laufen. Sie startet in dem Moment, in dem „nicht erschienen“ als Ergebnis eingetragen wird — für früher eingetragene No-Shows steht dort nichts. Die Unqualifizierten in dieser Sektion haben dort gar nichts.",
   },
 };
 
@@ -1202,18 +1201,23 @@ function CollapsibleSection({
              daneben die Unqualifizierten, die dort NICHTS haben — deshalb
              steht der Verweis an der Sektion und nicht auf jeder Karte: die
              RPC liefert den Status nicht mit. */}
+      {/* Der VERWEIS bleibt sichtbar und kurz, seine BEDINGUNG wandert hinter das
+          Info-Icon: „sofern eine Kette läuft" ist eine Auskunft über die
+          Kaskade, die man einmal liest — sie stand hier in jeder Sektion, jeden
+          Morgen, über einer Aufgabenliste. Weg ist sie nicht: Wer dort landet
+          und die Seite leer vorfindet, hält die Erinnerungen sonst für kaputt
+          statt den Vorgang für alt, und genau das beantwortet der Text. */}
       {!collapsed && crosslink && (
-        <div style={{ margin: "0 0 0.625rem 1.75rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", margin: "0 0 0.625rem 1.75rem" }}>
           <Link
             href="/erinnerungen"
-            /* Die Bedingung gehoert an den Link selbst: Wer dort landet und die
-               Seite leer vorfindet, haelt sonst die Erinnerungen fuer kaputt statt
-               den Vorgang fuer alt. */
-            title={crosslink.title}
             style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.6875rem", color: "var(--orange-300)", textDecoration: "none" }}
           >
             <Clock size={11} /> {crosslink.label} → Erinnerungen
           </Link>
+          <InfoPopover label={`${crosslink.label}: wann dort etwas steht`} width={340}>
+            {crosslink.info}
+          </InfoPopover>
         </div>
       )}
       {!collapsed && (

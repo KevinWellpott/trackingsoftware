@@ -115,16 +115,19 @@ describe("A · Das Kaskaden-Panel trennt den Bestandstermin vom abgearbeiteten",
   test("die Kopier-Anleitung steht nur da, wo es einen Text zu kopieren gibt", () => {
     // Unter einem Bestandstermin stand „Text kopieren, über den genannten
     // Kanal schicken" — ohne dass irgendwo ein Text stand.
-    // Endanker `</details>`: Die Karte ist seit dem Aufräumen der Detailseiten
-    // zuklappbar (`<details className="card">`), der Rumpf endet deshalb nicht
-    // mehr in einem zweiten `</div>`.
-    const koerper = slice(PANEL, "{groups.length === 0 ? (", "</div>\n    </details>\n  );");
-    const riegel = koerper.lastIndexOf("{pending.length > 0 && (");
-    const liste = koerper.indexOf("{pending.map(");
-    const fuss = koerper.indexOf("Nichts geht automatisch raus");
+    //
+    // Seit dem Aufräumen der Erklärtexte sitzt die Anleitung im Kopf der Karte
+    // hinter dem Info-Icon statt als Fußtext unter der Stufenliste. Ihr Riegel
+    // bleibt derselbe und ist der Punkt dieses Tests: Wo es nichts zu kopieren
+    // gibt, steht auch keine Anleitung zum Kopieren — auch nicht hinter einem
+    // Icon, denn ein Icon, das nichts erklärt, ist eine leere Zusage.
+    const karte = slice(PANEL, 'return (\n    <details className="card">', "</div>\n    </details>\n  );");
+    const fuss = karte.indexOf("Nichts geht automatisch raus");
     assert.notEqual(fuss, -1, "Die Anleitung ist ganz verschwunden — gemeint war: sie soll bedingt sein.");
-    assert.ok(liste !== -1 && riegel > liste, "Der Fuß braucht einen EIGENEN Riegel, nicht den der Stufenliste.");
-    assert.ok(riegel < fuss, "Der Riegel muss vor der Anleitung stehen.");
+    const riegel = karte.lastIndexOf("{pending.length > 0 && (", fuss);
+    assert.notEqual(riegel, -1, "Die Anleitung braucht ihren EIGENEN Riegel `pending.length > 0`.");
+    const popover = karte.lastIndexOf("<InfoPopover", fuss);
+    assert.ok(popover > riegel, "Der Riegel muss VOR dem Info-Icon stehen, nicht darin.");
   });
 
   test("der genannte Weg zur Kaskade funktioniert für BEIDE Termin-Arten", () => {
@@ -203,13 +206,23 @@ describe("C · Der Verweis nach /erinnerungen benennt eine Bedingung, keinen Bes
 
   test("beide Verweise sind an eine Bedingung geknüpft", () => {
     // Vorher stand dort als Tatsache, was am Montag in null Fällen zutraf.
+    //
+    // Seit dem Aufräumen der Erklärtexte trägt der LINK nur noch den kurzen
+    // Namen des Ziels; die Bedingung steht vollständig im `info`-Text hinter
+    // dem Icon. Geprüft wird deshalb nicht mehr das Wort „sofern" am Label,
+    // sondern dass es die Bedingung überhaupt noch gibt — und dass sie den
+    // Möglichkeitsfall benennt statt einen Bestand zu behaupten.
     for (const [sektion, anker] of [
       ["closing", "closing:"],
       ["setting", "setting:"],
     ] as const) {
       const eintrag = slice(verweis, anker, "},");
-      assert.match(eintrag, /sofern|falls/i, `Der Verweis der Sektion ${sektion} behauptet weiterhin einen Bestand.`);
-      assert.match(eintrag, /title:/, `Der Verweis der Sektion ${sektion} erklärt nicht, wann es dort etwas gibt.`);
+      assert.match(eintrag, /info:/, `Der Verweis der Sektion ${sektion} erklärt nicht, wann es dort etwas gibt.`);
+      assert.match(
+        eintrag,
+        /können|kann/,
+        `Der Verweis der Sektion ${sektion} behauptet weiterhin einen Bestand statt einer Möglichkeit.`,
+      );
     }
   });
 
@@ -228,7 +241,11 @@ describe("C · Der Verweis nach /erinnerungen benennt eine Bedingung, keinen Bes
 
   test("und der Verweis wird auch wirklich mit Erklärung gerendert", () => {
     // Sonst steht die Begründung nur im Modul und nie auf dem Bildschirm.
+    // Erreichbar ist sie jetzt über das Info-Icon statt über einen `title` —
+    // ein Tooltip gibt es auf dem Touchgerät gar nicht, und das Board wird
+    // auch am Telefon benutzt.
     const render = slice(NACHFASSEN, "SECTION_CROSSLINK[section.key]", "<CardGrid");
-    assert.match(render, /title=\{/, "Die Erklärung muss am Link hängen.");
+    assert.match(render, /<InfoPopover/, "Die Erklärung muss neben dem Link stehen.");
+    assert.match(render, /\{crosslink\.info\}/, "… und der Text muss auch wirklich hineingereicht werden.");
   });
 });

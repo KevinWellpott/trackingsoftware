@@ -1,6 +1,7 @@
 import { getNachfassenTasks } from "@/app/actions/nachfassen";
 import { NachfassenBoard } from "@/components/nachfassen/NachfassenBoard";
 import { BackLink } from "@/components/ui/BackLink";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { PageHeader } from "@/components/ui/PageHeader";
 
 // Nachfassen: Union-Tasklist aller fälligen Aufgaben aus VIER Quellen —
@@ -31,13 +32,25 @@ export default async function NachfassenPage({
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       <BackLink href="/" label="Dashboard" />
 
+      {/* Die Beschreibung der Seite steht hinter dem Info-Icon, nicht als Absatz
+          darunter: Wer dieses Board jeden Morgen abarbeitet, liest sie zum
+          hundertsten Mal — die Filterreihe darunter sagt ihm ohnehin sofort,
+          was heute fällig ist. Nachschlagbar bleibt sie an Ort und Stelle.
+          Das `info`-Element trägt bewusst keinen Handler: Die Seite ist eine
+          Server Component, `preventDefault`/`stopPropagation` sitzen im
+          Client-Teil `InfoPopover` (docs §5.1). */}
       <PageHeader
         eyebrow="Wiedervorlage"
-        title="Nachfassen"
-        meta={
-          "Was ist heute fällig? Telefon-Rückrufe, Wiedervorlagen aus Setting und Closing sowie " +
-          "fällige Recycling-Versuche — jeweils mit fertigem Text zum Kopieren. " +
-          "LinkedIn-Follow-ups stehen in der jeweiligen Pitch-Liste."
+        title={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
+            Nachfassen
+            <InfoPopover label="Nachfassen: was hier steht" width={380}>
+              Was ist heute fällig? Telefon-Rückrufe, Wiedervorlagen aus Setting und Closing sowie fällige
+              Recycling-Versuche — jeweils mit fertigem Text zum Kopieren, kein Auto-Versand.
+              LinkedIn-Follow-ups stehen nicht hier, sondern in der Ansicht &bdquo;Nachfassen&ldquo; der jeweiligen
+              Pitch-Liste, wo auch die Follow-up-Texte gepflegt werden.
+            </InfoPopover>
+          </span>
         }
       />
 

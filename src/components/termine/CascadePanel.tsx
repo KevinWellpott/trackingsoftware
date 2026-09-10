@@ -11,6 +11,7 @@ import { TEMPLATE_META, TEMPLATE_SOURCE_LABELS, renderResolved, type TemplateKey
 import type { TouchChannel } from "@/lib/reminderCascade";
 import { formatTerminParts } from "@/lib/apptTime";
 import { Badge } from "@/components/ui/Badge";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { SECTION_BODY, SECTION_HEAD, SECTION_META, SECTION_TITLE } from "@/components/settings/settingsStyles";
 import {
   AlertTriangle,
@@ -813,6 +814,20 @@ export function CascadePanel({
         <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
         <BellRing size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
         <span style={SECTION_TITLE}>Erinnerungen</span>
+        {/* Die Anleitung („nichts geht automatisch raus") stand als Fußtext unter
+            der Stufenliste und wiederholte sich auf jedem Termin. Sie behält
+            ihren Riegel: Unter einem Bestandstermin ohne offene Stufe gäbe es
+            keinen Text zu kopieren, und ein Arbeitsschritt, den man nicht
+            ausführen kann, liest sich wie ein fehlendes Stück Oberfläche.
+            Das Icon sitzt im <summary> — `InfoPopover` fängt den Klick selbst
+            ab, sonst klappte jede Erklärung die Karte zu. */}
+        {pending.length > 0 && (
+          <InfoPopover label="Wie eine Erinnerung rausgeht" width={340}>
+            <Clock size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />
+            Nichts geht automatisch raus: Text kopieren, über den genannten Kanal schicken, unter
+            &bdquo;Erinnerungen&ldquo; abhaken.
+          </InfoPopover>
+        )}
         <span
           style={{
             marginLeft: "auto",
@@ -956,18 +971,6 @@ export function CascadePanel({
           </>
         )}
 
-        {/* Die Anleitung braucht einen EIGENEN Riegel, nicht den der Stufenliste
-            darüber: Sie erklärt, was mit einem Text zu tun ist — unter einem
-            Bestandstermin stand sie über einer Karte, in der nirgends ein Text
-            steht. Ein Arbeitsschritt, den man nicht ausführen kann, liest sich wie
-            ein fehlendes Stück Oberfläche. */}
-        {pending.length > 0 && (
-          <p style={{ margin: 0, fontSize: "var(--fs-xs)", color: "var(--text-subtle)", lineHeight: "var(--lh-snug)" }}>
-            <Clock size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />
-            Nichts geht automatisch raus: Text kopieren, über den genannten Kanal schicken, unter
-            &bdquo;Erinnerungen&ldquo; abhaken.
-          </p>
-        )}
       </div>
     </details>
   );

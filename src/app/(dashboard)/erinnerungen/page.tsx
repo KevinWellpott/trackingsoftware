@@ -9,6 +9,7 @@ import {
 import { EMPTY_TEMPLATE_BUNDLE, type TemplateBundle } from "@/lib/messageTemplates";
 import { ErinnerungenBoard, type SenderAccount } from "@/components/erinnerungen/ErinnerungenBoard";
 import { BackLink } from "@/components/ui/BackLink";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { PageHeader } from "@/components/ui/PageHeader";
 
 // "Meine Erinnerungen": die fälligen Bestätigungs- und Ketten-Touches der
@@ -279,14 +280,22 @@ export default async function ErinnerungenPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       <BackLink href="/" label="Dashboard" />
 
+      {/* Erklärung hinter das Info-Icon: Die Kopfzeile des Boards nennt Zahl der
+          offenen Termine und Fenster ohnehin — der Absatz darunter sagte
+          dasselbe noch einmal und stand jeden Morgen im Weg.
+          Server Component: Das `info`-Element darf keinen Handler tragen, die
+          Klick-Behandlung sitzt im Client-Teil `InfoPopover` (docs §5.1). */}
       <PageHeader
         eyebrow="Bestätigung"
-        title="Meine Erinnerungen"
-        meta={
-          mine.available
-            ? `Fällige Kontakte rund um Setting-, Closing- und Nachfass-Termine — eine Karte je Termin, ` +
-              `Fenster ${mine.horizonDays} Tage. Fertiger Text zum Kopieren, kein Auto-Versand.`
-            : "Fällige Kontakte rund um Setting-, Closing- und Nachfass-Termine."
+        title={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
+            Meine Erinnerungen
+            <InfoPopover label="Erinnerungen: was hier steht" width={380}>
+              Fällige Kontakte rund um Setting-, Closing- und Nachfass-Termine — eine Karte je Termin
+              {mine.available ? `, Fenster ${mine.horizonDays} Tage` : ""}. Fertiger Text zum Kopieren, kein
+              Auto-Versand: Ein Mensch schreibt und schickt, die Karte hält nur fest, dass es passiert ist.
+            </InfoPopover>
+          </span>
         }
       />
 

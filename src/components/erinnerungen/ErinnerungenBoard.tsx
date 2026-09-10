@@ -23,6 +23,7 @@ import { contactAgeDays, isWithinContactGap, lastContactLabel } from "@/lib/cont
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { ownerColor } from "@/lib/ownerColor";
@@ -472,7 +473,24 @@ function SenderLine({
   );
 }
 
-/** Erledigte Stufe: eine Zeile, mehr nicht — plus die Möglichkeit zurückzunehmen. */
+/* ── Erledigte Stufe: eine Zeile — plus ein Rückweg, den man auch findet ──
+   Der Rückweg war ein 22-px-Knopf mit blossem Undo2-Symbol in der Farbe
+   `--text-subtle`: auf dem Bildschirm kaum zu sehen, auf dem Telefon kaum zu
+   treffen. Drei Mittel, keine neue Farbe und kein neues Mass:
+
+     · das WORT „Rückgängig" statt eines Symbols allein — das ist der halbe
+       Gewinn, ein Undo-Pfeil erschliesst sich nur, wer ihn kennt,
+     · der `Button` der Familie (`ghost`, `size="sm"`): 28 px hoch, und auf
+       groben Zeigern hebt `.ui-btn` ihn auf die volle Trefferfläche
+       (globals.css §6.4) — der handgebaute Knopf davor tat das nicht,
+     · Position ganz rechts hinter Zeitpunkt und Person, wo er die Zeile
+       abschliesst, statt zwischen ihnen zu stecken.
+
+   Bewusst `ghost` und NICHT vollbreit wie auf /nachfassen: Dort gibt es einen
+   Rückweg je KARTE, hier einen je STUFE — auf einem Termin mit Vorgeschichte
+   stehen mehrere untereinander, und vollbreite Knöpfe ergäben eine Wand aus
+   Rückgängig. Lauter als die offene Stufe darüber darf er ohnehin nicht
+   werden: Die ist die eigentliche Arbeit, das Zurücknehmen die Ausnahme.   */
 function DoneStep({
   touch,
   doneByName,
@@ -485,7 +503,7 @@ function DoneStep({
   onUndo: () => void;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", minHeight: 24 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", minHeight: 28 }}>
       <Check size={12} style={{ flexShrink: 0, color: "var(--success-fg)" }} />
       <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", textDecoration: "line-through" }}>
         {stepLabel(touch)}
@@ -496,30 +514,23 @@ function DoneStep({
         </Badge>
       )}
       <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+        {/* Wann erledigt und von WEM — im Team die einzige Stelle, an der das
+            steht. Bleibt vor dem Knopf stehen, nicht hinter ihm. */}
         <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-subtle)", whiteSpace: "nowrap" }}>
           {whenLabel(touch.done_at)}
           {doneByName ? ` · ${doneByName}` : ""}
         </span>
-        <button
-          type="button"
-          onClick={onUndo}
+        <Button
+          variant="ghost"
+          size="sm"
           disabled={busy}
-          title="Erledigt zurücknehmen"
+          onClick={onUndo}
+          icon={<Undo2 size={13} />}
+          title="Erledigt zurücknehmen — die Stufe steht danach wieder offen"
           aria-label={`${stepLabel(touch)} zurücknehmen`}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 22,
-            height: 22,
-            border: "none",
-            background: "transparent",
-            color: "var(--text-subtle)",
-            cursor: busy ? "default" : "pointer",
-          }}
         >
-          <Undo2 size={12} />
-        </button>
+          Rückgängig
+        </Button>
       </span>
     </div>
   );
@@ -763,6 +774,7 @@ function TerminCard({
   selectable,
   selected,
   onSelect,
+  archived = false,
 }: {
   card: TerminCardModel;
   bundles: Record<string, TemplateBundle>;
@@ -774,6 +786,17 @@ function TerminCard({
   selectable: boolean;
   selected: boolean;
   onSelect: (key: string, next: boolean) => void;
+  /**
+   * Die Karte steht in „Vollständig erledigt" — jede Stufe ist abgehakt.
+   *
+   * Sie zeigt dann nur noch, was ein Archiv beantworten muss: wer, wann, was
+   * rausging, von wem abgehakt — und den Rückweg. Zwei Angaben fallen weg,
+   * weil sie ausschliesslich der noch ausstehenden Arbeit dienen: das
+   * Absender-Konto („über welches Konto muss das rausgehen?") und die
+   * amberfarbene Aufforderung „Kanal frei wählen". Beides verlangt eine
+   * Entscheidung zu etwas, das längst passiert ist.
+   */
+  archived?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -916,15 +939,15 @@ function TerminCard({
               Wort und Symbol im selben Badge steht.
               „Kanal frei wählen" bleibt dagegen amber: Das ist keine Kategorie,
               sondern eine offene Stelle — dort fehlt eine Entscheidung. */}
-          <Badge tone={card.channel ? "neutral" : "warning"}>
-            {card.channel ? (
-              <>
-                {CHANNEL_META[card.channel].icon} {CHANNEL_META[card.channel].label}
-              </>
-            ) : (
-              "Kanal frei wählen"
-            )}
-          </Badge>
+          {card.channel ? (
+            <Badge tone="neutral">
+              {CHANNEL_META[card.channel].icon} {CHANNEL_META[card.channel].label}
+            </Badge>
+          ) : (
+            // Im Archiv entfällt die Aufforderung: Der Kanal ist keine offene
+            // Entscheidung mehr, wenn nichts mehr rausgeht.
+            !archived && <Badge tone="warning">Kanal frei wählen</Badge>
+          )}
           {card.assignedUsername && <PersonPill name={card.assignedUsername} />}
         </div>
       </div>
@@ -973,7 +996,9 @@ function TerminCard({
         id={card.entityId}
       />
 
-      <SenderLine sender={sender} channel={card.channel} assignedUsername={card.assignedUsername} />
+      {!archived && (
+        <SenderLine sender={sender} channel={card.channel} assignedUsername={card.assignedUsername} />
+      )}
 
       {/* ── Zeitleiste der Stufen ──
           Genau EINE Stufe steht offen da: die nächste fällige. Alles Künftige
@@ -1413,18 +1438,57 @@ export function ErinnerungenBoard({
         </div>
       )}
 
-      {/* ── Bereits erledigt ── */}
+      {/* ── Bereits erledigt ──────────────────────────────────────────────
+          Das Archiv der Seite, und bis hierher eine Aufklappung nach eigenem
+          Muster: `collapse-summary` OHNE den zugehörigen `collapse-chevron` und
+          ohne die Karte drumherum — also das Karten-Rezept (globals.css §6.10)
+          zur Hälfte. Sie sah damit anders aus als jede andere Aufklappung der
+          Anwendung, und es war nicht zu sehen, dass sie eine ist: kein Pfeil,
+          keine Kante, nur eine graue Zeile über dem Arbeitsteil.
+
+          Jetzt dasselbe Rezept wie das Erinnerungs-Panel auf den Detailseiten
+          (`details.card` + `collapse-summary` + `collapse-chevron`, Kopfzeile
+          mit Zähler). Die Karte ist zugleich die Trennung nach oben: Der
+          Arbeitsteil darüber ist eine Reihe von Körben, dieser Block eine
+          geschlossene Fläche.
+
+          Die Anzahl stand schon vorher im Kopf und bleibt dort — eine
+          Aufklappung ohne Zahl zwingt zum Öffnen. Neu ist der Zusatz „Rückweg
+          steht in jeder Zeile": Wer hier landet, weil er zu viel abgehakt hat,
+          soll das erfahren, ohne erst zu öffnen. */}
       {doneCards.length > 0 && (
-        <details>
+        <details className="card">
           <summary
             className="collapse-summary"
-            style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", cursor: "pointer", userSelect: "none" }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--sp-4)",
+              flexWrap: "wrap",
+              padding: "var(--sp-6) var(--sp-8)",
+              cursor: "pointer",
+              userSelect: "none",
+            }}
           >
-            <span className="eyebrow eyebrow-muted">Vollständig erledigt ({doneCards.length})</span>
+            <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+            <CheckCircle2 size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+            <span className="eyebrow eyebrow-muted">Vollständig erledigt</span>
+            <span className="count-pill">{doneCards.length}</span>
+            <span
+              style={{
+                marginLeft: "auto",
+                fontSize: "var(--fs-xs)",
+                color: "var(--text-subtle)",
+              }}
+            >
+              Rückweg steht in jeder Zeile
+            </span>
           </summary>
+          {/* Oben ohne Polster: die geöffnete `collapse-summary` bringt ihre
+              eigene Trennlinie samt Abstand mit (§6.10). */}
           <div
             style={{
-              marginTop: "var(--sp-5)",
+              padding: "0 var(--sp-8) var(--sp-7)",
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
               gap: "var(--sp-5)",
@@ -1443,6 +1507,7 @@ export function ErinnerungenBoard({
                 selectable={selectable}
                 selected={selected.includes(card.key)}
                 onSelect={toggleCard}
+                archived
               />
             ))}
           </div>

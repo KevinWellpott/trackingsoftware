@@ -258,7 +258,11 @@ describe("3 · Die Kanal-Identitätsfarben stehen nicht mehr auf den Karten", ()
     assert.doesNotMatch(BADGE, /const STAGE_TINT/, "Die Tint-Tabelle hat keinen Aufrufer mehr.");
     // Der Kanal-Badge daneben folgt derselben Regel — „Kanal frei wählen"
     // bleibt dagegen amber: das ist keine Kategorie, sondern eine offene Stelle.
-    assert.match(ERINNERUNGEN, /<Badge tone=\{card\.channel \? "neutral" : "warning"\}>/);
+    // Seit dem Archiv-Umbau sind es zwei Zweige statt eines Ausdrucks (im
+    // Archiv entfällt die Aufforderung ganz, dort ist nichts mehr zu wählen) —
+    // geprüft wird deshalb der Ton je Zweig, nicht die eine Zeile.
+    assert.match(ERINNERUNGEN, /card\.channel \? \(\n\s*<Badge tone="neutral">/);
+    assert.match(ERINNERUNGEN, /<Badge tone="warning">Kanal frei wählen<\/Badge>/);
   });
 
   test("die Palette selbst bleibt stehen — sie trägt anderswo Information", () => {

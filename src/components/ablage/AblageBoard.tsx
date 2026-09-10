@@ -37,6 +37,7 @@ import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { ReviveDialog } from "@/components/ablage/ReviveDialog";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { ownerColor } from "@/lib/ownerColor";
 
 // Ablage-Board: eine Karte je ausgeschiedenem Vorgang.
@@ -730,39 +731,33 @@ export function AblageBoard({
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
       {dialog}
 
-      {/* Die Sperrliste ist die einzige Ansicht ohne Personenfilter — das muss
-          in der Oberfläche stehen, nicht nur im Code: ein Kontaktverbot, das
-          nur sein Besitzer sieht, ist keines. */}
+      {/* Die Sperrliste ist die einzige Ansicht ohne Personenfilter — DASS das
+          so ist, muss in der Oberfläche stehen und nicht nur im Code: ein
+          Kontaktverbot, das nur sein Besitzer sieht, ist keines. WARUM es so
+          ist, steht hinter dem Info-Icon; der Absatz stand vorher über jeder
+          einzelnen Ansicht der Sperrliste und sagte beim zweiten Lesen nichts
+          Neues mehr. Aus dem Kasten wird damit eine Zeile. */}
       {meta.orgWide && (
         <div
           className="card"
           style={{
             padding: "var(--sp-5) var(--sp-6)",
             display: "flex",
-            gap: "var(--sp-5)",
-            alignItems: "flex-start",
+            gap: "var(--sp-4)",
+            alignItems: "center",
             background: "var(--info-bg)",
             borderColor: "rgb(78 128 214 / 0.28)",
           }}
         >
-          <Users size={16} style={{ flexShrink: 0, marginTop: 2, color: "var(--info-fg)" }} />
-          <div>
-            <div style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--info-fg)" }}>
-              Org-weit — unabhängig von der eingestellten Datensicht
-            </div>
-            <p
-              style={{
-                margin: "var(--sp-2) 0 0",
-                fontSize: "var(--fs-sm)",
-                color: "var(--text-secondary)",
-                maxWidth: "68ch",
-              }}
-            >
-              Diese Liste zeigt <strong>alle</strong> gesperrten Vorgänge der Organisation, auch die fremder
-              Personen. Ein Kontaktverbot, das nur sein Besitzer sieht, ist keines: die nächste Person spräche den
-              Lead sonst neu an.
-            </p>
-          </div>
+          <Users size={16} style={{ flexShrink: 0, color: "var(--info-fg)" }} />
+          <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--info-fg)" }}>
+            Org-weit — unabhängig von der eingestellten Datensicht
+          </span>
+          <InfoPopover label="Warum die Sperrliste org-weit ist" width={360}>
+            Diese Liste zeigt <strong>alle</strong> gesperrten Vorgänge der Organisation, auch die fremder Personen.
+            Ein Kontaktverbot, das nur sein Besitzer sieht, ist keines: die nächste Person spräche den Lead sonst
+            neu an.
+          </InfoPopover>
         </div>
       )}
 
@@ -817,12 +812,20 @@ export function AblageBoard({
                 : "Hier gibt es kein Recycling: Der nächste Schritt ist der Ersatztermin, nicht eine Wiedervorlage in Wochen."}
             </span>
           )}
+          {/* Was der Knopf TUT, bleibt stehen — es ist die eine Auskunft, die
+              vor dem Klick zählt. Warum er es so tut (Quoten eines
+              abgeschlossenen Zeitraums, frische Zähler), steht hinter dem Icon:
+              Das erklärt das Verhalten der Software und ändert keine
+              Entscheidung an dieser Karte. */}
           {listRevives && (
-            <span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
               &bdquo;Neuen Termin ansetzen&ldquo; legt ein <strong>neues Erstgespr&auml;ch</strong> an; der alte
-              Vorgang bleibt abgeschlossen stehen. Ein zur&uuml;ckgedrehter Vorgang ver&auml;nderte r&uuml;ckwirkend
-              die Quoten eines abgeschlossenen Zeitraums. Der neue Termin beginnt mit leeren Z&auml;hlern &mdash;
-              die des Vorg&auml;ngers stehen daf&uuml;r auf seiner Karte.
+              Vorgang bleibt abgeschlossen stehen.
+              <InfoPopover label="Neuen Termin ansetzen: warum der alte Vorgang stehen bleibt" width={360}>
+                Ein zurückgedrehter Vorgang veränderte rückwirkend die Quoten eines abgeschlossenen Zeitraums.
+                Der neue Termin beginnt deshalb mit leeren Zählern — die des Vorgängers stehen dafür auf seiner
+                Karte.
+              </InfoPopover>
             </span>
           )}
         </div>
