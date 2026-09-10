@@ -139,3 +139,23 @@ manuell angelegter Termin auch nicht, und weder `setting_calls` noch `closing_ca
 E-Mail-Feld. Ohne Empfänger ist die Mail-Spur für LinkedIn- und Direkt-Termine nicht
 lauffähig — zu klären ist, ob die Adresse im Erstgespräch eingesammelt wird (wie `wa_phone`,
 §3) oder ob die Spur für diese Ursprünge auf E-M2 zurückfällt.
+
+**E-M4 · Die E-Mail-Adresse wird eingetragen oder aktiv ausgelassen.**
+Nachtrag zur offenen Frage aus E-M3. Kein stilles Fehlen: Das Erstgespräch sammelt die Adresse
+ein, oder jemand hält fest, dass der Lead sie nicht herausgibt — **wörtlich dasselbe Muster wie
+`wa_phone` / `wa_refused_at`** (§3 im Datenmodell), inklusive Pflichtfeld-Gate im Editor vor dem
+Anlegen des Closings. Damit lässt sich eine bewusste Ablehnung von einer Erfassungslücke
+unterscheiden, und das ist die Voraussetzung dafür, dass die Kennzahl „wie viele Leads sind per
+Mail erreichbar" überhaupt etwas bedeutet.
+
+Die Adresse gehört ans **Erstgespräch**, nicht an den Lead — aus demselben Grund wie bei der
+WhatsApp-Nummer: `phone_leads.email` stammt aus dem CSV-Import und ist die Firmenadresse
+(`info@…`), während hier die persönliche des Entscheiders gemeint ist; LinkedIn- und
+Direkt-Termine haben ohnehin keine Lead-Zeile. Beim Erfassen gilt derselbe Vorrang wie sonst:
+liegt eine importierte Adresse vor, wird sie vorgeschlagen, aber nicht ungefragt übernommen.
+
+Zwei Folgen, die beim Bau anstehen: Der Kanal-Auflöser (`resolveCascadeChannel` /
+`resolveFollowUpChannel`, `src/lib/reminderCascade.ts`) bekommt Mail als weitere Stufe, und die
+Pflichtfeld-Prüfung im Setting-Editor muss dieselbe Bedingung prüfen wie der Auflöser — genau
+der Fehler, der bei WhatsApp einmal durchgerutscht ist (Gate prüfte die Nummer, der Kanal
+verlangte Nummer UND Einwilligung).
