@@ -13,8 +13,12 @@
 // Beschriftung einer Aufzählung, die es nicht gibt.
 //
 // Die Grenzen der drei anderen Quellen stehen weiterhin in der Bibliothek und
-// werden hier weiterhin geprüft: Der Navigations-Zähler (lib/navCounts.ts)
-// liest sie noch, solange er beide Nachfassen-RPCs zählt.
+// werden hier weiterhin geprüft — inzwischen aus einem anderen Grund als beim
+// Schreiben dieser Datei: Nicht mehr der Navigations-Zähler liest sie (der ist
+// auf das Recycling zusammengezogen), sondern die Terminliste. Dort schneidet
+// `telefon` den Rückruf-Reiter und `setting`/`closing` die Arbeitsliste
+// (tests/zaehlerUndArbeitsmenge.test.ts). Alle vier Zahlen haben damit wieder
+// einen Leser.
 //
 // Zwei Prüfarten, wie in tests/rueckbauNachfassen.test.ts begründet:
 //  · Die Regel selbst (A/B) ist reine Bibliothek und wird am VERHALTEN geprüft.
@@ -27,7 +31,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
-import { STALE_AFTER_DAYS, isStaleDue, staleSourceOf, type StaleSource } from "@/lib/staleTasks";
+import { STALE_AFTER_DAYS, isStaleDue, type StaleSource } from "@/lib/staleTasks";
 
 function read(relative: string): string {
   // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
@@ -123,9 +127,14 @@ describe("B · Jede Quelle hat ihre eigene Grenze", () => {
     // Der Wert kommt aus `nachfassen_tasks` weiterhin an; angezeigt wird er
     // nirgends. Eine Grenze für ihn wäre eine Aussage über etwas, das niemand
     // sieht — und ein zweiter Ort, an dem er wieder auftauchen könnte.
-    assert.equal(staleSourceOf("linkedin"), null);
-    assert.equal(staleSourceOf("unbekannt"), null);
-    assert.equal(staleSourceOf("recycling"), "recycling");
+    //
+    // Geprüft wird das jetzt an der TABELLE statt an `staleSourceOf()`: Die
+    // Funktion übersetzte die `source`-Spalte von `nachfassen_tasks` in einen
+    // Schlüssel, und diese RPC liest niemand mehr (der Navigations-Zähler ist
+    // auf das Recycling zusammengezogen). Alle heutigen Aufrufer kennen ihre
+    // Quelle statisch. Die Zusicherung selbst bleibt: kein LinkedIn-Eintrag.
+    assert.equal("linkedin" in STALE_AFTER_DAYS, false);
+    assert.deepEqual(Object.keys(STALE_AFTER_DAYS).sort(), ["closing", "recycling", "setting", "telefon"]);
   });
 
   test("ein Zeitstempel wird auf seinem Berliner Kalendertag beurteilt", () => {
@@ -181,22 +190,22 @@ describe("C · Ausgeblendetes wird gezählt, nicht verschluckt", () => {
 
   test("der Navigations-Zähler fährt DENSELBEN Schnitt", () => {
     // Das Badge zeigte einmal die Zahl, über die sich der Auftraggeber
-    // beschwert hat. Es schneidet über dieselben Funktionen wie die Seite,
-    // nicht über eine zweite Kopie der Grenzen.
+    // beschwert hat. Es schneidet über dieselbe Funktion wie die Seite, nicht
+    // über eine zweite Kopie der Grenze.
     //
-    // ACHTUNG, offene Baustelle: Der Zähler liest weiterhin BEIDE
-    // Nachfassen-RPCs, die Seite nur noch `recycle_tasks`. Er zählt damit
-    // gerade mehr, als die Seite zeigt — das wird zentral nachgezogen. Diese
-    // Zusicherung hält nur fest, dass er die Grenzen nicht selbst nachbaut.
+    // Die frühere „offene Baustelle" an dieser Stelle ist geschlossen: Der
+    // Zähler las beide Nachfassen-RPCs, die Seite nur noch `recycle_tasks` —
+    // er zählte damit mehr, als die Seite zeigte. Jetzt liest er dieselbe eine
+    // Quelle (tests/navCounts.test.ts prüft das am Verhalten).
     const NAV = read("src/lib/navCounts.ts");
-    assert.match(NAV, /import \{ isStaleDue, staleSourceOf \} from "@\/lib\/staleTasks";/);
+    assert.match(NAV, /import \{ isStaleDue \} from "@\/lib\/staleTasks";/);
     assert.match(NAV, /if \(isStaleDue\("recycling", r\.due_at, today\)\) continue;/);
 
     // Und die exakte Gesamtzahl kommt aus der GEFILTERTEN Liste. Der `count`
     // von PostgREST zählt vor dem Fenster und wüsste von den Schnitten nichts;
     // wurde das Fenster abgeschnitten, gibt es lieber kein Badge als eine zu
     // kleine Zahl (docs §5.4: `null` heißt „nicht ermittelbar").
-    assert.match(NAV, /return tally\(rows, rows\.length\);/);
+    assert.match(NAV, /return tally\(due, due\.length\);/);
   });
 });
 

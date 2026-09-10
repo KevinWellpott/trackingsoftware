@@ -463,7 +463,7 @@ describe("recycleBlockedReason", () => {
         responded: false,
         reasonCode: "timing",
       }),
-      "Der Deckel von 2 Versuchen ist erreicht.",
+      "Der Deckel von 2 Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.",
     );
     assert.equal(
       recycleBlockedReason({
@@ -474,7 +474,7 @@ describe("recycleBlockedReason", () => {
         reasonCode: "timing",
         attemptCount: 0,
       }),
-      "Dieser Vorgang speist keinen Zweig von „Nachfassen“ — eine Wiedervorlage bliebe unsichtbar.",
+      "Dieser Vorgang speist keinen Zweig des Recyclings — eine Wiedervorlage bliebe unsichtbar.",
     );
   });
 
@@ -503,14 +503,19 @@ describe("recycleBlockedReason", () => {
   });
 
   test("der Versuchs-Deckel greift beim Erreichen, nicht erst beim Überschreiten", () => {
+    // Der Satz nennt seit dem Nachziehen zusätzlich den ORT der Zahl. Grund:
+    // Der Deckel wirkte den ganzen Rückbau über weiter (`recycle_attempt()`,
+    // Migration 0033 — eingefroren), war aber aus den Einstellungen
+    // verschwunden. Eine Sperre ohne Adresse ist eine Sackgasse; die Zahl steht
+    // wieder in `/settings`, und die Meldung sagt das.
     assert.equal(recycleBlockedReason(offen({ attemptCount: 1, maxAttempts: 2 })), null);
     assert.equal(
       recycleBlockedReason(offen({ attemptCount: 2, maxAttempts: 2 })),
-      "Der Deckel von 2 Versuchen ist erreicht.",
+      "Der Deckel von 2 Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.",
     );
     assert.equal(
       recycleBlockedReason(offen({ attemptCount: 3, maxAttempts: 2 })),
-      "Der Deckel von 2 Versuchen ist erreicht.",
+      "Der Deckel von 2 Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.",
     );
     // Der Deckel wird angezeigt, nicht geraten: Er kommt aus pipeline_settings.
     assert.equal(
@@ -519,7 +524,7 @@ describe("recycleBlockedReason", () => {
     );
     assert.equal(
       recycleBlockedReason(offen({ attemptCount: 5, maxAttempts: 5 })),
-      "Der Deckel von 5 Versuchen ist erreicht.",
+      "Der Deckel von 5 Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.",
     );
   });
 
@@ -532,7 +537,7 @@ describe("recycleBlockedReason", () => {
       recycleBlockedReason(
         offen({ entity: "closing", inRecycleBranch: listFeedsRecycling("abgesagt", "closing") }),
       ),
-      "Dieser Vorgang speist keinen Zweig von „Nachfassen“ — eine Wiedervorlage bliebe unsichtbar.",
+      "Dieser Vorgang speist keinen Zweig des Recyclings — eine Wiedervorlage bliebe unsichtbar.",
     );
     assert.equal(
       recycleBlockedReason(

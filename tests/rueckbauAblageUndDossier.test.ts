@@ -47,6 +47,20 @@ function read(relative: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 }
 
+/**
+ * Die Datei OHNE Kommentare — für jede „das steht hier nicht mehr"-Prüfung
+ * (Muster `code()` in rueckbauArbeitsflaeche.test.ts).
+ *
+ * Ohne diesen Schritt schlägt ein Rückbau an seiner eigenen Begründung fehl:
+ * `lib/navCounts.ts` erklärt ausführlich, WARUM es den Ablage-Zähler nicht mehr
+ * gibt, und nennt dabei zwangsläufig den Schlüssel, den es nicht mehr abfragen
+ * darf. Ein Abwesenheits-Test gegen den Rohtext verböte ausgerechnet die
+ * Erklärung.
+ */
+function code(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
 const DROPOUT = read("src/app/actions/dropout.ts");
 const BOARD = read("src/components/ablage/AblageBoard.tsx");
 const NAV = read("src/components/ablage/AblageNav.tsx");
@@ -54,6 +68,7 @@ const PAGE = read("src/app/(dashboard)/ablage/page.tsx");
 const DOSSIER_LIB = read("src/lib/leadDossier.ts");
 const DOSSIER_ACTION = read("src/app/actions/leadDossier.ts");
 const PANEL = read("src/components/lead/LeadDossierPanel.tsx");
+const NAVCOUNTS = read("src/lib/navCounts.ts");
 const MIGRATION_0033 = read("supabase/migrations/20260404000033_lead_recycling.sql");
 const MIGRATION_0041 = read("supabase/migrations/20260404000041_rueckbau_pflichtfelder_und_nachfass_stempel.sql");
 
@@ -74,9 +89,28 @@ describe("„Ersatztermin steht aus“ ist kein Archiv-Reiter mehr", () => {
       ["AblageBoard.tsx", BOARD],
       ["AblageNav.tsx", NAV],
       ["ablage/page.tsx", PAGE],
+      // NACHGEZOGEN: Der Navigations-Zähler fehlte in dieser Liste und war
+      // ausgerechnet die letzte Stelle, die den Schlüssel noch abfragte. Der
+      // Nutzer sah ein Badge „Absagen ohne eingetragenen Ersatztermin", klickte
+      // und landete auf „Ausgeschieden" — einer DISJUNKTEN Menge. Das Badge
+      // ging damit nie auf null. Vier Dateien zu prüfen und die fünfte
+      // auszulassen, hat den Fehler nicht gefunden, sondern verdeckt.
+      // Ohne Kommentare geprüft: Die Datei erklärt, warum sie den Schlüssel
+      // nicht mehr abfragt, und muss ihn dafür nennen dürfen.
+      ["lib/navCounts.ts", code(NAVCOUNTS)],
     ] as const) {
       assert.doesNotMatch(quelle, /ersatztermin_offen/, name);
     }
+  });
+
+  test("… und niemand zählt die Liste mehr, statt sie nur nicht mehr zu zeigen", () => {
+    // Die Gegenprobe zum Test darüber: Ein Abwesenheits-Test auf den
+    // Schlüsselnamen wäre auch dann grün, wenn der Zähler auf eine der beiden
+    // verbliebenen Ansichten umgehängt worden wäre. Beide sind Aktenschränke,
+    // die nie auf null gehen — ein Badge darauf ist eine Mahnung ohne
+    // Adressat (docs §5.4). Deshalb wurde er gestrichen, nicht umgehängt.
+    assert.doesNotMatch(code(NAVCOUNTS), /dropout_lists/);
+    assert.doesNotMatch(NAVCOUNTS, /ablage: NavCount/);
   });
 
   test("Gegenprobe: die eingefrorene RPC kennt den Wert weiterhin", () => {

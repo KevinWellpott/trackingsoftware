@@ -502,10 +502,15 @@ export function recycleBlockedReason(gate: RecycleGate): string | null {
     return `„${dropoutReasonLabel(gate.reasonCode)}“ bekommt bewusst nie eine Wiedervorlage.`;
   }
   if (gate.attemptCount >= gate.maxAttempts) {
-    return `Der Deckel von ${gate.maxAttempts} Versuchen ist erreicht.`;
+    // Der Satz nennt den ORT der Zahl, nicht nur die Zahl: Der Deckel ist eine
+    // harte Grenze — `recycle_attempt()` (Migration 0033) räumt beim Erreichen
+    // das Wiedervorlage-Datum ab, der Lead kommt nie wieder von selbst hoch.
+    // Ohne den Zusatz stand hier eine Grenze ohne Adresse, und genau so hat sie
+    // den ganzen Rückbau über unsichtbar weitergewirkt.
+    return `Der Deckel von ${gate.maxAttempts} Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.`;
   }
   if (!gate.inRecycleBranch) {
-    return "Dieser Vorgang speist keinen Zweig von „Nachfassen“ — eine Wiedervorlage bliebe unsichtbar.";
+    return "Dieser Vorgang speist keinen Zweig des Recyclings — eine Wiedervorlage bliebe unsichtbar.";
   }
   return null;
 }

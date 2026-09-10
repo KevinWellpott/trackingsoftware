@@ -84,19 +84,52 @@ describe("A · Die Chip-Legende steht auf der Seite, nicht nur in der Datei", ()
 // lehrreich: Eine Meldung wurde nicht falsch, weil sie falsch war, sondern weil
 // eine zweite Stelle sie nach Merkmalen beurteilte.
 //
-// Die SPERRE selbst ist davon unberührt und steht unverändert im Block darunter.
-
 /* ------------------------------------------------------------------ *
- * C — Die Sperre selbst bleibt bestehen
+ * C — Die Sperre ist gefallen, die Org-Grenze steht
  * ------------------------------------------------------------------ */
 
-describe("C · „Niemand\" wird abgelehnt, statt die Erinnerungen still zu entwerten", () => {
-  test("der Ersteller wird auf Mitgliedschaft geprüft, bevor zurückgefallen wird", () => {
-    // Ohne diese Prüfung setzt `reminder_touches_ws_guard` (Migration 0032)
-    // `superseded_at` — lautlos, mit Erfolgsmeldung, und erst an der leeren
-    // /erinnerungen-Seite zu bemerken.
-    const zweig = slice(ASSIGNEES, "} else if (row.created_by_user_id) {", "const table =");
-    assert.match(zweig, /isMember\(supabase, access\.workspace_id, row\.created_by_user_id\)/);
-    assert.match(zweig, /return \{\s*error:/, "Der Fall wird abgelehnt, nicht halb ausgeführt.");
+// ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ──────────────────
+// HIER STAND: „„Niemand" wird abgelehnt, statt die Erinnerungen still zu
+// entwerten" — geprüft am Zweig `} else if (row.created_by_user_id) {` in
+// `setAssignee`.
+//
+// Der Zweig lehnte „Niemand" ab, sobald der Ersteller die Organisation
+// verlassen hatte, weil der Termin danach über `personOf()` auf ihn
+// zurückfiel und `reminder_touches_ws_guard` (0032) die offenen Erinnerungen
+// des Termins dabei lautlos entwertet hätte. Die Begründung ist mit dem
+// Rückbau verschwunden: Es gibt keine Erinnerungen mehr, `setAssignee` fasst
+// `reminder_touches` nicht mehr an, und /erinnerungen leitet nur noch weiter.
+//
+// Stehen geblieben wäre eine Sperre ohne Grund — und zwar eine teure: Ein
+// Owner konnte ausgerechnet den Termin eines Ausgezogenen nicht mehr
+// freigeben, mit einer Meldung, die auf Erinnerungen verwies, die es nicht
+// gibt. Die Zusicherung wird deshalb umgedreht: Sie hält jetzt fest, dass
+// „Niemand" durchgeht UND dass die eine Prüfung, die einen Grund hat, bleibt.
+
+describe("C · „Niemand\" geht durch, eine fremde Person nicht", () => {
+  test("nur eine GESETZTE Zuweisung wird auf Mitgliedschaft geprüft", () => {
+    // Die Org-Grenze ist der Grund, warum `isMember` überhaupt hier steht: Der
+    // DB-Guard aus 0028 greift nur beim Org-Umzug, eine Zuweisung über die
+    // Grenze wäre danach für niemanden auffindbar (docs §8).
+    const body = slice(ASSIGNEES, "export async function setAssignee(", "const table =");
+    assert.match(body, /if \(userId && !\(await isMember\(supabase, access\.workspace_id, userId\)\)\)/);
+  });
+
+  test("der Ersteller wird nicht mehr geprüft — es gibt nichts mehr zu schützen", () => {
+    // `assigned_user_id = null` verletzt keine Invariante: §8 prüft nur, dass
+    // eine gesetzte Zuweisung auf ein Mitglied zeigt.
+    assert.doesNotMatch(ASSIGNEES, /row\.created_by_user_id/);
+    assert.doesNotMatch(ASSIGNEES, /Die offenen Erinnerungen würden/);
+  });
+
+  test("und die Zuweisung fasst `reminder_touches` gar nicht mehr an", () => {
+    // Der zweite Roundtrip je Zuweisung, samt Revalidierung einer Route, die
+    // nur noch weiterleitet. Die Tabelle bleibt stehen (Muster
+    // `call_assignees`, docs §3) — sie hat nur keinen Leser mehr.
+    //
+    // Gesucht wird der ZUGRIFF, nicht das Wort: Die Datei nennt die Tabelle im
+    // Kommentar weiter beim Namen, weil sie dort erklärt, was fortgefallen ist.
+    assert.doesNotMatch(ASSIGNEES, /\.from\("reminder_touches"\)/);
+    assert.doesNotMatch(ASSIGNEES, /^\s*revalidatePath\("\/erinnerungen"/m);
   });
 });

@@ -122,16 +122,35 @@ describe("Rückbau: PipelineSettingsCard", () => {
     assert.doesNotMatch(CARD, /Erinnerungs-Stufen/);
   });
 
-  test("es gibt kein Feld je Verlustgrund und keinen Versuchs-Deckel mehr", () => {
-    // Neun Wartezeiten, deren Unterschied zueinander niemand begründen kann,
-    // plus ein Deckel — das war die Bedienoberfläche zu einem Regelwerk für
-    // zwanzig Setter.
+  test("es gibt kein Feld je Verlustgrund mehr", () => {
+    // Neun Wartezeiten, deren Unterschied zueinander niemand begründen kann —
+    // das war die Bedienoberfläche zu einem Regelwerk für zwanzig Setter.
     assert.doesNotMatch(CARD, /LOST_REASON_FIELDS/);
     assert.doesNotMatch(CARD, /Feinstaffelung/);
-    assert.doesNotMatch(CARD, /max_attempts/);
     // Und kein Erinnerungs-Horizont: Die Seite, die er steuerte, gibt es nicht
     // mehr.
     assert.doesNotMatch(CARD, /reminder_horizon_days/);
+  });
+
+  test("der Versuchs-Deckel ist wieder da — weil er nie weg war", () => {
+    // NACHGEZOGEN. Hier stand `assert.doesNotMatch(CARD, /max_attempts/)`, und
+    // das hat einen Fehler festgeschrieben statt einen Rückbau: Die Bedienung
+    // fiel, der Deckel selbst nicht. `recycle_attempt()` (Migration 0033,
+    // EINGEFROREN) nullt bei `recycle_attempt_count >= max_attempts` das
+    // `next_recycle_at`, `recycleBlockedReason` sperrt daraufhin „Jetzt wieder
+    // anschreiben", und die Ablage zeigt „1 von 2". Ergebnis war eine Grenze,
+    // die wirkt, die niemand sieht und die niemand verstellen kann.
+    //
+    // Abschalten geht nicht ohne Migration: Der CHECK aus 0032 klemmt
+    // `max_attempts` zwischen 1 und 5. Also sichtbar machen — was wirkt, muss
+    // man stellen können.
+    assert.match(CARD, /"max_attempts"/);
+    assert.match(CARD, /Recycling — Versuche je Lead/);
+    // Die Grenzen wörtlich wie der CHECK. Ein Feld, das 0 oder 99 anbietet,
+    // liefe in eine rohe Postgres-Meldung.
+    const block = CARD.slice(CARD.indexOf("const ATTEMPTS_FIELD"), CARD.indexOf("};", CARD.indexOf("const ATTEMPTS_FIELD")));
+    assert.match(block, /min: 1/);
+    assert.match(block, /max: 5/);
   });
 
   test("die eine Frist schreibt JEDE Wartezeit-Spalte — sonst wäre sie eine Behauptung", () => {

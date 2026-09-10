@@ -100,11 +100,23 @@ describe("1 · Was gefallen ist, bleibt gefallen", () => {
   });
 
   test("die RPC selbst bleibt unangetastet — sie ist eingefroren", () => {
-    // `nachfassen_tasks` liegt seit Migration 0030 produktiv auf der Datenbank
-    // und speist bis auf Weiteres den Navigations-Zähler. Ein DROP FUNCTION
-    // für eine Anzeigefrage wäre der falsche Preis.
-    const NAV = read("src/lib/navCounts.ts");
-    assert.match(NAV, /"nachfassen_tasks"/, "Der Zähler liest sie weiterhin — die Funktion darf nicht fallen.");
+    // `nachfassen_tasks` liegt produktiv auf der Datenbank. Ein DROP FUNCTION
+    // für eine Anzeigefrage wäre der falsche Preis: Er bräuchte eine neue
+    // Migration, nähme die Grants mit und brächte nichts ein.
+    //
+    // NACHGEZOGEN: Hier stand als Begründung, der Navigations-Zähler lese sie
+    // weiterhin — und genau das war der Fehler, nicht die Rechtfertigung. Der
+    // Zähler zählte damit drei Zweige, die die Seite nicht mehr zeigt (Badge
+    // 14, Seite zwei Karten). Er liest die Funktion nicht mehr; die Funktion
+    // bleibt trotzdem stehen, und das ist die Zusicherung.
+    for (const datei of ["src/lib/navCounts.ts", "src/app/actions/nachfassen.ts"]) {
+      assert.doesNotMatch(codeOnly(read(datei)), /nachfassen_tasks/, `${datei} liest die Union-RPC wieder`);
+    }
+    assert.doesNotMatch(
+      read("supabase/migrations/20260404000028_fundament.sql"),
+      /drop function[^\n]*nachfassen_tasks/i,
+      "Die eingefrorene RPC wurde gedroppt",
+    );
   });
 
   test("die drei Schreibpfade der Tages-Wiedervorlagen sind mitentfernt", () => {

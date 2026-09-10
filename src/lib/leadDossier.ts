@@ -210,8 +210,16 @@ export type DossierSetting = RecycleFields & {
   lead_name: string | null;
   company: string | null;
   phone: string | null;
+  /**
+   * Die beiden WhatsApp-Felder werden NICHT mehr angezeigt (siehe die
+   * Kontaktwege weiter unten) und von nichts mehr geschrieben. Sie bleiben im
+   * Typ, weil die Abfrage in actions/leadDossier.ts sie weiterhin namentlich
+   * selektiert — eine Spalte aus dem Typ zu nehmen, die die Abfrage lädt, wäre
+   * eine Unwahrheit über die Zeile, kein Rückbau.
+   */
   wa_phone: string | null;
   wa_consent_at: string | null;
+  /** Kontaktverbot für den Kanal — das eine der drei Felder, das sichtbar bleibt. */
   wa_refused_at: string | null;
   source_type: string | null;
   source_detail: string | null;
@@ -355,7 +363,11 @@ export type DossierLink = {
 };
 
 export type DossierChannel = {
-  kind: "linkedin" | "email" | "phone" | "whatsapp" | "website";
+  /**
+   * `whatsapp` ist mit der Nummer gefallen: Es gibt keinen Erzeuger mehr, und
+   * eine Art ohne Erzeuger wäre genau der Überbau, den der Rückbau abträgt.
+   */
+  kind: "linkedin" | "email" | "phone" | "website";
   label: string;
   value: string;
   href: string | null;
@@ -1203,18 +1215,18 @@ export function buildDossier(input: DossierInput): LeadDossier {
     if (l.website) pushChannel({ kind: "website", label: "Website", value: l.website, href: l.website, note: null });
   }
   for (const c of contacts) pushChannel(phoneChannel(c.phone, "Aus der LinkedIn-Liste"));
-  for (const s of settings) {
-    pushChannel(phoneChannel(s.phone, "Einwahl zum Termin"));
-    if (s.wa_phone) {
-      pushChannel({
-        kind: "whatsapp",
-        label: "WhatsApp",
-        value: s.wa_phone,
-        href: null,
-        note: s.wa_consent_at ? "Einwilligung dokumentiert" : "ohne dokumentierte Einwilligung",
-      });
-    }
-  }
+  // HIER STAND die WhatsApp-Nummer aus dem Erstgespräch. Sie ist mit ihrem
+  // Schreibpfad gegangen (actions/settingCalls.ts, `ohneWhatsApp`), und zwar
+  // in dieser Reihenfolge begründet: Ein Kontaktweg ist ein HANDLUNGSANGEBOT.
+  // Seit der Rückbau die Erfassung entfernt hat, lässt sich zu dieser Nummer
+  // weder eine Einwilligung dokumentieren noch eine widerrufen (UWG, auch B2B)
+  // — die Karte lud damit zu einer Nachricht ein, die niemand mehr zurücknehmen
+  // kann. Die Spalten bleiben in der Datenbank; ein Löschweg führt nur über sie.
+  //
+  // Die dokumentierte VERWEIGERUNG bleibt dagegen sichtbar (siehe `warnings`):
+  // Sie ist ein Kontaktverbot, und dessen Verlust schadet, statt zu schützen —
+  // dieselbe Begründung wie bei der Sperrliste (docs §1).
+  for (const s of settings) pushChannel(phoneChannel(s.phone, "Einwahl zum Termin"));
 
   const facts: DossierFact[] = [];
   const fact = (label: string, value: string | null | undefined) => {

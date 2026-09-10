@@ -152,25 +152,34 @@ describe("Die Vor-Termin-Kaskade ist gefallen — mitsamt ihrem Regenerator", ()
 });
 
 describe("Ein Pflichtfeld prüft, was die Folge-Logik wirklich braucht", () => {
-  test("M1 · die Pflicht ist mit ihrem Grund gefallen, der Server-Riegel nicht", () => {
-    // ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ────────────────
-    // HIER STAND: Das Gate vor „Closing anlegen" rechnet mit derselben
+  test("M1 · die Pflicht ist mit ihrem Grund gefallen — und der Schreibpfad mit ihr", () => {
+    // ── GEÄNDERTE ERWARTUNG, zum ZWEITEN Mal — und diesmal war die vorige
+    //    falsch, nicht bloß überholt ────────────────────────────────────────
+    // HIER STAND ZUERST: Das Gate vor „Closing anlegen" rechnet mit derselben
     // Bedingung wie der Kanal-Auflöser — Nummer ODER dokumentierte
-    // Verweigerung, weil `resolveFollowUpChannel` sonst auf den Akquise-Kanal
-    // zurückfiele und es den bei Ads/Social/Sonstige gar nicht gibt.
+    // Verweigerung. Der Auflöser ist gefallen, damit auch die Pflicht und die
+    // WhatsApp-Karte im Editor. Das gilt unverändert.
     //
-    // Der Auflöser ist gefallen: Ein Kanal wurde nur gebraucht, um zu
-    // entscheiden, WORÜBER eine Erinnerung rausgeht. Damit hat die Pflicht
-    // ihren einzigen Grund verloren — ein Gate ohne Gegenstand ist eine Sperre,
-    // kein Schutz —, und die WhatsApp-Karte ist mit ihr gegangen.
+    // HIER STAND DANN: „Was NICHT fällt, ist der Server-Riegel:
+    // `withWaConsentDerived` hält die beiden CHECKs aus 0032 strukturell
+    // erfüllt. Solange die Spalten stehen, kann ein direkter POST sie treffen,
+    // und dann muss die Ableitung greifen."
     //
-    // Was NICHT fällt, ist der Server-Riegel: `withWaConsentDerived` hält die
-    // beiden CHECKs aus 0032 strukturell erfüllt (`wa_consent_at` nur MIT
-    // Nummer). Solange die Spalten stehen, kann ein direkter POST sie treffen,
-    // und dann muss die Ableitung greifen — die Prüfung sitzt bewusst in der
-    // Server Action und nicht im Client, der jetzt gar nichts mehr schickt.
-    assert.match(SETTING_CALLS, /function withWaConsentDerived/);
-    assert.match(SETTING_CALLS, /withWaConsentDerived\(withNoShowResolutionCleared\(patch\)\)/);
+    // Diese Begründung zementierte den Befund, statt ihn abzudecken. Sie nimmt
+    // hin, dass der EINZIGE verbliebene Schreiber ein direkter POST ist — und
+    // sorgt dafür, dass er sauber durchkommt. Was dabei entstand, ist eine
+    // persönliche Mobilnummer samt ERZEUGTEM Einwilligungs-Zeitstempel (UWG,
+    // auch B2B): ein Nachweis für eine Einwilligung, die niemand eingeholt hat,
+    // ohne Oberfläche zum Korrigieren und ohne Weg, sie auf Widerruf zu löschen.
+    //
+    // Richtig ist die Umkehrung: nicht den Fremd-Schreiber normalisieren,
+    // sondern ihm die Spalten wegnehmen. `ohneWhatsApp` streift die drei Felder
+    // ab, bevor der Patch an `.update()` geht — und zwar zur LAUFZEIT, weil ein
+    // TypeScript-Typ keinen POST aufhält. Die CHECKs aus 0032 sind danach nicht
+    // etwa ungeschützt, sondern unerreichbar: Es schreibt die Spalten nichts
+    // mehr. Die volle Zusicherung steht in arbeitslisteNeuerTermin.test.ts.
+    assert.doesNotMatch(SETTING_CALLS, /function withWaConsentDerived/);
+    assert.match(SETTING_CALLS, /withNoShowResolutionCleared\(ohneWhatsApp\(patch\)\)/);
     // Und der Editor schickt wirklich nichts mehr: sonst stünde die Pflicht
     // halb entfernt da — kein Feld, aber weiterhin ein Schreibpfad.
     assert.doesNotMatch(SETTING_EDITOR, /wa_phone|wa_consent_at|wa_refused_at/);

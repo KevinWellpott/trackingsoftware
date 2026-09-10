@@ -1,23 +1,21 @@
-// Zähler für die beiden Aufgaben-Einträge der Seitenleiste.
+// Der Aufgaben-Zähler der Seitenleiste.
 //
-// WARUM ÜBERHAUPT: /nachfassen und /ablage erzeugen täglich Arbeit, aber die
-// Navigation schwieg darüber. Wer nicht von sich aus hineinklickt, erfährt nie,
-// dass dort etwas liegt — bei einem System, das Fälligkeiten selbst erzeugt,
-// ist das der Unterschied zwischen benutzt und vergessen.
+// WARUM ÜBERHAUPT: /nachfassen erzeugt Arbeit, ohne dass die Navigation davon
+// sprach. Wer nicht von sich aus hineinklickt, erfährt nie, dass dort etwas
+// liegt — bei einem System, das Fälligkeiten selbst erzeugt, ist das der
+// Unterschied zwischen benutzt und vergessen.
 //
-// FRÜHER WAREN ES DREI. Der dritte hing an /erinnerungen und damit an der
-// Erinnerungs-Kaskade; beide sind mit dem Rückbau gefallen (die Route leitet
-// nur noch weiter). Ein Zähler auf `reminder_touches` zählte danach eine
-// Tabelle, die keine Oberfläche mehr füllt: erst dauerhaft dieselbe Zahl, dann
-// dauerhaft 0 — beides ist eine Aussage über nichts.
+// FRÜHER WAREN ES DREI, DANN ZWEI, JETZT EINER. Der Erinnerungs-Zähler hing an
+// der Kaskade und ist mit ihr gefallen; der Ablage-Zähler ist mit dem Rückbau
+// der Ablage gefallen (Begründung bei `countNachfassen` unten). Übrig ist der
+// eine Zweig, der eine Frage beantwortet, die man abarbeiten kann.
 //
 // PREIS: Die Seitenleiste steht in `(dashboard)/layout.tsx` und wird auf JEDER
-// Seite gebaut. Drei Abfragen, alle parallel, alle winzig — die Aufgaben-RPCs
-// liefern nur die Spalte `due_at`, die Ablage nur einen `count`. Sie hängen
+// Seite gebaut. Eine Abfrage, die nur die Spalte `due_at` liefert — sie hängt
 // sich in das Bündel ein, das das Layout ohnehin abwartet (Listen, Ansichten,
-// Datensicht), und kosten damit einen Roundtrip, keine Summe.
+// Datensicht), und kostet damit einen Roundtrip, keine Summe.
 //
-// UND EINE FRIST: Zusätzlich läuft eine Deadline mit. Kommt eine Zahl nicht
+// UND EINE FRIST: Zusätzlich läuft eine Deadline mit. Kommt die Zahl nicht
 // rechtzeitig, rendert die Navigation ohne sie. Lieber kein Zähler als eine
 // hängende Navigation — die Zahl ist eine Beigabe, das Menü ist es nicht.
 //
@@ -28,8 +26,8 @@
 
 import type { AccessContext } from "@/lib/access";
 import { berlinDateISO } from "@/lib/apptTime";
-import { dueRefNow, isOverdue, type DueGranularity } from "@/lib/dueState";
-import { isStaleDue, staleSourceOf } from "@/lib/staleTasks";
+import { dueRefNow, isOverdue } from "@/lib/dueState";
+import { isStaleDue } from "@/lib/staleTasks";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -39,10 +37,9 @@ export type NavCount = { total: number; overdue: number };
 
 export type NavCounts = {
   nachfassen: NavCount | null;
-  ablage: NavCount | null;
 };
 
-export const EMPTY_NAV_COUNTS: NavCounts = { nachfassen: null, ablage: null };
+export const EMPTY_NAV_COUNTS: NavCounts = { nachfassen: null };
 
 /**
  * So viele Fälligkeits-Werte holt der Zähler höchstens herein. Der `count` der
@@ -58,29 +55,6 @@ const ROW_CAP = 500;
 const DEADLINE_MS = 1500;
 
 /**
- * Welche Ablage-Liste der Zähler meint.
- *
- * Bewusst NICHT die Summe aller sechs: Fünf davon sind ein Aktenschrank, der
- * über Monate wächst und nie auf null geht — eine Zahl, die man nicht
- * abarbeiten kann, ist als Abzeichen keine Nachricht, sondern Rauschen.
- * „Ersatztermin steht aus" ist die einzige Liste mit einer offenen Handlung:
- * Der Lead hat abgesagt UND einen neuen Termin in Aussicht gestellt, der noch
- * niemand eingetragen hat.
- */
-const ABLAGE_LIST = "ersatztermin_offen";
-
-/**
- * Die Beschriftung dazu, [Einzahl, Mehrzahl] — die Seitenleiste erklärt ihren
- * Zähler im Tooltip. Sie steht hier und nicht dort, weil sie die Auswahl der
- * Liste eine Zeile weiter oben beschreibt: Wer `ABLAGE_LIST` ändert, sieht die
- * Beschriftung direkt daneben.
- */
-export const ABLAGE_COUNT_LABEL: [singular: string, plural: string] = [
-  "Absage ohne eingetragenen Ersatztermin",
-  "Absagen ohne eingetragenen Ersatztermin",
-];
-
-/**
  * Eine Zahl mit Frist. Der Fehlerfall und der Zeitfall sind derselbe Ausgang:
  * kein Zähler. Der `catch` hängt am Versprechen selbst und nicht am Rennen —
  * eine später eintreffende Ablehnung darf den Prozess nicht mitnehmen.
@@ -89,154 +63,118 @@ function withDeadline<T>(work: Promise<T>, signal: Promise<null>): Promise<T | n
   return Promise.race([work.catch(() => null), signal]);
 }
 
-/**
- * Eine Fälligkeit samt ihrer Frist. Die Körnung kommt aus der QUELLE, nicht aus
- * dem Datentyp: `nachfassen_tasks` castet vier Tages-Spalten nach
- * `timestamptz`, und nach dem Typ gelesen wäre alles ab 02:00 überfällig
- * (lib/dueState.ts). Deshalb holt der Zähler `source` mit.
- */
-type DueRow = { due_at: string | null; spec: DueGranularity };
-
 /** Fällig/überfällig aus einer Liste von Fälligkeiten — `count` schlägt `length`. */
-function tally(rows: DueRow[], exact: number | null): NavCount {
+function tally(dueAts: (string | null)[], exact: number | null): NavCount {
   const ref = dueRefNow();
   let overdue = 0;
-  for (const r of rows) if (isOverdue(r.due_at, r.spec, ref)) overdue++;
-  return { total: exact ?? rows.length, overdue };
+  // Tages-Körnung, ausnahmslos: `next_recycle_at` ist eine `date`-Spalte
+  // (Wochen-Kadenz, keine Uhrzeit-Präzision, docs §6). Nach dem Datentyp
+  // gelesen wäre ab 02:00 Berliner Zeit alles überfällig — und weil die RPC
+  // ohnehin nur Fälliges liefert, wäre schlicht ALLES überfällig.
+  for (const d of dueAts) if (isOverdue(d, "day", ref)) overdue++;
+  return { total: exact ?? dueAts.length, overdue };
 }
 
 /**
- * Die fälligen Aufgaben von /nachfassen: dieselben zwei RPCs, die die Seite
- * liest, nur auf die Fälligkeitsspalte reduziert.
+ * Die fälligen Aufgaben von /nachfassen: dieselbe RPC, die die Seite liest, nur
+ * auf die Fälligkeitsspalte reduziert.
  *
- * Beide müssen antworten. Fällt eine aus, gibt es keinen Zähler — ein Abzeichen,
- * das eine ganze Quelle stillschweigend wegzählt, ist schlimmer als keines.
+ * DER ZÄHLER FÄHRT DIESELBEN SCHNITTE WIE DIE SEITE — eine bewusste Abkehr von
+ * der früheren Regel („das Badge zählt mehr, die Seite erklärt die Differenz",
+ * docs §5.4). Die Altlasten (lib/staleTasks.ts) blendet die Seite aus, nennt sie
+ * aber in derselben Zeile; als Differenz im Badge wären sie genau die Zahl,
+ * über die sich der Auftraggeber beschwert hat: eine Mahnung ohne Adressat.
  *
- * DER ZÄHLER FÄHRT DIESELBEN ZWEI SCHNITTE WIE DIE SEITE. Das ist neu und eine
- * bewusste Abkehr von der früheren Regel („das Badge zählt mehr, die Seite
- * erklärt die Differenz", docs §5.4):
+ * ── WARUM HIER NUR NOCH `recycle_tasks` STEHT ─────────────────────────────
+ * Bis zum Rückbau las dieser Zähler BEIDE Nachfassen-RPCs und filterte aus
+ * `nachfassen_tasks` lediglich den LinkedIn-Zweig heraus. Die zweite Welle hat
+ * aber drei weitere Zweige von der Seite genommen — Telefon-Rückruf, Setting-
+ * und Closing-Wiedervorlage stehen jetzt in der Terminliste (docs §1) —, und
+ * der Zähler wurde nicht nachgezogen: Das Badge zeigte 14, die Seite darunter
+ * zwei Karten. `/nachfassen` trägt seither GENAU EINE Quelle
+ * (`getNachfassenTasks` → `loadRecycleTasks`), also tut es dieser Zähler auch.
  *
- *  · Der LinkedIn-Zweig steht gar nicht mehr auf der Seite. Ein Badge, das ihn
- *    zählt, behauptet Arbeit, die man dort nicht finden kann — es zeigte
- *    dreistellige Zahlen für ein Board mit einer Handvoll Karten.
- *  · Die Altlasten (lib/staleTasks.ts) blendet die Seite aus, nennt sie aber
- *    in derselben Zeile. Als Differenz im Badge wären sie trotzdem genau die
- *    Zahl, über die sich der Nutzer beschwert hat: eine Mahnung ohne Adressat.
+ * DARAUS FOLGT DIESELBE PFLICHT FÜR DEN NÄCHSTEN UMBAU, und sie gilt in BEIDE
+ * Richtungen: Die Quellenliste hier ist an die der Seite gebunden. Ein Badge,
+ * das weniger zählt als die Seite darunter, ist genauso falsch wie eines, das
+ * mehr zählt; nur fällt es später auf.
  *
- * Beides läuft über dieselben Funktionen wie die Server-Action — zwei Kopien
- * einer Grenze, die Aufgaben verschwinden lässt, laufen auseinander.
+ * ── UND WARUM ES KEINEN ABLAGE-ZÄHLER MEHR GIBT ───────────────────────────
+ * Er zählte `dropout_lists('ersatztermin_offen')` — die eine Liste mit einer
+ * offenen Handlung. Genau diese Liste hat der Rückbau aus der Ablage entfernt
+ * (lib/dropoutLists.ts): Ein Lead, der abgesagt hat und noch keinen Ersatz
+ * trägt, ist kein Archiv-Eintrag, sondern der Normalfall der täglichen
+ * Arbeitsliste — er steht dort gold in /termine. Das Badge zeigte damit eine
+ * Zahl aus einer Menge, die es in der Oberfläche nicht mehr gab, und führte auf
+ * eine DISJUNKTE Ansicht („Ausgeschieden").
  *
- * DARAUS FOLGT EINE PFLICHT FÜR DEN NÄCHSTEN UMBAU: Die Quellenliste hier ist
- * an die der Seite gebunden, in BEIDE Richtungen. Zieht ein Zweig von
- * /nachfassen weg — der Telefon-Rückruf in die Terminliste, die Setting- und
- * Closing-Wiedervorlage in den Offen-Zustand —, muss er auch hier fallen. Ein
- * Badge, das weniger zählt als die Seite darunter, ist genauso falsch wie eines,
- * das mehr zählt; nur fällt es später auf.
+ * Umgehängt wurde es nicht, sondern gestrichen: Beide verbliebenen
+ * Ablage-Ansichten sind Aktenschränke, die über Monate wachsen und nie auf null
+ * gehen. „Ein Badge auf einem Archiv, das nie auf null geht, ist eine Mahnung
+ * ohne Adressat" (docs §5.4) — das ist wörtlich dieser Fall.
+ *
+ * Und /termine hat bewusst KEINEN Ersatz-Zähler bekommen: Sein Gold ist aus
+ * Zustand, Absage, Nachfass-Stempel und Berliner Tagesgrenze ABGELEITET
+ * (lib/dranRegel.ts). Die Navigation müsste dafür entweder dieselben Zeilen
+ * laden, die die Seite lädt — auf jeder Seite —, und oberhalb des Fensters
+ * trotzdem schweigen, oder die Regel ein zweites Mal als PostgREST-Filter
+ * formulieren. Genau dagegen gibt es dranRegel.ts. Dazu kommt: /termine ist die
+ * Fläche, die man ohnehin öffnet; ein Badge spricht für eine Seite, die man
+ * sonst nicht aufmacht.
  */
 async function countNachfassen(supabase: Supabase, access: AccessContext): Promise<NavCount | null> {
   const today = berlinDateISO(new Date().toISOString());
   const scopeUserId = access.effective_user_id ?? access.user.id;
 
-  const [tasks, recycle] = await Promise.all([
-    supabase
-      .rpc(
-        "nachfassen_tasks",
-        {
-          p_workspace_id: access.workspace_id,
-          p_today: today,
-          p_now: new Date().toISOString(),
-          p_effective_user_id: scopeUserId,
-        },
-        { count: "exact" },
-      )
-      // `source` kommt mit, weil es die Zeitkörnung entscheidet — nur der
-      // Telefon-Rückruf trägt eine verabredete Uhrzeit.
-      .select("source, due_at")
-      .order("due_at", { ascending: true })
-      .range(0, ROW_CAP - 1),
-    supabase
-      .rpc(
-        "recycle_tasks",
-        {
-          p_workspace_id: access.workspace_id,
-          p_today: today,
-          p_effective_user_id: scopeUserId,
-        },
-        { count: "exact" },
-      )
-      .select("due_at")
-      .order("due_at", { ascending: true })
-      .range(0, ROW_CAP - 1),
-  ]);
+  const recycle = await supabase
+    .rpc(
+      "recycle_tasks",
+      {
+        p_workspace_id: access.workspace_id,
+        p_today: today,
+        p_effective_user_id: scopeUserId,
+      },
+      { count: "exact" },
+    )
+    .select("due_at")
+    .order("due_at", { ascending: true })
+    .range(0, ROW_CAP - 1);
 
-  if (tasks.error || recycle.error) return null;
-  // Fehlt die exakte Zahl EINER Quelle, gibt es keinen Zähler — dieselbe Regel
-  // wie bei der Ablage. `(count ?? 0)` hätte die fehlende Quelle stillschweigend
-  // als „nichts fällig" verbucht: genau die halbe Wahrheit, gegen die eine Zeile
-  // weiter oben schon der Fehlerfall steht.
-  if (tasks.count == null || recycle.count == null) return null;
+  if (recycle.error) return null;
+  // Fehlt die exakte Zahl, gibt es keinen Zähler. `(count ?? 0)` hätte die
+  // fehlende Auskunft stillschweigend als „nichts fällig" verbucht: genau die
+  // halbe Wahrheit, gegen die eine Zeile weiter oben schon der Fehlerfall steht.
+  if (recycle.count == null) return null;
 
-  const taskRows = (tasks.data ?? []) as unknown as { source: string; due_at: string | null }[];
-  const recycleRows = (recycle.data ?? []) as unknown as { due_at: string | null }[];
+  const rows = (recycle.data ?? []) as unknown as { due_at: string | null }[];
 
-  // Der Deckel und die Schnitte vertragen sich nicht: `count` ist exakt, das
+  // Der Deckel und der Schnitt vertragen sich nicht: `count` ist exakt, das
   // Fenster ist es nicht — und weil aufsteigend nach Fälligkeit sortiert wird,
   // stehen ausgerechnet die ÄLTESTEN (also die wegzuschneidenden) Zeilen vorn.
   // Wurde abgeschnitten, lässt sich die gefilterte Zahl nicht mehr ermitteln,
   // und dann gibt es hier kein Badge statt einer zu kleinen Zahl (docs §5.4:
   // `null` heißt „nicht ermittelbar", nicht „nichts fällig").
-  if (tasks.count > taskRows.length || recycle.count > recycleRows.length) return null;
+  if (recycle.count > rows.length) return null;
 
-  const rows: DueRow[] = [];
-  for (const r of taskRows) {
-    // Steht nicht mehr auf der Seite (actions/nachfassen.ts).
-    if (r.source === "linkedin") continue;
-    const stale = staleSourceOf(r.source);
-    if (stale && isStaleDue(stale, r.due_at, today)) continue;
-    rows.push({
-      due_at: r.due_at,
-      spec: (r.source === "telefon" ? "moment" : "day") as DueGranularity,
-    });
-  }
-  for (const r of recycleRows) {
+  const due: (string | null)[] = [];
+  for (const r of rows) {
     if (isStaleDue("recycling", r.due_at, today)) continue;
-    // Ein Recycling-Versuch ist immer auf den Tag fällig (`next_recycle_at`
-    // ist eine `date`-Spalte — Wochen-Kadenz, keine Uhrzeit-Präzision).
-    rows.push({ due_at: r.due_at, spec: "day" as DueGranularity });
+    due.push(r.due_at);
   }
-  // `rows.length` statt der beiden `count`: Nach den Schnitten oben ist die
-  // gefilterte Liste die Wahrheit, und dass sie vollständig ist, hat die
-  // Deckel-Prüfung gerade festgestellt.
-  return tally(rows, rows.length);
+  // `due.length` statt `count`: Nach dem Schnitt oben ist die gefilterte Liste
+  // die Wahrheit, und dass sie vollständig ist, hat die Deckel-Prüfung gerade
+  // festgestellt.
+  return tally(due, due.length);
 }
 
 /**
- * Die eine Ablage-Liste mit offener Handlung. `count: 'exact'` mit
- * `range(0, 0)`: Postgres zählt, die Antwort trägt eine einzige Zeile (Muster
- * `loadDropoutCounts`). Kein Überfällig-Begriff — eine Absage mit Aussicht auf
- * einen neuen Termin hat kein Datum, an dem sie zu spät wird.
- */
-async function countAblage(supabase: Supabase, access: AccessContext): Promise<NavCount | null> {
-  const { error, count } = await supabase
-    .rpc(
-      "dropout_lists",
-      {
-        p_workspace_id: access.workspace_id,
-        p_list: ABLAGE_LIST,
-        p_effective_user_id: access.effective_user_id,
-      },
-      { count: "exact" },
-    )
-    .range(0, 0);
-
-  if (error || count == null) return null;
-  return { total: count, overdue: 0 };
-}
-
-/**
- * Beide Zähler in einem Bündel. Wirft nie und blockiert nie länger als
- * `DEADLINE_MS`; jeder Zweig fällt einzeln auf `null` zurück, damit ein
- * fehlendes Recycling-Schema nicht auch den Ablage-Zähler mitnimmt.
+ * Der Zähler in einem Bündel. Wirft nie und blockiert nie länger als
+ * `DEADLINE_MS`; ein Fehler fällt auf `null` zurück, nicht auf eine 0.
+ *
+ * Die Bündel-Form bleibt, obwohl nur noch ein Zweig darin steht: Seitenleiste,
+ * Quicklink-Streifen und mobiler Menü-Punkt nehmen `NavCounts` entgegen, und
+ * der nächste Zähler soll sich einhängen können, ohne drei Signaturen zu
+ * drehen.
  */
 export async function loadNavCounts(supabase: Supabase, access: AccessContext): Promise<NavCounts> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -245,11 +183,8 @@ export async function loadNavCounts(supabase: Supabase, access: AccessContext): 
   });
 
   try {
-    const [nachfassen, ablage] = await Promise.all([
-      withDeadline(countNachfassen(supabase, access), deadline),
-      withDeadline(countAblage(supabase, access), deadline),
-    ]);
-    return { nachfassen, ablage };
+    const nachfassen = await withDeadline(countNachfassen(supabase, access), deadline);
+    return { nachfassen };
   } catch {
     return EMPTY_NAV_COUNTS;
   } finally {

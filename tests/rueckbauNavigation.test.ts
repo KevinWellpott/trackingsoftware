@@ -35,6 +35,15 @@ function read(relative: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 }
 
+/**
+ * Die Datei OHNE Kommentare — Muster `code()` aus rueckbauArbeitsflaeche.test.ts.
+ * Ein Abwesenheits-Test gegen den Rohtext verböte einer Datei, zu erklären,
+ * warum sie etwas nicht mehr tut.
+ */
+function code(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
 const ROUTE = read("src/app/(dashboard)/erinnerungen/page.tsx");
 const NAVCOUNTS = read("src/lib/navCounts.ts");
 const SIDEBAR = read("src/components/Sidebar.tsx");
@@ -81,12 +90,19 @@ describe("Die Route /erinnerungen ist eine Weiterleitung", () => {
  * ------------------------------------------------------------------ */
 
 describe("Kein Erinnerungs-Zähler mehr", () => {
-  test("`NavCounts` trägt genau zwei Zweige", () => {
-    // Der dritte hing an /erinnerungen. Ein Zähler auf `reminder_touches`
-    // zählte danach eine Tabelle, die keine Oberfläche mehr füllt: erst
-    // dauerhaft dieselbe Zahl, dann dauerhaft 0.
-    assert.match(NAVCOUNTS, /export const EMPTY_NAV_COUNTS: NavCounts = \{ nachfassen: null, ablage: null \};/);
+  test("`NavCounts` trägt genau einen Zweig", () => {
+    // Es waren drei. Der Erinnerungs-Zähler hing an /erinnerungen und zählte
+    // danach eine Tabelle, die keine Oberfläche mehr füllt: erst dauerhaft
+    // dieselbe Zahl, dann dauerhaft 0.
+    //
+    // Der Ablage-Zähler ist danach gefallen, und diese Zeile hat es
+    // nachzuziehen statt zu verteidigen: Er zählte `ersatztermin_offen` — die
+    // einzige Ablage-Liste mit einer offenen Handlung, und genau die hat der
+    // Rückbau aus der Ablage genommen (ihr Inhalt steht in der Terminliste).
+    // Das Badge führte danach auf eine DISJUNKTE Ansicht und ging nie auf null.
+    assert.match(NAVCOUNTS, /export const EMPTY_NAV_COUNTS: NavCounts = \{ nachfassen: null \};/);
     assert.doesNotMatch(NAVCOUNTS, /erinnerungen: NavCount/);
+    assert.doesNotMatch(NAVCOUNTS, /ablage: NavCount/);
   });
 
   test("keine Abfrage auf `reminder_touches` und keine Kaskaden-Frist", () => {
@@ -103,23 +119,30 @@ describe("Kein Erinnerungs-Zähler mehr", () => {
     // sie zu brechen — die fehlende Zahl sähe dann aus wie Feierabend.
     assert.doesNotMatch(NAVCOUNTS, /total \?\? 0/);
     assert.match(NAVCOUNTS, /Ein Zähler\. `null` heißt „nicht ermittelbar" — nicht „null Aufgaben"\./);
-    // Der Ablage-Zähler beweist es an der einzigen Stelle, an der die Datenbank
-    // eine Zahl schuldig bleiben kann.
-    assert.match(NAVCOUNTS, /if \(error \|\| count == null\) return null;/);
+    // Bewiesen an der Stelle, an der die Datenbank eine Zahl schuldig bleiben
+    // kann: ohne exakten `count` gibt es kein Badge.
+    assert.match(NAVCOUNTS, /if \(recycle\.count == null\) return null;/);
   });
 
-  test("der Nachfassen-Zähler behält beide Quellen — und seine Alles-oder-nichts-Regel", () => {
-    // Er ist der einzige verbliebene Zähler mit mehr als einer Quelle. Fällt
-    // eine aus, gibt es KEINEN Zähler statt einer halben Wahrheit; und ein
-    // abgeschnittenes Fenster ergibt lieber gar keine Zahl als eine zu kleine.
+  test("der Nachfassen-Zähler liest die Quelle der SEITE — und nur die", () => {
+    // Diese Zusicherung stand hier als „behält beide Quellen", mit dem
+    // ausdrücklichen Vorbehalt: „Zieht der Telefon-Rückruf in die Terminliste
+    // um, muss dieser Zähler mitziehen." Genau das ist passiert, und der Zähler
+    // wurde nicht nachgezogen — das Badge zählte drei Zweige weiter, die die
+    // Seite nicht mehr zeigt.
     //
-    // BEIDE Quellen stehen hier, weil /nachfassen sie beide zeigt. Zieht der
-    // Telefon-Rückruf in die Terminliste um, muss dieser Zähler mitziehen —
-    // ein Badge, das weniger zählt als die Seite darunter, ist derselbe Fehler
-    // wie eines, das mehr zählt.
-    assert.match(NAVCOUNTS, /if \(tasks\.error \|\| recycle\.error\) return null;/);
-    assert.match(NAVCOUNTS, /if \(tasks\.count == null \|\| recycle\.count == null\) return null;/);
-    assert.match(NAVCOUNTS, /if \(tasks\.count > taskRows\.length \|\| recycle\.count > recycleRows\.length\) return null;/);
+    // `/nachfassen` trägt jetzt eine Quelle, also fragt der Zähler eine.
+    // Geprüft am CODE, nicht am Fließtext: Der Kopf der Datei erklärt, welche
+    // Quellen weggefallen sind, und muss sie dafür beim Namen nennen dürfen.
+    assert.match(NAVCOUNTS, /\.rpc\(\s*"recycle_tasks",/);
+    assert.doesNotMatch(code(NAVCOUNTS), /nachfassen_tasks/);
+    assert.doesNotMatch(code(NAVCOUNTS), /dropout_lists/);
+    assert.doesNotMatch(code(NAVCOUNTS), /ersatztermin_offen/);
+
+    // Die Alles-oder-nichts-Regel bleibt: Ein abgeschnittenes Fenster ergibt
+    // lieber gar keine Zahl als eine zu kleine.
+    assert.match(NAVCOUNTS, /if \(recycle\.error\) return null;/);
+    assert.match(NAVCOUNTS, /if \(recycle\.count > rows\.length\) return null;/);
   });
 });
 

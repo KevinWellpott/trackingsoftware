@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { TermineBoard } from "@/components/termine/TermineBoard";
 import { getAccessContext, listDataViewUsers, matchesOwnScope } from "@/lib/access";
+import { berlinDateISO } from "@/lib/apptTime";
 import { ownerUserIdOfList } from "@/lib/personResolution";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
@@ -282,6 +283,23 @@ export default async function TerminePage() {
   // gar nicht die ganze Seite mitnehmen, deren Hauptaufgabe woanders liegt.
   const rueckrufe = await ladeRueckrufe(access.workspace_id, access, usernameToUserId).catch(() => null);
 
+  // ⚠ „HEUTE" KOMMT VOM SERVER UND IST BERLIN — beides ist tragend.
+  //
+  // Das Board rechnete seinen Tag bis hierher browser-lokal (`localDateISO()`).
+  // Auf Vercel läuft der Server in UTC: Zwischen etwa 22:00 Berliner Zeit und
+  // Mitternacht lieferte er den VORTAG, der Browser den richtigen Tag. Das ist
+  // erstens ein Hydrations-Unterschied und zweitens ein fachlicher Fehler in
+  // genau dem Fenster — die Gold-Regel darunter bucketet den Nachfass-Stempel
+  // über `berlinDateISO` (lib/dranRegel.ts), also hielt der Server eine heute
+  // gestempelte Zeile für „gestern" und ließ sie wieder leuchten, während ein
+  // gestriger Termin als „Verlegt" durchging.
+  //
+  // Europe/Berlin ist eine Produktgrenze, keine Einstellung (docs §6), und
+  // apptTime.ts ist ihre einzige Konvertierungsstelle. Dieselbe Lösung wie auf
+  // /ablage: Der Tag wird einmal serverseitig bestimmt und durchgereicht — dann
+  // gibt es gar keine zweite Uhr, die abweichen könnte.
+  const today = berlinDateISO(new Date().toISOString());
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       {/* ── Page Header ──
@@ -318,6 +336,7 @@ export default async function TerminePage() {
         members={members.map((m) => ({ user_id: m.user_id, username: m.username }))}
         rueckrufe={rueckrufe ?? []}
         rueckrufeVerfuegbar={rueckrufe != null}
+        today={today}
         // „Eine Liste pro Person": Vorgabe ist die persönliche Sicht. Bei
         // aktiver Datensicht ist das der Kollege, dessen Liste man abarbeitet
         // (`effective_user_id`), sonst das eigene Konto — dieselbe Regel wie bei

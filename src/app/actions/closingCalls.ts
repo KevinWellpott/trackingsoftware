@@ -98,6 +98,24 @@ function withNoShowResolutionCleared(patch: ClosingCallPatch): ClosingCallPatch 
   return { ...patch, no_show_resolution: null };
 }
 
+/**
+ * Ist die Absage dieser Zeile noch WIRKSAM?
+ *
+ * Bewusst als zweite kurze Kopie neben derselben Funktion in settingCalls.ts —
+ * ein `"use server"`-Modul darf nur async Funktionen exportieren, ein geteilter
+ * Helfer bräuchte also eine dritte Datei für zwei Zeilen (Muster
+ * `withNoShowResolutionCleared` darüber).
+ *
+ * Der Punkt ist das PAAR: `cancelled_at` allein sagt nicht, ob die Absage noch
+ * gilt — „Neuen Termin ansetzen" (actions/followUpStamp.ts) erklärt sie über
+ * `revived_at` für überholt, und der Riegel hier nennt genau diesen Weg als den
+ * richtigen. Ohne die zweite Spalte wies er ihn ausgerechnet selbst ab: Für ein
+ * abgesagtes Closing war der Knopf damit einer, der ausnahmslos scheitert.
+ */
+function absageWirktNoch(row: { cancelled_at: string | null; revived_at?: string | null } | null): boolean {
+  return Boolean(row?.cancelled_at) && !row?.revived_at;
+}
+
 // Nicht nur "RLS hat die Zeile durchgelassen": fuer einen Plattform-Admin
 // laesst RLS jede Zeile durch. Die aktive Organisation entscheidet.
 async function canAccessClosingCall(id: string): Promise<boolean> {
@@ -125,16 +143,16 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
   if (appointmentChanged) {
     const { data: current } = await supabase
       .from("closing_calls")
-      .select("cancelled_at")
+      .select("cancelled_at, revived_at")
       .eq("id", id)
       .maybeSingle();
-    const before = current as { cancelled_at: string | null } | null;
+    const before = current as { cancelled_at: string | null; revived_at: string | null } | null;
     // Ein abgesagtes Closing bekommt keinen neuen Termin — wortgleich zu
     // `postponeAppointment` und `moveSettingAppointment`. Ohne den Riegel trüge
     // die Zeile `cancelled_at` UND ein neues Datum und stünde damit zugleich als
     // abgesagt und als terminiert da; die Arbeitsliste liest genau dieses Paar.
     // Der Kalender-Drag landet hier, weil es kein `moveClosingAppointment` gibt.
-    if (before?.cancelled_at) return { error: CANCELLED_MOVE_HINT };
+    if (absageWirktNoch(before)) return { error: CANCELLED_MOVE_HINT };
   }
 
   const { error } = await supabase.from("closing_calls").update(withNoShowResolutionCleared(patch)).eq("id", id);

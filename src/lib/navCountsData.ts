@@ -3,11 +3,11 @@
 // WARUM DIESE DATEI ÜBERHAUPT EXISTIERT (und nicht einfach `loadNavCounts`):
 // Die Zahlen brauchen jetzt zwei Stellen pro Seitenaufruf — die Seitenleiste in
 // `(dashboard)/layout.tsx` und der Quicklink-Streifen auf dem Dashboard. Ein
-// zweiter Aufruf von `loadNavCounts()` fährt dieselben vier Abfragen ein
-// zweites Mal (zwei RPCs, eine Tabelle, eine Zählabfrage) und riskiert
-// zusätzlich, dass beide Flächen unterschiedliche Zahlen zeigen: Die Abfragen
-// laufen Sekundenbruchteile auseinander, und `dueRefNow()` ist eine echte Uhr.
-// Zwei Badges nebeneinander mit verschiedenen Zahlen sind schlimmer als eines.
+// zweiter Aufruf von `loadNavCounts()` fährt dieselbe Abfrage ein zweites Mal
+// und riskiert zusätzlich, dass beide Flächen unterschiedliche Zahlen zeigen:
+// Die Abfragen laufen Sekundenbruchteile auseinander, und `dueRefNow()` ist
+// eine echte Uhr. Zwei Badges nebeneinander mit verschiedenen Zahlen sind
+// schlimmer als eines.
 //
 // WARUM `cache()` AUS REACT UND NICHT `use cache`/`unstable_cache`: Genau die
 // Begründung aus `getAccessContext` (src/lib/access.ts) — die Zahlen hängen an
@@ -28,9 +28,9 @@
 // nichts entgegen und holt sich beides selbst; `getAccessContext()` ist
 // seinerseits gecacht und kostet dabei nichts.
 //
-// WARUM EINE EIGENE DATEI UND NICHT UNTEN IN `navCounts.ts`: Dort steht
-// `ABLAGE_COUNT_LABEL`, und das importiert die Seitenleiste — eine Client
-// Component. Ein Wert-Import von `@/lib/access` in `navCounts.ts` zöge
+// WARUM EINE EIGENE DATEI UND NICHT UNTEN IN `navCounts.ts`: Jene Datei wird
+// von der Seitenleiste und vom Quicklink-Streifen importiert — beides Client
+// Components. Ein Wert-Import von `@/lib/access` in `navCounts.ts` zöge
 // `next/headers` in den Client-Bundle und bräche den Build. Dieselbe Trennung
 // wie bei `analyse.ts` ↔ `analyseData.ts`.
 

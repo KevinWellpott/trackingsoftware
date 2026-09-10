@@ -14,6 +14,25 @@ import { PageHeader } from "@/components/ui/PageHeader";
 // actions/nachfassen.ts). Die ROUTE behält ihren Namen — Lesezeichen und der
 // Rückweg der Detailseiten (`?from=nachfassen`) hängen daran —, der TITEL sagt,
 // was die Seite heute ist.
+//
+// ── DER NAME IST ENTSCHIEDEN: „Recycling", nicht „Nachfassen" ───────────────
+// Beide Wörter standen nebeneinander — Seitenleiste und Quicklink führten
+// „Nachfassen", die Seite selbst „Recycling". Wer auf „Nachfassen" klickte,
+// suchte die alte Seite (heutige Rückrufe, fällige Wiedervorlagen) und fand
+// tote Leads von vor drei Monaten.
+//
+// „Recycling" gewinnt, aus drei Gründen: Es ist das Wort, das das ganze System
+// für diese Sache benutzt (`/settings` → „Recycling — Wartezeit",
+// „Lohnt das Recycling?" im Analyse-Bereich, `recycle_tasks` in der Datenbank,
+// docs §1). „Nachfassen" war dagegen die umgangssprachliche Sammelbezeichnung
+// für DREI Mechanismen — und die anderen beiden sind in die Terminliste
+// gewandert; als Menüpunkt verspräche das Wort weiter deren Inhalt. Und die
+// Seitenleiste erklärt in ihrem eigenen Tooltip längst „Fällige
+// Recycling-Versuche".
+//
+// NOCH NACHZUZIEHEN (andere Dateien): `src/components/Sidebar.tsx` (NavLink
+// label="Nachfassen") und `src/components/dashboard/QuickLinks.tsx`
+// (label: "Nachfassen"). Die ROUTE bleibt `/nachfassen`.
 
 export default async function NachfassenPage({
   searchParams,
@@ -45,8 +64,10 @@ export default async function NachfassenPage({
             <InfoPopover label="Recycling: was hier steht" width={380}>
               Welcher tote Lead ist wieder einen Versuch wert? Verlorene Closings, tote Telefon- und
               Erstgespräch-Leads und LinkedIn-Kontakte ohne Antwort — jeder mit dem Grund, aus dem er damals
-              herausgefallen ist. Die Wartezeit bis zum nächsten Anlauf steht in den Einstellungen. Was heute
-              ansteht und was in der Luft liegt, steht dagegen in der Terminliste.
+              herausgefallen ist. Wartezeit und Anzahl der Versuche stehen in den Einstellungen unter
+              „Pipeline“; ist die Zahl der Versuche erreicht, kommt der Lead nicht mehr von selbst hoch und
+              bleibt in der Ablage. Was heute ansteht und was in der Luft liegt, steht dagegen in der
+              Terminliste.
             </InfoPopover>
           </span>
         }

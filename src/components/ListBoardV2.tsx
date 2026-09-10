@@ -1448,7 +1448,7 @@ export function ListBoardV2({ listId, contacts }: {
       title: currentlyBlocked ? "Blockierung aufheben?" : "Als blockiert markieren?",
       message: currentlyBlocked
         ? `"${c.name}" wieder in den Follow-up-Flow aufnehmen? Die Fälligkeit wird neu berechnet.`
-        : `"${c.name}" hat dich auf LinkedIn blockiert? Der Kontakt fliegt damit aus dem Follow-up-Tracking und den Erinnerungen.`,
+        : `"${c.name}" hat dich auf LinkedIn blockiert? Der Kontakt fliegt damit aus dem Follow-up-Tracking.`,
       confirmLabel: currentlyBlocked ? "Aufheben" : "Als blockiert markieren",
       destructive: !currentlyBlocked,
     });

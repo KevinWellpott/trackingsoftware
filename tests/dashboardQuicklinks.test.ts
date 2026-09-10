@@ -83,9 +83,15 @@ describe("Ziele", () => {
     // Wörter — dieselbe Verwechslung, gegen die in der Seitenleiste die
     // Tooltips stehen. Hier ist der Hinweis sichtbar statt versteckt: Auf einer
     // Kachel ist Platz dafür.
-    for (const hint of ["Heute fällig", "Kalender", "Aus dem Funnel gefallen"]) {
+    //
+    // „Kalender" stand hier als Soll und war seit dem Rückbau falsch: /termine
+    // öffnet in der ARBEITSLISTE, der Kalender ist der zweite Reiter. Ein
+    // Hinweis, der die falsche Sache verspricht, ist schlimmer als keiner —
+    // ausgerechnet auf der Kachel, die morgens als erste angeklickt wird.
+    for (const hint of ["Heute fällig", "Wer liegt in der Luft", "Aus dem Funnel gefallen"]) {
       assert.ok(QUICKLINKS.includes(`hint: "${hint}"`), `Der Hinweis „${hint}" fehlt`);
     }
+    assert.doesNotMatch(QUICKLINKS, /hint: "Kalender"/, "die Kachel verspricht wieder den Kalender");
   });
 
   test("die eine Anlege-Aktion ist dabei — und es bleibt bei einer", () => {
@@ -117,22 +123,37 @@ describe("Ziele", () => {
  * ------------------------------------------------------------------ */
 
 describe("Zähler", () => {
-  test("die beiden Aufgaben-Wege tragen ihren Zähler", () => {
+  test("der Aufgaben-Weg trägt seinen Zähler", () => {
     // Ein Quicklink „Nachfassen" ohne die Zahl offener Aufgaben ist ein
     // Lesezeichen; mit ihr ist er eine Arbeitsanweisung.
-    for (const zweig of ["nachfassen", "ablage"]) {
-      assert.ok(QUICKLINKS.includes(`counts?.${zweig} ?? null`), `Der Zähler „${zweig}" fehlt`);
-    }
-    // Die Beschriftung der Ablage kommt aus navCounts.ts — sie beschreibt die
-    // dort getroffene Auswahl der EINEN Liste mit offener Handlung.
-    assert.match(QUICKLINKS, /countLabel: ABLAGE_COUNT_LABEL/);
-    assert.match(NAVCOUNTS, /export const ABLAGE_COUNT_LABEL/);
+    assert.ok(QUICKLINKS.includes("counts?.nachfassen ?? null"), "Der Nachfassen-Zähler fehlt");
   });
 
-  test("der Kalender bekommt bewusst keinen Zähler", () => {
-    // Ein Kalender ist voll oder leer, aber nie überfällig — eine Zahl daneben
-    // wäre eine Aufgabe, die es nicht gibt.
-    assert.match(QUICKLINKS, /label: "Termine",[\s\S]{0,400}?count: null,/);
+  test("die Ablage hat ihren Zähler VERLOREN — samt seiner Beschriftung", () => {
+    // Er zählte `dropout_lists('ersatztermin_offen')`, die einzige
+    // Ablage-Ansicht mit einer offenen Handlung — und genau die hat der Rückbau
+    // aus der Ablage genommen (ihr Inhalt steht täglich in der Terminliste).
+    // Das Badge zeigte danach eine Zahl aus einer Menge, die es nicht mehr gab,
+    // und führte auf eine disjunkte Ansicht.
+    //
+    // Umgehängt wurde er nicht: Beide verbliebenen Ansichten sind
+    // Aktenschränke, die nie auf null gehen — „ein Badge auf einem Archiv, das
+    // nie auf null geht, ist eine Mahnung ohne Adressat" (docs §5.4).
+    assert.doesNotMatch(QUICKLINKS, /counts\?\.ablage/);
+    assert.doesNotMatch(QUICKLINKS, /ABLAGE_COUNT_LABEL/);
+    assert.doesNotMatch(NAVCOUNTS, /ABLAGE_COUNT_LABEL/);
+    // Die Kachel selbst bleibt: Der Weg in die Ablage ist weiter ein Weg, nur
+    // eben keine Aufgabe.
+    assert.ok(QUICKLINKS.includes('href: "/ablage"'));
+  });
+
+  test("die Arbeitsliste bekommt bewusst keinen Zähler", () => {
+    // Ihr Gold ist ABGELEITET (lib/dranRegel.ts): Zustand, Absage,
+    // Nachfass-Stempel, Berliner Tagesgrenze. Ein Badge müsste dieselben Zeilen
+    // laden wie die Seite — auf jeder Seite — oder die Regel ein zweites Mal
+    // als Filter formulieren; genau dagegen gibt es dranRegel.ts. Und /termine
+    // ist die Fläche, die man ohnehin öffnet.
+    assert.match(QUICKLINKS, /label: "Termine",[\s\S]{0,1200}?count: null,/);
   });
 
   test("nicht ermittelbar zeigt KEINE Zahl — und 0 auch nicht", () => {

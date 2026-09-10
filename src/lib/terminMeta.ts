@@ -186,10 +186,14 @@ function closingOutline(status: ClosingCall["status"], show: ShowStatus): EventO
  *
  * Ob ein Ersatztermin folgt (`cancel_outlook`), steht hier bewusst NICHT im
  * Chip. Das ist keine Eigenschaft dieses Termins mehr, sondern eine offene
- * Aufgabe — und die hat mit `/ablage` („Abgesagt, Ersatztermin steht aus")
- * ihren eigenen Ort samt Navigations-Zähler (docs §5.4). Zwei Rot-Töne für
- * eine Absage wären eine Unterscheidung, die im Kalender niemand nachschlagen
- * kann.
+ * Aufgabe — und offene Aufgaben stehen in der Terminliste, wo ein abgesagter
+ * Termin ohne Ersatz als „Offen" wieder auftaucht und täglich leuchtet
+ * (src/lib/dranRegel.ts). Zwei Rot-Töne für eine Absage wären eine
+ * Unterscheidung, die im Kalender niemand nachschlagen kann.
+ *
+ * Die Begründung zeigte bis zum Rückbau auf eine eigene Ablage-Ansicht samt
+ * Navigations-Zähler. Beides ist gefallen: Ein Archivreiter für offene Arbeit
+ * war die Ausnahme, die die eine Arbeitsliste unterlaufen hat.
  */
 const CANCELLED: EventOutline = { tone: "danger", dashed: true, dimmed: true };
 
@@ -211,11 +215,11 @@ export function outlineFor(
  *
  * Maßgeblich ist die Frage, die auch `setSettingOutcome` stellt: Beendet das
  * Ergebnis den Vorgang? `unqualifiziert` tut das ebenso wie `dead` — beide sind
- * „tote Enden" (docs §1), beide entwerten dort jede Erinnerung des Termins.
- * Dass hier bis hierher nur `dead` stand, machte ausgerechnet den häufigeren
- * der beiden Fälle ziehbar: Ein Zug im Kalender legte über
- * `moveSettingAppointment` → `generateSettingCascade` drei frische
- * „steht der Termin noch?"-Touches an einen disqualifizierten Lead.
+ * „tote Enden" (docs §1), beide planen ein Recycling-Datum statt eines nächsten
+ * Termins. Dass hier bis hierher nur `dead` stand, machte ausgerechnet den
+ * häufigeren der beiden Fälle ziehbar: Ein Zug im Kalender gab einem
+ * disqualifizierten Lead einen neuen Termin — und holte ihn damit in die
+ * Arbeitsliste zurück, aus der ihn das Ergebnis gerade genommen hatte.
  *
  * Bewusst NICHT dabei: `no_show` (der Vorgang geht weiter — ein Ersatztermin
  * ist der Normalfall), `qualifiziert`/`closing_gelegt` (der Vorgang ist ins

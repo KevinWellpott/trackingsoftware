@@ -13,7 +13,6 @@ import {
   Copy,
   Globe,
   Mail,
-  MessageCircle,
   Phone,
   Split,
   FileText,
@@ -72,7 +71,6 @@ const CHANNEL_ICON: Record<DossierChannel["kind"], React.ReactNode> = {
   linkedin: <AtSign size={12} />,
   email: <Mail size={12} />,
   phone: <Phone size={12} />,
-  whatsapp: <MessageCircle size={12} />,
   website: <Globe size={12} />,
 };
 

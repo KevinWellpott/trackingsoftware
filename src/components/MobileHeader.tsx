@@ -53,7 +53,9 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, view
   // Dieselbe Zusammenfassung wie am zugeklappten Block „Meine Arbeit" in der
   // Seitenleiste (sumNavCounts, Sidebar.tsx) — zwei eigene Summen waeren zwei
   // Gelegenheiten, dieselbe Zahl unterschiedlich zu bilden.
-  const pending = sumNavCounts([navCounts?.nachfassen, navCounts?.ablage]);
+  // Der Ablage-Zweig ist mit seiner Liste gefallen (lib/navCounts.ts); die
+  // Summenform bleibt, damit sich der naechste Zaehler an EINER Stelle einhaengt.
+  const pending = sumNavCounts([navCounts?.nachfassen]);
   const total = pending?.total ?? 0;
   const overdue = pending?.overdue ?? 0;
 

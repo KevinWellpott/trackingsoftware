@@ -82,6 +82,12 @@ function zustand(patch: Partial<TerminZustandInput>): TerminZustand {
       showStatus: null,
       at: MORGEN,
       cancelledAt: null,
+      // Die beiden Ablage-Felder aus 0032 gehören seit der Nachbesserung in die
+      // Eingabe — ohne sie stünde ein „abgesagt ohne Aussicht" täglich gold in
+      // der Arbeitsliste UND in der Ablage. Die Fälle selbst prüft
+      // tests/zaehlerUndArbeitsmenge.test.ts.
+      cancelOutlook: null,
+      noShowResolution: null,
       revivedAt: null,
       ...patch,
     },

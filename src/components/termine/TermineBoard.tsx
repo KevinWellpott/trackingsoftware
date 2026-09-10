@@ -4,10 +4,11 @@ import { moveSettingAppointment } from "@/app/actions/settingCalls";
 import { updateClosingCall } from "@/app/actions/closingCalls";
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { slotToIso } from "@/lib/apptTime";
-import { localDateISO } from "@/lib/dates";
+import { istInArbeitsmenge } from "@/lib/dranRegel";
+import { isStaleDue, letztesLebenszeichen, STALE_AFTER_DAYS } from "@/lib/staleTasks";
 import { buildEvents, type RueckrufAufgabe, type TerminEvent, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
-import { Plus } from "lucide-react";
+import { History, Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { CalendarMonth } from "./CalendarMonth";
@@ -46,6 +47,7 @@ export function TermineBoard({
   members,
   rueckrufe,
   rueckrufeVerfuegbar,
+  today,
   scopeUserId,
   canSeeAll,
 }: {
@@ -60,6 +62,13 @@ export function TermineBoard({
   rueckrufe: RueckrufAufgabe[];
   /** `false` = Abfrage gescheitert. „Nicht ermittelbar" ≠ „nichts zu tun". */
   rueckrufeVerfuegbar: boolean;
+  /**
+   * Der Berliner Kalendertag, VOM SERVER. Kein `localDateISO()` im Browser:
+   * Der Server läuft auf Vercel in UTC und lieferte damit abends einen anderen
+   * Tag als der Client — Hydrations-Unterschied und Rechenfehler in einem, weil
+   * die Gold-Regel den Nachfass-Stempel über Berlin bucketet (docs §6).
+   */
+  today: string;
   /**
    * Wessen Liste ist die Vorgabe — `effective_user_id ?? user.id`, dieselbe
    * Regel wie bei den Navigations-Zählern (docs §5.4). Bei aktiver Datensicht
@@ -79,9 +88,17 @@ export function TermineBoard({
   const sp = useSearchParams();
   const [, startTransition] = useTransition();
 
-  const today = localDateISO();
   const params = useMemo(() => parseTermineParams(sp, today), [sp, today]);
   const tab = tabForView(params.view);
+  /**
+   * `?altlasten=1` — der Ausweg aus dem Altlast-Schnitt (Muster /nachfassen).
+   *
+   * Bewusst NICHT `?alle=1` wie dort: Diese Seite trägt bereits einen Schalter
+   * „Alle" für den Zustands-Ausschnitt (`zeit=alle`). Zwei Bedienelemente, die
+   * beide „alles" heißen und Verschiedenes tun, machen eines von beiden
+   * unauffindbar.
+   */
+  const zeigeAltlasten = sp.get("altlasten") === "1";
 
   const [popover, setPopover] = useState<{ event: TerminEvent; anchor: DOMRect } | null>(null);
   const [showManual, setShowManual] = useState(false);
@@ -177,6 +194,41 @@ export function TermineBoard({
   );
 
   /**
+   * ── DER ALTLAST-SCHNITT DER ARBEITSLISTE ─────────────────────────────────
+   *
+   * „Zu tun" schnitt bis hierher ausschließlich nach ZUSTAND. Damit stand am
+   * ersten Tag jede jemals angelegte Zeile ohne Ergebnis in der Liste — bei 173
+   * Erstgesprächen und 50 Closings zweihundert gleichzeitig goldene Zeilen, und
+   * das ist dasselbe wie keine. Genau diesen Fehler hatte /nachfassen mit 425
+   * Aufgaben schon einmal (lib/staleTasks.ts).
+   *
+   * Er widerspricht „wer offen ist, wird JEDEN TAG kontaktiert" nicht, weil er
+   * kein Intervall ist: Er verzögert niemanden, sondern nimmt heraus, woran seit
+   * einem Monat niemand mehr war. Jeder „Genervt"-Klick erneuert das
+   * Lebenszeichen — eine bearbeitete Zeile kann gar nicht zur Altlast werden.
+   *
+   * Er trifft NUR die Arbeitsmenge und NUR die Liste: Der Kalender blendet
+   * weiterhin nichts aus (docs §1), und „Verlegt" ist ohnehin versorgt.
+   */
+  const istAltlast = useCallback(
+    (e: TerminEvent) =>
+      istInArbeitsmenge(e.zustand) &&
+      isStaleDue(e.kind, letztesLebenszeichen([e.at, e.lastContactedAt]), today),
+    [today],
+  );
+
+  const liste = useMemo(() => {
+    if (zeigeAltlasten) return { events: filtered, ohneTermin, versteckt: 0 };
+    let versteckt = 0;
+    const behalten = (e: TerminEvent) => {
+      if (!istAltlast(e)) return true;
+      versteckt++;
+      return false;
+    };
+    return { events: filtered.filter(behalten), ohneTermin: ohneTermin.filter(behalten), versteckt };
+  }, [filtered, ohneTermin, zeigeAltlasten, istAltlast]);
+
+  /**
    * Rückrufe folgen derselben Personenachse — aber über den LISTEN-Owner
    * (`list_owned_by_user()`, docs §2). Das sind die zwei Achsen, die im ganzen
    * Datenmodell nebeneinanderlaufen; sie hier zu vermischen hieße, einen
@@ -190,6 +242,20 @@ export function TermineBoard({
       return [r.company, r.decider].filter(Boolean).join(" ").toLowerCase().includes(q);
     });
   }, [rueckrufe, params.search, params.wer, scopeUserId]);
+
+  /**
+   * Derselbe Schnitt für die Rückrufe, mit der Grenze ihrer eigenen Kadenz (14
+   * Tage). Der Reiter lud bis hierher JEDEN Lead im Status `rueckruf` mit einem
+   * Datum, egal wie alt — ein verabredeter Rückruf vom Februar ist kein Rückruf
+   * mehr. Hier ist der Anker die Fälligkeit selbst: Anders als bei einem Termin
+   * gibt es eine verabredete Uhrzeit, und die ist entweder eingehalten oder
+   * vorbei.
+   */
+  const rueckrufListe = useMemo(() => {
+    if (zeigeAltlasten) return { aufgaben: rueckrufeGefiltert, versteckt: 0 };
+    const aufgaben = rueckrufeGefiltert.filter((r) => !isStaleDue("telefon", r.callbackAt, today));
+    return { aufgaben, versteckt: rueckrufeGefiltert.length - aufgaben.length };
+  }, [rueckrufeGefiltert, zeigeAltlasten, today]);
 
   // Auf den sichtbaren Zeitraum eingrenzen (Liste und Rückrufe zeigen alles).
   const range = rangeForView(params.view, params.date);
@@ -344,10 +410,39 @@ export function TermineBoard({
         </div>
       )}
 
+      {/* Was diese Seite ausblendet, steht ÜBER dem, was sie zeigt — mit Zahl,
+          Grenze und Ausweg. Der Kalender bekommt keine Zeile: Er blendet
+          nichts aus.
+          Nicht im Ausschnitt „Verlegt": Dort steht ohnehin nur Versorgtes, und
+          der Schnitt trifft ausschließlich die Arbeitsmenge — die Zeile nennte
+          dort eine Zahl, die in dieser Ansicht gar nichts weggenommen hat. */}
+      {tab === "liste" && params.zeit !== "verlegt" && (
+        <AltlastHinweis
+          versteckt={liste.versteckt}
+          zeigt={zeigeAltlasten}
+          grenzeTage={STALE_AFTER_DAYS.setting}
+          einzahl="Vorgang ohne Lebenszeichen ausgeblendet"
+          mehrzahl="Vorgänge ohne Lebenszeichen ausgeblendet"
+          alleText="Auch Aufgegebenes wird angezeigt — Vorgänge ohne Lebenszeichen stehen mit in der Liste"
+          onToggle={(an) => setParam("altlasten", an ? "1" : null)}
+        />
+      )}
+      {tab === "rueckruf" && (
+        <AltlastHinweis
+          versteckt={rueckrufListe.versteckt}
+          zeigt={zeigeAltlasten}
+          grenzeTage={STALE_AFTER_DAYS.telefon}
+          einzahl="lange überfälliger Rückruf ausgeblendet"
+          mehrzahl="lange überfällige Rückrufe ausgeblendet"
+          alleText="Auch Altlasten werden angezeigt — längst überfällige Rückrufe stehen mit in der Liste"
+          onToggle={(an) => setParam("altlasten", an ? "1" : null)}
+        />
+      )}
+
       {tab === "liste" ? (
         <TermineList
-          events={filtered}
-          ohneTermin={ohneTermin}
+          events={liste.events}
+          ohneTermin={liste.ohneTermin}
           zeit={params.zeit}
           today={today}
           sort={params.sort}
@@ -356,7 +451,7 @@ export function TermineBoard({
           onError={setError}
         />
       ) : tab === "rueckruf" ? (
-        <RueckrufListe aufgaben={rueckrufeGefiltert} verfuegbar={rueckrufeVerfuegbar} />
+        <RueckrufListe aufgaben={rueckrufListe.aufgaben} verfuegbar={rueckrufeVerfuegbar} />
       ) : params.view === "monat" ? (
         <CalendarMonth
           year={ay}
@@ -393,6 +488,81 @@ export function TermineBoard({
 
       {popover && (
         <EventPopover event={popover.event} anchor={popover.anchor} onClose={() => setPopover(null)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Die Hinweiszeile über einer Liste, die etwas versteckt.
+ *
+ * Sie ist die BEDINGUNG, unter der ein Schnitt überhaupt vertretbar ist: Die
+ * Zahl steht sichtbar da, die Grenze daneben, der Ausweg in derselben Zeile.
+ * Ohne sie wäre der Schnitt ein lautloses Verschwinden — und der Nutzer suchte
+ * nach einem Lead, den die Software ihm ohne Ansage weggenommen hat.
+ *
+ * Zurückgeschaltet wird über den URL-Parameter statt über einen lokalen
+ * Zustand: Der Zustand „ich sehe gerade auch die Altlasten" gehört in einen
+ * teilbaren Link, genau wie jeder andere Filter dieser Seite.
+ */
+function AltlastHinweis({
+  versteckt,
+  zeigt,
+  grenzeTage,
+  einzahl,
+  mehrzahl,
+  alleText,
+  onToggle,
+}: {
+  versteckt: number;
+  /** true = `?altlasten=1`, es wird gerade nichts versteckt. */
+  zeigt: boolean;
+  grenzeTage: number;
+  einzahl: string;
+  mehrzahl: string;
+  alleText: string;
+  onToggle: (an: boolean) => void;
+}) {
+  if (!zeigt && versteckt === 0) return null;
+
+  const zeile: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--sp-4)",
+    flexWrap: "wrap",
+    fontSize: "var(--fs-xs)",
+    color: "var(--text-muted)",
+    marginBottom: "var(--sp-6)",
+  };
+  const schalter: React.CSSProperties = {
+    border: "none",
+    background: "none",
+    padding: 0,
+    font: "inherit",
+    color: "var(--orange-300)",
+    fontWeight: 500,
+    cursor: "pointer",
+  };
+
+  return (
+    <div style={zeile}>
+      <History size={12} style={{ flexShrink: 0 }} aria-hidden />
+      {zeigt ? (
+        <>
+          <span>{alleText}</span>
+          <button type="button" style={schalter} onClick={() => onToggle(false)}>
+            Nur aktuelle Arbeit
+          </button>
+        </>
+      ) : (
+        <>
+          <span>
+            {versteckt} {versteckt === 1 ? einzahl : mehrzahl} (seit über {grenzeTage} Tagen)
+          </span>
+          <button type="button" style={schalter} onClick={() => onToggle(true)}>
+            Trotzdem anzeigen
+          </button>
+        </>
       )}
     </div>
   );

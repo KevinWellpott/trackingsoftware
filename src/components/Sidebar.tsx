@@ -6,7 +6,7 @@ import { createListForm } from "@/app/actions/lists";
 import { SearchTrigger } from "@/components/search/SearchDialog";
 import { ViewTree } from "@/components/listen/ViewTree";
 import type { ViewNode } from "@/lib/listViews";
-import { ABLAGE_COUNT_LABEL, type NavCount, type NavCounts } from "@/lib/navCounts";
+import { type NavCount, type NavCounts } from "@/lib/navCounts";
 import {
   Archive,
   BarChart2,
@@ -1037,11 +1037,17 @@ export function SidebarContent({
   const [showManualAppt, setShowManualAppt] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  // Das Abzeichen am zugeklappten Block „Meine Arbeit". Die Einzelzahlen
-  // stehen weiter an ihren Zeilen; diese Summe erscheint NUR zugeklappt und
-  // beantwortet dort die einzige Frage, die von aussen zaehlt: „liegt da
-  // etwas, und ist etwas davon zu spaet?"
-  const arbeitCount = sumNavCounts([navCounts?.nachfassen, navCounts?.ablage]);
+  // Das Abzeichen am zugeklappten Block „Meine Arbeit". Die Einzelzahl steht
+  // weiter an ihrer Zeile; diese Summe erscheint NUR zugeklappt und beantwortet
+  // dort die einzige Frage, die von aussen zaehlt: „liegt da etwas, und ist
+  // etwas davon zu spaet?"
+  //
+  // Es ist derzeit eine Summe ueber EINEN Zweig: Der Ablage-Zaehler ist mit
+  // seiner Liste gefallen, /termine bekommt bewusst keinen (beides begruendet
+  // in lib/navCounts.ts). Die Summe bleibt trotzdem stehen — sie ist die
+  // Stelle, an der sich der naechste Zaehler einhaengt, und ihre Regel („null
+  // heisst nicht ermittelbar") gilt unveraendert.
+  const arbeitCount = sumNavCounts([navCounts?.nachfassen]);
 
   const isImpersonating = Boolean(dataView?.activeUserId);
   const teamUsers = (dataView?.users ?? []).filter((u) => u.username !== username);
@@ -1276,7 +1282,24 @@ export function SidebarContent({
           count={arbeitCount}
           countLabel={["offene Aufgabe", "offene Aufgaben"]}
         >
-          <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
+          {/* Die zentrale Arbeitsflaeche — und die einzige Zeile des Blocks
+              ohne Zaehler. Das ist eine Entscheidung, keine Luecke: Ihr Gold
+              ist aus Zustand, Absage, Nachfass-Stempel und Berliner
+              Tagesgrenze ABGELEITET (lib/dranRegel.ts); ein Badge muesste
+              dieselben Zeilen laden wie die Seite — auf jeder Seite — oder die
+              Regel ein zweites Mal als Filter formulieren. Und /termine ist
+              die Flaeche, die man ohnehin oeffnet; ein Badge spricht fuer eine
+              Seite, die man sonst nicht aufmacht (ausfuehrlich in
+              lib/navCounts.ts). Der Tooltip bleibt trotzdem Pflicht: Er ist
+              die einzige Stelle, an der steht, welche Frage diese Zeile
+              beantwortet — bei drei aehnlich klingenden Nachbarn. */}
+          <NavLink
+            href="/termine"
+            icon={CalendarDays}
+            label="Termine"
+            onClick={onClose}
+            title="Die tägliche Arbeitsliste: wer liegt in der Luft und muss heute genervt werden, wer ist mit einem Termin versorgt. Dazu Kalender und fällige Telefon-Rückrufe."
+          />
           {/* DIE TOOLTIPS SIND DIE ABGRENZUNG, nicht Beiwerk: Sie sind die
               einzige Stelle, an der jemand ohne Doku erfaehrt, welche der drei
               Zeilen welche Frage beantwortet. Deshalb muessen sie mitwandern,
@@ -1303,11 +1326,12 @@ export function SidebarContent({
             label="Ablage"
             onClick={onClose}
             title="Ausgeschiedene Vorgänge: abgesagt, disqualifiziert, kein Close, No-Show ohne Antwort — plus die org-weite Sperrliste"
-            // Bewusst NICHT die Summe aller sechs Listen: Fuenf davon sind ein
-            // Aktenschrank, der nie auf null geht. Gezaehlt wird die eine Liste
-            // mit offener Handlung (navCounts.ts).
-            count={navCounts?.ablage}
-            countLabel={ABLAGE_COUNT_LABEL}
+            // OHNE ZAEHLER, und zwar seit dem Rueckbau der Ablage. Gezaehlt
+            // wurde die eine Liste mit offener Handlung („Ersatztermin steht
+            // aus") — und genau die gibt es hier nicht mehr, ihr Inhalt steht
+            // taeglich in der Terminliste. Uebrig sind zwei Aktenschraenke, die
+            // nie auf null gehen; ein Badge darauf waere eine Mahnung ohne
+            // Adressat (docs §5.4, ausfuehrlich in lib/navCounts.ts).
           />
         </CollapsibleSection>
 

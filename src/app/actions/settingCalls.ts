@@ -55,18 +55,6 @@ export type SettingCallPatch = {
   notes?: string | null;
   lead_name?: string | null;
   company?: string | null;
-  /** Persönliche WhatsApp-Nummer des Entscheiders — NICHT dieselbe wie `phone` (Einwahlnummer bei meeting_kind='telefon'). */
-  wa_phone?: string | null;
-  /** Zeitstempel der dokumentierten Einwilligung zur WhatsApp-Kontaktierung (UWG). */
-  wa_consent_at?: string | null;
-  /**
-   * Dokumentierte Verweigerung „will keine Nummer rausgeben" (Entscheidung E10).
-   * Muss schreibbar sein, sonst ist die begründete Ausnahme beim Übergang
-   * Qualifiziert → Closing nicht erfassbar — und eine Verweigerung wäre von einer
-   * Erfassungslücke nicht zu unterscheiden. Die CHECKs aus 0032 verlangen dabei:
-   * gesetzt nur OHNE `wa_phone`, und `wa_consent_at` nur MIT einer Nummer.
-   */
-  wa_refused_at?: string | null;
 };
 
 async function canAccessSettingCall(id: string): Promise<boolean> {
@@ -77,16 +65,16 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
   if (!(await canAccessSettingCall(id))) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
 
-  // Zwei Normalisierungen, die kein Aufrufer vergessen können darf: der
-  // No-Show-Ausgang folgt dem Show-Status, die WhatsApp-Einwilligung der
-  // Nummer. Beide halten je einen CHECK aus 0032 ein.
+  // Eine Normalisierung, die kein Aufrufer vergessen können darf: der
+  // No-Show-Ausgang folgt dem Show-Status (CHECK aus 0032). Davor fällt ab, was
+  // gar nicht mehr erfasst wird.
   //
   // Der frühere Vorher-Lesen-Block darüber ist mit dem Rückbau entfallen: Er
   // ermittelte den alten `show_status` einzig, um beim Weg zurück auf
   // „erschienen" die No-Show-Kette zu entwerten. Ohne Kette gibt es nichts mehr
   // zu entwerten — und eine zusätzliche Abfrage vor jedem Speichern erst recht
   // nicht.
-  const normalized = withWaConsentDerived(withNoShowResolutionCleared(patch));
+  const normalized = withNoShowResolutionCleared(ohneWhatsApp(patch));
   const { error } = await supabase.from("setting_calls").update(normalized).eq("id", id);
   if (error) return { error: error.message };
 
@@ -302,9 +290,12 @@ async function mirrorAppointmentToSource(settingId: string, appointmentIso: stri
  * abgesagt und als terminiert da — die Arbeitsliste liest genau dieses Paar
  * (src/lib/dranRegel.ts) und hielte den Lead für versorgt. Der Weg zurück führt
  * über „Neuen Termin ansetzen" (actions/followUpStamp.ts), das die Absage
- * ausdrücklich für überholt erklärt. Die Oberfläche sperrt den Chip inzwischen
- * ebenfalls (`moveLockReason`); die Prüfung gehört trotzdem hierher, weil eine
- * Server Action per direktem POST erreichbar ist.
+ * ausdrücklich für überholt erklärt — und genau deshalb liest der Riegel
+ * `revived_at` mit (`absageWirktNoch`): Eine zurückgeholte Zeile ist wieder
+ * verschiebbar, sonst wäre sie ab dem neuen Termin für immer eingefroren. Die
+ * Oberfläche sperrt den Chip inzwischen ebenfalls (`moveLockReason`); die
+ * Prüfung gehört trotzdem hierher, weil eine Server Action per direktem POST
+ * erreichbar ist.
  */
 export async function moveSettingAppointment(
   settingId: string,
@@ -317,10 +308,10 @@ export async function moveSettingAppointment(
   const supabase = await createClient();
   const { data: before } = await supabase
     .from("setting_calls")
-    .select("cancelled_at")
+    .select("cancelled_at, revived_at")
     .eq("id", settingId)
     .maybeSingle();
-  if ((before as { cancelled_at: string | null } | null)?.cancelled_at) {
+  if (absageWirktNoch(before as { cancelled_at: string | null; revived_at: string | null } | null)) {
     return { error: CANCELLED_MOVE_HINT };
   }
 
@@ -578,35 +569,54 @@ function withNoShowResolutionCleared<T extends { show_status?: "show" | "no_show
 }
 
 /**
- * Die Einwilligung folgt der NUMMER — es gibt kein Häkchen mehr dafür.
+ * Die drei WhatsApp-Spalten aus dem Patch werfen — der letzte Schreibpfad, den
+ * der Rückbau übersehen hatte.
  *
- * Wer seine persönliche Nummer im Erstgespräch für genau diesen Zweck
- * herausgibt, hat eingewilligt; das frühere zweite Feld daneben fragte
- * dasselbe noch einmal und blieb in der Praxis leer. Teuer war das zuerst an
- * der Kaskade (eine Nummer ohne Stempel schaltete die WhatsApp-Spur lautlos
- * ab); nach deren Rückbau bleibt der Grund, der ohnehin der wichtigere war:
- * Der Stempel ist der NACHWEIS der Einwilligung — ohne ihn steht eine Nummer
- * in der Zeile, für die niemand belegen kann, dass man sie benutzen darf
- * (UWG, auch B2B).
+ * Welle 3 hat den WhatsApp-Block aus dem Setting-Editor gestrichen; die
+ * Kaskade, die einen Kanal wählen musste, gibt es nicht mehr. Geblieben war
+ * eine Server Action, die eine persönliche Mobilnummer samt
+ * Einwilligungs-Zeitstempel (UWG, auch B2B) entgegennahm — ohne Oberfläche,
+ * also ausschließlich per direktem POST erreichbar. Die frühere Ableitung an
+ * dieser Stelle ERZEUGTE den Zeitstempel sogar, wenn keiner mitkam: ein
+ * Einwilligungs-NACHWEIS, den nie jemand eingeholt hat.
  *
- * Die Ableitung sitzt HIER und nicht nur im Editor, weil eine Server Action
- * per direktem POST erreichbar ist und weil beide CHECKs aus 0032 damit
- * strukturell erfüllt sind, egal wer schreibt: `wa_consent_at` steht nur MIT
- * Nummer, und eine geleerte Nummer nimmt ihren Beleg mit. `wa_refused_at`
- * (nur OHNE Nummer) bleibt Sache des Aufrufers — es ist eine Aussage, keine
- * Ableitung.
+ * ES GENÜGT NICHT, die Felder aus `SettingCallPatch` zu nehmen. Der Patch geht
+ * unverändert an `.update()`; ein TypeScript-Typ ist zur Laufzeit nichts, und
+ * ein POST mit `wa_phone` käme weiterhin durch. Der Riegel muss deshalb ein
+ * echtes Abstreifen sein.
  *
- * Nebeneffekt, der so gewollt ist: Eine Bestandszeile mit Nummer, aber ohne
- * Stempel bekommt ihn beim nächsten Speichern der Nummer nachgereicht.
+ * Die SPALTEN bleiben in der Datenbank (so entschieden) und mit ihnen die
+ * CHECKs aus 0032. Verletzen kann sie nach diesem Schritt niemand mehr: Es
+ * schreibt sie schlicht nichts.
  */
-function withWaConsentDerived<T extends { wa_phone?: string | null; wa_consent_at?: string | null }>(patch: T): T {
-  if (!("wa_phone" in patch)) return patch;
-  const phone = patch.wa_phone?.trim() || null;
-  return {
-    ...patch,
-    wa_phone: phone,
-    wa_consent_at: phone ? (patch.wa_consent_at ?? new Date().toISOString()) : null,
-  };
+function ohneWhatsApp<T extends object>(patch: T): T {
+  // Auf einer KOPIE, nicht am übergebenen Objekt — dieselbe Bauart wie
+  // `withNoShowResolutionCleared`: Ein Helfer, der seinem Aufrufer den Patch
+  // unter den Händen verändert, ist der nächste stille Fehler.
+  const rest = { ...patch } as Record<string, unknown>;
+  for (const feld of ["wa_phone", "wa_consent_at", "wa_refused_at"]) delete rest[feld];
+  return rest as T;
+}
+
+/**
+ * Ist die Absage dieser Zeile noch WIRKSAM? — die Frage hinter allen drei
+ * Termin-Riegeln.
+ *
+ * Eine Absage lässt `appointment_at` stehen (docs §3); erst `revived_at` sagt
+ * „die Absage ist überholt, es steht wieder ein Termin" — geschrieben von
+ * „Neuen Termin ansetzen" (actions/followUpStamp.ts). Wer nur `cancelled_at`
+ * liest, hält eine zurückgeholte Zeile für abgesagt und sperrt sie dauerhaft:
+ * Der Kalender-Zug prallt ab, die Detailseite weist ab, und weil die Zeile in
+ * der Arbeitsliste als „Verlegt" gilt, hat sie dort auch keine Knöpfe mehr.
+ *
+ * Dasselbe PAAR liest `terminZustand()` (src/lib/dranRegel.ts), und `revived_at`
+ * ist zugleich der Riegel, mit dem `recycle_tasks` eine zurückgeholte Zeile aus
+ * der Wiedervorlage nimmt (docs §5). Der Termin-Riegel las bis hierher nur die
+ * eine Hälfte — dieselbe Fehlerklasse wie „wer nur `status` liest, hält einen
+ * abgesagten Termin für offen".
+ */
+function absageWirktNoch(row: { cancelled_at: string | null; revived_at?: string | null } | null): boolean {
+  return Boolean(row?.cancelled_at) && !row?.revived_at;
 }
 
 // Die Pruefung stuetzt sich nicht allein darauf, dass RLS die Zeile
@@ -676,17 +686,23 @@ export async function postponeAppointment(
   const table = APPOINTMENT_TABLE[entityType];
   const { data } = await supabase
     .from(table)
-    .select("reschedule_count, cancelled_at")
+    .select("reschedule_count, cancelled_at, revived_at")
     .eq("id", id)
     .maybeSingle();
-  const current = data as { reschedule_count: number | null; cancelled_at: string | null } | null;
+  const current = data as {
+    reschedule_count: number | null;
+    cancelled_at: string | null;
+    revived_at: string | null;
+  } | null;
   if (!current) return { error: "Termin nicht gefunden." };
   // Ein abgesagter Termin bekommt hier kein neues Datum: die Zeile stünde
   // danach zugleich als abgesagt und als terminiert da — genau das Paar, aus
   // dem die Arbeitsliste ablesen muss, ob der Lead versorgt ist. Der Weg zurück
-  // führt über „Neuen Termin ansetzen". Denselben Satz gibt der Kalender-Riegel
-  // aus, deshalb steht er als Konstante daneben.
-  if (current.cancelled_at) return { error: CANCELLED_MOVE_HINT };
+  // führt über „Neuen Termin ansetzen", und weil der die Absage für überholt
+  // erklärt, zählt hier das PAAR und nicht die Absage allein (`absageWirktNoch`).
+  // Denselben Satz gibt der Kalender-Riegel aus, deshalb steht er als Konstante
+  // daneben.
+  if (absageWirktNoch(current)) return { error: CANCELLED_MOVE_HINT };
 
   const count = (current.reschedule_count ?? 0) + (byLead ? 1 : 0);
   const patch: Record<string, unknown> = { [APPOINTMENT_TIME_COLUMN[entityType]]: appointmentIso };

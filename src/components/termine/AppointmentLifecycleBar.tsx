@@ -221,7 +221,7 @@ export function AppointmentLifecycleBar({
         title={
           cancelled
             ? "Der Termin ist abgesagt — ein Ersatztermin wird als neuer Termin angelegt."
-            : "Termin auf einen anderen Zeitpunkt legen. Die Erinnerungen werden neu berechnet."
+            : "Termin auf einen anderen Zeitpunkt legen. Liegt er in der Zukunft, gilt der Lead als verlegt."
         }
         style={barButton}
       >
@@ -272,7 +272,7 @@ export function AppointmentLifecycleBar({
         subtitle={
           limitWarn
             ? undefined
-            : "Status und Ergebnis bleiben, nur der Zeitpunkt wandert. Die Erinnerungen werden neu berechnet."
+            : "Status und Ergebnis bleiben, nur der Zeitpunkt wandert. In der Terminliste steht der Lead danach als „Verlegt“, solange der neue Zeitpunkt nicht vorbei ist."
         }
       >
         {limitWarn ? (

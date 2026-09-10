@@ -131,6 +131,11 @@ export const TERMIN_ZUSTAND_LABEL: Record<TerminZustand, string> = {
  * `verlegt` ist bewusst NICHT dabei (er ist versorgt), und die sechs
  * Ergebnis-Zustände sind es ebenso wenig — die beenden den Vorgang oder
  * schieben ihn eine Stufe weiter, wo er seine eigene Zeile hat.
+ *
+ * DIE GRENZE ZUR ABLAGE LIEGT NICHT IM STATUS. Zwei Endzustände des
+ * Termin-Lebenszyklus (Migration 0032) lassen `status` unangetastet und wären
+ * ohne eigene Prüfung als `offen`/`no_show` in dieser Menge gelandet — siehe
+ * `AUS_DEM_FUNNEL` unten.
  */
 const ARBEITSMENGE: ReadonlySet<TerminZustand> = new Set<TerminZustand>(["offen", "no_show", "show"]);
 
@@ -149,12 +154,52 @@ export type TerminZustandInput = {
   /** `cancelled_at` (Migration 0032) — steht in KEINEM Status (docs §3). */
   cancelledAt: string | null;
   /**
+   * `cancel_outlook` (Migration 0032) — `ohne_aussicht` | `neuer_termin`.
+   * Die beiden Werte trennen zwei Fälle, die nicht zusammenfallen dürfen:
+   * totes Ende gegen offenen Ersatztermin (docs §4).
+   */
+  cancelOutlook: string | null;
+  /**
+   * `no_show_resolution` (Migration 0032) — `antwort` | `ohne_antwort` |
+   * `ersatztermin`. `ohne_antwort` ist der einzige saubere Auslöser für die
+   * Ablage-Ansicht „No-Show ohne Antwort" (docs §4).
+   */
+  noShowResolution: string | null;
+  /**
    * `revived_at` (Migration 0032) — „die Absage ist überholt, es steht wieder
    * ein Termin". Bis zum Rückbau setzte diese Spalte KEIN Schreibpfad; sie war
    * ausdrücklich als Feld vorbereitet und als Bedienschritt offen (docs §3).
    * Der Knopf „Neuen Termin ansetzen" in der Arbeitsliste ist dieser Schritt.
    */
   revivedAt: string | null;
+};
+
+/**
+ * Der Zustand, den ein aus dem Funnel gefallener Vorgang trägt — je Termin-Art
+ * das vorhandene negative Ende.
+ *
+ * ── WARUM DAS ÜBERHAUPT NÖTIG IST ────────────────────────────────────────
+ * Der Termin-Lebenszyklus aus Migration 0032 hat bewusst KEINEN neuen
+ * `status`-Wert bekommen (docs §3): Eine Absage steht in `cancelled_at` +
+ * `cancel_outlook`, ein No-Show ohne Antwort in `no_show_resolution` — der
+ * Status bleibt in beiden Fällen `offen` bzw. der Show-Status stehen. Wer nur
+ * `status` liest, hält beide für laufende Vorgänge.
+ *
+ * Genau das ist hier passiert: Ein „abgesagt ohne Aussicht" stand täglich gold
+ * in „Zu tun" UND in der Ablage. Die eine Seite sagte „aus dem Funnel
+ * gefallen", die andere „nerve ihn heute" — und es gab keinen Handgriff, der
+ * das aufgelöst hätte, außer die Zeile ein zweites Mal auf Tot zu setzen.
+ *
+ * ── WARUM KEIN EIGENER ZUSTAND „AUSGESCHIEDEN" ───────────────────────────
+ * Er wäre der elfte, und die zehn sind wörtlich die Liste des Auftraggebers.
+ * Beide Fälle haben in seinen Worten längst einen Namen: Beim Erstgespräch ist
+ * der Lead „Tot", beim Closing ist es „Kein Close". Beide sind ohnehin genau
+ * das, was in der Ablage unter „Ausgeschieden" steht und was das Recycling
+ * später wieder hervorholt.
+ */
+const AUS_DEM_FUNNEL: Record<TerminZustandInput["kind"], TerminZustand> = {
+  setting: "tot",
+  closing: "kein_close",
 };
 
 /**
@@ -165,14 +210,20 @@ export type TerminZustandInput = {
  *     `qualifiziert`/`closing_gelegt` beenden ihn nicht, schieben ihn aber ins
  *     Closing weiter; die Arbeit hängt ab dort an der Closing-Zeile, sonst
  *     stünde derselbe Mensch zweimal auf derselben Liste.
- *  2. STEHT EIN TERMIN? Dann ist er versorgt. Der Zeitpunkt wird auf
+ *  2. ABGESAGT OHNE AUSSICHT? Dann ist er aus dem Funnel — ohne dass ein
+ *     Status das sagt (`AUS_DEM_FUNNEL`). Steht vor der Termin-Frage, weil die
+ *     Zeile ihr altes Datum behält; ohne `revived_at` gibt es keinen Ersatz.
+ *  3. STEHT EIN TERMIN? Dann ist er versorgt. Der Zeitpunkt wird auf
  *     BERLINER KALENDERTAGE verglichen und nicht auf die Minute: Diese Liste
  *     hat Tages-Körnung wie alles außer dem Telefon-Rückruf (docs §6), und ein
  *     Termin, der heute um 10:00 war, soll nicht ab 10:01 golden mahnen —
  *     dafür gibt es den No-Show-Eintrag.
- *  3. WAS IST BEIM TERMIN PASSIERT? `show_status` ist die einzige Quelle dafür;
- *     `closing_calls` kennt gar keinen No-Show-Status (docs §4).
- *  4. Sonst: offen.
+ *  4. WAS IST BEIM TERMIN PASSIERT? `show_status` ist die einzige Quelle dafür;
+ *     `closing_calls` kennt gar keinen No-Show-Status (docs §4). Ein No-Show,
+ *     auf den nie eine Antwort kam, ist ebenfalls aus dem Funnel — geprüft
+ *     NACH der Termin-Frage, damit ein inzwischen angesetzter Ersatztermin
+ *     gewinnt.
+ *  5. Sonst: offen.
  */
 export function terminZustand(row: TerminZustandInput, today: string): TerminZustand {
   if (row.kind === "setting") {
@@ -185,8 +236,21 @@ export function terminZustand(row: TerminZustandInput, today: string): TerminZus
     if (row.status === "verloren") return "kein_close";
   }
 
+  // Abgesagt UND ohne Aussicht auf einen neuen Termin: Das ist die
+  // Ablage-Ansicht „Ausgeschieden" und der Recycling-Zweig `ohne_aussicht`
+  // (docs §5). `revived_at` hebt es auf — dann steht wieder ein Termin, und
+  // Schritt 3 entscheidet.
+  if (row.cancelledAt && row.cancelOutlook === "ohne_aussicht" && !row.revivedAt) {
+    return AUS_DEM_FUNNEL[row.kind];
+  }
+
   if (stehtNochAn(row, today)) return "verlegt";
-  if (row.showStatus === "no_show") return "no_show";
+  if (row.showStatus === "no_show") {
+    // „ohne_antwort" ist die ausdrückliche Feststellung, dass nach dem No-Show
+    // nichts mehr kam — dieselbe Zeile liegt in der Ablage und im Recycling.
+    // „antwort" und „ersatztermin" sind dagegen laufende Vorgänge.
+    return row.noShowResolution === "ohne_antwort" ? AUS_DEM_FUNNEL[row.kind] : "no_show";
+  }
   if (row.showStatus === "show") return "show";
   return "offen";
 }

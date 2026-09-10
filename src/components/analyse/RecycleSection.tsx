@@ -33,13 +33,28 @@ import { Footnote, MetricTable, StatRow, type MetricRow } from "@/components/ana
 // daraus wäre eine Treppe mit drei Stufen, die nach Wachstum aussieht.
 //
 // Und seit dem Rückbau auf das FLACHE Recycling — eine Frist für alle vier
-// Ursprünge, kein Grund, kein Deckel — dreierlei nicht mehr: die Kennzahl „Am
-// Deckel" (es gibt keinen), die Aufschlüsselung je Grund (es gibt keinen
-// Grund-Code mehr, nach dem sich staffeln ließe) und die Verteilung der
-// Versuche (sie diente ausschließlich dazu, Deckel und erstes Intervall
-// gegeneinander zu justieren). Der Ursprung bleibt die eine Achse, die noch
-// etwas trennt: Ob ein totes Telefonat oder ein verlorenes Closing die besseren
-// Wiederbelebungen liefert, ist auch bei EINER Frist eine Entscheidung wert.
+// Ursprünge, kein Grund — zweierlei nicht mehr: die Aufschlüsselung je Grund
+// (es gibt keinen Grund-Code mehr, nach dem sich staffeln ließe) und die
+// Häufigkeitstabelle über den Versuchszähler (sie diente ausschließlich dazu,
+// Deckel und erstes Intervall gegeneinander zu justieren; justiert wird nicht
+// mehr). Der Ursprung bleibt die eine Achse, die noch etwas trennt: Ob ein
+// totes Telefonat oder ein verlorenes Closing die besseren Wiederbelebungen
+// liefert, ist auch bei EINER Frist eine Entscheidung wert.
+//
+// ── Die Kennzahl „Am Deckel" fehlt — und das ist eine LÜCKE, keine Aussage ──
+// Hier stand „es gibt keinen [Deckel]". Das war falsch: `recycle_attempt()`
+// (Migration 0033, eingefroren) nullt bei `recycle_attempt_count >=
+// max_attempts` das `next_recycle_at`, `recycleBlockedReason` sperrt daraufhin
+// „Jetzt wieder anschreiben", und die Ablage zeigt „1 von 2". Der Deckel wirkt
+// also — er war nur unsichtbar, und diese Sektion behauptete ausgerechnet als
+// einzige mögliche Messstelle, es gebe ihn nicht. Verstellbar ist er seit dem
+// Rückbau der Rückbau-Karte wieder (`/settings`, `max_attempts`).
+//
+// Die KENNZAHL dazu ist trotzdem nicht zurück, und der Grund ist mechanisch:
+// `loadRecycleData` (src/lib/analyseData.ts) lädt `recycle_attempt_count` nicht
+// mehr, `AnalyseRecycleRow` führt das Feld nicht, und `max_attempts` käme aus
+// einer zweiten Abfrage. Ohne beides wäre „Am Deckel" geraten. Wer die Zahl
+// wiederhaben will, fängt in `analyseData.ts` an, nicht hier.
 //
 // ── Zeitachsen ──────────────────────────────────────────────────────────────
 // Zwei, und sie werden getrennt beschriftet, statt in eine Zahl gemischt zu

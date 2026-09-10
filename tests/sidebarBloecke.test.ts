@@ -186,26 +186,35 @@ describe("Navigations-Zähler", () => {
     // Benachrichtigung. Gezeigt wird es NUR zugeklappt (aufgeklappt stehen
     // daneben die Einzelzahlen), und es erbt den Überfällig-Ton.
     //
-    // Es sind seit dem Rückbau zwei statt drei: Der Erinnerungs-Zähler ist mit
-    // seiner Seite gefallen (lib/navCounts.ts).
+    // Es waren drei, dann zwei, jetzt einer: Der Erinnerungs-Zähler ist mit
+    // seiner Seite gefallen, der Ablage-Zähler mit der Liste, die er zählte
+    // („Ersatztermin steht aus" — sie steht seit dem Rückbau in der
+    // Terminliste, nicht mehr in der Ablage; lib/navCounts.ts).
+    //
+    // Die Summenform bleibt trotzdem stehen, obwohl sie über einen Zweig
+    // summiert: Sie ist die Stelle, an der sich der nächste Zähler einhängt,
+    // und ihre Regel („null heißt nicht ermittelbar") ist die gleiche.
     assert.match(SIDEBAR, /const badge = !open && count && count\.total > 0 \? count : null;/);
     assert.match(SIDEBAR, /data-tone=\{badge\.overdue > 0 \? "overdue" : undefined\}/);
     assert.ok(block("arbeit").includes("count={arbeitCount}"));
-    assert.match(SIDEBAR, /const arbeitCount = sumNavCounts\(\[navCounts\?\.nachfassen, navCounts\?\.ablage\]\);/);
+    assert.match(SIDEBAR, /const arbeitCount = sumNavCounts\(\[navCounts\?\.nachfassen\]\);/);
   });
 
-  test("die Einzelzähler an den Zeilen bleiben erhalten", () => {
+  test("die Zeile mit einer abarbeitbaren Zahl trägt sie — die beiden anderen nicht", () => {
     const arbeit = block("arbeit");
     assert.ok(arbeit.includes("count={navCounts?.nachfassen}"));
-    assert.ok(arbeit.includes("count={navCounts?.ablage}"));
-    // Die Ablage zählt bewusst nur die eine Liste mit offener Handlung; ihre
-    // Beschriftung kommt deshalb aus navCounts.ts, nicht von hier.
-    assert.ok(arbeit.includes("countLabel={ABLAGE_COUNT_LABEL}"));
+    // Die Ablage ist seit dem Rückbau ein reines Archiv: Ein Badge darauf ginge
+    // nie auf null und wäre eine Mahnung ohne Adressat (docs §5.4). Und
+    // /termine bekommt bewusst keines — sein Gold ist abgeleitet, ein Zähler
+    // müsste die Regel ein zweites Mal formulieren (lib/navCounts.ts).
+    assert.doesNotMatch(arbeit, /count=\{navCounts\?\.ablage\}/);
+    assert.doesNotMatch(arbeit, /ABLAGE_COUNT_LABEL/);
+    assert.doesNotMatch(SIDEBAR, /ABLAGE_COUNT_LABEL/);
   });
 
   test("nicht ermittelbar wird nicht zur beruhigenden 0", () => {
-    // lib/navCounts.ts: `null` heißt „keine Datengrundlage". Sind alle drei
-    // Zweige null, darf am Kopf keine 0 stehen, sondern gar kein Abzeichen.
+    // lib/navCounts.ts: `null` heißt „keine Datengrundlage". Ist der Zweig
+    // null, darf am Kopf keine 0 stehen, sondern gar kein Abzeichen.
     assert.match(SIDEBAR, /return known \? \{ total, overdue \} : null;/);
   });
 
@@ -213,7 +222,7 @@ describe("Navigations-Zähler", () => {
     // Zwei eigene Summen wären zwei Gelegenheiten, dieselbe Zahl verschieden
     // zu bilden — auf genau den beiden Flächen, die nebeneinander stehen.
     assert.match(MOBILE, /import \{ MobileDrawer, sumNavCounts \} from "\.\/Sidebar";/);
-    assert.match(MOBILE, /sumNavCounts\(\[navCounts\?\.nachfassen, navCounts\?\.ablage\]\)/);
+    assert.match(MOBILE, /sumNavCounts\(\[navCounts\?\.nachfassen\]\)/);
     assert.doesNotMatch(MOBILE, /reduce\(\(n, c\) => n \+ \(c\?\./);
   });
 });

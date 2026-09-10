@@ -171,28 +171,28 @@ describe("Erinnerungen folgen der zuständigen Person, nicht dem Anmeldekonto", 
   // gelöscht; es entsteht keine Kaskade mehr, deren Zuweisung falsch ausfallen
   // könnte.
   //
-  // Der Test darunter bleibt und ist der wichtigere von beiden: Er hängt an
-  // `setAssignee` — dem einzigen Schreibpfad, der `reminder_touches` noch
-  // anfasst. Die Tabelle bleibt mit ihren Bestandszeilen stehen (Muster
-  // `call_assignees`), und der Guard `reminder_touches_ws_guard` aus 0032
-  // entwertet weiterhin lautlos, wenn eine Zuweisung über eine Org-Grenze
-  // zeigt.
+  // AUCH DER ZWEITE TEST IST GEFALLEN, und zwar eine Rückbauwelle später.
+  // HIER STAND: „„Niemand" zieht die offenen Erinnerungen zum Ersteller, statt
+  // sie zurückzulassen" — er pinnte `const touchAssignee = userId ??
+  // row.created_by_user_id` und das UPDATE auf `reminder_touches` in
+  // `setAssignee`. Das war der letzte Schreibpfad auf die Tabelle.
+  //
+  // Er hatte einen echten Gegenstand, solange /erinnerungen existierte: Blieben
+  // die Touches beim bisherigen Zuständigen, sah der bei `data_scope='own'` eine
+  // Karte ohne Lead-Namen, und der Ersteller bekam sie nie zu Gesicht. Es gibt
+  // keine Karten mehr. Was blieb, war ein Roundtrip und eine Revalidierung je
+  // Zuweisung auf eine Spalte ohne Leser.
+  //
+  // Was an die Stelle tritt, steht in erinnerungenTermine.test.ts (Block C):
+  // „Niemand" geht durch, eine Zuweisung über die Org-Grenze nicht, und
+  // `reminder_touches` wird gar nicht mehr angefasst. Hier bleibt die
+  // Gegenprobe, dass die Zuweisung selbst noch geschrieben wird — sonst ginge
+  // dieser Rückbau als „hier passiert nichts mehr" durch.
 
-  test("„Niemand\" zieht die offenen Erinnerungen zum Ersteller, statt sie zurückzulassen", () => {
-    // Der Termin fällt danach über `personOf()` auf den Ersteller zurück. Blieben
-    // die Touches beim bisherigen Zuständigen, sähe der bei `data_scope='own'`
-    // eine Karte ohne Lead-Namen (der Termin ist ihm durch die RLS entzogen),
-    // und der Ersteller bekäme sie nie zu Gesicht.
+  test("die Zuweisung selbst wird weiter geschrieben", () => {
     const body = sliceToEnd(ASSIGNEES, "export async function setAssignee(");
-    assert.match(body, /const touchAssignee = userId \?\? row\.created_by_user_id;/);
-    assert.match(body, /if \(touchAssignee\) \{/);
-    // Das Nachführen darf NICHT mehr an `if (userId)` hängen.
-    const touchUpdate = body.indexOf('.from("reminder_touches")');
-    assert.notEqual(touchUpdate, -1);
-    assert.ok(
-      body.lastIndexOf("if (touchAssignee)", touchUpdate) > body.lastIndexOf("if (userId)", touchUpdate),
-      "das Nachführen hängt weiter an `if (userId)`",
-    );
+    assert.match(body, /\.update\(\{ assigned_user_id: userId \}\)/);
+    assert.match(body, /\.eq\("workspace_id", access\.workspace_id\)/);
   });
 });
 

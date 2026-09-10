@@ -234,9 +234,24 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
     // Datum und stünde zugleich als abgesagt und als terminiert da — die
     // Begründung hat der Rückbau ausgetauscht (vorher: der Termin stünde ohne
     // Erinnerung da), die Regel nicht.
+    //
+    // ── GEÄNDERTE ANKER, weil der Riegel nur die HALBE Bedingung las ────────
+    // HIER STAND `.select("cancelled_at")` bzw. `if (current.cancelled_at)`.
+    // Die Regel ist dieselbe geblieben, ihre Bedingung war unvollständig: Der
+    // Riegel nennt in seinem eigenen Kommentar „Neuen Termin ansetzen" als den
+    // Weg zurück — und wies genau diesen Weg mit ab, weil er ihn an nichts
+    // erkennen konnte. Für ein abgesagtes CLOSING war der Knopf damit einer,
+    // der ausnahmslos scheitert; für ein Erstgespräch war die Zeile ab dem
+    // Ersatztermin für immer eingefroren.
+    //
+    // Maßgeblich ist deshalb das PAAR aus Absage und Rückholung
+    // (`absageWirktNoch`) — dieselben zwei Spalten, die `terminZustand()`
+    // längst zusammen liest. Die Zusicherung wird dadurch nicht schwächer:
+    // Eine Zeile OHNE `revived_at` bleibt gesperrt, und zwar an allen drei
+    // Stellen.
     const move = slice(SETTING_CALLS, "export async function moveSettingAppointment(", "\n/**");
-    assert.match(move, /\.select\("cancelled_at"\)/);
-    assert.match(move, /return \{ error: CANCELLED_MOVE_HINT \}/);
+    assert.match(move, /\.select\("cancelled_at, revived_at"\)/);
+    assert.match(move, /if \(absageWirktNoch\([\s\S]{0,120}return \{ error: CANCELLED_MOVE_HINT \}/);
 
     // Beim Closing gibt es kein `moveClosingAppointment`; der Kalender-Drag
     // landet in `updateClosingCall`. Der Vorher-Lesen-Block dort hat seit dem
@@ -244,12 +259,21 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
     // statt daneben auch den alten Show-Status zu holen.
     const update = slice(CLOSING_CALLS, "export async function updateClosingCall(", "\n/**");
     assert.match(update, /const appointmentChanged = "call_at" in patch;/);
-    assert.match(update, /if \(appointmentChanged\) \{[\s\S]*?before\?\.cancelled_at/);
+    assert.match(update, /if \(appointmentChanged\) \{[\s\S]*?absageWirktNoch\(before\)/);
     assert.match(update, /return \{ error: CANCELLED_MOVE_HINT \}/);
 
     // Und `postponeAppointment` benutzt denselben Satz statt einer zweiten
     // Formulierung derselben Regel.
-    assert.match(SETTING_CALLS, /if \(current\.cancelled_at\) return \{ error: CANCELLED_MOVE_HINT \}/);
+    assert.match(SETTING_CALLS, /if \(absageWirktNoch\(current\)\) return \{ error: CANCELLED_MOVE_HINT \}/);
+
+    // Die Bedingung selbst steht je Datei an EINER Stelle — drei Abschriften
+    // wären drei Regeln, die auseinanderlaufen.
+    for (const [name, quelle] of [
+      ["settingCalls.ts", SETTING_CALLS],
+      ["closingCalls.ts", CLOSING_CALLS],
+    ] as const) {
+      assert.match(quelle, /function absageWirktNoch\(row:[\s\S]{0,200}Boolean\(row\?\.cancelled_at\) && !row\?\.revived_at/, name);
+    }
   });
 });
 

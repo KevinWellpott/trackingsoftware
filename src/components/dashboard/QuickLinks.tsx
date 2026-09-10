@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Archive, CalendarDays, CalendarPlus, Clock } from "lucide-react";
 
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
-import { ABLAGE_COUNT_LABEL, type NavCount, type NavCounts } from "@/lib/navCounts";
+import { type NavCount, type NavCounts } from "@/lib/navCounts";
 
 // Quicklinks — der Tageseinstieg über dem ersten Zahlenblock.
 //
@@ -135,10 +135,16 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
     {
       href: "/termine",
       label: "Termine",
-      hint: "Kalender",
+      // „Kalender" stand hier bis zum Rückbau — und ist seither die falsche
+      // Auskunft: /termine öffnet in der ARBEITSLISTE, der Kalender ist der
+      // zweite Reiter. Die Kachel versprach damit ausgerechnet der Fläche, die
+      // morgens als erste angeklickt wird, das Nebenprodukt statt der Sache.
+      hint: "Wer liegt in der Luft",
       icon: CalendarDays,
-      // Es gibt keinen Termin-Zähler, und einer wäre auch keine Aufgabe: Ein
-      // Kalender ist voll oder leer, aber nie überfällig.
+      // KEIN Zähler, und das ist eine Entscheidung: Das Gold der Arbeitsliste
+      // ist abgeleitet (lib/dranRegel.ts) — ein Badge müsste dieselben Zeilen
+      // laden wie die Seite oder die Regel ein zweites Mal formulieren
+      // (Begründung in lib/navCounts.ts).
       count: null,
     },
     {
@@ -154,8 +160,11 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
       label: "Ablage",
       hint: "Aus dem Funnel gefallen",
       icon: Archive,
-      count: counts?.ablage ?? null,
-      countLabel: ABLAGE_COUNT_LABEL,
+      // Der Ablage-Zähler ist mit seiner Liste gefallen: Gezählt wurde
+      // „Ersatztermin steht aus", die einzige Ansicht mit offener Handlung —
+      // und die steht seit dem Rückbau in der Terminliste. Was übrig ist, sind
+      // zwei Aktenschränke, die nie auf null gehen (lib/navCounts.ts).
+      count: null,
     },
   ];
 

@@ -43,6 +43,17 @@ import type { ClosingCall, SettingCall } from "@/lib/types";
 export type WithCancellation<T> = T & {
   cancelled_at?: string | null;
   /**
+   * Migration 0032 — `ohne_aussicht` | `neuer_termin`. Ohne dieses Feld sähe
+   * ein abgesagter Vorgang ohne Aussicht wie ein ganz normal offener aus und
+   * stünde täglich in der Arbeitsliste UND in der Ablage (lib/dranRegel.ts).
+   */
+  cancel_outlook?: string | null;
+  /**
+   * Migration 0032 — `antwort` | `ohne_antwort` | `ersatztermin`. Dieselbe
+   * Doppelung wie oben, nur über den No-Show-Weg in die Ablage.
+   */
+  no_show_resolution?: string | null;
+  /**
    * Migration 0032 — „die Absage ist überholt, es steht wieder ein Termin".
    * Wird seit dem Rückbau von `setNeuerTermin` geschrieben; davor las die App
    * die Spalte nur (Ablage-Badge, Recycling-Riegel).
@@ -176,6 +187,8 @@ function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById, toda
       showStatus: c.show_status,
       at: c.appointment_at,
       cancelledAt: c.cancelled_at ?? null,
+      cancelOutlook: c.cancel_outlook ?? null,
+      noShowResolution: c.no_show_resolution ?? null,
       revivedAt: c.revived_at ?? null,
     },
     today,
@@ -223,6 +236,8 @@ function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById, toda
       showStatus: c.show_status,
       at: c.call_at,
       cancelledAt: c.cancelled_at ?? null,
+      cancelOutlook: c.cancel_outlook ?? null,
+      noShowResolution: c.no_show_resolution ?? null,
       revivedAt: c.revived_at ?? null,
     },
     today,

@@ -1,11 +1,17 @@
 // Der Rückbau des Analyse-Bereichs — festgehalten, damit er nicht zurückkriecht.
 //
 // WARUM DIESE DATEI: Der Geschäftspartner hat das Nachfass-System als
-// over-engineered zurückgewiesen; Kaskaden mit Stufenlogik, Vorlagen-Katalog,
-// Grund-Codes und Versuchs-Deckel fallen. Zwei Auswertungen standen
-// ausschließlich auf diesem Überbau und haben ohne ihn keinen Gegenstand mehr:
-// die „Erinnerungs-Disziplin" (Setting- und Closing-Tab) und die
-// Grund-/Deckel-Hälfte von „Lohnt das Recycling?" (Übersichts-Tab).
+// over-engineered zurückgewiesen; Kaskaden mit Stufenlogik, Vorlagen-Katalog
+// und Grund-Codes fallen. Zwei Auswertungen standen ausschließlich auf diesem
+// Überbau und haben ohne ihn keinen Gegenstand mehr: die
+// „Erinnerungs-Disziplin" (Setting- und Closing-Tab) und die Grund-Hälfte von
+// „Lohnt das Recycling?" (Übersichts-Tab).
+//
+// Der Versuchs-DECKEL stand hier ursprünglich in derselben Aufzählung. Er ist
+// nicht gefallen — er lebt in `recycle_attempt()` (Migration 0033,
+// eingefroren) weiter und wird in `/settings` wieder gestellt. Was aus der
+// Analyse fiel, ist die Kachel „Am Deckel", und zwar aus einem mechanischen
+// Grund: Der Loader lädt `recycle_attempt_count` nicht mehr.
 //
 // Eine Entfernung ist schwerer zu halten als eine Ergänzung: Sie hinterlässt
 // keine Stelle, an der ein Test von selbst rot wird. Beim nächsten Ausbau
@@ -90,10 +96,22 @@ describe("Rückbau — die Erinnerungs-Disziplin ist weg", () => {
 });
 
 describe("Rückbau — das Recycling zählt flach", () => {
-  test("kein Deckel: weder Kennzahl noch Spalte noch Einstellungs-Abfrage", () => {
-    // Eine Frist für alle vier Ursprünge, kein Grund, kein Deckel. „Am Deckel"
-    // hätte danach keinen Wert mehr, gegen den es rechnen könnte.
-    assert.doesNotMatch(RECYCLE_SECTION, /Am Deckel|atCap|maxAttempts/);
+  test("keine Deckel-Kennzahl: weder Kachel noch Spalte noch Einstellungs-Abfrage", () => {
+    // NACHGEZOGEN — der Test prüfte vorher `/Am Deckel|atCap|maxAttempts/` über
+    // die GANZE Datei und begründete das mit „kein Deckel". Die Begründung war
+    // falsch: `recycle_attempt()` (Migration 0033, eingefroren) nullt bei
+    // `recycle_attempt_count >= max_attempts` das `next_recycle_at`, und
+    // `recycleBlockedReason` sperrt daraufhin „Jetzt wieder anschreiben". Der
+    // Deckel wirkt; gefallen war nur seine Bedienung — was ihn unsichtbar
+    // machte, statt ihn abzuschaffen. Er ist deshalb wieder in `/settings`.
+    //
+    // Was hier zu halten bleibt, ist die KACHEL: Ohne `recycle_attempt_count`
+    // im Loader und ohne `max_attempts` in der Zeile wäre „Am Deckel" geraten.
+    // Geprüft wird deshalb die Kachel-Deklaration und die Rechnung, nicht mehr
+    // das Wort — der Dateikopf der Sektion nennt die Lücke absichtlich beim
+    // Namen, und eine Erklärung darf ihren Gegenstand benennen.
+    assert.doesNotMatch(RECYCLE_SECTION, /label: "Am Deckel"/);
+    assert.doesNotMatch(RECYCLE_SECTION, /atCap|maxAttempts|attemptCount/);
     assert.doesNotMatch(ANALYSE_DATA, /maxAttempts|max_attempts|pipeline_settings/);
   });
 
@@ -111,7 +129,9 @@ describe("Rückbau — das Recycling zählt flach", () => {
 
   test("keine Verteilung der Versuche", () => {
     // Sie diente ausschließlich dazu, Deckel und erstes Intervall
-    // gegeneinander zu justieren — der Deckel ist weg, damit auch der Zweck.
+    // gegeneinander zu justieren. Justiert wird nicht mehr: Die Frist gilt für
+    // alle vier Ursprünge gleich, und der Deckel ist eine Zahl zwischen 1 und
+    // 5, die man einstellt statt sie aus einer Verteilung abzulesen.
     assert.doesNotMatch(RECYCLE_SECTION, /attemptDist|attemptSlot|ATTEMPT_LABELS|Verteilung der Versuche/);
     // Der Versuchszähler wird weder geladen noch durchgereicht. Geprüft am
     // Wert von RECYCLE_TOUCHED, nicht an der ganzen Datei — der Kommentar

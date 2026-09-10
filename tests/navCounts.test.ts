@@ -1,33 +1,44 @@
-// Die beiden Aufgaben-Zähler der Seitenleiste.
+// Der Aufgaben-Zähler der Seitenleiste.
 //
-// FRÜHER WAREN ES DREI. Der dritte hing an /erinnerungen und damit an der
-// Erinnerungs-Kaskade; beide sind mit dem Rückbau gefallen. Die Erwartungen
-// dieser Datei haben sich deshalb an genau einer Stelle geändert: `NavCounts`
-// trägt keinen Zweig `erinnerungen` mehr, und keine Abfrage rührt
-// `reminder_touches` an. Die vier Entscheidungen darunter sind unverändert —
-// sie beschreiben, wie ein Zähler zu seiner Zahl kommt, nicht welche es gibt.
+// FRÜHER WAREN ES DREI, DANN ZWEI, JETZT EINER. Der Erinnerungs-Zähler hing an
+// der Kaskade und ist mit ihr gefallen; der Ablage-Zähler ist mit der Liste
+// gefallen, die er zählte („Ersatztermin steht aus" — die einzige Ablage-Ansicht
+// mit einer offenen Handlung, und sie steht seit dem Rückbau in der
+// Terminliste). Übrig ist der Nachfassen-Zähler, und der liest seit der
+// Nachbesserung genau EINE Quelle, weil die Seite genau eine zeigt.
 //
-// Reine Logik steckt hier in vier Entscheidungen, und jede davon ist eine, die
-// man einer falschen Zahl nicht ansieht:
+// DIE ERWARTUNGEN DIESER DATEI HABEN SICH DAMIT ZWEIMAL GEÄNDERT — beide Male,
+// weil sie einen Zustand als Soll festhielten, den es nicht mehr gab:
 //
-//  1. Die KÖRNUNG kommt aus der QUELLE, nicht aus dem Datentyp. `nachfassen_tasks`
-//     castet vier Tages-Spalten nach `timestamptz`; nach dem Typ gelesen wäre ab
-//     02:00 Berlin alles überfällig (siehe dueState.test.ts).
+//  · `p_list: "ersatztermin_offen"` stand hier als Zusicherung. Der Rückbau hat
+//    diesen Schlüssel aus der Oberfläche genommen; das Badge führte danach auf
+//    eine DISJUNKTE Ansicht und ging nie auf null. Ein Test, der so etwas
+//    zementiert, verteidigt den Fehler.
+//  · `nachfassen_tasks` stand hier mit vier Zweigen, von denen die Seite drei
+//    nicht mehr zeigt (Telefon-Rückruf, Setting- und Closing-Wiedervorlage sind
+//    in die Terminliste gezogen). Das Badge zeigte 14, die Seite zwei Karten.
+//
+// Die Entscheidungen darunter sind unverändert — sie beschreiben, wie ein
+// Zähler zu seiner Zahl kommt, nicht welche es gibt:
+//
+//  1. Die KÖRNUNG kommt aus der QUELLE, nicht aus dem Datentyp. `next_recycle_at`
+//     ist ein Tagesdatum; nach dem Typ gelesen wäre ab 02:00 Berlin alles
+//     überfällig (siehe dueState.test.ts).
 //  2. Die Gesamtzahl ist der `count` der Datenbank, nicht die Zahl der geholten
 //     Zeilen — die ist bei 500 gedeckelt.
 //  3. Fehlt eine Zahl, erscheint GAR KEIN Zähler statt einer 0. Eine 0 wäre eine
 //     Behauptung über die Daten, die niemand geprüft hat.
-//  4. Jeder Zweig fällt einzeln aus, und keiner darf die Navigation aufhalten.
+//  4. Der Zähler darf die Navigation nicht aufhalten.
 //
 // Der Supabase-Client wird dafür durch eine Attrappe ersetzt: Sie protokolliert,
 // WONACH gefragt wurde, und antwortet mit fertigen Zeilen. Ohne sie ließe sich
-// keine dieser vier Entscheidungen prüfen, ohne eine Datenbank zu betreiben.
+// keine dieser Entscheidungen prüfen, ohne eine Datenbank zu betreiben.
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { AccessContext } from "@/lib/access";
-import { ABLAGE_COUNT_LABEL, EMPTY_NAV_COUNTS, loadNavCounts } from "@/lib/navCounts";
+import { EMPTY_NAV_COUNTS, loadNavCounts } from "@/lib/navCounts";
 
 /* ------------------------------------------------------------------ *
  * Attrappe
@@ -111,37 +122,69 @@ function finde(protokoll: Protokoll[], name: string): Protokoll {
 
 describe("EMPTY_NAV_COUNTS", () => {
   test("null heißt 'nicht ermittelbar' — nirgends eine 0", () => {
-    assert.deepEqual(EMPTY_NAV_COUNTS, { nachfassen: null, ablage: null });
+    assert.deepEqual(EMPTY_NAV_COUNTS, { nachfassen: null });
   });
 
-  test("es gibt keinen Erinnerungs-Zweig mehr", () => {
-    // Der Rückbau hat /erinnerungen abgeschaltet. Ein Zweig, der weiterhin
-    // `reminder_touches` zählte, mahnte Arbeit an, für die es keine Seite mehr
-    // gibt — dieselbe Falle wie beim LinkedIn-Zweig des Nachfassen-Zählers.
+  test("es gibt weder einen Erinnerungs- noch einen Ablage-Zweig mehr", () => {
+    // Beide zählten eine Menge, die keine Oberfläche mehr zeigt: /erinnerungen
+    // ist abgeschaltet, und die gezählte Ablage-Liste („Ersatztermin steht
+    // aus") gibt es dort nicht mehr — ihr Inhalt steht in der Terminliste.
     assert.ok(!("erinnerungen" in EMPTY_NAV_COUNTS));
+    assert.ok(!("ablage" in EMPTY_NAV_COUNTS));
   });
 });
 
 describe("Nachfassen-Zähler", () => {
-  test("nur der Telefon-Rückruf trägt eine Uhrzeit, alles andere den ganzen Tag", async (t) => {
+  test("gezählt wird auf dem BERLINER Tag, nicht auf dem Datentyp", async (t) => {
+    // `next_recycle_at` ist eine `date`-Spalte; die RPC castet sie nach
+    // `timestamptz`, also auf Mitternacht UTC = 02:00 Berlin. Roh gegen `now()`
+    // gehalten wäre um 10 Uhr morgens JEDE Zeile überfällig — und weil die RPC
+    // ohnehin nur Fälliges liefert, wäre schlicht alles überfällig.
+    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
+    const counts = await loadNavCounts(
+      supabase(
+        {
+          recycle_tasks: {
+            data: [
+              { due_at: "2026-09-08T00:00:00+00:00" }, // heute fällig
+              { due_at: "2026-09-08T00:00:00+00:00" },
+              { due_at: "2026-09-07T00:00:00+00:00" }, // gestern → überfällig
+            ],
+            count: 3,
+          },
+        },
+        [],
+      ),
+      zugriff(),
+    );
+
+    assert.deepEqual(counts.nachfassen, { total: 3, overdue: 1 });
+  });
+
+  test("der Zähler liest GENAU DIE EINE Quelle, die die Seite zeigt", async (t) => {
+    // DIE KERNZUSICHERUNG dieser Datei. `/nachfassen` trägt seit der zweiten
+    // Rückbau-Welle nur noch das Recycling (`getNachfassenTasks` →
+    // `loadRecycleTasks`); Telefon-Rückruf, Setting- und Closing-Wiedervorlage
+    // stehen in der Terminliste. Solange der Zähler `nachfassen_tasks`
+    // mitzählte, zeigte das Badge 14 und die Seite darunter zwei Karten.
+    //
+    // Ein Badge, das MEHR zählt als die Seite, ist derselbe Fehler wie eines,
+    // das weniger zählt; nur fällt letzteres später auf.
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const protokoll: Protokoll[] = [];
     const counts = await loadNavCounts(
       supabase(
         {
+          // Wäre die RPC noch im Spiel, stünden diese vier Zeilen im Badge.
           nachfassen_tasks: {
             data: [
-              // Tages-Werte: die RPC castet `date` → Mitternacht UTC = 02:00 Berlin.
-              { source: "linkedin", due_at: "2026-09-08T00:00:00+00:00" }, // heute fällig
-              { source: "setting", due_at: "2026-09-07T00:00:00+00:00" }, // gestern → überfällig
-              { source: "closing", due_at: "2026-09-08T00:00:00+00:00" }, // heute fällig
-              // Verabredete Uhrzeiten: hier ist die Stunde die Aussage.
-              { source: "telefon", due_at: "2026-09-08T07:00:00+00:00" }, // 09:00 Berlin → vorbei
-              { source: "telefon", due_at: "2026-09-08T09:00:00+00:00" }, // 11:00 Berlin → steht an
+              { source: "telefon", due_at: "2026-09-08T07:00:00+00:00" },
+              { source: "setting", due_at: "2026-09-08T00:00:00+00:00" },
+              { source: "closing", due_at: "2026-09-08T00:00:00+00:00" },
+              { source: "linkedin", due_at: "2026-09-08T00:00:00+00:00" },
             ],
-            count: 5,
+            count: 4,
           },
-          // Ein Recycling-Versuch ist immer auf den Tag fällig.
           recycle_tasks: { data: [{ due_at: "2026-09-08T00:00:00+00:00" }], count: 1 },
         },
         protokoll,
@@ -149,40 +192,26 @@ describe("Nachfassen-Zähler", () => {
       zugriff(),
     );
 
-    // Läse der Zähler alle Zeilen nach ihrem Datentyp, stünden hier fünf
-    // Überfällige — um 10 Uhr morgens, an einem Tag, an dem nichts zu spät ist.
-    //
-    // Fünf statt sechs: Die LinkedIn-Zeile fällt heraus. Der Zweig steht nicht
-    // mehr auf /nachfassen, und ein Badge, das ihn zählt, behauptet Arbeit,
-    // die man dort nicht finden kann.
-    assert.deepEqual(counts.nachfassen, { total: 5, overdue: 2 });
+    assert.deepEqual(counts.nachfassen, { total: 1, overdue: 0 });
+    assert.deepEqual(
+      protokoll.map((p) => p.name),
+      ["recycle_tasks"],
+      "der Zähler fragt eine Quelle, die die Seite nicht zeigt",
+    );
   });
 
   test("der Zähler schneidet Altlasten weg — genau wie die Seite darunter", async (t) => {
-    // Das Badge zeigte am ersten produktiven Tag 425. Es zählt jetzt dieselbe
-    // Menge, die die Seite zeigt: LinkedIn raus, lange Überfälliges raus
-    // (lib/staleTasks.ts). Sonst mahnt die Navigation Arbeit an, die auf dem
-    // Board gar nicht steht — und §5.4 verspricht, dass die Differenz
-    // auflösbar bleibt.
+    // Das Badge zeigte am ersten produktiven Tag 425. Es schneidet über
+    // dieselbe Funktion wie die Seite (lib/staleTasks.ts), nicht über eine
+    // zweite Kopie der Grenze — sonst mahnt die Navigation Arbeit an, die auf
+    // dem Board gar nicht steht.
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const counts = await loadNavCounts(
       supabase(
         {
-          nachfassen_tasks: {
-            data: [
-              // Rückruf, Grenze 14 Tage: gestern zählt, ein Vierteljahr nicht.
-              { source: "telefon", due_at: "2026-09-07T07:00:00+00:00" },
-              { source: "telefon", due_at: "2026-06-01T07:00:00+00:00" },
-              // Wiedervorlagen, Grenze 30 Tage.
-              { source: "setting", due_at: "2026-09-01T00:00:00+00:00" },
-              { source: "setting", due_at: "2026-05-01T00:00:00+00:00" },
-              { source: "closing", due_at: "2026-01-15T00:00:00+00:00" },
-            ],
-            count: 5,
-          },
-          // Recycling, Grenze 90 Tage: eine frische, eine uralte Fälligkeit.
+          // Grenze 90 Tage: eine frische, eine uralte Fälligkeit.
           recycle_tasks: {
-            data: [{ due_at: "2026-08-20T00:00:00+00:00" }, { due_at: "2025-11-01T00:00:00+00:00" }],
+            data: [{ due_at: "2025-11-01T00:00:00+00:00" }, { due_at: "2026-08-20T00:00:00+00:00" }],
             count: 2,
           },
         },
@@ -191,9 +220,9 @@ describe("Nachfassen-Zähler", () => {
       zugriff(),
     );
 
-    // Übrig: 1 Rückruf + 1 Setting + 1 Recycling. Alle drei sind überfällig —
-    // und genau das darf das Badge weiterhin sagen.
-    assert.deepEqual(counts.nachfassen, { total: 3, overdue: 3 });
+    // Übrig: der Versuch vom 20.8. — überfällig, und genau das darf das Badge
+    // weiterhin sagen.
+    assert.deepEqual(counts.nachfassen, { total: 1, overdue: 1 });
   });
 
   test("wurde das Fenster abgeschnitten, gibt es KEIN Badge statt einer zu kleinen Zahl", async (t) => {
@@ -204,61 +233,27 @@ describe("Nachfassen-Zähler", () => {
     // fällig" (docs §5.4).
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const counts = await loadNavCounts(
-      supabase(
-        {
-          nachfassen_tasks: {
-            data: [{ source: "setting", due_at: "2026-09-08T00:00:00+00:00" }],
-            count: 812,
-          },
-          recycle_tasks: { data: [{ due_at: "2026-09-08T00:00:00+00:00" }], count: 4 },
-          dropout_lists: { count: 2 },
-        },
-        [],
-      ),
+      supabase({ recycle_tasks: { data: [{ due_at: "2026-09-08T00:00:00+00:00" }], count: 812 } }, []),
       zugriff(),
     );
 
     assert.equal(counts.nachfassen, null);
-    // …und die anderen Zweige stehen trotzdem.
-    assert.deepEqual(counts.ablage, { total: 2, overdue: 0 });
   });
 
-  test("fällt EINE der beiden Quellen aus, gibt es keinen Zähler statt einer halben Wahrheit", async (t) => {
+  test("fällt die Quelle aus, gibt es keinen Zähler statt einer 0", async (t) => {
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const protokoll: Protokoll[] = [];
     const counts = await loadNavCounts(
-      supabase(
-        {
-          nachfassen_tasks: { data: [{ source: "linkedin", due_at: "2026-09-01" }], count: 9 },
-          recycle_tasks: { error: { message: "function recycle_tasks does not exist" } },
-          dropout_lists: { count: 2 },
-        },
-        protokoll,
-      ),
+      supabase({ recycle_tasks: { error: { message: "function recycle_tasks does not exist" } } }, []),
       zugriff(),
     );
 
     assert.equal(counts.nachfassen, null);
-    // ... und der andere Zweig steht trotzdem: ein fehlendes Recycling-Schema
-    // darf den Ablage-Zähler nicht mitnehmen.
-    assert.deepEqual(counts.ablage, { total: 2, overdue: 0 });
   });
 
   test("eine abgelehnte Abfrage nimmt die Navigation nicht mit", async (t) => {
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(
-      supabase(
-        {
-          nachfassen_tasks: new Error("Netzwerk weg"),
-          dropout_lists: { count: 1 },
-        },
-        [],
-      ),
-      zugriff(),
-    );
-
+    const counts = await loadNavCounts(supabase({ recycle_tasks: new Error("Netzwerk weg") }, []), zugriff());
     assert.equal(counts.nachfassen, null);
-    assert.equal(counts.ablage?.total, 1);
   });
 
   test("eine fehlende Gesamtzahl darf nicht als 0 durchgehen", async (t) => {
@@ -266,119 +261,62 @@ describe("Nachfassen-Zähler", () => {
     const counts = await loadNavCounts(
       supabase(
         {
-          nachfassen_tasks: { data: [{ source: "linkedin", due_at: "2026-09-08" }], count: 5 },
           // Antwort ohne Content-Range: Zeilen ja, Gesamtzahl nein.
-          recycle_tasks: {
-            data: [{ due_at: "2026-09-08" }, { due_at: "2026-09-08" }, { due_at: "2026-09-08" }],
-            count: null,
-          },
+          recycle_tasks: { data: [{ due_at: "2026-09-08" }, { due_at: "2026-09-08" }], count: null },
         },
         [],
       ),
       zugriff(),
     );
 
-    // `(count ?? 0)` hätte hier 5 gemeldet und die drei Recycling-Aufgaben
+    // `(count ?? 0)` hätte hier 0 gemeldet und zwei fällige Aufgaben
     // stillschweigend unterschlagen. Kein Zähler ist die einzige ehrliche
-    // Antwort — dieselbe wie bei einem Fehler und wie bei der Ablage: die drei
-    // geholten Zeilen sind wegen des Deckels von 500 auch keine belastbare
-    // Ersatzzahl.
+    // Antwort — die geholten Zeilen sind wegen des Deckels von 500 auch keine
+    // belastbare Ersatzzahl.
     assert.equal(counts.nachfassen, null);
-    // ... und der Ablage-Zähler steht trotzdem (hier ohne eigene Antwort: die
-    // Attrappe liefert LEER, also eine belastbare 0).
-    assert.deepEqual(counts.ablage, { total: 0, overdue: 0 });
-  });
-});
-
-describe("Der Erinnerungs-Zähler ist weg — und bleibt es", () => {
-  test("keine Abfrage rührt `reminder_touches` mehr an", async (t) => {
-    // Die Tabelle steht noch (Muster `call_assignees`, docs §3), nur füllt sie
-    // niemand mehr. Ein Zähler darauf zeigte erst dauerhaft dieselbe Zahl und
-    // dann dauerhaft 0 — beides eine Aussage über nichts, und beides sähe im
-    // Betrieb völlig normal aus. Die Attrappe beantwortet `from()` weiterhin,
-    // damit dieser Test an der PROTOKOLLIERTEN Abfrage scheitert und nicht an
-    // einer fehlenden Methode.
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const protokoll: Protokoll[] = [];
-    await loadNavCounts(supabase({}, protokoll), zugriff());
-    assert.deepEqual(
-      protokoll.map((p) => p.name).filter((n) => n === "reminder_touches"),
-      [],
-    );
-    // Gegenprobe, damit der Test nicht auch dann grün wäre, wenn gar nichts
-    // mehr abgefragt würde.
-    assert.deepEqual(new Set(protokoll.map((p) => p.name)), new Set(["nachfassen_tasks", "recycle_tasks", "dropout_lists"]));
-  });
-});
-
-describe("Ablage-Zähler", () => {
-  test("fragt genau die eine Liste mit offener Handlung", async (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const protokoll: Protokoll[] = [];
-    const counts = await loadNavCounts(supabase({ dropout_lists: { count: 7 } }, protokoll), zugriff());
-
-    // Die Summe aller sechs Listen wäre ein Aktenschrank, der nie auf null
-    // geht — als Abzeichen Rauschen statt Nachricht.
-    assert.equal(finde(protokoll, "dropout_lists").params?.p_list, "ersatztermin_offen");
-    // Kein Überfällig-Begriff: Eine Absage mit Aussicht auf einen neuen Termin
-    // hat kein Datum, an dem sie zu spät wird.
-    assert.deepEqual(counts.ablage, { total: 7, overdue: 0 });
   });
 
-  test("die Beschriftung nennt die Liste in Einzahl und Mehrzahl", () => {
-    assert.deepEqual(ABLAGE_COUNT_LABEL, [
-      "Absage ohne eingetragenen Ersatztermin",
-      "Absagen ohne eingetragenen Ersatztermin",
-    ]);
-  });
-
-  test("die Ablage fragt org-weit, die Aufgabenliste fragt persönlich", async (t) => {
-    // Der Zähler muss dieselbe Frage stellen wie die Seite, auf die er
-    // verlinkt: /ablage ist ein Aktenschrank der Organisation, /nachfassen ist
-    // eine persönliche Aufgabenliste.
+  test("gezählt wird persönlich — auch für einen Owner mit Team-Sicht", async (t) => {
+    // /nachfassen ist eine persönliche Aufgabenliste, kein Org-Bestand.
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const protokoll: Protokoll[] = [];
     await loadNavCounts(supabase({}, protokoll), zugriff({ effective_user_id: null }));
-
-    assert.equal(finde(protokoll, "dropout_lists").params?.p_effective_user_id, null);
-    assert.equal(finde(protokoll, "nachfassen_tasks").params?.p_effective_user_id, "u-ich");
     assert.equal(finde(protokoll, "recycle_tasks").params?.p_effective_user_id, "u-ich");
 
     // Mit eingestellter Datensicht zählt die gewählte Person — das ist die
-    // bewusste Umschaltung, nicht der Standard. (Stand bis zum Rückbau im
-    // Erinnerungs-Block; die Zusicherung selbst hat mit ihm nichts zu tun und
-    // zieht deshalb hierher um, statt zu verschwinden.)
+    // bewusste Umschaltung, nicht der Standard.
     const fremd: Protokoll[] = [];
     await loadNavCounts(supabase({}, fremd), zugriff({ effective_user_id: "u-kollegin" }));
-    assert.equal(finde(fremd, "nachfassen_tasks").params?.p_effective_user_id, "u-kollegin");
     assert.equal(finde(fremd, "recycle_tasks").params?.p_effective_user_id, "u-kollegin");
   });
+});
 
-  test("ohne exakte Zahl gibt es keinen Zähler statt einer 0", async (t) => {
+describe("Was der Zähler NICHT mehr anfasst", () => {
+  test("weder `reminder_touches` noch `dropout_lists` noch `nachfassen_tasks`", async (t) => {
+    // Alle drei zählten eine Menge ohne Oberfläche: `reminder_touches` füllt
+    // seit dem Wegfall der Kaskade niemand mehr, `dropout_lists` lieferte die
+    // Ablage-Liste, die es nicht mehr gibt, und `nachfassen_tasks` drei Zweige,
+    // die auf der Seite nicht stehen. Die Attrappe beantwortet `from()`
+    // weiterhin, damit dieser Test an der PROTOKOLLIERTEN Abfrage scheitert und
+    // nicht an einer fehlenden Methode.
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(supabase({ dropout_lists: { count: null } }, []), zugriff());
-    assert.equal(counts.ablage, null);
+    const protokoll: Protokoll[] = [];
+    await loadNavCounts(supabase({}, protokoll), zugriff());
+    // Gegenprobe in einem: genau eine Abfrage, und zwar die richtige. Ein
+    // reiner Abwesenheits-Test wäre auch dann grün, wenn gar nichts mehr
+    // abgefragt würde.
+    assert.deepEqual(new Set(protokoll.map((p) => p.name)), new Set(["recycle_tasks"]));
   });
 });
 
 describe("Frist", () => {
-  test("eine hängende Abfrage kostet höchstens die Frist und nimmt die anderen nicht mit", async (t) => {
+  test("eine hängende Abfrage kostet höchstens die Frist", async (t) => {
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const begonnen = process.hrtime.bigint();
-    const counts = await loadNavCounts(
-      supabase(
-        {
-          nachfassen_tasks: HAENGT,
-          dropout_lists: { count: 2 },
-        },
-        [],
-      ),
-      zugriff(),
-    );
+    const counts = await loadNavCounts(supabase({ recycle_tasks: HAENGT }, []), zugriff());
     const dauerMs = Number(process.hrtime.bigint() - begonnen) / 1e6;
 
     assert.equal(counts.nachfassen, null);
-    assert.equal(counts.ablage?.total, 2);
     // Die Frist steht bei 1500 ms. Untergrenze, damit der Test nicht auch dann
     // grün wäre, wenn die Attrappe sofort null lieferte; Obergrenze, weil
     // „lieber kein Zähler als eine hängende Navigation" sonst nur ein Kommentar

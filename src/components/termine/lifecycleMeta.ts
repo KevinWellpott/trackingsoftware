@@ -61,10 +61,19 @@ export const CANCEL_OUTLOOK_LABELS: Record<CancelOutlook, string> = {
   neuer_termin: "Ersatztermin folgt",
 };
 
-/** Was der Ausblick praktisch bedeutet — beide Zweige haben eine Ablage-Ansicht. */
+/**
+ * Was der Ausblick praktisch bedeutet.
+ *
+ * Die beiden Sätze beschrieben bis zum Rückbau zwei Ablage-Ansichten. Es gibt
+ * nur noch eine („Ausgeschieden“), und die zweite ist ersatzlos gefallen: Ein
+ * abgesagter Termin, für den ein Ersatz aussteht, ist kein Archivfall, sondern
+ * genau der Lead, der in der Terminliste steht und täglich drankommt
+ * (src/lib/dropoutLists.ts). Der Unterschied zwischen den Zweigen ist deshalb
+ * heute nicht mehr die Ablage, sondern die Wiedervorlage.
+ */
 export const CANCEL_OUTLOOK_HINTS: Record<CancelOutlook, string> = {
-  ohne_aussicht: "Landet in der Ablage „Abgesagt ohne Aussicht“ und bekommt später eine Wiedervorlage.",
-  neuer_termin: "Bleibt als offener Ersatztermin sichtbar, bis ein neuer Termin steht.",
+  ohne_aussicht: "Erscheint in der Ablage „Ausgeschieden“ und kommt nach der Recycling-Frist noch einmal hoch.",
+  neuer_termin: "Bleibt in der Terminliste und leuchtet täglich, bis ein neuer Termin steht.",
 };
 
 export const NO_SHOW_RESOLUTION_LABELS: Record<NoShowResolution, string> = {
@@ -73,10 +82,19 @@ export const NO_SHOW_RESOLUTION_LABELS: Record<NoShowResolution, string> = {
   ersatztermin: "Ersatztermin",
 };
 
+/**
+ * Was der Ausgang praktisch bedeutet.
+ *
+ * Alle drei Sätze nannten bis zum Rückbau die No-Show-Kette — zwei Stufen, von
+ * denen die zweite bei einer Antwort entfiel. Die Ketten sind gefallen; was der
+ * Ausgang heute noch entscheidet, ist die Wiedervorlage: „Keine Antwort" ist
+ * das eine tote Ende, das `recycle_tasks` an einem Erstgespräch ohne
+ * Statuswechsel überhaupt erkennt (docs §5).
+ */
 export const NO_SHOW_RESOLUTION_HINTS: Record<NoShowResolution, string> = {
-  antwort: "Beendet die No-Show-Kette — die Stufe „falls keine Antwort kam“ entfällt.",
-  ohne_antwort: "Der Lead landet in der Ablage „No-Show ohne Antwort“; die Kette läuft weiter.",
-  ersatztermin: "Beendet die Kette. Danach den neuen Termin eintragen — die Erinnerungen starten komplett neu.",
+  antwort: "Er hat sich gemeldet — der Lead bleibt in der Terminliste, bis ein Termin steht.",
+  ohne_antwort: "Erscheint in der Ablage „Ausgeschieden“ und kommt nach der Recycling-Frist noch einmal hoch.",
+  ersatztermin: "Danach den neuen Termin eintragen — der Vorgang startet als frischer Anlauf.",
 };
 
 export const NO_SHOW_RESOLUTION_ORDER: readonly NoShowResolution[] = ["antwort", "ohne_antwort", "ersatztermin"];

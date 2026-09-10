@@ -15,7 +15,7 @@ import { revalidatePath } from "next/cache";
 import { getAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { updateClosingCall, setClosingOutcome } from "@/app/actions/closingCalls";
-import { rescheduleSetting, setSettingOutcome } from "@/app/actions/settingCalls";
+import { moveSettingAppointment, rescheduleSetting, setSettingOutcome } from "@/app/actions/settingCalls";
 import { berlinInputToIso } from "@/lib/apptTime";
 
 export type TerminArt = "setting" | "closing";
@@ -120,17 +120,53 @@ export async function markFollowUpContacted(
  * niemand: `revived_at` war „als Feld vorbereitet und als Bedienschritt offen"
  * (docs §3). Dies ist der Bedienschritt. Der Vorteil gegenüber dem
  * naheliegenden Weg — `cancelled_at` einfach wieder nullen — ist, dass NICHTS
- * VERLOREN GEHT: Die Absage bleibt in der Absagequote (docs §5), die
- * Ablage-Liste „Ersatztermin steht aus" nimmt die Zeile von allein heraus (ihr
- * Riegel ist genau dieses Feld), und das Recycling fasst sie nicht mehr an.
+ * VERLOREN GEHT: Die Absage bleibt eine erfasste Tatsache und zählt weiter in
+ * der Absagequote (docs §5), und das Recycling fasst die Zeile nicht mehr an —
+ * `recycle_tasks` verlangt `revived_at is null`.
  *
- * ── Die bekannte Lücke: ein ABGESAGTES Closing ────────────────────────────
- * `updateClosingCall` weist ein neues `call_at` auf einer abgesagten Zeile ab
- * (CANCELLED_MOVE_HINT) und prüft dabei `cancelled_at`, nicht `revived_at`. Die
- * Meldung geht deshalb unverändert an den Nutzer; der Weg bleibt „Kein Close"
- * oder die Detailseite. Der Riegel steht in einer fremden Datei und wird hier
- * NICHT umgangen — ein `security definer`-artiger Seitenweg um die Prüfung
- * eines anderen Moduls wäre der teurere Fehler.
+ * ── Warum der Stempel VOR dem Schreiben stehen muss ───────────────────────
+ * Die drei Termin-Riegel (`moveSettingAppointment`, `postponeAppointment`,
+ * `updateClosingCall`) weisen ein neues Datum auf einer abgesagten Zeile ab und
+ * nennen dabei ausdrücklich diesen Weg hier als den richtigen. Unterscheiden
+ * können sie ihn nur an `revived_at` — sie lesen das PAAR aus Absage und
+ * Rückholung. Erst schreiben und danach stempeln liefe deshalb in genau die
+ * Ablehnung, die der Stempel aufhebt; für ein abgesagtes Closing war das bis
+ * hierher ein Knopf, der ausnahmslos scheiterte.
+ *
+ * ── … und warum er trotzdem nichts hinterlässt, wenn das Schreiben scheitert ─
+ * Drei Schritte, jeder mit seiner eigenen Aufgabe (Muster `reviveDropout` in
+ * actions/revive.ts):
+ *
+ *  1. PRÜFEN, solange nichts geschrieben ist. Alles, was ohne Schreibzugriff
+ *     zu klären ist — Zugehörigkeit, Termin-Art, ID und die Frage, ob das
+ *     Datum überhaupt eines ist —, wird vor dem Stempel geklärt. Ein leeres
+ *     Feld kostete vorher eine Zeile.
+ *  2. CLAIMEN statt stempeln. `.is('revived_at', null)` macht aus dem UPDATE
+ *     ein Claim: Zwei gleichzeitige Klicks holen die Zeile nur einmal zurück,
+ *     und „nur beim ERSTEN Mal" (Muster `wasCancelled` in `cancelAppointment`)
+ *     ist damit nicht bloß eine Absicht, sondern eine Zusicherung. Wer den
+ *     Claim verliert, schreibt trotzdem das Datum — beide Klicks wollten
+ *     dasselbe.
+ *  3. ZURÜCKNEHMEN, wenn das Schreiben scheitert, und nur den SELBST
+ *     gesetzten Stempel. Ohne diesen Schritt passierte die Zeile ab dem
+ *     fehlgeschlagenen Klick den Absage-Riegel, galt über ihr altes Datum als
+ *     „Verlegt" und verschwand lautlos aus Arbeitsliste UND Recycling
+ *     (`recycle_tasks` verlangt `revived_at is null`) — während der Nutzer eine
+ *     Fehlermeldung sah und glaubte, es sei nichts passiert.
+ *
+ * Jede Fehlerbehandlung führt damit in den Zustand „bleibt Arbeit", nie in
+ * „ist versorgt": Ein Lead, der einmal zu viel auf der Liste steht, kostet
+ * einen Klick; einer, der zu früh von ihr verschwindet, ist weg.
+ *
+ * ── Was der neue Termin NICHT anfasst ─────────────────────────────────────
+ * Eine erfasste Tatsache. `rescheduleSetting` ist der Ersatztermin-Weg nach
+ * einem No-Show und setzt Status und Show-Status zurück — das darf es, weil der
+ * No-Show in `no_show_count` erhalten bleibt. Ein `show_status='show'` steht
+ * dagegen in keiner zweiten Spalte: Der Reset wäre eine Löschung, und weil die
+ * Zeile über `settingEffDate` zugleich in den Monat des neuen Termins wandert,
+ * verlöre die Show-Quote eines abgeschlossenen Zeitraums ihren Zähler
+ * (docs §5). Eine bereits ERSCHIENENE Zeile bekommt deshalb nur ein neues
+ * Datum — genau das, was der Closing-Zweig ohnehin tut.
  */
 export async function setNeuerTermin(
   art: TerminArt,
@@ -144,36 +180,59 @@ export async function setNeuerTermin(
   if (typeof id !== "string" || !id) return { error: "Nicht gefunden." };
   if (!(await gehoertZurOrg(art, id))) return { error: "Keine Berechtigung." };
 
+  // Schritt 1 — prüfen, solange nichts geschrieben ist. Die Umrechnung steht
+  // hier oben und nicht im Closing-Zweig, damit ein unbrauchbares Datum gar
+  // nicht erst bis zum Stempel kommt.
+  const iso = berlinInputToIso(berlinInput);
+  if (!iso) return { error: "Bitte Datum und Uhrzeit für den neuen Termin angeben." };
+
   const supabase = await createClient();
   const { data } = await supabase
     .from(TABELLE[art])
-    .select("cancelled_at, revived_at")
+    .select("cancelled_at, revived_at, show_status")
     .eq("id", id)
     .eq("workspace_id", access.workspace_id)
     .maybeSingle();
-  const vorher = data as { cancelled_at: string | null; revived_at: string | null } | null;
+  const vorher = data as {
+    cancelled_at: string | null;
+    revived_at: string | null;
+    show_status: string | null;
+  } | null;
 
-  // Nur beim ERSTEN Mal stempeln — danach ist der Zeitpunkt Historie (Muster
-  // `wasCancelled` in `cancelAppointment`).
+  // Schritt 2 — der Claim. `geclaimt` merkt sich, ob DIESER Aufruf gestempelt
+  // hat; nur dann darf er den Stempel unten wieder abräumen.
+  let geclaimt = false;
   if (vorher?.cancelled_at && !vorher.revived_at) {
-    const { error } = await supabase
+    const { data: claimed, error } = await supabase
       .from(TABELLE[art])
       .update({ revived_at: new Date().toISOString() })
       .eq("id", id)
-      .eq("workspace_id", access.workspace_id);
+      .eq("workspace_id", access.workspace_id)
+      .is("revived_at", null)
+      .select("id");
     if (error) return { error: error.message };
+    geclaimt = (claimed?.length ?? 0) > 0;
   }
 
-  if (art === "setting") {
-    // `rescheduleSetting` und nicht `moveSettingAppointment`: Ein neuer Termin
-    // für jemanden, der in der Luft liegt, ist ein FRISCHER ANLAUF — Status
-    // zurück auf „offen", Show-Status und Wiedervorlage weg. Sie ist außerdem
-    // die einzige der beiden, die auf einer abgesagten Zeile überhaupt arbeitet.
-    return rescheduleSetting(id, berlinInput);
+  // Das Datum schreiben die vorhandenen Actions — welche, entscheidet die
+  // erfasste Tatsache (siehe Kopfkommentar), nicht die Termin-Art allein.
+  const res =
+    art === "setting"
+      ? vorher?.show_status === "show"
+        ? await moveSettingAppointment(id, iso)
+        : await rescheduleSetting(id, berlinInput)
+      : await updateClosingCall(id, { call_at: iso });
+
+  // Schritt 3 — die Rücknahme. Best effort wie in `reviveDropout`: Schlägt auch
+  // sie fehl, ist die Meldung des Schreibpfads die wichtigere.
+  if (res.error && geclaimt) {
+    await supabase
+      .from(TABELLE[art])
+      .update({ revived_at: null })
+      .eq("id", id)
+      .eq("workspace_id", access.workspace_id);
   }
-  const iso = berlinInputToIso(berlinInput);
-  if (!iso) return { error: "Bitte Datum und Uhrzeit für den neuen Termin angeben." };
-  return updateClosingCall(id, { call_at: iso });
+  return res;
 }
 
 /**
