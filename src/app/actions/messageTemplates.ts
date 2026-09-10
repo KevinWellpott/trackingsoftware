@@ -3,16 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
-import { isMailTemplate, isTemplateKey, validateTemplate } from "@/lib/messageTemplates";
+import {
+  isMailTemplate,
+  isTemplateKey,
+  templateWriteErrorMessage,
+  validateTemplate,
+} from "@/lib/messageTemplates";
 
 // Schreibpfad des Vorlagen-Editors (/settings). Gelesen wird über
 // getTemplateBundles() in actions/reminders.ts — diese Datei fasst nur an, was
 // die Oberfläche ändert.
 //
-// Zwei Ebenen, zwei Actions. Beide folgen wörtlich dem Muster von
-// setFollowupTemplate (actions/templates.ts): Ein LEERER Text löscht die
-// eigene Zeile, statt einen leeren String zu speichern — der Text fällt damit
-// eine Ebene höher zurück (persönlich → Organisation → Auslieferungstext).
+// Zwei Ebenen, zwei Actions. Beide folgen dem Muster der abgelösten
+// setFollowupTemplate: Ein LEERER Text löscht die eigene Zeile, statt einen
+// leeren String zu speichern — es gilt dann wieder die Ebene DARUNTER
+// (persönlich → Organisation → Auslieferungstext). Richtungswort bewusst wie
+// in der Oberfläche: Der Editor zeigt die Vorrangkette als Liste von oben nach
+// unten, „höher"/„darüber" beschriebe dieselbe Bewegung andersherum und ließe
+// Karte und Action einander widersprechen.
 // Ein gespeicherter Leerstring wäre etwas anderes: eine Vorlage, die eine
 // leere Nachricht erzwingt. Der CHECK `btrim(body) <> ''` aus Migration 0031
 // verbietet ihn ohnehin.
@@ -24,10 +32,12 @@ import { isMailTemplate, isTemplateKey, validateTemplate } from "@/lib/messageTe
 
 export type TemplateWriteResult = {
   error?: string;
-  /** true = die Zeile wurde gelöscht, es gilt wieder die Ebene darüber. */
+  /** true = die Zeile wurde gelöscht, es gilt wieder die Ebene darunter. */
   cleared?: boolean;
   /** Vom Nutzer getippte Token, die die App nicht kennt — Warnung, kein Fehler. */
   unknownTokens?: string[];
+  /** Token, die es gibt, die DIESE Vorlage aber nie füllt — ebenfalls nur Warnung. */
+  unsupportedTokens?: string[];
 };
 
 // Großzügig, aber endlich: Ohne Grenze landet ein versehentlich eingefügtes
@@ -123,14 +133,23 @@ async function saveTemplate(
   const { error } = rowId
     ? await supabase.from("message_templates").update(payload).eq("id", rowId)
     : await supabase.from("message_templates").insert(payload);
-  if (error) return { error: error.message };
+  // Lesen-dann-Schreiben ist hier richtig (partielle Unique-Indizes, s. o.),
+  // hat aber ein Fenster: Speichern zwei Sitzungen dieselbe Vorlage
+  // gleichzeitig, findet die zweite beim Lesen nichts und läuft in den
+  // Unique-Index. Der rohe Postgres-Satz stand dann als Feldfehler unter dem
+  // Textfeld — templateWriteErrorMessage macht daraus einen Satz, der sagt,
+  // was zu tun ist.
+  if (error) return { error: templateWriteErrorMessage(error) };
 
   revalidateTemplateViews();
-  // Unbekannte Token blockieren NICHT: „{Vornmae}" ist ein Tippfehler, kein
+  // Beide Warnungen blockieren NICHT: „{Vornmae}" ist ein Tippfehler, kein
   // Syntaxfehler, und renderTemplate lässt ihn bewusst stehen, statt ihn
   // stillschweigend zu entfernen. Gemeldet wird er trotzdem — bisher fiel er
-  // erst auf, als er beim Lead ankam.
-  return { unknownTokens: validateTemplate(trimmedBody).unknownTokens };
+  // erst auf, als er beim Lead ankam. Die Prüfung läuft MIT dem Schlüssel:
+  // {notiz} ist im Recycling richtig und in einer Termin-Erinnerung ein Wert,
+  // den dieser Pfad nie füllt.
+  const issues = validateTemplate(trimmedBody, key);
+  return { unknownTokens: issues.unknownTokens, unsupportedTokens: issues.unsupportedTokens };
 }
 
 /** Jede Oberfläche, die Vorlagen rendert. */

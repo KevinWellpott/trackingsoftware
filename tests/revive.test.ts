@@ -47,8 +47,11 @@ describe("reviveBlockedReason", () => {
     // setting_calls bzw. closing_calls. Für einen LinkedIn-Kontakt oder einen
     // Telefon-Lead gibt es gar keine Spalte, in der die Kette stünde — sein Weg
     // zurück ist ein Termin aus seiner Liste heraus.
+    // Der Satz trägt dasselbe Wort wie der Knopf („Neuen Termin ansetzen"),
+    // nicht mehr das alte „zurückholen" — sonst stünden auf einer Karte zwei
+    // Namen für dieselbe Aktion.
     for (const entity of ["linkedin", "telefon"] as DropoutEntity[]) {
-      assert.match(reviveBlockedReason(offen({ entity })) ?? "", /^Nur Termine/);
+      assert.match(reviveBlockedReason(offen({ entity })) ?? "", /^Nur für Termine/);
     }
   });
 
@@ -73,8 +76,11 @@ describe("reviveBlockedReason", () => {
   });
 
   test("zweimal zurückholen ergäbe zwei Nachfolger für eine Vorgängerzeile", () => {
-    assert.match(reviveBlockedReason(offen({ revived: true })) ?? "", /^Bereits zurückgeholt/);
-    assert.match(reviveBlockedReason(offen({ entity: "closing", revived: true })) ?? "", /^Bereits zurückgeholt/);
+    assert.match(reviveBlockedReason(offen({ revived: true })) ?? "", /^Der neue Termin steht bereits/);
+    assert.match(
+      reviveBlockedReason(offen({ entity: "closing", revived: true })) ?? "",
+      /^Der neue Termin steht bereits/,
+    );
   });
 });
 

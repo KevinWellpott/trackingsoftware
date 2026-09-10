@@ -11,6 +11,7 @@ import {
   isDropoutListKey,
   listFeedsRecycling,
   recycleBlockedReason,
+  recycleReasonCodeFor,
   reviveBlockedReason,
   type DropoutAppointmentEntity,
   type DropoutEntity,
@@ -141,10 +142,24 @@ export type DropoutLineage = {
 const EMPTY_LINEAGE: DropoutLineage = { predecessor: null, successor: null };
 
 export type DropoutRow = DropoutRowRaw & {
-  /** null = „Recycling vorziehen" ist möglich, sonst der Grund dagegen. */
+  /** null = „Jetzt wieder anschreiben" ist möglich, sonst der Satz dagegen. */
   recycle_blocked: string | null;
-  /** null = „Zurückholen" ist möglich, sonst der Grund dagegen. */
+  /**
+   * null = „Neuen Termin ansetzen" ist möglich, sonst der Satz dagegen.
+   *
+   * Ein SATZ, kein Wahrheitswert: Der Knopf wird weggelassen statt ausgegraut,
+   * und damit ist dieser Text die einzige Stelle, an der die Karte noch sagen
+   * kann, warum — die Alternative wäre eine Karte, auf der wortlos ein Knopf
+   * weniger steht als auf der daneben.
+   */
   revive_blocked: string | null;
+  /**
+   * true = der Grund existiert vielleicht, ist aber durch die eingestellte
+   * Datensicht nicht lesbar (nur in der org-weiten Sperrliste möglich). Die
+   * Karte schreibt dann „Grund nicht sichtbar" statt „Ohne Grund" — das eine ist
+   * eine Aussage über die Sicht, das andere über die Daten.
+   */
+  reason_hidden: boolean;
   lineage: DropoutLineage;
 };
 
@@ -293,14 +308,34 @@ async function loadLineage(
  *
  * App-seitig statt in SQL: 0033 ist eingefroren. Überschrieben wird nur, wo die
  * RPC nichts geliefert hat — ein wirklich erfasster Absage-Grund bleibt stehen.
- * Fail-soft wie die Rückhol-Kette: fällt der Nachschlag aus, steht dort wieder
- * „Ohne Grund", die Liste selbst lädt weiter.
+ *
+ * ── Der Nachschlag sieht weniger als die Liste, und das muss er sagen ────────
+ * `dropout_lists()` liefert die Sperrliste bewusst ORG-WEIT (`v_user := null`);
+ * dieser Nachschlag läuft dagegen als normale Abfrage durch die
+ * Zeilensicherheit. Für ein Mitglied mit Datensicht „nur eigene" ist die Zeile
+ * einer Kollegin damit unlesbar — sie kommt gar nicht zurück. Ohne die
+ * Unterscheidung stünde auf ihrer Karte „Ohne Grund", also eine Aussage über
+ * die Daten, wo in Wahrheit eine über die Sichtbarkeit gemeint ist. Deshalb
+ * `visible: false` statt eines fehlenden Eintrags: Die Karte schreibt dann
+ * „Grund nicht sichtbar".
+ *
+ * Bewusst NICHT org-weit nachgeschlagen: Der Grund steht als Freitext daneben
+ * (`disqualify_reason`, `lost_reason`) und ist die Gesprächsnotiz zu einem
+ * fremden Lead. Die Sperrliste hebt die Datensicht auf, um IDENTITÄTEN zu
+ * zeigen — wen niemand mehr anrufen darf —, nicht die Akte dahinter.
+ *
+ * Fail-soft wie die Rückhol-Kette: Fällt der Nachschlag ganz aus, gelten alle
+ * angefragten Zeilen als nicht sichtbar; die Liste selbst lädt weiter.
  */
+type BlockReasonLookup =
+  | { visible: true; reason_code: string | null; reason_text: string | null }
+  | { visible: false };
+
 async function loadBlockReasons(
   access: AccessContext,
   rows: DropoutRowRaw[],
-): Promise<Map<string, { reason_code: string | null; reason_text: string | null }>> {
-  const out = new Map<string, { reason_code: string | null; reason_text: string | null }>();
+): Promise<Map<string, BlockReasonLookup>> {
+  const out = new Map<string, BlockReasonLookup>();
   const supabase = await createClient();
   // Nur Zeilen ohne Grund nachschlagen — und nur Termine: ein LinkedIn-Kontakt
   // und ein Telefon-Lead haben weder Absage noch Disqualifizierung, ihr
@@ -323,6 +358,10 @@ async function loadBlockReasons(
       .select(columns)
       .eq("workspace_id", access.workspace_id)
       .in("id", ids);
+    // Erst alle als „nicht sichtbar" vormerken, dann jede zurückgekommene Zeile
+    // überschreiben. Was übrig bleibt, hat die Zeilensicherheit weggefiltert —
+    // die Unterscheidung entsteht genau aus dieser Differenz.
+    for (const id of ids) out.set(`${entity}:${id}`, { visible: false });
     if (error || !data) continue;
     for (const raw of data as unknown as {
       id: string;
@@ -332,9 +371,9 @@ async function loadBlockReasons(
       lost_reason?: string | null;
     }[]) {
       const code = entity === "setting" ? raw.disqualify_reason_code : raw.lost_reason_code;
-      if (!code) continue;
       out.set(`${entity}:${raw.id}`, {
-        reason_code: code,
+        visible: true,
+        reason_code: code ?? null,
         reason_text: (entity === "setting" ? raw.disqualify_reason : raw.lost_reason) ?? null,
       });
     }
@@ -396,36 +435,47 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
     const blockReasons = list === "gesperrt" ? await loadBlockReasons(access, raw) : null;
 
     const rows = raw
-      .map<DropoutRow>((r) => ({
-        ...r,
-        ...(blockReasons?.get(`${r.entity_type}:${r.entity_id}`) ?? {}),
-        lineage: lineage.get(`${r.entity_type}:${r.entity_id}`) ?? EMPTY_LINEAGE,
-        revive_blocked: reviveBlockedReason({
-          entity: r.entity_type,
-          revived: Boolean(r.revived_at),
-          excluded: r.excluded,
-        }),
-        recycle_blocked: recycleBlockedReason({
-          entity: r.entity_type,
-          excluded: r.excluded,
-          revived: Boolean(r.revived_at),
-          // `recycle_responded_at` liefert die RPC nicht mit; ein Lead, der
-          // reagiert hat, ist ohnehin über `revived_at` oder einen
-          // Statuswechsel aus der Liste heraus. Die Action prüft es zusätzlich
-          // an der Zeile selbst.
-          responded: false,
-          // In den Absage-Listen trägt `reason_code` den ABSAGEgrund, nicht den
-          // Verlust- oder Disqualifizierungsgrund — die Sperre „bekommt nie ein
-          // Recycling" greift hier also nur, wenn beide Gründe gesetzt sind.
-          // Das ist bewusst die optimistische Seite: Die Action liest den
-          // maßgeblichen Code an der Zeile und weist den Klick sonst mit
-          // derselben Begründung ab.
-          reasonCode: r.reason_code,
-          attemptCount: r.recycle_attempt_count ?? 0,
-          maxAttempts: settings.settings.max_attempts,
-          inRecycleBranch: listFeedsRecycling(list, r.entity_type),
-        }),
-      }))
+      .map<DropoutRow>((r) => {
+        const key = `${r.entity_type}:${r.entity_id}`;
+        const lookup = blockReasons?.get(key);
+        // Überschrieben wird nur, wo der Nachschlag wirklich etwas gefunden hat
+        // — ein von der RPC gelieferter Absage-Grund bleibt stehen.
+        const nachgeschlagen =
+          lookup?.visible && lookup.reason_code
+            ? { reason_code: lookup.reason_code, reason_text: lookup.reason_text }
+            : {};
+        return {
+          ...r,
+          ...nachgeschlagen,
+          reason_hidden: lookup ? !lookup.visible : false,
+          lineage: lineage.get(key) ?? EMPTY_LINEAGE,
+          revive_blocked: reviveBlockedReason({
+            entity: r.entity_type,
+            revived: Boolean(r.revived_at),
+            excluded: r.excluded,
+          }),
+          recycle_blocked: recycleBlockedReason({
+            entity: r.entity_type,
+            excluded: r.excluded,
+            revived: Boolean(r.revived_at),
+            // `recycle_responded_at` liefert die RPC nicht mit; ein Lead, der
+            // reagiert hat, ist ohnehin über `revived_at` oder einen
+            // Statuswechsel aus der Liste heraus. Die Action prüft es zusätzlich
+            // an der Zeile selbst.
+            responded: false,
+            // In den Absage-Listen trägt `reason_code` den ABSAGEgrund, nicht den
+            // Verlust- oder Disqualifizierungsgrund — die Sperre „bekommt nie ein
+            // Recycling" greift hier also nur, wenn beide Gründe gesetzt sind.
+            // Das ist bewusst die optimistische Seite: Die Action liest den
+            // maßgeblichen Code an der Zeile und weist den Klick sonst mit
+            // derselben Begründung ab.
+            reasonCode: r.reason_code,
+            attemptCount: r.recycle_attempt_count ?? 0,
+            maxAttempts: settings.settings.max_attempts,
+            inRecycleBranch: listFeedsRecycling(list, r.entity_type),
+          }),
+        };
+      })
       // Neueste Zugänge oben: Die Ablage wird von vorn gelesen, nicht von hinten.
       .sort((a, b) => (b.dropped_at ?? "").localeCompare(a.dropped_at ?? ""));
 
@@ -538,6 +588,9 @@ function rowFeedsRecycling(entity: DropoutAppointmentEntity, row: GateRow): bool
  * `recycle_attempt_count` bleibt unberührt: Vorziehen ist kein Versuch,
  * sondern nur eine frühere Fälligkeit. Hochgezählt wird erst im Board über
  * `markRecycleContacted`.
+ *
+ * Der GRUND wandert dagegen mit (`recycleReasonCodeFor`) — sonst trüge die
+ * Wiedervorlage einen Grund, der nicht stimmt.
  */
 export async function pullRecycleForward(
   entity: string,
@@ -586,16 +639,46 @@ export async function pullRecycleForward(
   if (blocked) return { error: blocked };
 
   const today = todayBerlin();
-  const { error } = await supabase
+  // Der Grund wandert MIT. Ohne ihn stünde die Karte in „Nachfassen" unter dem
+  // festverdrahteten Ersatzwert der Abfrage — ein abgesagtes Erstgespräch läse
+  // sich dort und in der Grund-Tabelle des Analyse-Bereichs als toter Lead.
+  // Abgeleitet wird er aus der eben gelesenen Zeile, nie aus dem Aufruf.
+  const reasonCode = recycleReasonCodeFor({
+    entity,
+    status: row.status,
+    cancelOutlook: row.cancel_outlook ?? null,
+    noShowResolution: row.no_show_resolution ?? null,
+    disqualifyReasonCode: row.disqualify_reason_code ?? null,
+    lostReasonCode: row.lost_reason_code ?? null,
+  });
+
+  // Gelesen und geschrieben sind zwei Anweisungen — dazwischen kann jemand
+  // dieselbe Zeile sperren. Der Ausschluss steht deshalb als Bedingung IM
+  // Update: Es trifft dann keine Zeile mehr, statt am Exklusiv-CHECK der
+  // Datenbank zu scheitern und eine rohe Postgres-Meldung durchzureichen.
+  const { data: updated, error } = await supabase
     .from(table)
-    .update({ next_recycle_at: today })
+    .update({
+      next_recycle_at: today,
+      ...(reasonCode ? { recycle_reason_code: reasonCode } : {}),
+    })
     .eq("id", entityId)
-    .eq("workspace_id", access.workspace_id);
+    .eq("workspace_id", access.workspace_id)
+    .is("recycle_excluded_at", null)
+    .select("id");
 
   if (error) {
     return {
       error: isMissingSchema(error) ? "Recycling ist nicht verfügbar — Migration 0033 fehlt." : error.message,
     };
+  }
+  if (!updated || updated.length === 0) {
+    // Die Zeile gab es beim Lesen noch — sie ist also nicht verschwunden,
+    // sondern in der Zwischenzeit gesperrt worden. Bis auf das erste Wort
+    // wortgleich zu `recycleBlockedReason`: Der Satz auf der Karte nennt
+    // denselben Zustand ohne „Inzwischen", und genau dieser Unterschied sagt,
+    // dass er sich geändert hat, während die Karte offen stand.
+    return { error: "Inzwischen gesperrt — eine Wiedervorlage widerspräche der Sperre." };
   }
 
   revalidatePath("/ablage");

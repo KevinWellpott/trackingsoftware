@@ -8,8 +8,8 @@ import { createClient } from "@/lib/supabase/server";
 import { loadClosingCalls, loadReminderTouches, loadSettingCalls } from "@/lib/analyseData";
 import { cascadeRank, cascadeStepLabel, type CascadeKind } from "@/lib/cascadeEngine";
 import {
-  NUM, bucketIndex, buildBuckets, bucketOf, closingEffDate, eur, fmtPct, pct, settingEffDate,
-  type Granularity,
+  NUM, bucketIndex, buildBuckets, bucketOf, closingEffDate, closingShowRate, eur, fmtPct, pct,
+  settingEffDate, type Granularity,
 } from "@/lib/analyse";
 import { berlinDateISO } from "@/lib/apptTime";
 import { personIn } from "@/lib/personResolution";
@@ -64,13 +64,21 @@ const LOST_UNSET = "__ohne";
 
 type Totals = {
   closings: number;
+  /**
+   * Abgesagte Termine — eine Teilmenge von `closings`, kein eigener Topf.
+   *
+   * „Closing-Termine" bleibt bewusst die volle Menge inklusive der abgesagten
+   * (Kapazitätsfrage, docs §5); der Abzug greift nur im Nenner der Show-Quote,
+   * wo eine Absage sonst als Nicht-Erschienen zählte.
+   */
+  abgesagt: number;
   shows: number;
   won: number;
   lost: number;
   revenue: number;
 };
 
-const ZERO = (): Totals => ({ closings: 0, shows: 0, won: 0, lost: 0, revenue: 0 });
+const ZERO = (): Totals => ({ closings: 0, abgesagt: 0, shows: 0, won: 0, lost: 0, revenue: 0 });
 
 const INT = new Intl.NumberFormat("de-DE");
 
@@ -275,6 +283,11 @@ export async function ClosingTab({
 
     const t = ensure(name);
     t.closings += 1;
+    // Eine Absage lässt `status` und `show_status` unangetastet (docs §3) —
+    // im vollen Nenner der Show-Quote stünde sie damit als garantierte Null,
+    // und die Quote sänke mit jeder erfassten Absage, ohne dass sich am
+    // Vertrieb etwas ändert. Deshalb hier mitgezählt und unten abgezogen.
+    if (r.cancelled_at) t.abgesagt += 1;
     if (r.show_status === "show") t.shows += 1;
     statusCounts[r.status] += 1;
 
@@ -476,6 +489,7 @@ export async function ClosingTab({
   for (const name of names) {
     const t = totals.get(name)!;
     sum.closings += t.closings;
+    sum.abgesagt += t.abgesagt;
     sum.shows += t.shows;
     sum.won += t.won;
     sum.lost += t.lost;
@@ -483,10 +497,12 @@ export async function ClosingTab({
   }
 
   // ── KPI-Werte + Deltas ───────────────────────────────────────
-  // NEUER NENNER (Show-Quote): alle Closing-TERMINE, nicht nur die mit
-  // gesetztem Erschienen-Feld. Vorher fielen Termine ohne Angabe komplett aus
-  // der Rechnung — die Quote maß, wer das Häkchen gesetzt hat.
-  const showRate = pct(sum.shows, sum.closings);
+  // NENNER (Show-Quote): alle Closing-TERMINE außer den abgesagten. „Alle
+  // Termine" ist Absicht — Termine ohne gesetztes Erschienen-Feld bleiben
+  // drin, sonst maß die Quote, wer das Häkchen gesetzt hat. Ein ABGESAGTER
+  // Termin ist aber kein „ohne Angabe": Er hat nachweislich nicht
+  // stattgefunden und wurde in der vollen Menge wie ein No-Show gewertet.
+  const showRate = closingShowRate(sum.shows, sum.closings, sum.abgesagt);
   // NEUER NENNER (Abschlussrate): die SHOWS. Vorher wurde gegen
   // „gewonnen + verloren" gerechnet; das wirft jeden noch offenen Deal aus dem
   // Nenner und schönt die Quote systematisch — ein Zeitraum ohne einen einzigen
@@ -513,7 +529,7 @@ export async function ClosingTab({
       name,
       values: {
         closings: t.closings,
-        showRate: pct(t.shows, t.closings),
+        showRate: closingShowRate(t.shows, t.closings, t.abgesagt),
         winRate: pct(t.won, t.shows),
         revPerMeeting: revenuePerMeeting(t.revenue, t.closings),
         revenue: t.revenue,
@@ -686,9 +702,11 @@ export async function ClosingTab({
           info={
             <InfoText>
               <p style={INFO_P}>
-                <strong style={INFO_STRONG}>Show-Quote</strong> = erschienen ÷ ALLE Closing-Termine. Termine
-                ohne gesetztes Erschienen-Feld fallen damit nicht mehr aus der Rechnung — vorher maß die Quote,
-                wer das Häkchen gesetzt hat.
+                <strong style={INFO_STRONG}>Show-Quote</strong> = erschienen ÷ alle Closing-Termine{" "}
+                <em>außer den abgesagten</em>. Termine ohne gesetztes Erschienen-Feld bleiben bewusst im Nenner
+                — sonst maß die Quote, wer das Häkchen gesetzt hat. Ein abgesagter Termin ist etwas anderes: Er
+                hat nachweislich nicht stattgefunden, trägt deshalb nie ein Erschienen-Feld und zählte in der
+                vollen Menge wie ein Nicht-Erschienen. Wie viele Termine abgesagt wurden, steht im Funnel-Tab.
               </p>
               <p style={INFO_P}>
                 <strong style={INFO_STRONG}>Abschlussrate</strong> = gewonnen ÷ erschienen. Ein noch offener
@@ -956,11 +974,16 @@ export async function ClosingTab({
               title="Wie lange dauert der Abschluss?"
               icon={Timer}
               // Menge zuerst, Einschränkung dahinter: Wie viele Closings die
-              // Auswertung überhaupt tragen, entscheidet, ob sie etwas taugt —
-              // ohne verknüpftes Setting gibt es keine Dauer.
+              // Auswertung überhaupt tragen, entscheidet, ob sie etwas taugt.
+              //
+              // „mit Dauer-Angabe", nicht „mit Setting-Bezug": Eine Dauer
+              // braucht BEIDE Enden, und `closing_calls.call_at` ist nullable.
+              // Ein Bestands-Closing mit sauberer Verknüpfung, aber ohne
+              // Termin-Zeitstempel, wurde hier als herkunftslos gemeldet — eine
+              // Aussage über ein Feld, das gar nicht fehlt.
               meta={
                 speedUnknown > 0
-                  ? `${INT.format(sum.closings - speedUnknown)} von ${INT.format(sum.closings)} mit Setting-Bezug`
+                  ? `${INT.format(sum.closings - speedUnknown)} von ${INT.format(sum.closings)} mit Dauer-Angabe`
                   : `${INT.format(sum.closings)} Closings`
               }
               collapsible
@@ -970,7 +993,8 @@ export async function ClosingTab({
                   <p style={INFO_P}>
                     Tage zwischen Setting-Termin und Abschlussgespräch. Ein Deal, der lange liegt, wird selten
                     besser — die Win-Rate in den hinteren Blöcken zeigt, ab wann Nachfassen sich nicht mehr
-                    lohnt.
+                    lohnt. Gezählt wird nur, wo beide Enden feststehen: ohne verknüpftes Setting oder ohne
+                    Termin-Zeitstempel am Closing gibt es keine Dauer.
                   </p>
                   <p style={INFO_P}>
                     Die Win-Rate rechnet hier gegen entschiedene Deals (gewonnen + verloren), weil ein noch

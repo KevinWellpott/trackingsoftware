@@ -57,6 +57,20 @@ export type MeasureKey =
   | "closing_shows"
   /** Abgesagte Abschlussgespräche — Begründung wie `setting_cancelled`. */
   | "closing_cancelled"
+  /**
+   * Nicht abgesagte Abschlussgespräche — der Nenner der Show-Quote Closing,
+   * deckungsgleich mit `closingShowRate()` im Closing-Tab.
+   *
+   * Warum eine eigene Messgröße statt `closings` minus `closing_cancelled`:
+   * Die Registry kennt nur Zähler und Nenner, kein Abziehen. Und der Nenner
+   * bleibt bewusst die VOLLE Termin-Menge ohne die abgesagten — nicht
+   * „Termine mit erfasstem Ergebnis": `show_status` wird beim Eintragen eines
+   * Ergebnisses abgeleitet (docs §4), ein Nenner aus erfassten Feldern misst
+   * deshalb die Erfassungsdisziplin statt des Ergebnisses. Die Absage ist die
+   * eine Menge, die raus muss: Sie lässt `show_status` unangetastet (docs §3)
+   * und zählte im vollen Nenner als Nicht-Erschienen.
+   */
+  | "closing_not_cancelled"
   | "won"
   | "lost"
   | "revenue";

@@ -230,14 +230,24 @@ export function cascadeKindFor(
   return track === "mail" ? "setting_mail" : "setting_msg";
 }
 
+/**
+ * Anzeigenamen der neun Kaskaden.
+ *
+ * „Setting", nicht „Erstgespräch": Diese Labels stehen im Erinnerungs-Board und
+ * im Kaskaden-Panel unmittelbar NEBEN dem Termin-Badge und dem Knopf „Zum
+ * Setting" (`ENTITY_META` in ErinnerungenBoard.tsx). Zwei Wörter für dieselbe
+ * Stufe auf einer Karte zwingen den Leser zu raten, ob sie dasselbe meinen.
+ * „Setting" gewinnt, weil Kalender, Route und Nachfassen-Board es schon so
+ * nennen und weil es neben „Closing" ein Paar ergibt.
+ */
 export const CASCADE_KIND_LABELS: Record<CascadeKind, string> = {
-  setting_msg: "Erstgespräch — Nachrichten",
-  setting_mail: "Erstgespräch — Mails",
+  setting_msg: "Setting — Nachrichten",
+  setting_mail: "Setting — Mails",
   closing_msg: "Closing — Nachrichten",
   closing_mail: "Closing — Mails",
   followup_msg: "Nachfass-Kontakt",
   closing_kickoff: "Nach der Qualifizierung",
-  no_show_setting: "No-Show Erstgespräch",
+  no_show_setting: "No-Show Setting",
   no_show_closing: "No-Show Closing",
   kein_close: "Kein Abschluss",
 };

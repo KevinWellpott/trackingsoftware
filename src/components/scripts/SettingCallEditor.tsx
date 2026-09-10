@@ -27,6 +27,7 @@ import { DisqualifyReasonFields } from "@/components/termine/lifecycleUi";
 import { DISQUALIFY_REASON_LABELS, type SettingLifecycle } from "@/components/termine/lifecycleMeta";
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { channelLabel } from "@/lib/channels";
+import { resolveCascadeChannel } from "@/lib/reminderCascade";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { LEGACY_SETTING_BLOCKS, SETTING_BLOCKS, SETTING_GOLD_BLOCKS } from "@/lib/scripts";
 import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
@@ -456,8 +457,26 @@ export function SettingCallEditor({
    * verlässlichen Kanal: `resolveFollowUpChannel` fiele auf den Akquise-Kanal
    * zurück, und bei Ads/Social/Sonstige gibt es gar keinen — die drei
    * Erinnerungen vor dem Abschlussgespräch stünden dann ohne Weg da.
+   *
+   * Das Gate rechnet deshalb mit DERSELBEN Bedingung wie der Auflöser: WhatsApp
+   * entsteht nur mit Nummer UND dokumentierter Einwilligung. Eine eingetragene
+   * Nummer ohne Einwilligung war genau die Lücke — sie sah wie eine erfüllte
+   * Pflicht aus, ergab aber keinen Kanal, und bei einer Quelle ohne
+   * Akquise-Kanal trugen danach alle drei Erinnerungen „Kanal frei wählen".
+   *
+   * Wo es einen Akquise-Kanal gibt (LinkedIn, Telefon), bleibt die fehlende
+   * Einwilligung dagegen erlaubt: Dort trägt die Kaskade, und ein Gate, das
+   * hier sperrte, drängte den Verkäufer nur dazu, eine Einwilligung
+   * anzuhaken, die es nicht gibt — ausgerechnet das Feld, das sie belegen soll.
    */
-  const waReady = waRefused || waPhone.trim().length > 0;
+  const waPhoneGiven = !waRefused && waPhone.trim().length > 0;
+  const fallbackChannel = resolveCascadeChannel(call.source_type);
+  const waReady = waRefused || (waPhoneGiven && (waConsent || fallbackChannel !== null));
+
+  /** Was fehlt — im Modal und als Titel des gesperrten Knopfes derselbe Satz. */
+  const waBlockedHint = waPhoneGiven
+    ? "Für diese Quelle gibt es keinen Akquise-Kanal — ohne dokumentierte Einwilligung hätten die Erinnerungen keinen Weg. Bitte Einwilligung bestätigen oder „Will keine Nummer rausgeben“ wählen."
+    : "Ohne persönliche Nummer kein Closing — bitte eintragen oder „Will keine Nummer rausgeben“ wählen.";
 
   /**
    * Nummer bzw. Verweigerung speichern. Die beiden CHECKs aus 0032 sind hier
@@ -492,9 +511,7 @@ export function SettingCallEditor({
       return;
     }
     if (!waReady) {
-      setModalError(
-        "Ohne persönliche Nummer kein Closing — bitte eintragen oder „Will keine Nummer rausgeben“ wählen.",
-      );
+      setModalError(waBlockedHint);
       return;
     }
     startTransition(async () => {
@@ -1324,7 +1341,9 @@ export function SettingCallEditor({
                 ? `Festgehalten als bewusste Ausnahme — die Erinnerungen laufen dann über ${channelLabel(call.source_type, "den Akquise-Kanal")}.`
                 : waConsent
                   ? "Mit dokumentierter Einwilligung laufen die Erinnerungen über WhatsApp."
-                  : "Ohne dokumentierte Einwilligung laufen die Erinnerungen über den Akquise-Kanal — die Nummer bleibt trotzdem am Termin."}
+                  : fallbackChannel
+                    ? "Ohne dokumentierte Einwilligung laufen die Erinnerungen über den Akquise-Kanal — die Nummer bleibt trotzdem am Termin."
+                    : "Ohne dokumentierte Einwilligung bleibt kein Weg: Diese Quelle hat keinen Akquise-Kanal, auf den die Erinnerungen zurückfallen könnten."}
             </p>
           </div>
 
@@ -1349,11 +1368,7 @@ export function SettingCallEditor({
               type="button"
               disabled={isPending || !closingAt || !waReady}
               onClick={handleCreateClosing}
-              title={
-                waReady
-                  ? undefined
-                  : "Ohne persönliche Nummer kein Closing — außer der Lead gibt bewusst keine heraus."
-              }
+              title={waReady ? undefined : waBlockedHint}
               style={{
                 ...modalButton("primary"),
                 opacity: isPending || !closingAt || !waReady ? 0.6 : 1,

@@ -80,7 +80,13 @@ export const METRICS: readonly CompareMetric[] = [
   // ── Closing ────────────────────────────────────────────────
   { key: "closings", label: "Closings", group: "Closing", num: "closings", format: "int" },
   { key: "closing_shows", label: "Shows (Closing)", group: "Closing", num: "closing_shows", format: "int" },
-  { key: "closing_showquote", label: "Show-Quote Closing", group: "Closing", num: "closing_shows", den: "closings", format: "pct" },
+  // Nenner sind alle Closingtermine OHNE die abgesagten — deckungsgleich mit
+  // `closingShowRate()` im Closing-Tab. Termine ohne Angabe bleiben drin (sonst
+  // maesse die Quote, wer das Haekchen gesetzt hat); ein abgesagter Termin ist
+  // aber kein „ohne Angabe": Er hat nachweislich nicht stattgefunden und stand
+  // in der vollen Menge wie ein No-Show. Gegen `closings` gerechnet lieferte
+  // dieselbe Kennzahl hier eine andere Zahl als im Tab.
+  { key: "closing_showquote", label: "Show-Quote Closing", group: "Closing", num: "closing_shows", den: "closing_not_cancelled", format: "pct", hint: "abgesagte Termine nicht im Nenner" },
   { key: "gewonnen", label: "Gewonnen", group: "Closing", num: "won", format: "int" },
   { key: "verloren", label: "Verloren", group: "Closing", num: "lost", format: "int" },
   // Gegen die Shows, nicht gegen alle Closings — deckungsgleich mit der
@@ -153,6 +159,7 @@ const MEASURE_SOURCE: Record<MeasureKey, MetricSource> = {
   closings: "closing",
   closing_shows: "closing",
   closing_cancelled: "closing",
+  closing_not_cancelled: "closing",
   won: "closing",
   lost: "closing",
   revenue: "closing",

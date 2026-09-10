@@ -54,13 +54,21 @@ export type DropoutListMeta = {
   title: string;
   /** Ein Satz: was in dieser Liste liegt. */
   meta: string;
-  /** Woraus die Liste abgeleitet wird — wortgleich zur RPC, hinter dem Info-Icon. */
+  /** Woraus die Liste abgeleitet wird — in Worten, hinter dem Info-Icon. */
   derivation: string;
   /**
    * true = diese Liste ignoriert die eingestellte Datensicht und liefert
    * immer org-weit. Gilt genau für die Sperrliste (Begründung dort).
    */
   orgWide?: true;
+  /**
+   * true = in dieser Liste steht eine Handlung offen; sie ist die einzige, die
+   * einen Navigations-Zähler bekommt. Genau EINE der sechs trägt das Flag:
+   * Ein Aktenschrank mahnt nicht, ein ausstehender Ersatztermin schon. Die
+   * Umschaltleiste hebt ihre Zahl deshalb hervor — sonst sähe man den sechs
+   * Reitern nicht an, welcher Arbeit enthält und welcher nur Archiv ist.
+   */
+  openAction?: true;
 };
 
 /**
@@ -72,11 +80,15 @@ export type DropoutListMeta = {
 export const DROPOUT_LISTS: readonly DropoutListMeta[] = [
   {
     key: "abgesagt",
-    tab: "Abgesagt",
+    // „Abgesagt" allein wäre die halbe Wahrheit: Die Liste enthält NUR die
+    // Absagen ohne Aussicht auf einen neuen Termin, die übrigen stehen im
+    // Reiter daneben. Wer alle Absagen sucht und hier landet, hält die Hälfte
+    // für alles — deshalb steht der Unterschied schon im Reiter.
+    tab: "Abgesagt — endgültig",
     title: "Abgesagt ohne Aussicht",
     meta: "Termin abgesagt, ein neuer ist nicht in Sicht.",
     derivation:
-      "Termine mit gesetztem Absagegrund, deren Aussicht auf „ohne Aussicht“ steht (cancel_outlook). Ein abgesagter Termin behält seinen Status — die Absage steht in eigenen Feldern, damit er aus dem Nenner der Show-Quote fällt, statt sie zu verfälschen.",
+      "Termine mit gesetztem Absagegrund, deren Aussicht auf „ohne Aussicht“ steht. Ein abgesagter Termin behält seinen Status — die Absage steht in eigenen Feldern, damit er aus dem Nenner der Show-Quote fällt, statt sie zu verfälschen.",
   },
   {
     key: "ersatztermin_offen",
@@ -84,15 +96,16 @@ export const DROPOUT_LISTS: readonly DropoutListMeta[] = [
     title: "Abgesagt, Ersatztermin steht aus",
     meta: "Abgesagt mit Aussicht auf einen neuen Termin — der aber noch nicht steht.",
     derivation:
-      "Absagen mit Aussicht „neuer Termin“, bei denen noch kein Ersatz eingetragen ist (revived_at ist leer). Sobald der Ersatztermin steht, verschwindet die Zeile hier und die Kaskade startet neu (ENTSCHEIDUNGEN.md #9).",
+      "Absagen mit Aussicht „neuer Termin“, bei denen noch kein Ersatz eingetragen ist. Sobald der Ersatztermin steht, verschwindet der Vorgang hier und die Kaskade startet neu.",
+    openAction: true,
   },
   {
     key: "disqualifiziert",
     tab: "Disqualifiziert",
     title: "Disqualifiziert",
-    meta: "Erstgespräch geführt, Lead passt nicht: unqualifiziert oder dead.",
+    meta: "Setting geführt, der Lead passt nicht — oder ist ganz abgesprungen.",
     derivation:
-      "Erstgespräche im Status „unqualifiziert“ oder „dead“. Der Grund steht als Code (Statistik) neben dem Freitext (Gedächtnis) — nur über den Code lässt sich zählen, woran es lag.",
+      "Settings, die als „Unqualifiziert“ oder „Dead“ abgeschlossen wurden. Der Grund steht als Code (Statistik) neben dem Freitext (Gedächtnis) — nur über den Code lässt sich zählen, woran es lag.",
   },
   {
     key: "kein_close",
@@ -108,7 +121,7 @@ export const DROPOUT_LISTS: readonly DropoutListMeta[] = [
     title: "No-Show ohne Antwort",
     meta: "Nicht erschienen — und auf keinen der Nachfass-Kontakte reagiert.",
     derivation:
-      "Termine mit No-Show, deren Ausgang als „ohne Antwort“ festgehalten wurde. Wer geantwortet oder einen Ersatztermin bekommen hat, steht bewusst nicht hier: das sind die beiden anderen Ausgänge desselben Feldes.",
+      "Termine mit No-Show, deren Ausgang als „ohne Antwort“ festgehalten wurde. Wer geantwortet oder einen Ersatztermin bekommen hat, steht bewusst nicht hier: das sind die beiden anderen Ausgänge, die ein No-Show haben kann.",
   },
   {
     key: "gesperrt",
@@ -116,7 +129,7 @@ export const DROPOUT_LISTS: readonly DropoutListMeta[] = [
     title: "Sperrliste",
     meta: "Dauerhaftes Kontaktverbot — org-weit sichtbar, für alle.",
     derivation:
-      "Vorgänge mit gesetztem Ausschluss (recycle_excluded_at) über alle vier Recycling-Tabellen — Erstgespräch, Closing, LinkedIn-Kontakt und Telefon-Lead. Diese Liste ignoriert als einzige die eingestellte Datensicht: ein Kontaktverbot, das nur sein Besitzer sieht, ist keines.",
+      "Vorgänge mit dauerhaftem Kontaktverbot über alle vier Ursprünge — Setting, Closing, LinkedIn-Kontakt und Telefon-Lead. Diese Liste ignoriert als einzige die eingestellte Datensicht: ein Kontaktverbot, das nur sein Besitzer sieht, ist keines.",
     orgWide: true,
   },
 ];
@@ -163,6 +176,26 @@ const DISQUALIFY_REASON_LABELS: Record<string, string> = {
 };
 
 /**
+ * Die drei Gründe, für die es in KEINER Tabelle einen Code gibt.
+ *
+ * Ein Erstgespräch kann auf drei Wegen terminal werden, ohne dass eine
+ * Grund-Spalte das festhält: abgesagt ohne Aussicht, No-Show ohne Antwort, und
+ * (in Bestandsdaten) unqualifiziert ohne nachgepflegten Grund. Genau diese drei
+ * Zustände schreibt `recycleReasonCodeFor()` als Recycling-Grund fort — sonst
+ * fällt die Wiedervorlage in `recycle_tasks` auf den festverdrahteten Ersatzwert
+ * „dead" zurück und die Karte behauptet einen Grund, der nicht stimmt.
+ *
+ * Die Codes tragen bewusst die Namen der Ablage-Listen: Der Nutzer hat sie als
+ * Reiter schon gelesen, und was in einer Liste liegt, heißt in der Wiedervorlage
+ * genauso.
+ */
+const ABLAGE_REASON_LABELS: Record<string, string> = {
+  abgesagt: "Abgesagt",
+  no_show_ohne_antwort: "No-Show ohne Antwort",
+  unqualifiziert: "Unqualifiziert",
+};
+
+/**
  * EINE Nachschlagetabelle über alle vier Grund-Familien.
  *
  * Die RPC liefert je nach Liste mal den Absage-, mal den Disqualifizierungs-,
@@ -178,6 +211,7 @@ export const DROPOUT_REASON_LABELS: Record<string, string> = {
   ...CANCEL_REASON_LABELS,
   ...DISQUALIFY_REASON_LABELS,
   ...RECYCLE_REASON_LABELS,
+  ...ABLAGE_REASON_LABELS,
   // Zuletzt: für die Verlustgründe ist diese Map die maßgebliche Quelle.
   ...CLOSING_LOST_REASON_LABELS,
 };
@@ -188,6 +222,25 @@ export const DROPOUT_REASON_LABELS: Record<string, string> = {
 export function dropoutReasonLabel(code: string | null): string {
   if (!code) return "Ohne Grund";
   return DROPOUT_REASON_LABELS[code] ?? code;
+}
+
+/**
+ * Beschriftung des Grund-Badges auf einer Ablage-Karte.
+ *
+ * `hidden` unterscheidet zwei Zustände, die ohne diese Trennung gleich aussähen
+ * und von denen einer eine Falschaussage wäre: „für diesen Vorgang ist kein
+ * Grund erfasst" (Ohne Grund) gegen „der Vorgang gehört einer anderen Person,
+ * die eingestellte Datensicht zeigt seinen Grund nicht" (Grund nicht sichtbar).
+ *
+ * Der Fall entsteht ausschließlich in der Sperrliste: Sie ist die einzige
+ * Ansicht, die org-weit liefert, während der Nachschlag des Grundes durch die
+ * normale Zeilensicherheit läuft. Ausgerechnet dort ist die Falschaussage am
+ * teuersten — die Liste beantwortet die Frage „warum darf hier niemand mehr
+ * anrufen?".
+ */
+export function dropoutReasonBadge(code: string | null, hidden: boolean): string {
+  if (code) return dropoutReasonLabel(code);
+  return hidden ? "Grund nicht sichtbar" : "Ohne Grund";
 }
 
 /* ------------------------------------------------------------------ *
@@ -231,6 +284,50 @@ export function listFeedsRecycling(list: DropoutListKey, entity: DropoutEntity):
     : list === "abgesagt" || list === "disqualifiziert" || list === "no_show_ohne_antwort";
 }
 
+/**
+ * Der Grund, unter dem ein vorgezogener Vorgang in der Wiedervorlage steht.
+ *
+ * `null` = kein Grund ableitbar; dann bleibt die Spalte unangetastet und der
+ * Ersatzwert der Abfrage greift.
+ *
+ * Warum das hier überhaupt gerechnet wird: „Recycling vorziehen" schreibt das
+ * Datum direkt, ohne `schedule_recycle()` — die RPC rechnet die grundabhängige
+ * Wartezeit ab heute NEU aus und ist damit das Gegenteil von „vorziehen".
+ * Damit fällt aber auch der Grund-Stempel weg, den sie sonst nebenbei setzt.
+ * Ohne ihn steht die Karte in „Nachfassen" unter dem festverdrahteten
+ * Ersatzwert „dead" — ein abgesagtes Erstgespräch liest sich dann als toter
+ * Lead, und dieselbe falsche Zeile taucht in der Grund-Tabelle des
+ * Analyse-Bereichs wieder auf.
+ *
+ * Der Grund kommt AUS DER ZEILE, nie vom Aufrufer — dieselbe Regel, aus der
+ * `schedule_recycle()` seit Migration 0033 seinen Grund selbst liest, statt ihn
+ * sich als Argument schicken zu lassen.
+ *
+ * Reihenfolge wie in `schedule_recycle()`: der Status geht vor, weil ein
+ * geführtes Gespräch mehr über den Lead sagt als seine Absage.
+ */
+export function recycleReasonCodeFor(row: {
+  entity: DropoutAppointmentEntity;
+  status: string | null;
+  cancelOutlook?: string | null;
+  noShowResolution?: string | null;
+  disqualifyReasonCode?: string | null;
+  lostReasonCode?: string | null;
+}): string | null {
+  if (row.entity === "closing") {
+    // Beim Closing genügt der Verlustgrund: Fehlt er, greift in der Abfrage
+    // ohnehin `lost_reason_code` und zuletzt „Sonstiges" — dort gibt es den
+    // falschen Ersatzwert „dead" gar nicht.
+    return row.lostReasonCode ?? null;
+  }
+  if (row.status === "dead" || row.status === "unqualifiziert") {
+    return row.disqualifyReasonCode ?? row.status;
+  }
+  if (row.noShowResolution === "ohne_antwort") return "no_show_ohne_antwort";
+  if (row.cancelOutlook === "ohne_aussicht") return "abgesagt";
+  return null;
+}
+
 /* ------------------------------------------------------------------ *
  * Darf der Vorgang zurückgeholt werden? (Entscheidung K10)
  * ------------------------------------------------------------------ */
@@ -244,11 +341,13 @@ export type ReviveGate = {
 };
 
 /**
- * `null` = „Zurückholen" ist möglich, sonst der Satz, der es sperrt.
+ * `null` = „Neuen Termin ansetzen" ist möglich, sonst der Satz, der es sperrt.
  *
  * Dieselbe Bauform wie `recycleBlockedReason`: EINE Funktion für die Anzeige
- * (Knopf aus, Grund am Knopf) und für die Ausführung — die Server-Action prüft
- * trotzdem selbst, weil sie per direktem POST erreichbar ist.
+ * (Knopf weg, Satz darunter oder am Fuß) und für die Ausführung — die
+ * Server-Action prüft trotzdem selbst, weil sie per direktem POST erreichbar
+ * ist. Deshalb ist der Rückgabewert ein ganzer Satz und kein Code: Er steht
+ * genauso auf der Karte wie in der Fehlermeldung der Action.
  *
  * Die drei Riegel haben je einen eigenen Grund:
  *  · LinkedIn-Kontakte und Telefon-Leads können gar nicht Vorgänger sein — die
@@ -264,15 +363,37 @@ export type ReviveGate = {
  */
 export function reviveBlockedReason(gate: ReviveGate): string | null {
   if (gate.entity === "linkedin" || gate.entity === "telefon") {
-    return "Nur Termine lassen sich zurückholen — ein Lead bekommt seinen neuen Termin aus seiner Liste heraus.";
+    return "Nur für Termine lässt sich ein neuer ansetzen — ein Lead bekommt seinen Termin aus seiner Liste heraus.";
   }
   if (gate.excluded) {
     return "Dauerhaft gesperrt — ein neuer Termin widerspräche der Sperre.";
   }
   if (gate.revived) {
-    return "Bereits zurückgeholt — der neue Termin steht schon.";
+    // Sagt bewusst mehr als der Badge „Neuer Termin angesetzt" oben auf der
+    // Karte: Der Badge nennt den Zustand, dieser Satz die FOLGE — und die
+    // Folge ist der Grund, aus dem der Knopf daneben fehlt.
+    return "Der neue Termin steht bereits — einen zweiten setzt die Ablage zu demselben Vorgang nicht an.";
   }
   return null;
+}
+
+/**
+ * Lässt sich in dieser Liste ÜBERHAUPT ein neuer Termin ansetzen?
+ *
+ * Gegenstück zu `listFeedsRecycling` und aus demselben Grund da: Gilt die
+ * Absage für JEDE Zeile der Ansicht, steht sie einmal am Fuß des Boards statt
+ * auf zwanzig Karten. Genau so liegt es in der Sperrliste — `dropout_lists()`
+ * liefert dort ausschließlich Zeilen mit gesetztem Kontaktverbot, und ein neuer
+ * Termin widerspräche der Sperre. In den übrigen fünf Listen hängt es dagegen
+ * an der einzelnen Zeile (bereits angesetzt, oder gar kein Termin), und dann
+ * gehört der Satz auf die betroffene Karte.
+ *
+ * Dieselbe Antwort entscheidet, ob der Fußtext den Knopf überhaupt erklärt:
+ * Eine Erläuterung zu einer Aktion, die auf keiner Karte angeboten wird, ist
+ * schlimmer als keine — sie lässt den Nutzer nach einem Knopf suchen.
+ */
+export function listAllowsRevive(list: DropoutListKey): boolean {
+  return list !== "gesperrt";
 }
 
 /**
@@ -315,12 +436,13 @@ export type RecycleGate = {
 };
 
 /**
- * `null` = „Recycling vorziehen" ist möglich, sonst der Satz, der es sperrt.
+ * `null` = „Jetzt wieder anschreiben" ist möglich, sonst der Satz, der es
+ * sperrt.
  *
- * Bewusst EINE Funktion für Anzeige und Ausführung: Das Board schaltet den
- * Knopf damit aus demselben Grund ab, aus dem die Server-Action ihn verweigern
- * würde — und die Action prüft trotzdem selbst, weil sie per direktem POST
- * erreichbar ist und der Knopf-Zustand kein Schutz wäre.
+ * Bewusst EINE Funktion für Anzeige und Ausführung: Das Board lässt den Knopf
+ * damit aus demselben Grund weg, aus dem die Server-Action ihn verweigern würde
+ * — und die Action prüft trotzdem selbst, weil sie per direktem POST erreichbar
+ * ist und ein fehlender Knopf kein Schutz wäre.
  */
 export function recycleBlockedReason(gate: RecycleGate): string | null {
   if (gate.excluded) {

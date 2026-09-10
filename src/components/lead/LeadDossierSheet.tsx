@@ -30,27 +30,32 @@ type Props = {
 
 export function LeadDossierSheet({ open, onClose, kind, id }: Props) {
   const [loaded, setLoaded] = useState<{ key: string; result: LeadDossierResult } | null>(null);
-  const key = `${kind}:${id}`;
+  // Ein Zähler als zweiter Teil des Schlüssels: „Nochmal versuchen" wirft damit
+  // den alten Stand weg UND startet den Effekt neu. Ohne ihn bliebe die
+  // Fehlerkarte stehen, weil sich an `open`, `kind` und `id` nichts ändert.
+  const [attempt, setAttempt] = useState(0);
+  const key = `${kind}:${id}:${attempt}`;
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    const requestKey = `${kind}:${id}:${attempt}`;
     getLeadDossier(kind, id)
       .then((result) => {
-        if (!cancelled) setLoaded({ key: `${kind}:${id}`, result });
+        if (!cancelled) setLoaded({ key: requestKey, result });
       })
       .catch((e: unknown) => {
         if (cancelled) return;
         console.error("LeadDossierSheet:", e instanceof Error ? e.message : e);
         setLoaded({
-          key: `${kind}:${id}`,
+          key: requestKey,
           result: { dossier: null, available: true, error: "Das Dossier ließ sich nicht laden." },
         });
       });
     return () => {
       cancelled = true;
     };
-  }, [open, kind, id]);
+  }, [open, kind, id, attempt]);
 
   const result = loaded?.key === key ? loaded.result : null;
 
@@ -67,7 +72,11 @@ export function LeadDossierSheet({ open, onClose, kind, id }: Props) {
       ) : result.dossier ? (
         <LeadDossierPanel dossier={result.dossier} />
       ) : (
-        <LeadDossierEmpty available={result.available} error={result.error} />
+        <LeadDossierEmpty
+          available={result.available}
+          error={result.error}
+          onRetry={() => setAttempt((n) => n + 1)}
+        />
       )}
     </Modal>
   );

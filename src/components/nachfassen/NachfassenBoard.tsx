@@ -17,11 +17,11 @@ import { isOverdue, type DueGranularity } from "@/lib/dueState";
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   AlertTriangle,
   ArrowUpRight,
   AtSign,
-  CalendarClock,
   Check,
   CheckCheck,
   CheckCircle2,
@@ -41,24 +41,44 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
-// Nachfassen-Board (Client): Union-Tasklist aus fünf Quellen — LinkedIn-Follow-up,
-// Telefon-Rückruf, Erstgespräch-Wiedervorlage, Closing-Wiedervorlage und
+// Nachfassen-Board (Client): Union-Tasklist aus fünf Quellen — Telefon-Rückruf,
+// LinkedIn-Follow-up, Erstgespräch-Wiedervorlage, Closing-Wiedervorlage und
 // Recycling. Kernwert: fertiger Text zum Kopieren — KEIN Auto-Versand.
-// Layout: Summary-Chips → Kanal-Tabs → FU-Schnellauswahl → einklappbare Sektionen
-// mit kompaktem Karten-Grid.
+// Layout: EINE Filterreihe → FU-Schnellauswahl → einklappbare Sektionen mit
+// kompaktem Karten-Grid.
 //
-// Die Texte kommen aus dem Vorlagen-Katalog und tragen ihre Herkunft als Badge
-// (Liste / persönlich / Organisation / Auslieferung) — eine wirkende Vorlage
-// kann damit nicht mehr unsichtbar sein.
+// Die frühere Summary-Chip-Reihe darüber ist weg: Fünf ihrer sechs Zahlen
+// standen vierzig Pixel über denselben Zahlen in den Filter-Pillen — und
+// „Closing" fehlte ausgerechnet in der oberen Reihe. Wer sie als Tagesüberblick
+// las, übersah seine Closing-Wiedervorlagen systematisch. Die eine Zahl, die es
+// dort exklusiv gab („Überfällig"), ist als Filter-Pille in die verbleibende
+// Reihe gewandert und schränkt jetzt zusätzlich ein, statt nur zu zählen.
+//
+// Die Texte kommen aus dem Vorlagen-Katalog; ihre Herkunft steht im `title` des
+// Kopier-Knopfs statt als Badge auf jeder Karte — sie entscheidet im
+// Arbeitsfluss nichts und interessiert genau einmal, wenn ein Text falsch
+// aussieht.
 
 type Props = {
   tasks: NachfassenTask[];
   /** Anzahl ausgeblendeter älterer LinkedIn-Leads (Pitch > 7 Tage). */
   hiddenOlder: number;
+  /**
+   * LinkedIn-Aufgaben ohne lesbare Kontaktzeile — sie stehen in der Liste,
+   * sind aber NICHT nach Alter gefiltert (das Pitch-Datum ist unbekannt).
+   * Bewusst getrennt von `hiddenOlder`: „zu alt" und „nicht lesbar" sind zwei
+   * verschiedene Aussagen, und nur eine davon stimmt.
+   */
+  unreadableContacts: number;
   /** true, wenn ?alle=1 aktiv ist und auch ältere Leads geladen wurden. */
   showingAll: boolean;
   /** false = Recycling-Schema fehlt (Migration 0033). NICHT „nichts fällig". */
   recyclingAvailable: boolean;
+  /**
+   * false = die Union-RPC hat nicht geantwortet; vier der fünf Quellen fehlen.
+   * NICHT „nichts fällig" — dann darf der grüne Leerzustand nicht erscheinen.
+   */
+  tasksAvailable: boolean;
 };
 
 type ChannelFilter = "alle" | NachfassenTask["source"];
@@ -227,57 +247,33 @@ const linkBtnStyle: React.CSSProperties = {
   transition: "background var(--transition-fast), border-color var(--transition-fast)",
 };
 
-/* ── Summary-Chip: kompakte Kennzahl-Pille oberhalb der Tabs ── */
-function StatChip({
-  icon,
-  label,
-  value,
-  danger = false,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  danger?: boolean;
-}) {
-  const hot = danger && value > 0;
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "var(--sp-4)",
-        height: 30,
-        padding: "0 var(--sp-6)",
-        background: hot ? "var(--warning-bg)" : "var(--surface-2)",
-        border: `1px solid ${hot ? "rgb(209 162 79 / 0.28)" : "var(--border-default)"}`,
-        borderRadius: "var(--r-full)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <span
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          color: hot ? "var(--warning-fg)" : "var(--text-muted)",
-        }}
-      >
-        {icon}
-      </span>
-      <span style={{ fontSize: "var(--fs-xs)", fontWeight: 500, color: hot ? "var(--warning-fg)" : "var(--text-muted)" }}>
-        {label}
-      </span>
-      <span
-        style={{
-          fontSize: "var(--fs-base)",
-          fontWeight: 600,
-          fontVariantNumeric: "tabular-nums",
-          color: hot ? "var(--warning-fg)" : "var(--text-primary)",
-        }}
-      >
-        {value}
-      </span>
-    </span>
-  );
+/* ── Fehlermeldungen: was auf einer Vertriebs-Karte stehen darf ────────
+   Die Server-Actions liefern zwei sehr verschiedene Sorten Text: eigene, für
+   Menschen geschriebene Sätze („Nicht angemeldet.") — und alles, was Postgres
+   durchreicht, etwa `new row violates row-level security policy for table
+   "contacts"`. Das Zweite ist hier keine Information, sondern Rauschen: Es sagt
+   nicht, was zu tun ist, und stand bisher als kleiner roter Text neben einer
+   Karte, die aussah, als sei nichts passiert.
+   Bekanntes geht deshalb wörtlich durch, alles andere wird zu EINEM Satz mit
+   Handlungsanweisung. Die Rohmeldung bleibt im `title` für den, der sie
+   braucht.                                                                */
+const KNOWN_ERROR_MESSAGES: ReadonlySet<string> = new Set([
+  "Nicht angemeldet.",
+  "Nicht gefunden.",
+  "Kontakt nicht gefunden.",
+  "Kopieren fehlgeschlagen — Text bitte manuell markieren.",
+]);
+
+const GENERIC_ERROR_MESSAGE = "Konnte nicht gespeichert werden — bitte erneut versuchen.";
+
+function friendlyError(raw: string): string {
+  const text = raw.trim();
+  if (KNOWN_ERROR_MESSAGES.has(text)) return text;
+  // Der Recycling-Hinweis wird in actions/recycle.ts zusammengesetzt und ist
+  // bewusst länger als eine Zeile — er erklärt eine fehlende Migration und
+  // gehört zu den Klartext-Meldungen, nicht zu den durchgereichten.
+  if (text.startsWith("Recycling ist gerade nicht verfügbar")) return text;
+  return GENERIC_ERROR_MESSAGE;
 }
 
 function TaskCard({ task }: { task: NachfassenTask }) {
@@ -287,11 +283,21 @@ function TaskCard({ task }: { task: NachfassenTask }) {
   const [hidden, setHidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dossierOpen, setDossierOpen] = useState(false);
+  // Der Text steht standardmäßig auf drei Zeilen gekürzt. Aufklappbar, weil man
+  // sonst blind kopiert: Ob ein {name}-Platzhalter wirklich ersetzt wurde,
+  // sieht man erst am ganzen Text — und genau das ist die Sorge vor dem Senden.
+  const [textOpen, setTextOpen] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   const meta = CHANNEL_META[task.source];
   const granularity = DUE_GRANULARITY[task.source];
   const overdue = isOverdue(task.due_at, granularity);
   const dossierKind = dossierTargetOf(task);
+  // Grober Schnitt statt echter Zeilenmessung: Ob der 3-Zeilen-Clamp greift,
+  // weiß nur der Browser nach dem Layout. Ein Knopf, der bei einem
+  // Zweizeiler nichts tut, ist schlimmer als einer, der bei einem
+  // Grenzfall fehlt — deshalb bewusst konservativ.
+  const textIsLong = task.prepared_text.length > 150 || task.prepared_text.split("\n").length > 3;
 
   if (hidden) return null;
 
@@ -367,22 +373,13 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             </div>
           )}
         </div>
+        {/* Der Besitzer-Badge ist ersatzlos weg: Das Board ist immer
+            personenbezogen (die Server-Action filtert auf den eingeloggten
+            Nutzer bzw. die aktive Datensicht), also konnte dort nur der eigene
+            Name stehen — oder gar nichts, wenn die Quelle keinen mitliefert.
+            Auf der halben Kartenmenge derselbe Name, den die Kopfzeile ohnehin
+            trägt, auf der anderen Hälfte eine Lücke. */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {task.owner_name && (
-            <span
-              style={{
-                fontSize: "0.625rem",
-                fontWeight: 600,
-                color: "var(--text-muted)",
-                background: "var(--surface-150)",
-                border: "1px solid var(--border)",
-                borderRadius: 99,
-                padding: "0.1rem 0.4rem",
-              }}
-            >
-              {task.owner_name}
-            </span>
-          )}
           <span
             style={{
               display: "inline-flex",
@@ -424,7 +421,12 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         </div>
       </div>
 
-      {/* ── Fälligkeit + Herkunft des Textes ── */}
+      {/* ── Fälligkeit ──────────────────────────────────────────────────
+          Die Herkunft des Textes stand hier als eigener Badge („Auslieferungs-
+          text", „Deine Vorlage" …). Sie ist eine Auskunft über die Vorrangkette
+          des Vorlagen-Katalogs und entscheidet im Arbeitsfluss nichts — sie
+          interessiert genau einmal, wenn ein Text falsch aussieht. Dafür steht
+          sie jetzt im `title` des Kopier-Knopfs, also dort, wo man sie sucht. */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap" }}>
         {task.due_at && (
           <span
@@ -447,13 +449,6 @@ function TaskCard({ task }: { task: NachfassenTask }) {
               : `fällig ${formatDue(task.due_at, granularity)}`}
           </span>
         )}
-        <Badge
-          tone="neutral"
-          style={{ marginLeft: "auto", height: 18, fontSize: "var(--fs-2xs)" }}
-          title="Herkunft des Textes"
-        >
-          {TEMPLATE_SOURCE_LABELS[task.text_source]}
-        </Badge>
       </div>
 
       {/* ── Weiche Kontaktfrequenz-Warnung (Entscheidung K3) ──────────────
@@ -479,11 +474,18 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         >
           <AlertTriangle size={11} style={{ flexShrink: 0, marginTop: 2 }} />
           Zuletzt kontaktiert {lastContactLabel(contactAgeDays(task.recent_contact_at))} (
-          {formatContactMoment(task.recent_contact_at)}) — bewusst kein Stopp, nur ein Hinweis.
+          {formatContactMoment(task.recent_contact_at)})
         </span>
       )}
 
-      {/* ── Vorbereiteter Text (auf 3 Zeilen gekürzt), Kopieren als Ghost-Icon-Button ── */}
+      {/* ── Vorbereiteter Text: 3 Zeilen Vorschau, aufklappbar ────────────
+          Der Clamp war hart und ohne Ausweg — man kopierte den Rest blind und
+          konnte vor dem Absenden nicht prüfen, ob er stimmt. Bei Follow-ups mit
+          Namens-Platzhaltern ist genau das die Sorge.
+          Bewusst ein Umschalter statt des details/collapse-summary-Bausteins:
+          Der Vorschautext soll auch zugeklappt sichtbar bleiben, details
+          versteckt seinen Inhalt aber vollständig — und den Clamp per CSS an
+          details[open] zu hängen ginge nur in globals.css. */}
       <div
         style={{
           position: "relative",
@@ -503,19 +505,50 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             userSelect: "text",
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
-            overflow: "hidden",
-            display: "-webkit-box",
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: "vertical",
+            ...(textOpen
+              ? {}
+              : {
+                  overflow: "hidden",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: "vertical" as const,
+                }),
           }}
         >
           {task.prepared_text}
         </p>
+        {textIsLong && (
+          <button
+            type="button"
+            onClick={() => setTextOpen((v) => !v)}
+            aria-expanded={textOpen}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.25rem",
+              marginTop: "0.25rem",
+              padding: 0,
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              fontSize: "0.6875rem",
+              fontWeight: 600,
+              fontFamily: "inherit",
+              cursor: "pointer",
+            }}
+          >
+            <ChevronDown
+              size={11}
+              style={{ transform: textOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s ease" }}
+            />
+            {textOpen ? "Weniger" : "Ganzen Text anzeigen"}
+          </button>
+        )}
         <button
           type="button"
           onClick={copyText}
           aria-label={copied ? "Text kopiert" : "Text kopieren"}
-          title={copied ? "Kopiert" : "Text kopieren"}
+          title={copied ? "Kopiert" : `Text kopieren — Quelle: ${TEMPLATE_SOURCE_LABELS[task.text_source]}`}
           style={{
             position: "absolute",
             top: "0.3rem",
@@ -590,7 +623,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           <>
             {task.list_id && (
               <Link href={`/telefon/${task.list_id}`} style={linkBtnStyle}>
-                <Phone size={12} /> Zum Call-Mode
+                <Phone size={12} /> Anrufen
               </Link>
             )}
             {task.phone && (
@@ -625,7 +658,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             )}
             {task.recycle_origin === "telefon" && task.list_id && (
               <Link href={`/telefon/${task.list_id}`} style={linkBtnStyle}>
-                <Phone size={12} /> Zum Call-Mode
+                <Phone size={12} /> Anrufen
               </Link>
             )}
             {task.recycle_origin === "setting" && (
@@ -651,7 +684,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
                 ...linkBtnStyle,
                 cursor: isPending ? "default" : "pointer",
               }}
-              title="Kontaktiert, noch kein Ergebnis — nächster Versuch nach Kadenz"
+              title="Kontaktiert, noch kein Ergebnis — nächster Versuch nach der eingestellten Wartezeit"
             >
               <RefreshCw size={12} /> Nochmal versucht
             </button>
@@ -669,19 +702,6 @@ function TaskCard({ task }: { task: NachfassenTask }) {
               title="Lead ist wieder im Spiel — Recycling stoppen"
             >
               <Check size={12} /> Reagiert
-            </button>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => runAction(excludeFromRecycle(task.recycle_origin!, task.entity_id))}
-              style={{
-                ...linkBtnStyle,
-                color: "var(--text-muted)",
-                cursor: isPending ? "default" : "pointer",
-              }}
-              title="Dauerhaft ausschließen — kein weiterer Recycling-Versuch"
-            >
-              <UserX size={12} /> Endgültig raus
             </button>
           </>
         )}
@@ -703,10 +723,70 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           </button>
         )}
 
+        {/* Rohmeldung nur im `title`: Ein durchgereichtes
+            „new row violates row-level security policy" sagt dem Vertrieb
+            nichts, das er tun könnte.
+            Der Span steht VOR „Endgültig raus", nicht dahinter: Dessen
+            `marginLeft: auto` schluckt den freien Platz links davon — ein
+            Element danach nähme ihm die rechte Kante und schöbe den
+            Sperr-Knopf ausgerechnet in dem Moment nach links, in dem gerade
+            ein Fehler erschienen ist, also unter den Zeiger, der eben noch
+            auf „Nochmal versucht" lag. */}
         {error && (
-          <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-error-text)" }}>{error}</span>
+          <span
+            title={friendlyError(error) === error ? undefined : error}
+            style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-error-text)" }}
+          >
+            {friendlyError(error)}
+          </span>
+        )}
+
+        {/* ── „Endgültig raus" ──────────────────────────────────────────
+            Steht bewusst am ENDE der Knopfreihe und rechts abgesetzt, nicht
+            mehr als dritte von drei gleich aussehenden Pillen direkt neben
+            „Reagiert": Ein Fehlgriff auf 28 Pixel Höhe kostete den Lead für
+            immer — die Oberfläche kennt kein Entsperren, und
+            `reviveBlockedReason()` verweigert danach zusätzlich jede
+            Rückholung. Deshalb zusätzlich eine Rückfrage, die genau das
+            ausspricht. */}
+        {task.source === "recycling" && task.recycle_origin && (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={async () => {
+              const ok = await confirm({
+                title: "Endgültig sperren?",
+                message: (
+                  <>
+                    <strong>{task.lead_name ?? "Dieser Lead"}</strong>
+                    {task.company ? ` (${task.company})` : ""} kommt damit auf die Sperrliste: keine Wiedervorlage
+                    mehr, und auch kein Zurückholen in den Funnel.
+                    <br />
+                    <br />
+                    <strong>Das lässt sich hier nicht rückgängig machen.</strong> Nur wählen, wenn der Lead
+                    ausdrücklich nicht mehr kontaktiert werden will.
+                  </>
+                ),
+                confirmLabel: "Endgültig sperren",
+                cancelLabel: "Abbrechen",
+                destructive: true,
+              });
+              if (ok) runAction(excludeFromRecycle(task.recycle_origin!, task.entity_id));
+            }}
+            style={{
+              ...linkBtnStyle,
+              marginLeft: "auto",
+              color: "var(--text-muted)",
+              cursor: isPending ? "default" : "pointer",
+            }}
+            title="Dauerhaft sperren — kein weiterer Kontaktversuch, nicht rückgängig zu machen"
+          >
+            <UserX size={12} /> Endgültig raus
+          </button>
         )}
       </div>
+
+      {dialog}
 
       {dossierKind && (
         <LeadDossierSheet
@@ -881,12 +961,14 @@ function CollapsibleSection({
   );
 }
 
-/* ── Fehlendes Schema: NICHT der grüne Leerzustand ────────────────────
-   Anders als auf /erinnerungen und in /ablage fällt hier nicht die ganze
-   Seite aus — vier der fünf Quellen hängen an einer älteren Migration und
-   arbeiten weiter. Der Hinweis steht deshalb neben den Aufgaben und sagt
-   ausdrücklich, WELCHER Teil fehlt.                                      */
-function RecyclingUnavailable() {
+/* ── Eine Quelle liefert nicht: NICHT der grüne Leerzustand ────────────
+   Der rote Kasten ist der EINE Baustein für „diese Quelle konnte gerade nichts
+   sagen" — beide Ausfälle benutzen ihn, damit sie sich nicht unterschiedlich
+   anfühlen. Anders als auf /erinnerungen und in /ablage fällt hier nie die
+   ganze Seite aus: Die fünf Quellen hängen an verschiedenen Migrationen und
+   verschiedenen RPCs. Der Kasten sagt deshalb ausdrücklich, WELCHER Teil fehlt
+   — und ebenso ausdrücklich, dass das nicht „nichts zu tun" bedeutet.       */
+function UnavailableNotice({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div
       className="card"
@@ -902,45 +984,61 @@ function RecyclingUnavailable() {
     >
       <Database size={18} style={{ flexShrink: 0, marginTop: 2, color: "var(--danger-fg)" }} />
       <div>
-        <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--danger-fg)" }}>
-          Recycling ist nicht verfügbar
-        </div>
+        <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--danger-fg)" }}>{title}</div>
         <p style={{ margin: "var(--sp-3) 0 0", fontSize: "var(--fs-sm)", color: "var(--text-secondary)", maxWidth: "62ch" }}>
-          Die Funktion <code>recycle_tasks</code> fehlt in der Datenbank — die Migration ist noch nicht eingespielt.
-          Das ist ausdrücklich <strong>nicht</strong> dasselbe wie &bdquo;kein Lead ist wieder dran&ldquo;: Verlorene
-          Closings und tote Leads werden gerade gar nicht wiedervorgelegt. Die vier übrigen Quellen unten sind davon
-          nicht betroffen. Ein Administrator spielt die Migration im Supabase-SQL-Editor ein.
+          {children}
         </p>
       </div>
     </div>
   );
 }
 
-export function NachfassenBoard({ tasks, hiddenOlder, showingAll, recyclingAvailable }: Props) {
+export function NachfassenBoard({
+  tasks,
+  hiddenOlder,
+  unreadableContacts,
+  showingAll,
+  recyclingAvailable,
+  tasksAvailable,
+}: Props) {
   const [filter, setFilter] = useState<ChannelFilter>("alle");
   // FU-Schnellauswahl: null = alle FU-Stufen, 1–3 = nur diese Sektion anzeigen
   const [fuFilter, setFuFilter] = useState<number | null>(null);
+  // Zusatzfilter „nur Überfälliges" — die einzige Zahl, die es in der
+  // gestrichenen Chip-Reihe exklusiv gab. Als reine Kennzahl war sie tot; als
+  // Filter macht sie den Vormittag sortierbar.
+  const [overdueOnly, setOverdueOnly] = useState(false);
   // Eingeklappte Sektionen (Standard: alle offen)
   const [collapsedMap, setCollapsedMap] = useState<Record<string, boolean>>({});
 
   const toggleSection = (key: string) => setCollapsedMap((prev) => ({ ...prev, [key]: !prev[key] }));
 
+  // Der Überfällig-Filter schneidet VOR allem anderen: Danach beschreiben die
+  // Zahlen in den Kanal-Pillen dieselbe Menge, die unten steht. Zwei Zählweisen
+  // nebeneinander waren genau der Fehler der alten Chip-Reihe.
+  const base = useMemo(
+    () => (overdueOnly ? tasks.filter((t) => isOverdue(t.due_at, DUE_GRANULARITY[t.source])) : tasks),
+    [tasks, overdueOnly],
+  );
+
   // Überfällige zuerst, danach aufsteigend nach Fälligkeit
-  const sorted = useMemo(() => [...tasks].sort((a, b) => dueSortKey(a) - dueSortKey(b)), [tasks]);
+  const sorted = useMemo(() => [...base].sort((a, b) => dueSortKey(a) - dueSortKey(b)), [base]);
 
   const counts = useMemo(() => {
     const c: Record<ChannelFilter, number> = {
-      alle: tasks.length,
+      alle: base.length,
       linkedin: 0,
       telefon: 0,
       setting: 0,
       closing: 0,
       recycling: 0,
     };
-    for (const t of tasks) c[t.source] += 1;
+    for (const t of base) c[t.source] += 1;
     return c;
-  }, [tasks]);
+  }, [base]);
 
+  // Immer über ALLE Aufgaben — die Pille sagt, wie viel es zu holen gäbe, auch
+  // wenn gerade nach Kanal gefiltert wird.
   const overdueCount = useMemo(
     () => tasks.reduce((n, t) => (isOverdue(t.due_at, DUE_GRANULARITY[t.source]) ? n + 1 : n), 0),
     [tasks],
@@ -949,19 +1047,28 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll, recyclingAvail
   // Anzahl LinkedIn-Tasks je FU-Stufe (für die Schnellauswahl-Pills)
   const fuCounts = useMemo(() => {
     const c: Record<number, number> = { 1: 0, 2: 0, 3: 0 };
-    for (const t of tasks) {
+    for (const t of base) {
       if (t.source === "linkedin" && t.next_fu_number != null && c[t.next_fu_number] !== undefined) {
         c[t.next_fu_number] += 1;
       }
     }
     return c;
-  }, [tasks]);
+  }, [base]);
 
-  // Sektionen: LinkedIn nach FU-Stufe gruppiert, danach Rückrufe und Closing.
-  // Aktive FU-Schnellauswahl blendet alle anderen Sektionen komplett aus.
-  // Leere Sektionen werden nicht gerendert.
+  // Sektionen: Rückrufe ZUERST, dann LinkedIn nach FU-Stufe, dann Setting,
+  // Closing, Recycling. Aktive FU-Schnellauswahl blendet alle anderen
+  // Sektionen komplett aus. Leere Sektionen werden nicht gerendert.
+  //
+  // WARUM der Rückruf oben steht: Er ist die einzige Aufgabe des Boards mit
+  // einer MIT DEM LEAD VERABREDETEN Uhrzeit (`DUE_GRANULARITY: moment`, docs
+  // §1). Alle anderen haben den ganzen Tag Zeit. Unter bis zu vier
+  // LinkedIn-Sektionen rief man um 11:30 zurück, was für 09:00 zugesagt war.
   const sections = useMemo<Section[]>(() => {
     const s: Section[] = [];
+    if (fuFilter == null && (filter === "alle" || filter === "telefon")) {
+      const group = sorted.filter((t) => t.source === "telefon");
+      if (group.length > 0) s.push({ key: "telefon", label: "Rückrufe", tasks: group });
+    }
     if (filter === "alle" || filter === "linkedin") {
       const linkedin = sorted.filter((t) => t.source === "linkedin");
       for (const fu of [1, 2, 3]) {
@@ -973,10 +1080,6 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll, recyclingAvail
         const rest = linkedin.filter((t) => t.next_fu_number == null || t.next_fu_number < 1 || t.next_fu_number > 3);
         if (rest.length > 0) s.push({ key: "fu-weitere", label: "Weitere Follow-ups", tasks: rest });
       }
-    }
-    if (fuFilter == null && (filter === "alle" || filter === "telefon")) {
-      const group = sorted.filter((t) => t.source === "telefon");
-      if (group.length > 0) s.push({ key: "telefon", label: "Rückrufe", tasks: group });
     }
     if (fuFilter == null && (filter === "alle" || filter === "setting")) {
       const group = sorted.filter((t) => t.source === "setting");
@@ -998,28 +1101,42 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll, recyclingAvail
 
   const showFuPills = counts.linkedin > 0 && (filter === "alle" || filter === "linkedin");
 
+  // Eine Auswahl ist aktiv — dann heißt „nichts sichtbar" nicht „nichts zu tun".
+  const filterActive = filter !== "alle" || fuFilter != null || overdueOnly;
+
   // Ein Filter auf eine Quelle, die gerade gar nicht liefern KANN, führt in
   // einen Leerzustand, der wie „nichts fällig" aussieht — genau die
-  // Verwechslung, die der Hinweis oben ausräumt.
-  const visibleFilters = recyclingAvailable ? FILTERS : FILTERS.filter((f) => f.value !== "recycling");
+  // Verwechslung, die der Hinweis oben ausräumt. Fällt die Union-RPC aus,
+  // betrifft das ihre vier Quellen; das Recycling hängt an einer eigenen.
+  const visibleFilters = FILTERS.filter((f) => {
+    if (f.value === "alle") return true;
+    if (f.value === "recycling") return recyclingAvailable;
+    return tasksAvailable;
+  });
 
   return (
     <div>
-      {!recyclingAvailable && <RecyclingUnavailable />}
+      {!tasksAvailable && (
+        <UnavailableNotice title="Die Aufgabenliste konnte nicht geladen werden">
+          Follow-ups, Rückrufe und die Wiedervorlagen aus Setting und Closing fehlen gerade — die Datenbank hat
+          auf die Abfrage nicht geantwortet. Das heißt ausdrücklich <strong>nicht</strong>, dass heute nichts zu tun
+          ist. Bitte die Seite neu laden. Bleibt es dabei, einem Administrator Bescheid geben; bis dahin stehen die
+          fälligen Kontakte in den Listen und auf den Terminseiten.
+        </UnavailableNotice>
+      )}
+      {!recyclingAvailable && (
+        <UnavailableNotice title="Recycling ist nicht verfügbar">
+          Verlorene Closings und tote Leads werden gerade <strong>nicht</strong> wiedervorgelegt — der Datenbank fehlt
+          dafür noch ein Stück. Das ist ausdrücklich nicht dasselbe wie &bdquo;kein Lead ist wieder dran&ldquo;. Die
+          übrigen Quellen unten sind davon nicht betroffen. Bitte einem Administrator Bescheid geben.
+        </UnavailableNotice>
+      )}
 
-      {/* ── Summary-Strip: kompakte Kennzahlen aus den Tasks ── */}
-      <div style={{ display: "flex", gap: "var(--sp-4)", flexWrap: "wrap", marginBottom: "var(--sp-7)" }}>
-        <StatChip icon={<CalendarClock size={12} />} label="Fällig gesamt" value={counts.alle} />
-        <StatChip icon={<AlertTriangle size={12} />} label="Überfällig" value={overdueCount} danger />
-        <StatChip icon={<AtSign size={12} />} label="Follow-ups" value={counts.linkedin} />
-        <StatChip icon={<Phone size={12} />} label="Rückrufe" value={counts.telefon} />
-        <StatChip icon={<ClipboardCheck size={12} />} label="Setting" value={counts.setting} />
-        {/* Ohne Schema wäre die 0 eine Behauptung über die Daten, die niemand
-            geprüft hat — die Kachel entfällt, der Hinweis oben trägt die Aussage. */}
-        {recyclingAvailable && <StatChip icon={<RefreshCw size={12} />} label="Recycling" value={counts.recycling} />}
-      </div>
-
-      {/* ── Kanal-Filter ── */}
+      {/* ── EINE Filterreihe: Kanäle + der Überfällig-Schalter ──────────
+          Die Zahlen standen bis hierher doppelt auf dem Schirm — einmal als
+          Chip-Reihe, vierzig Pixel darunter noch einmal als Zähler in genau
+          diesen Pillen. Geblieben ist die untere Reihe, weil sie außer der
+          Zahl auch etwas TUT.                                             */}
       <div style={{ display: "flex", gap: "var(--sp-3)", flexWrap: "wrap", marginBottom: "var(--sp-5)" }}>
         {visibleFilters.map((f) => {
           const active = filter === f.value;
@@ -1054,6 +1171,50 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll, recyclingAvail
             </button>
           );
         })}
+
+        {/* Der Überfällig-Schalter: kein Kanal, sondern ein Zusatzfilter über
+            alle Sektionen — deshalb rechts abgesetzt. Er erscheint nur, wenn
+            es tatsächlich Überfälliges gibt; sonst wäre er ein Knopf, der die
+            Liste garantiert leerräumt.
+            Solange er AKTIV ist, bleibt er dagegen immer stehen — auch bei
+            Zähler 0. Sonst ist er eine Sackgasse: Wer die letzte überfällige
+            Aufgabe abarbeitet, verliert nach dem `router.refresh()` die
+            einzige Bedienung, die `overdueOnly` wieder löst (die Kanal-Pillen
+            setzen nur `filter` und `fuFilter`) — das Board bliebe leer, und
+            der Grund dafür wäre nirgends mehr sichtbar. Ein aktiver Filter
+            muss zu sehen und abschaltbar sein, gerade wenn er nichts mehr
+            durchlässt. Farben sind die der früheren Überfällig-Kachel
+            (Warning-Tokens), damit „rot heißt überfällig" auf der Seite eine
+            Bedeutung behält.                                              */}
+        {(overdueCount > 0 || overdueOnly) && (
+          <button
+            type="button"
+            onClick={() => setOverdueOnly((v) => !v)}
+            aria-pressed={overdueOnly}
+            title="Nur Aufgaben zeigen, deren Termin bereits vorbei ist"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "var(--sp-3)",
+              height: 28,
+              marginLeft: "auto",
+              padding: "0 var(--sp-4) 0 var(--sp-5)",
+              borderRadius: "var(--r-full)",
+              border: `1px solid ${overdueOnly ? "rgb(209 162 79 / 0.28)" : "var(--border-default)"}`,
+              background: overdueOnly ? "var(--warning-bg)" : "var(--surface-1)",
+              color: overdueOnly ? "var(--warning-fg)" : "var(--text-muted)",
+              fontSize: "var(--fs-sm)",
+              fontWeight: 500,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              transition: "background var(--transition-fast), border-color var(--transition-fast)",
+            }}
+          >
+            <AlertTriangle size={12} style={{ flexShrink: 0 }} />
+            Nur überfällig
+            <span className="count-pill">{overdueCount}</span>
+          </button>
+        )}
       </div>
 
       {/* ── FU-Schnellauswahl: nur die gewählte FU-Sektion anzeigen ── */}
@@ -1093,43 +1254,83 @@ export function NachfassenBoard({ tasks, hiddenOlder, showingAll, recyclingAvail
         </div>
       )}
 
-      {/* ── Hinweis: ältere Leads (Pitch > 7 Tage) ── */}
-      {showingAll ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginBottom: "var(--sp-7)" }}>
-          <History size={12} style={{ flexShrink: 0 }} />
-          <span>Alle Leads werden angezeigt</span>
-          <Link href="?" style={{ color: "var(--orange-300)", fontWeight: 500, textDecoration: "none" }}>
-            Nur letzte 7 Tage
-          </Link>
-        </div>
-      ) : hiddenOlder > 0 ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginBottom: "var(--sp-7)" }}>
-          <History size={12} style={{ flexShrink: 0 }} />
-          <span>
-            {hiddenOlder} {hiddenOlder === 1 ? "älterer Lead" : "ältere Leads"} (Pitch &gt; 7 Tage) ausgeblendet
-          </span>
-          <Link href="?alle=1" style={{ color: "var(--orange-300)", fontWeight: 500, textDecoration: "none" }}>
-            Ältere anzeigen
-          </Link>
-        </div>
-      ) : (
-        <div style={{ marginBottom: "1rem" }} />
-      )}
-
-      {/* ── Sektionen / Leerzustand ── */}
-      {sections.length === 0 ? (
-        <div className="card fade-up dot-grid">
-          <div className="empty-state">
-            <CheckCircle2 size={24} aria-hidden style={{ color: "var(--success-fg)" }} />
-            <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>
-              Alles nachgefasst
-            </div>
-            <p style={{ maxWidth: 380 }}>
-              Sobald LinkedIn-Follow-ups, Telefon-Rückrufe, Setting-/Closing-Nachfassen oder ein Recycling-Versuch
-              fällig werden, erscheinen sie hier.
-            </p>
+      {/* ── Hinweiszeilen: ausgeblendet vs. nicht lesbar ──────────────────
+          Zwei verschiedene Aussagen, die lange in einer Zeile steckten. „Pitch
+          > 7 Tage" gilt nur für Kontakte, deren Pitch-Datum die Seite auch
+          wirklich lesen konnte. Bei den anderen ist das Datum schlicht
+          unbekannt — die standen unter derselben Erklärung, obwohl ihr Pitch
+          von gestern sein kann. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)", marginBottom: "var(--sp-7)" }}>
+        {showingAll ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
+            <History size={12} style={{ flexShrink: 0 }} />
+            <span>Alle Leads werden angezeigt</span>
+            <Link href="?" style={{ color: "var(--orange-300)", fontWeight: 500, textDecoration: "none" }}>
+              Nur letzte 7 Tage
+            </Link>
           </div>
-        </div>
+        ) : hiddenOlder > 0 ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
+            <History size={12} style={{ flexShrink: 0 }} />
+            <span>
+              {hiddenOlder} {hiddenOlder === 1 ? "älterer Lead" : "ältere Leads"} (Pitch &gt; 7 Tage) ausgeblendet
+            </span>
+            <Link href="?alle=1" style={{ color: "var(--orange-300)", fontWeight: 500, textDecoration: "none" }}>
+              Ältere anzeigen
+            </Link>
+          </div>
+        ) : null}
+
+        {unreadableContacts > 0 && (
+          <div
+            title="Diese Aufgaben stehen in der Datenbank auf deinem Namen, der Kontakt selbst liegt aber in einer Liste, die deine Datensicht nicht zeigt. Ein Administrator kann die Zuordnung der Liste prüfen."
+            style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}
+          >
+            <AlertTriangle size={12} style={{ flexShrink: 0 }} />
+            <span>
+              Bei {unreadableContacts} {unreadableContacts === 1 ? "Follow-up" : "Follow-ups"} fehlt der Zugriff auf
+              den Kontakt — sie bleiben sichtbar, weil sich ihr Alter nicht prüfen lässt.
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Sektionen / Leerzustand ──────────────────────────────────────
+          Der grüne Leerzustand ist eine BEHAUPTUNG („alles nachgefasst") und
+          darf deshalb nur fallen, wenn die Seite ihre Quellen auch wirklich
+          gefragt hat. Ohne die Union-RPC trägt der rote Kasten oben die
+          Aussage; bei aktiver Auswahl heißt leer nur „in dieser Auswahl". */}
+      {sections.length === 0 ? (
+        !tasksAvailable ? null : filterActive ? (
+          <div className="card fade-up dot-grid">
+            <div className="empty-state">
+              <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>
+                Keine Aufgaben in dieser Auswahl
+              </div>
+              {/* Bewusst nicht mehr nur &bdquo;Alle&ldquo;: Die Kanal-Pille
+                  löst den Überfällig-Schalter nicht mit, und ein Ratschlag,
+                  der die Liste nicht zurückbringt, macht den Leerzustand zur
+                  Sackgasse. */}
+              <p style={{ maxWidth: 380 }}>
+                Die Filter oben schränken die Liste ein — auch &bdquo;Nur überfällig&ldquo;. Nimm sie zurück, dann
+                siehst du wieder alles, was heute fällig ist.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="card fade-up dot-grid">
+            <div className="empty-state">
+              <CheckCircle2 size={24} aria-hidden style={{ color: "var(--success-fg)" }} />
+              <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>
+                Alles nachgefasst
+              </div>
+              <p style={{ maxWidth: 380 }}>
+                Sobald LinkedIn-Follow-ups, Telefon-Rückrufe, Setting-/Closing-Nachfassen oder ein Recycling-Versuch
+                fällig werden, erscheinen sie hier.
+              </p>
+            </div>
+          </div>
+        )
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
           {sections.map((section, i) => (

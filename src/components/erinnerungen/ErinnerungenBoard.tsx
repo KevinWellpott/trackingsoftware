@@ -33,6 +33,7 @@ import {
   Check,
   CheckCheck,
   CheckCircle2,
+  ChevronRight,
   Circle,
   Clock,
   Copy,
@@ -53,10 +54,12 @@ import {
 // ausschließlich in der Darstellung:
 //
 //   · eine Karte je Termin, die Stufen als Zeitleiste darin,
-//   · erledigte Stufen eingeklappt (mit Zeitpunkt und Person),
+//   · erledigte Stufen als eine Zeile (mit Zeitpunkt und Person),
 //   · genau EINE Stufe aufgeklappt: die nächste offene, mit fertigem Text,
-//   · künftige Stufen als ruhige Zeile mit ihrer Fälligkeit,
-//   · eine Sammelaktion, die die ganze Kaskade in einem Rutsch abhakt.
+//   · alles Künftige hinter EINER Zeile („2 weitere Stufen, nächste Do …") —
+//     im 360-px-Raster war die Karte sonst je nach Vorgeschichte doppelt so
+//     hoch wie ihre Nachbarin,
+//   · eine Sammelaktion, die alle offenen Stufen in einem Rutsch abhakt.
 //
 // KEIN Auto-Versand: die Karte liefert den fertigen Text zum Kopieren, ein
 // Mensch schreibt und schickt — wie im Nachfassen-Board.
@@ -89,7 +92,12 @@ const ENTITY_META: Record<
   }
 > = {
   setting: {
-    label: "Erstgespräch",
+    // EIN Wort für diese Stufe, überall gleich: „Setting". Vorher stand auf
+    // derselben Karte der Badge „Erstgespräch" neben dem Knopf „Zum Setting" —
+    // zwei Namen für dieselbe Sache, und der Nutzer muss raten, ob sie es sind.
+    // „Setting" gewinnt, weil Kalender, Route und Nachfassen-Board es schon so
+    // nennen und weil es neben „Closing" ein Paar ergibt.
+    label: "Setting",
     stage: "setting",
     assignee: "setting_call",
     href: (id) => `/setting/${id}`,
@@ -127,15 +135,16 @@ const OUTCOME_LABELS: Record<TouchOutcome, string> = {
 /** Die drei Ergebnisse, die beim Abhaken zur Wahl stehen. */
 const OUTCOME_CHOICES: readonly TouchOutcome[] = ["antwort", "keine_antwort", "bestaetigt"];
 
-type BucketKey = "overdue" | "soon" | "today" | "week";
+type BucketKey = "overdue" | "soon" | "today" | "week" | "later";
 
 const BUCKET_LABELS: Record<BucketKey, string> = {
   overdue: "Überfällig",
   soon: "In der nächsten Stunde",
   today: "Heute",
   week: "Diese Woche",
+  later: "Später",
 };
-const BUCKET_ORDER: readonly BucketKey[] = ["overdue", "soon", "today", "week"];
+const BUCKET_ORDER: readonly BucketKey[] = ["overdue", "soon", "today", "week", "later"];
 
 const ALL_PERSONS = "__alle__";
 
@@ -144,17 +153,48 @@ const ALL_PERSONS = "__alle__";
  * ------------------------------------------------------------------ */
 
 /**
- * Der Tageskorb einer Karte. Die Tagesgrenze kommt aus `berlinDateISO`; ein
+ * Sonntag DIESER Woche als Berliner Kalendertag ("YYYY-MM-DD").
+ *
+ * Gerechnet wird auf dem bereits berlinisierten Datum, nicht auf dem
+ * Zeitstempel: Sonntag 23:00 Berliner Zeit ist in UTC schon Montag, die Woche
+ * endete dann einen Tag zu früh. Die 12:00 im Konstruktor sind der übliche
+ * Mittags-Anker — er liegt in jeder Zone am selben Kalendertag, eine 00:00
+ * dagegen nicht.
+ */
+function endOfBerlinWeek(todayIso: string): string {
+  const d = new Date(`${todayIso}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return todayIso;
+  // getUTCDay: 0 = Sonntag. Die Woche endet am Sonntag (ISO-Zählung), heute
+  // selbst zählt dazu — an einem Sonntag ist der Abstand deshalb 0.
+  d.setUTCDate(d.getUTCDate() + ((7 - d.getUTCDay()) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Der Korb einer Karte. Die Tagesgrenze kommt aus `berlinDateISO`; ein
  * `setHours(23,59,…)` läge auf einem Rechner außerhalb Europe/Berlin daneben
  * und schöbe Karten in den falschen Korb.
+ *
+ * WARUM es „Später" gibt: Das Ladefenster reicht bis
+ * `pipeline_settings.reminder_horizon_days` — konfigurierbar bis 60 Tage. Ohne
+ * eigenen Korb landete ein Touch in fünf Wochen unter „Diese Woche", und die
+ * Überschrift behauptete eine Dringlichkeit, die es nicht gibt. Die Alternative
+ * wäre eine mitwandernde Beschriftung („Nächste 60 Tage") gewesen — dann stünde
+ * der Kontakt von morgen in derselben Kachel wie der in acht Wochen, und die
+ * Sortierung, die die Seite ausmacht, wäre nur noch eine Liste.
  */
 function bucketOf(dueAtIso: string, nowMs: number): BucketKey {
   const t = new Date(dueAtIso).getTime();
-  if (Number.isNaN(t)) return "week";
+  // Unlesbare Fälligkeit ans Ende statt in „Diese Woche": eine Dringlichkeit,
+  // die niemand geprüft hat, wird hier nicht behauptet.
+  if (Number.isNaN(t)) return "later";
   if (t <= nowMs) return "overdue";
   if (t - nowMs <= 60 * 60_000) return "soon";
-  if (berlinDateISO(dueAtIso) === berlinDateISO(new Date(nowMs).toISOString())) return "today";
-  return "week";
+  const today = berlinDateISO(new Date(nowMs).toISOString());
+  const day = berlinDateISO(dueAtIso);
+  if (day === today) return "today";
+  // ISO-Datum: der lexikografische Vergleich IST der chronologische.
+  return day <= endOfBerlinWeek(today) ? "week" : "later";
 }
 
 /** "Do 17.07., 14:00" — Datum und Uhrzeit in einer Zeile. */
@@ -291,6 +331,44 @@ function PersonPill({ name }: { name: string }) {
       {name}
     </span>
   );
+}
+
+/**
+ * Fehler einer Server-Action anzeigen, ohne eine Postgres-Meldung durchzureichen.
+ *
+ * Unsere eigenen Actions antworten in ganzen deutschen Sätzen („Keine
+ * Berechtigung.") — die gehören unverändert auf die Karte. Alles andere ist
+ * roh durchgereichtes `error.message` aus PostgREST und beginnt klein und
+ * englisch („new row violates row-level security policy for table …"): für den
+ * Nutzer unlesbar, und schlimmer noch, es klingt nach einem Defekt, wo
+ * vielleicht nur ein Recht fehlt. Die Rohmeldung geht deshalb nicht verloren,
+ * sondern in den `title` — für den Support erreichbar, für die Karte unsichtbar.
+ */
+/**
+ * Führende Anführungszeichen, die vor dem Satzanfang stehen dürfen.
+ *
+ * Ein deutscher Satz darf mit einem Zitat beginnen — die Sperre gegen die
+ * Zuweisung „Niemand" (src/app/actions/assignees.ts) tut genau das. Ohne dieses
+ * Abstreifen fiel ausgerechnet die ausführlichste Begründung durch die
+ * Klartext-Prüfung unten und wurde durch den Rat ersetzt, es noch einmal zu
+ * versuchen — den einen Rat, der hier garantiert nicht hilft: Die Zuweisung
+ * kann gar nicht gelingen, und der Ausweg stand nur noch im `title`.
+ */
+const ZITAT_PREFIX = /^[„“”"»«›‹‚‘’']+/;
+
+function friendlyError(raw: string): { text: string; title?: string } {
+  const text = raw.trim();
+  const technical =
+    /(violates|constraint|duplicate key|permission denied|row-level security|PGRST|relation |column |syntax error|JWT|null value|failed to)/i;
+  // Klartext heißt hier: ein Satz, wie ihn ein Mensch geschrieben hat —
+  // Großbuchstabe vorn, Satzzeichen hinten, kein Datenbank-Vokabular.
+  const klartext =
+    /^[A-ZÄÖÜ]/.test(text.replace(ZITAT_PREFIX, "")) && /[.!?]$/.test(text) && !technical.test(text);
+  if (klartext) return { text };
+  return {
+    text: "Das ließ sich nicht speichern. Bitte noch einmal versuchen — bleibt es dabei, die Seite neu laden.",
+    title: text,
+  };
 }
 
 const ghostBtn: React.CSSProperties = {
@@ -568,8 +646,7 @@ function ActiveStep({
           }}
         >
           <AlertTriangle size={12} style={{ flexShrink: 0 }} />
-          Zuletzt kontaktiert {lastContactLabel(contactAgeDays(recentContactAt))} ({whenLabel(recentContactAt)}) —
-          bewusst kein Stopp, nur ein Hinweis.
+          Zuletzt kontaktiert {lastContactLabel(contactAgeDays(recentContactAt))} ({whenLabel(recentContactAt)})
         </span>
       )}
 
@@ -678,6 +755,7 @@ function ActiveStep({
 function TerminCard({
   card,
   bundles,
+  orgBundle,
   sender,
   doneBy,
   nowMs,
@@ -688,6 +766,7 @@ function TerminCard({
 }: {
   card: TerminCardModel;
   bundles: Record<string, TemplateBundle>;
+  orgBundle: TemplateBundle;
   sender: SenderAccount | undefined;
   doneBy: Record<string, string>;
   nowMs: number;
@@ -702,7 +781,12 @@ function TerminCard({
   const [dossierOpen, setDossierOpen] = useState(false);
 
   const meta = ENTITY_META[card.entityType];
-  const bundle = card.assignedUserId ? bundles[card.assignedUserId] : undefined;
+  // Ohne zuständige Person (gelöschtes Konto — die Spalte ist `on delete set
+  // null`) gibt es kein Personen-Bundle. Der Rückfall ist der Standard der
+  // ORGANISATION, nicht `undefined`: ein fehlendes Bundle ließe
+  // `resolveTemplate()` auch an der Org-Ebene durchfallen, und der Kunde läse
+  // unseren Auslieferungstext statt seines eigenen.
+  const bundle = (card.assignedUserId ? bundles[card.assignedUserId] : undefined) ?? orgBundle;
   const active = card.open[0] ?? null;
   const appt = formatTerminParts(card.appointmentAt);
   const overdue = Boolean(active) && new Date(active!.due_at).getTime() <= nowMs;
@@ -760,6 +844,8 @@ function TerminCard({
       const failed = results.find((r) => r?.error);
       return failed ?? undefined;
     });
+
+  const shownError = error ? friendlyError(error) : null;
 
   return (
     <article
@@ -879,26 +965,35 @@ function TerminCard({
 
       <SenderLine sender={sender} channel={card.channel} assignedUsername={card.assignedUsername} />
 
-      {/* ── Zeitleiste der Stufen ── */}
+      {/* ── Zeitleiste der Stufen ──
+          Genau EINE Stufe steht offen da: die nächste fällige. Alles Künftige
+          liegt hinter einer Zeile — im 360-px-Raster war die Karte sonst je
+          nach Vorgeschichte doppelt so hoch wie ihre Nachbarin, und die eine
+          Frage („was schicke ich jetzt raus?") ging darin unter. Dieselbe
+          Mechanik wie die Sektion „Vollständig erledigt" weiter unten. */}
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
-        {groups.map(([kind, list]) => (
-          <div key={kind} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
-            {groups.length > 1 && (
-              <div className="eyebrow eyebrow-muted" style={{ fontSize: "var(--fs-2xs)" }}>
-                {CASCADE_KIND_LABELS[kind]}
-              </div>
-            )}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--sp-4)",
-                paddingLeft: "var(--sp-6)",
-                borderLeft: "2px solid var(--border-subtle)",
-              }}
-            >
-              {list.map((t) =>
-                t.done_at ? (
+        {groups.map(([kind, list]) => {
+          const doneSteps = list.filter((t) => t.done_at);
+          const openSteps = list.filter((t) => !t.done_at);
+          const activeHere = active && openSteps.some((t) => t.id === active.id) ? active : null;
+          const laterSteps = openSteps.filter((t) => t.id !== activeHere?.id);
+          return (
+            <div key={kind} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
+              {groups.length > 1 && (
+                <div className="eyebrow eyebrow-muted" style={{ fontSize: "var(--fs-2xs)" }}>
+                  {CASCADE_KIND_LABELS[kind]}
+                </div>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "var(--sp-4)",
+                  paddingLeft: "var(--sp-6)",
+                  borderLeft: "2px solid var(--border-subtle)",
+                }}
+              >
+                {doneSteps.map((t) => (
                   <DoneStep
                     key={t.id}
                     touch={t}
@@ -906,25 +1001,60 @@ function TerminCard({
                     busy={isPending}
                     onUndo={() => undo(t.id)}
                   />
-                ) : active && t.id === active.id ? (
+                ))}
+                {activeHere && (
                   <ActiveStep
-                    key={t.id}
-                    touch={t}
+                    key={activeHere.id}
+                    touch={activeHere}
                     bundle={bundle}
                     channel={card.channel}
                     assignedUsername={card.assignedUsername}
                     overdue={overdue}
                     recentContactAt={recentContactAt}
                     busy={isPending}
-                    onDone={(outcome) => markDone(t.id, outcome)}
+                    onDone={(outcome) => markDone(activeHere.id, outcome)}
                   />
-                ) : (
-                  <PendingStep key={t.id} touch={t} />
-                ),
-              )}
+                )}
+                {laterSteps.length > 0 && (
+                  <details>
+                    {/* `group-summary`, nicht `collapse-summary`: Letzteres ist
+                        das Karten-Rezept mit Hover-Fläche und Trennlinie und
+                        bliese eine Zwischenzeile in der Karte zur eigenen Karte
+                        auf (globals.css §6.10). */}
+                    <summary
+                      className="group-summary"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "var(--sp-3)",
+                        userSelect: "none",
+                        fontSize: "var(--fs-xs)",
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      <ChevronRight size={11} className="group-chevron" />
+                      {laterSteps.length === 1
+                        ? `1 weitere Stufe · fällig ${whenLabel(laterSteps[0].due_at)}`
+                        : `${laterSteps.length} weitere Stufen · nächste ${whenLabel(laterSteps[0].due_at)}`}
+                    </summary>
+                    <div
+                      style={{
+                        marginTop: "var(--sp-4)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "var(--sp-4)",
+                      }}
+                    >
+                      {laterSteps.map((t) => (
+                        <PendingStep key={t.id} touch={t} />
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── Fuß: Sammelaktion, Querverweis, Fehler ── */}
@@ -937,7 +1067,7 @@ function TerminCard({
             title={`Alle ${card.open.length} offenen Stufen dieses Termins als erledigt eintragen`}
             style={{ ...ghostBtn, cursor: isPending ? "default" : "pointer" }}
           >
-            <CheckCheck size={12} /> Ganze Kaskade abhaken ({card.open.length})
+            <CheckCheck size={12} /> Alle offenen Stufen abhaken ({card.open.length})
           </button>
         )}
         {/* Überschneidung mit /nachfassen — ZWEI Stellen, nicht mehr die eine
@@ -958,8 +1088,13 @@ function TerminCard({
             Auch in Nachfassen →
           </Link>
         )}
-        {error && (
-          <span style={{ fontSize: "var(--fs-xs)", fontWeight: 500, color: "var(--danger-fg)" }}>{error}</span>
+        {shownError && (
+          <span
+            title={shownError.title}
+            style={{ fontSize: "var(--fs-xs)", fontWeight: 500, color: "var(--danger-fg)" }}
+          >
+            {shownError.text}
+          </span>
         )}
       </div>
     </article>
@@ -993,6 +1128,12 @@ type Props = {
   canTeamView: boolean;
   /** Vorlagen je zuständiger Person — in EINER Abfrage geladen (Seite). */
   bundles: Record<string, TemplateBundle>;
+  /**
+   * Der Standard der Organisation allein — greift für Karten ohne zuständige
+   * Person (gelöschtes Konto: `assigned_user_id` ist `on delete set null`).
+   * Ohne ihn führe die Vorrangkette dort direkt auf den Auslieferungstext.
+   */
+  orgBundle: TemplateBundle;
   /** Absender-Konto je `entity_id` — ebenfalls gebündelt geladen. */
   senders: Record<string, SenderAccount>;
   /** touch_id → Name der Person, die abgehakt hat. */
@@ -1000,7 +1141,16 @@ type Props = {
   members: { user_id: string; username: string }[];
 };
 
-export function ErinnerungenBoard({ mine, team, canTeamView, bundles, senders, doneBy, members }: Props) {
+export function ErinnerungenBoard({
+  mine,
+  team,
+  canTeamView,
+  bundles,
+  orgBundle,
+  senders,
+  doneBy,
+  members,
+}: Props) {
   const router = useRouter();
   const [view, setView] = useState<"mine" | "team">("mine");
   const [person, setPerson] = useState<string>(ALL_PERSONS);
@@ -1231,6 +1381,7 @@ export function ErinnerungenBoard({ mine, team, canTeamView, bundles, senders, d
                     key={card.key}
                     card={card}
                     bundles={bundles}
+                    orgBundle={orgBundle}
                     sender={senders[card.entityId]}
                     doneBy={doneBy}
                     nowMs={nowMs}
@@ -1268,6 +1419,7 @@ export function ErinnerungenBoard({ mine, team, canTeamView, bundles, senders, d
                 key={card.key}
                 card={card}
                 bundles={bundles}
+                orgBundle={orgBundle}
                 sender={senders[card.entityId]}
                 doneBy={doneBy}
                 nowMs={nowMs ?? 0}
@@ -1332,7 +1484,12 @@ export function ErinnerungenBoard({ mine, team, canTeamView, bundles, senders, d
             Auswahl aufheben
           </button>
           {assignError && (
-            <span style={{ fontSize: "var(--fs-xs)", fontWeight: 500, color: "var(--danger-fg)" }}>{assignError}</span>
+            <span
+              title={friendlyError(assignError).title}
+              style={{ fontSize: "var(--fs-xs)", fontWeight: 500, color: "var(--danger-fg)" }}
+            >
+              {friendlyError(assignError).text}
+            </span>
           )}
         </div>
       )}

@@ -17,6 +17,7 @@ import {
   AtSign,
   BellRing,
   Check,
+  ChevronRight,
   Circle,
   Clock,
   Copy,
@@ -41,6 +42,16 @@ import {
 //  2. Es zeigt die ENTFALLENEN Stufen mit Begründung. Ohne sie ist ein Panel
 //     mit zwei statt drei Stufen von einem Fehler nicht zu unterscheiden, und
 //     genau dieser Verdacht kostet Vertrauen in alle anderen Zahlen.
+//
+// Beides zusammen ergab allerdings eine sehr lange Karte: jede Stufe mit
+// ausgeschriebenem Text, dazu die erledigten und die entfallenen. Auf einem
+// Termin mit Vorgeschichte ging darin die eine Frage unter, wegen der man das
+// Panel öffnet — was muss ich als Nächstes rausschicken? Deshalb gilt hier
+// dieselbe Staffelung wie auf /erinnerungen:
+//
+//   · genau EINE Stufe ausgeklappt: die nächste fällige (bzw. überfällige),
+//   · kommende Stufen als Einzeiler, Text erst beim Aufklappen,
+//   · Erledigtes und Entfallenes zusammen hinter einer geschlossenen Zeile.
 //
 // Kein Auto-Versand: fertiger Text, Kopier-Knopf, fertig — wie im
 // Nachfassen-Board und auf /erinnerungen. Abgehakt wird weiterhin dort, weil
@@ -107,6 +118,14 @@ function buildGroups(
   nowMs: number,
 ): CascadeGroup[] {
   const scheduledKind = scheduledKindFor(entityType);
+  // Hat dieser Termin JE eine Zeile der geplanten Kaskade getragen? Das
+  // unterscheidet „die Stufe kam zeitlich nicht mehr hin" von „für diesen
+  // Termin ist nie eine Kaskade angelegt worden" (siehe skipReason). Auch ein
+  // ganz kurzfristig gebuchter Termin trägt eine Zeile: passt keine Stufe mehr,
+  // legt `planScheduledCascade` den sofort fälligen Touch auf step_no 0.
+  const everPlanned =
+    view.touches.some((t) => t.cascade_kind === scheduledKind) ||
+    view.supersededTouches.some((t) => t.cascade_kind === scheduledKind);
   const byKind = new Map<CascadeKind, AppointmentCascadeTouch[]>();
   for (const t of view.touches) {
     const list = byKind.get(t.cascade_kind);
@@ -165,7 +184,7 @@ function buildGroups(
         label: TEMPLATE_META[step.template_key]?.label ?? `Stufe ${step.step_no}`,
         reason: superseded
           ? supersededReason(scheduledKind, view, superseded)
-          : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt),
+          : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt, everPlanned),
       });
     }
     groups.push({ cascadeKind: scheduledKind, rows, sortKey: "0" });
@@ -201,6 +220,45 @@ function buildGroups(
   return groups;
 }
 
+type TouchEntry = { cascadeKind: CascadeKind; touch: AppointmentCascadeTouch };
+/** Eine Zeile der Historie: erledigt ODER entfallen — beide nur noch als Zeile. */
+type HistoryEntry = { key: string; cascadeKind: CascadeKind; label: string; reason: string; done: boolean };
+
+/**
+ * Die Gruppen in zwei Stapel zerlegen: was noch aussteht und was schon
+ * entschieden ist.
+ *
+ * Die Kaskaden-Grenze fällt dabei bewusst weg. Sie beschreibt die HERKUNFT
+ * einer Stufe; die Frage am offenen Termin ist aber „was geht als Nächstes
+ * raus?", und die kennt keine Herkunft. Welche Kaskade eine Zeile trägt, steht
+ * weiterhin an ihr — aber nur, wenn der Termin überhaupt mehr als eine hat.
+ */
+function splitRows(groups: CascadeGroup[]): { pending: TouchEntry[]; history: HistoryEntry[] } {
+  const pending: TouchEntry[] = [];
+  const history: HistoryEntry[] = [];
+
+  for (const g of groups) {
+    for (const row of g.rows) {
+      if (row.kind === "skipped") {
+        history.push({ key: row.key, cascadeKind: g.cascadeKind, label: row.label, reason: row.reason, done: false });
+      } else if (row.touch.done_at) {
+        history.push({
+          key: row.key,
+          cascadeKind: g.cascadeKind,
+          label: stepLabelOf(row.touch.template_key, row.touch.touch_kind, row.touch.step_no),
+          reason: `Erledigt ${whenLabel(row.touch.done_at)}.`,
+          done: true,
+        });
+      } else {
+        pending.push({ cascadeKind: g.cascadeKind, touch: row.touch });
+      }
+    }
+  }
+
+  pending.sort((a, b) => a.touch.due_at.localeCompare(b.touch.due_at) || a.touch.step_no - b.touch.step_no);
+  return { pending, history };
+}
+
 /**
  * Warum eine Kaskade keine gültige Stufe mehr hat — im Klartext, aus demselben
  * Grund wie bei `skipReason`: Eine Kaskade, die nach einem Ergebnis wortlos
@@ -216,33 +274,50 @@ function buildGroups(
  * Und der No-Show-Fall steht VOR dem Ergebnis-Fall, weil ein korrigierter
  * Show-Status den Status der Zeile („no_show") stehen lässt — die Kette wäre
  * sonst mit dem Ergebnis begründet, das sie gerade widerlegt.
+ *
+ * Alle Sätze beginnen mit „Entfällt" — dasselbe Wort wie bei den nie
+ * angelegten Stufen. Vorher stand hier „Entwertet", die wörtliche Übersetzung
+ * des internen `superseded`, direkt neben einem „Entfällt": zwei Wörter für
+ * dasselbe Ergebnis (die Nachricht geht nicht raus), und der Leser sucht nach
+ * einem Unterschied, den es nicht gibt. Was sie unterscheidet, steht ohnehin im
+ * Satz dahinter.
  */
 function supersededReason(kind: CascadeKind, view: AppointmentCascadeView, touch: AppointmentCascadeTouch): string {
   if (touch.done_at) return `Erledigt ${whenLabel(touch.done_at)} — die Stufe steht nur noch in der Historie.`;
-  if (view.cancelledAt) return "Entwertet — der Termin ist abgesagt.";
+  if (view.cancelledAt) return "Entfällt — der Termin ist abgesagt.";
   if ((kind === "no_show_setting" || kind === "no_show_closing") && view.showStatus !== "no_show") {
-    return "Entwertet — der Termin gilt inzwischen als stattgefunden. Die Nachfrage nach dem Nicht-Erscheinen ginge sonst real raus.";
+    return "Entfällt — der Termin gilt inzwischen als stattgefunden. Die Nachfrage nach dem Nicht-Erscheinen ginge sonst real raus.";
   }
   if (view.status && view.status !== "offen") {
-    return "Entwertet — das Ergebnis des Termins steht fest; diese Stufe geht nicht mehr raus.";
+    return "Entfällt — das Ergebnis des Termins steht fest; diese Stufe geht nicht mehr raus.";
   }
-  return "Entwertet — eine spätere Änderung am Termin hat diese Stufe abgeräumt.";
+  return "Entfällt — eine spätere Änderung am Termin hat diese Stufe abgeräumt.";
 }
 
 /**
  * Warum eine konfigurierte Stufe keine Zeile hat — im Klartext.
  *
- * Drei verschiedene Fälle, die man auseinanderhalten muss: Der Termin ist
- * abgesagt (dann sind die Stufen bewusst entwertet), die Stufe passte zeitlich
- * nicht mehr (der Normalfall bei kurzfristigen Terminen, kein Fehler), oder es
- * wurde für diesen Termin überhaupt nie eine Kaskade erzeugt (dann ist etwas
- * schiefgegangen). Unterschieden wird am Absage-Zeitpunkt und danach an der
- * Fälligkeit: läge sie noch in der Zukunft, müsste die Zeile da sein.
+ * Vier Fälle, die man auseinanderhalten muss:
+ *  1. Der Termin ist abgesagt — die Stufen sind bewusst abgeräumt.
+ *  2. Er hat gar keinen Zeitpunkt — dann gibt es nichts zu terminieren.
+ *  3. Für diesen Termin hat es NIE eine Kaskade gegeben.
+ *  4. Die Stufe passte zeitlich nicht mehr (der Normalfall bei kurzfristigen
+ *     Terminen, kein Fehler).
  *
  * Der Absage-Fall MUSS zuerst kommen: Ein in fünf Tagen abgesagter Termin fiel
- * sonst in den Zukunft-Zweig und riet direkt unter dem Absage-Banner „Termin
- * speichern oder verschieben erzeugt die Kaskade neu" — ein Rat, den
- * `postponeAppointment` bei einem abgesagten Termin ausdrücklich abweist.
+ * sonst in den Zukunft-Zweig und riet direkt unter dem Absage-Banner, man solle
+ * ihn verschieben — etwas, das `postponeAppointment` bei einem abgesagten
+ * Termin ausdrücklich abweist.
+ *
+ * Fall 3 stand vorher nicht da, und das war am Tag der Einführung der teuerste
+ * Fehler des Panels: Unter JEDEM bestehenden Zukunftstermin — für den es nie
+ * eine Kaskade gab und nie geben konnte — behauptete der Rückfalltext eine
+ * Zeitknappheit („beim Planen lagen weniger als 3 Tage bis zum Termin"), die
+ * es nie gegeben hat. Wer nachrechnete, kam nicht hin und misstraute danach
+ * jeder anderen Begründung im Panel. `everPlanned` beantwortet das aus den
+ * Daten statt aus einem geratenen Einführungsdatum: Hat der Termin nie eine
+ * Zeile der geplanten Kaskade getragen — auch keine entwertete, auch nicht den
+ * Sofort-Touch —, dann ist nie eine angelegt worden.
  *
  * Bewusst NICHT über `planScheduledCascade` gerechnet: dessen `skipped` misst
  * gegen JETZT, nicht gegen den Planungszeitpunkt — bei einem Termin von gestern
@@ -253,12 +328,20 @@ function skipReason(
   appointmentAt: string | null,
   nowMs: number,
   cancelledAt: string | null,
+  everPlanned: boolean,
 ): string {
-  if (cancelledAt) return "Entwertet — der Termin ist abgesagt.";
+  if (cancelledAt) return "Entfällt — der Termin ist abgesagt.";
   if (!appointmentAt) return "Entfällt — der Termin hat keinen Zeitpunkt.";
+  // „Verschieben" ist bewusst der EINZIGE genannte Weg. Ob auch ein bloßes
+  // Speichern die Kaskade neu erzeugt, hängt am Anlagepfad des Termins — ein
+  // Hinweis, der eine Bedienung verspricht, die es je nach Herkunft gibt oder
+  // nicht, ist schlechter als einer, der nur das Sichere nennt.
+  if (!everPlanned) {
+    return "Nie geplant — für diesen Termin ist keine einzige Erinnerung angelegt worden. Bei Terminen aus der Zeit vor den Erinnerungen ist das der Normalfall; Termin verschieben legt die Kaskade an.";
+  }
   const due = shiftBerlinMinutes(appointmentAt, -step.offset_minutes);
   if (due && new Date(due).getTime() > nowMs) {
-    return "Nicht geplant — für diesen Termin wurde noch keine Erinnerung angelegt. Termin speichern oder verschieben erzeugt die Kaskade neu.";
+    return "Nicht geplant — diese Stufe fehlt, obwohl ihre Fälligkeit noch bevorsteht. Termin verschieben erzeugt die Kaskade neu.";
   }
   return `Entfällt — beim Planen lagen weniger als ${offsetLabel(step.offset_minutes)} bis zum Termin.`;
 }
@@ -310,17 +393,129 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
+type Rendered = { body: string; subject: string | null; source: keyof typeof TEMPLATE_SOURCE_LABELS };
+
+/** Kopfzeile einer Stufe: Zustand, Name, Fälligkeit, Herkunft des Textes. */
+function TouchHead({
+  touch,
+  rendered,
+  overdue,
+  cascadeLabel,
+}: {
+  touch: AppointmentCascadeTouch;
+  rendered: Rendered;
+  overdue: boolean;
+  /** Nur gesetzt, wenn an diesem Termin mehr als eine Kaskade hängt. */
+  cascadeLabel: string | null;
+}) {
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+      {overdue ? (
+        <AlertTriangle size={12} style={{ flexShrink: 0, color: "var(--danger-fg)" }} />
+      ) : (
+        <Circle size={10} style={{ flexShrink: 0, color: "var(--text-disabled)" }} />
+      )}
+      <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--text-primary)" }}>
+        {stepLabelOf(touch.template_key, touch.touch_kind, touch.step_no)}
+      </span>
+      <span
+        className="tnum"
+        style={{
+          fontSize: "var(--fs-xs)",
+          fontWeight: 500,
+          color: overdue ? "var(--danger-fg)" : "var(--text-secondary)",
+        }}
+      >
+        {overdue ? `überfällig seit ${whenLabel(touch.due_at)}` : `fällig ${whenLabel(touch.due_at)}`}
+      </span>
+      <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
+        {cascadeLabel && (
+          <Badge tone="neutral" style={{ height: 18, fontSize: "var(--fs-2xs)" }} title="Aus welcher Kaskade die Stufe stammt">
+            {cascadeLabel}
+          </Badge>
+        )}
+        {touch.requires_no_response && (
+          <Badge tone="neutral" style={{ height: 18, fontSize: "var(--fs-2xs)" }}>
+            nur ohne Antwort
+          </Badge>
+        )}
+        <Badge tone="neutral" style={{ height: 18, fontSize: "var(--fs-2xs)" }} title="Herkunft des Textes">
+          {TEMPLATE_SOURCE_LABELS[rendered.source]}
+        </Badge>
+      </span>
+    </span>
+  );
+}
+
+/** Der fertige Text samt Kopier-Knopf. */
+function TouchBody({ rendered, label }: { rendered: Rendered; label: string }) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        background: "var(--surface-1)",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--r-sm)",
+        padding: "var(--sp-4) var(--sp-5)",
+      }}
+    >
+      {rendered.subject && (
+        <p
+          style={{
+            margin: "0 0 var(--sp-3)",
+            paddingRight: "1.75rem",
+            fontSize: "var(--fs-xs)",
+            fontWeight: 600,
+            color: "var(--text-primary)",
+          }}
+        >
+          {rendered.subject}
+        </p>
+      )}
+      <p
+        style={{
+          margin: 0,
+          paddingRight: rendered.subject ? 0 : "1.75rem",
+          fontSize: "var(--fs-sm)",
+          lineHeight: 1.5,
+          color: "var(--text-secondary)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          userSelect: "text",
+        }}
+      >
+        {rendered.body}
+      </p>
+      <CopyButton
+        text={rendered.subject ? `${rendered.subject}\n\n${rendered.body}` : rendered.body}
+        label={label}
+      />
+    </div>
+  );
+}
+
+/**
+ * Eine offene Stufe. `expanded` steht genau EINMAL im Panel — bei der nächsten
+ * fälligen. Alle anderen sind ihre eigene Kopfzeile und geben den Text erst auf
+ * Klick her: Drei ausgeschriebene Nachrichten untereinander beantworten die
+ * Frage „was jetzt?" nicht besser als eine, sie machen sie nur schwerer
+ * auffindbar.
+ */
 function TouchRow({
   touch,
   view,
   nowMs,
+  cascadeLabel,
+  expanded,
 }: {
   touch: AppointmentCascadeTouch;
   view: AppointmentCascadeView;
   nowMs: number;
+  cascadeLabel: string | null;
+  expanded: boolean;
 }) {
-  const done = Boolean(touch.done_at);
-  const overdue = !done && new Date(touch.due_at).getTime() <= nowMs;
+  const overdue = new Date(touch.due_at).getTime() <= nowMs;
+  const label = stepLabelOf(touch.template_key, touch.touch_kind, touch.step_no);
 
   // Gegen die Vorlagen der ZUSTÄNDIGEN Person gerendert und live — eine später
   // geänderte Vorlage wirkt damit auch auf schon erzeugte, offene Stufen.
@@ -332,100 +527,51 @@ function TouchRow({
     kanal: view.channel ? CHANNEL_META[view.channel].label : null,
     absender: view.assignedUsername,
   });
+  const head = <TouchHead touch={touch} rendered={rendered} overdue={overdue} cascadeLabel={cascadeLabel} />;
+
+  if (expanded) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
+        {head}
+        <TouchBody rendered={rendered} label={label} />
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)", opacity: done ? 0.6 : 1 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        {done ? (
-          <Check size={12} style={{ flexShrink: 0, color: "var(--success-fg)" }} />
-        ) : overdue ? (
-          <AlertTriangle size={12} style={{ flexShrink: 0, color: "var(--danger-fg)" }} />
-        ) : (
-          <Circle size={10} style={{ flexShrink: 0, color: "var(--text-disabled)" }} />
-        )}
-        <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--text-primary)" }}>
-          {stepLabelOf(touch.template_key, touch.touch_kind, touch.step_no)}
-        </span>
-        <span
-          className="tnum"
-          style={{
-            fontSize: "var(--fs-xs)",
-            fontWeight: 500,
-            color: done ? "var(--text-muted)" : overdue ? "var(--danger-fg)" : "var(--text-secondary)",
-          }}
-        >
-          {done
-            ? `erledigt ${whenLabel(touch.done_at)}`
-            : overdue
-              ? `überfällig seit ${whenLabel(touch.due_at)}`
-              : `fällig ${whenLabel(touch.due_at)}`}
-        </span>
-        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
-          {touch.requires_no_response && (
-            <Badge tone="neutral" style={{ height: 18, fontSize: "var(--fs-2xs)" }}>
-              nur ohne Antwort
-            </Badge>
-          )}
-          <Badge tone="neutral" style={{ height: 18, fontSize: "var(--fs-2xs)" }} title="Herkunft des Textes">
-            {TEMPLATE_SOURCE_LABELS[rendered.source]}
-          </Badge>
-        </span>
+    <details>
+      {/* `group-summary` statt `collapse-summary`: Letzteres ist das
+          Karten-Rezept mit Hover-Fläche und Trennlinie (globals.css §6.10) und
+          machte aus jeder Stufe eine eigene Karte in der Karte. */}
+      <summary className="group-summary" style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
+        <ChevronRight size={11} className="group-chevron" />
+        {head}
+      </summary>
+      <div style={{ marginTop: "var(--sp-4)" }}>
+        <TouchBody rendered={rendered} label={label} />
       </div>
-
-      <div
-        style={{
-          position: "relative",
-          background: "var(--surface-1)",
-          border: "1px solid var(--border-default)",
-          borderRadius: "var(--r-sm)",
-          padding: "var(--sp-4) var(--sp-5)",
-        }}
-      >
-        {rendered.subject && (
-          <p
-            style={{
-              margin: "0 0 var(--sp-3)",
-              paddingRight: "1.75rem",
-              fontSize: "var(--fs-xs)",
-              fontWeight: 600,
-              color: "var(--text-primary)",
-            }}
-          >
-            {rendered.subject}
-          </p>
-        )}
-        <p
-          style={{
-            margin: 0,
-            paddingRight: rendered.subject ? 0 : "1.75rem",
-            fontSize: "var(--fs-sm)",
-            lineHeight: 1.5,
-            color: "var(--text-secondary)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            userSelect: "text",
-          }}
-        >
-          {rendered.body}
-        </p>
-        <CopyButton
-          text={rendered.subject ? `${rendered.subject}\n\n${rendered.body}` : rendered.body}
-          label={stepLabelOf(touch.template_key, touch.touch_kind, touch.step_no)}
-        />
-      </div>
-    </div>
+    </details>
   );
 }
 
-/** Eine Stufe, die es nicht gibt — mit dem Grund daneben. */
-function SkippedRow({ label, reason }: { label: string; reason: string }) {
+/** Eine erledigte oder entfallene Stufe — eine Zeile plus Begründung. */
+function HistoryRow({ entry, cascadeLabel }: { entry: HistoryEntry; cascadeLabel: string | null }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--sp-4)" }}>
-      <MinusCircle size={12} style={{ flexShrink: 0, marginTop: 2, color: "var(--text-disabled)" }} />
+      {entry.done ? (
+        <Check size={12} style={{ flexShrink: 0, marginTop: 2, color: "var(--success-fg)" }} />
+      ) : (
+        <MinusCircle size={12} style={{ flexShrink: 0, marginTop: 2, color: "var(--text-disabled)" }} />
+      )}
       <div style={{ minWidth: 0 }}>
-        <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500, color: "var(--text-muted)" }}>{label}</span>
+        <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500, color: "var(--text-muted)" }}>{entry.label}</span>
+        {cascadeLabel && (
+          <span style={{ marginLeft: "var(--sp-3)", fontSize: "var(--fs-2xs)", color: "var(--text-subtle)" }}>
+            {cascadeLabel}
+          </span>
+        )}
         <p style={{ margin: "2px 0 0", fontSize: "var(--fs-xs)", color: "var(--text-subtle)", lineHeight: "var(--lh-snug)" }}>
-          {reason}
+          {entry.reason}
         </p>
       </div>
     </div>
@@ -479,6 +625,12 @@ export function CascadePanel({
     () => (view && nowMs != null ? buildGroups(view, entityType, nowMs) : []),
     [view, entityType, nowMs],
   );
+
+  const { pending, history } = useMemo(() => splitRows(groups), [groups]);
+  // Die Kaskade wird nur benannt, wenn der Termin mehr als eine trägt. Bei
+  // einer einzigen wäre der Badge an jeder Zeile dieselbe Auskunft — also keine.
+  const multiCascade = new Set(groups.map((g) => g.cascadeKind)).size > 1;
+  const cascadeLabelOf = (kind: CascadeKind) => (multiCascade ? CASCADE_KIND_LABELS[kind] : null);
 
   const header = (
     <div style={SECTION_HEAD}>
@@ -558,8 +710,11 @@ export function CascadePanel({
             }}
           >
             <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2, color: "var(--warning-fg)" }} />
+            {/* „entfallen" ist hier kein Synonym-Wechsel, sondern dasselbe Wort, das die Zeilen
+                direkt darunter tragen (supersededReason/skipReason). Zwei Wörter für denselben
+                Vorgang lesen sich im selben Panel wie zwei verschiedene Vorgänge. */}
             <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-secondary)" }}>
-              Der Termin ist abgesagt — es gibt nichts mehr zu bestätigen. Offene Stufen wurden entwertet; ein
+              Der Termin ist abgesagt — es gibt nichts mehr zu bestätigen. Offene Stufen sind entfallen; ein
               Ersatztermin wird als neuer Termin angelegt und bringt seine eigene Kaskade mit.
             </p>
           </div>
@@ -572,30 +727,74 @@ export function CascadePanel({
               : "Für diesen Termin steht keine Erinnerung an."}
           </p>
         ) : (
-          groups.map((g) => (
-            <div key={g.cascadeKind} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
-              <div className="eyebrow eyebrow-muted" style={{ fontSize: "var(--fs-2xs)" }}>
-                {CASCADE_KIND_LABELS[g.cascadeKind]}
-              </div>
+          <>
+            {/* ── Die eine Frage: was geht als Nächstes raus? ── */}
+            {pending.length > 0 && (
               <div
                 style={{
                   display: "flex",
                   flexDirection: "column",
-                  gap: "var(--sp-6)",
+                  gap: "var(--sp-5)",
                   paddingLeft: "var(--sp-6)",
                   borderLeft: "2px solid var(--border-subtle)",
                 }}
               >
-                {g.rows.map((row) =>
-                  row.kind === "touch" ? (
-                    <TouchRow key={row.key} touch={row.touch} view={view} nowMs={nowMs} />
-                  ) : (
-                    <SkippedRow key={row.key} label={row.label} reason={row.reason} />
-                  ),
-                )}
+                {pending.map((entry, i) => (
+                  <TouchRow
+                    key={entry.touch.id}
+                    touch={entry.touch}
+                    view={view}
+                    nowMs={nowMs}
+                    cascadeLabel={cascadeLabelOf(entry.cascadeKind)}
+                    expanded={i === 0}
+                  />
+                ))}
               </div>
-            </div>
-          ))
+            )}
+
+            {pending.length === 0 && history.length > 0 && (
+              <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-muted)", maxWidth: "62ch" }}>
+                Es steht keine Erinnerung mehr aus. Was war, steht unten.
+              </p>
+            )}
+
+            {/* ── Historie: erledigt und entfallen in EINEM zugeklappten Block.
+                 Sie muss auffindbar bleiben (ein Panel mit zwei statt drei
+                 Stufen wäre sonst von einem Fehler nicht zu unterscheiden),
+                 darf der offenen Stufe darüber aber nicht die Aufmerksamkeit
+                 nehmen. ── */}
+            {history.length > 0 && (
+              <details>
+                <summary
+                  className="group-summary"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--sp-3)",
+                    fontSize: "var(--fs-xs)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  <ChevronRight size={11} className="group-chevron" />
+                  Erledigt &amp; entfallen ({history.length})
+                </summary>
+                <div
+                  style={{
+                    marginTop: "var(--sp-4)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--sp-4)",
+                    paddingLeft: "var(--sp-6)",
+                    borderLeft: "2px solid var(--border-subtle)",
+                  }}
+                >
+                  {history.map((entry) => (
+                    <HistoryRow key={entry.key} entry={entry} cascadeLabel={cascadeLabelOf(entry.cascadeKind)} />
+                  ))}
+                </div>
+              </details>
+            )}
+          </>
         )}
 
         <p style={{ margin: 0, fontSize: "var(--fs-xs)", color: "var(--text-subtle)", lineHeight: "var(--lh-snug)" }}>

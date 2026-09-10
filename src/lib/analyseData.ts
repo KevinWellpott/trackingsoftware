@@ -497,9 +497,32 @@ export type AnalyseRecycleRow = {
   next_recycle_at: string | null;
   /** Personenachse LinkedIn/Telefon: Owner der Elternliste (docs §2). */
   owner_name: string | null;
+  /**
+   * Ersteller der ELTERNLISTE — der Rückfall der Personenachse, wenn kein
+   * `owner_name` gesetzt ist (`list_owned_by_user()`, docs §2). Das Feld stand
+   * schon immer im Select und wurde im Mapper verworfen; ohne es zählte eine
+   * Liste ohne Besitzernamen bei niemandem und fiel bei aktivem Personenfilter
+   * still aus der ganzen Sektion.
+   */
+  list_created_by_user_id: string | null;
   /** Personenachse Setting/Closing: `personOf()`-Kandidaten. */
   assigned_user_id: string | null;
   created_by_user_id: string | null;
+  /**
+   * Die Felder der Status-Riegel aus `recycle_tasks` (docs §5). Sie
+   * beantworten die Frage, die `next_recycle_at` allein nicht beantwortet: Ist
+   * der Vorgang überhaupt noch terminal, oder kam der Lead auf anderem Weg
+   * zurück? Je Ursprung ist nur eine Teilmenge gefüllt — `contacts` hat keinen
+   * Status, die beiden Lead-Tabellen kein `revived_at`.
+   */
+  status: string | null;
+  blocked_at: string | null;
+  answered: boolean | null;
+  appointment_set: boolean | null;
+  follow_up_number: number | null;
+  revived_at: string | null;
+  no_show_resolution: string | null;
+  cancel_outlook: string | null;
 };
 
 export type RecycleData = {
@@ -542,14 +565,24 @@ const RECYCLE_COLS =
   "recycle_reason_code, recycle_attempt_count, recycle_last_contacted_at, " +
   "recycle_responded_at, recycle_excluded_at, next_recycle_at";
 
+/**
+ * Je Ursprung zusätzlich die Spalten seines Status-Riegels — dieselben, die der
+ * jeweilige Zweig von `recycle_tasks` abfragt (docs §5). Ohne sie ist der
+ * Riegel auf der Anzeigeseite nicht nachbaubar: Ein fehlendes Feld käme als
+ * `undefined` an und ließe den Zweig still auf „ja" zurückfallen.
+ * Alle stammen aus 0032/0033 und sind damit dieselbe Deploy-Voraussetzung wie
+ * `RECYCLE_COLS` selbst.
+ */
 const RECYCLE_CONTACT_SELECT: string =
-  `id, ${RECYCLE_COLS}, lists!inner(owner_name, created_by_user_id)`;
+  `id, ${RECYCLE_COLS}, blocked_at, answered, appointment_set, follow_up_number, ` +
+  `lists!inner(owner_name, created_by_user_id)`;
 const RECYCLE_PHONE_SELECT: string =
-  `id, ${RECYCLE_COLS}, phone_lists!inner(owner_name, created_by_user_id)`;
+  `id, ${RECYCLE_COLS}, status, phone_lists!inner(owner_name, created_by_user_id)`;
 const RECYCLE_SETTING_SELECT: string =
-  `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}`;
+  `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, ` +
+  `status, revived_at, no_show_resolution, cancel_outlook`;
 const RECYCLE_CLOSING_SELECT: string =
-  `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, lost_reason_code`;
+  `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, lost_reason_code, status, revived_at`;
 
 type RawRecycle = {
   recycle_reason_code: string | null;
@@ -561,8 +594,16 @@ type RawRecycle = {
   assigned_user_id?: string | null;
   created_by_user_id?: string | null;
   lost_reason_code?: string | null;
-  lists?: { owner_name: string | null } | null;
-  phone_lists?: { owner_name: string | null } | null;
+  status?: string | null;
+  blocked_at?: string | null;
+  answered?: boolean | null;
+  appointment_set?: boolean | null;
+  follow_up_number?: number | null;
+  revived_at?: string | null;
+  no_show_resolution?: string | null;
+  cancel_outlook?: string | null;
+  lists?: { owner_name: string | null; created_by_user_id: string | null } | null;
+  phone_lists?: { owner_name: string | null; created_by_user_id: string | null } | null;
 };
 
 /**
@@ -629,8 +670,18 @@ export async function loadRecycleData(
         excluded_at: r.recycle_excluded_at ?? null,
         next_recycle_at: r.next_recycle_at ?? null,
         owner_name: r.lists?.owner_name ?? r.phone_lists?.owner_name ?? null,
+        list_created_by_user_id:
+          r.lists?.created_by_user_id ?? r.phone_lists?.created_by_user_id ?? null,
         assigned_user_id: r.assigned_user_id ?? null,
         created_by_user_id: r.created_by_user_id ?? null,
+        status: r.status ?? null,
+        blocked_at: r.blocked_at ?? null,
+        answered: r.answered ?? null,
+        appointment_set: r.appointment_set ?? null,
+        follow_up_number: r.follow_up_number ?? null,
+        revived_at: r.revived_at ?? null,
+        no_show_resolution: r.no_show_resolution ?? null,
+        cancel_outlook: r.cancel_outlook ?? null,
       }));
 
     const rows = [

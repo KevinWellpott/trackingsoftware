@@ -1,9 +1,11 @@
+import type { ReactNode } from "react";
 import { TermineBoard } from "@/components/termine/TermineBoard";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import type { ClosingCall, SettingCall } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 
 // Termine: Setting- und Closing-Calls in einem Kalender (Monat / Woche / Tag)
 // plus versteckter Listenansicht. Beide Tabellen werden komplett geladen und
@@ -30,6 +32,114 @@ export const dynamic = "force-dynamic";
  */
 function personScope(userId: string): string {
   return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId})`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Legende
+ * ------------------------------------------------------------------ */
+
+/**
+ * Ein Kalender-Chip als Muster — mit denselben `data-*`-Attributen, aus denen
+ * globals.css §7 die echten Chips baut. Bewusst kein nachgebautes Kästchen: Ein
+ * zweites Rezept liefe beim nächsten Farbwechsel auseinander, und eine Legende,
+ * die anders aussieht als die Sache, die sie erklärt, ist schlimmer als keine.
+ */
+function LegendChip({
+  kind,
+  tone = "neutral",
+  dashed = false,
+  dimmed = false,
+  children,
+}: {
+  kind: "setting" | "closing";
+  tone?: string;
+  dashed?: boolean;
+  dimmed?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className="cal-event"
+      data-size="xs"
+      data-kind={kind}
+      data-tone={tone}
+      data-dashed={dashed}
+      data-dimmed={dimmed}
+      aria-hidden
+      style={{ width: 58, flexShrink: 0, cursor: "default", padding: "1px 4px" }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function LegendRow({ chips, text }: { chips: ReactNode; text: ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>{chips}</span>
+      <span style={{ minWidth: 0 }}>{text}</span>
+    </div>
+  );
+}
+
+/**
+ * Was ein Chip alles sagt — vier Eigenschaften auf einmal.
+ *
+ * Das System steht seit Runde 1 in `lib/terminMeta.ts` und in globals.css §7
+ * ausführlich begründet, war aber ausschließlich dort zu lesen: Auf der Seite
+ * gab es weder Legende noch Info-Icon. Am ersten Tag ist ein Kalender damit ein
+ * Farbraster, das man erst durch Ausprobieren versteht.
+ */
+function ChipLegende() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+        <strong style={{ color: "var(--text-primary)" }}>Füllung = Art</strong>
+        <LegendRow
+          chips={
+            <>
+              <LegendChip kind="setting">Setting</LegendChip>
+              <LegendChip kind="closing">Closing</LegendChip>
+            </>
+          }
+          text="Dunkel ist ein Setting, hell ein Closing."
+        />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+        <strong style={{ color: "var(--text-primary)" }}>Rahmen = Stand</strong>
+        <LegendRow chips={<LegendChip kind="setting">10:00</LegendChip>} text="Durchgezogen: steht noch an." />
+        <LegendRow
+          chips={
+            <LegendChip kind="setting" tone="success" dashed>
+              10:00
+            </LegendChip>
+          }
+          text="Gestrichelt: das Ergebnis steht fest."
+        />
+        <LegendRow
+          chips={
+            <LegendChip kind="setting" tone="danger" dashed dimmed>
+              10:00
+            </LegendChip>
+          }
+          text="Abgeblendet: erledigt und aus der Planung raus."
+        />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+        <strong style={{ color: "var(--text-primary)" }}>Farbe = Ausgang</strong>
+        <span>
+          Grün weitergekommen oder gewonnen · Rot geplatzt oder verloren · Gold da muss jemand ran · Grau noch
+          offen.
+        </span>
+      </div>
+
+      <span>
+        Ausgeblendet wird nichts — auch ein toter Lead bleibt sichtbar und anklickbar, nur zurückgenommen.
+      </span>
+    </div>
+  );
 }
 
 export default async function TerminePage() {
@@ -66,10 +176,21 @@ export default async function TerminePage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
-      {/* ── Page Header ── */}
+      {/* ── Page Header ──
+          Die Legende hängt am Titel und nicht im Aktionsbereich: Dort steht mit
+          der Zähl-Pille schon eine Aussage über den Bestand, das Info-Icon
+          beantwortet dagegen eine Frage zum Inhalt darunter — dieselbe Stelle
+          wie auf /ablage. */}
       <PageHeader
         eyebrow="Kalender"
-        title="Termine"
+        title={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
+            Termine
+            <InfoPopover label="Wie die Chips zu lesen sind" width={380}>
+              <ChipLegende />
+            </InfoPopover>
+          </span>
+        }
         meta="Setting &amp; Closing in einem Kalender · Setting 30 min · Closing 60 min"
         actions={
           <span className="badge badge-gray tnum">

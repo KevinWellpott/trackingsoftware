@@ -5,6 +5,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { updatePipelineSettings, type PipelineSettings } from "@/app/actions/reminders";
 import { CASCADE_KIND_LABELS, type CascadeKind, type CascadeStep } from "@/lib/cascadeEngine";
 import { TEMPLATE_META } from "@/lib/messageTemplates";
+import { Button } from "@/components/ui/Button";
 import { Collapsible } from "@/components/settings/Collapsible";
 import {
   FIELD_ERROR,
@@ -12,7 +13,6 @@ import {
   FIELD_LABEL,
   FIELD_OK,
   NUMBER_INPUT,
-  SAVE_BUTTON,
   SECTION_BODY,
   SECTION_HEAD,
   SECTION_META,
@@ -70,12 +70,12 @@ const ORIGIN_FIELDS: FieldSpec[] = [
   { field: "days_default_closing_lost", label: "Closing verloren (Tage)", min: DAY_MIN, max: DAY_MAX },
   {
     field: "days_default_setting_disqualified",
-    label: "Erstgespräch unqualifiziert (Tage)",
+    label: "Setting unqualifiziert (Tage)",
     min: DAY_MIN,
     max: DAY_MAX,
   },
   { field: "days_default_phone_dead", label: "Telefon-Lead dead (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_default_setting_dead", label: "Erstgespräch dead (Tage)", min: DAY_MIN, max: DAY_MAX },
+  { field: "days_default_setting_dead", label: "Setting dead (Tage)", min: DAY_MIN, max: DAY_MAX },
   {
     field: "days_default_linkedin_exhausted",
     label: "LinkedIn ohne Antwort (Tage)",
@@ -173,15 +173,12 @@ function NumberField({ spec, value }: { spec: FieldSpec; value: number }) {
             ...(state.error ? { borderColor: "var(--danger)" } : null),
           }}
         />
-        <button
-          type="submit"
-          title="Speichern"
-          disabled={pending}
-          className="btn-secondary"
-          style={SAVE_BUTTON}
-        >
-          ✓
-        </button>
+        {/* Beschriftet statt „✓": Ohne Hover war nicht zu erkennen, ob der
+            Knopf speichert oder etwas abhakt — bei einem Zahlenfeld liegt
+            beides gleich nah. */}
+        <Button type="submit" variant="secondary" size="sm" loading={pending}>
+          Speichern
+        </Button>
       </div>
       {spec.hint && !state.error && !state.saved && <p style={FIELD_HINT}>{spec.hint}</p>}
       {state.error && (
@@ -327,8 +324,12 @@ export function PipelineSettingsCard({
             ))}
             <NumberField spec={ATTEMPTS_FIELD} value={settings[ATTEMPTS_FIELD.field]} />
           </div>
+          {/* Es sind ZWEI Codes (Migration 0033, CHECK auf closing_calls) —
+              der Satz nannte lange nur den ersten. Wer „Kein Fit" wählt,
+              wartete dann auf eine Wiedervorlage, die nie kommt. */}
           <p style={{ margin: "var(--sp-5) 0 0", fontSize: "var(--fs-xs)", color: "var(--text-subtle)" }}>
-            Verlustgrund &bdquo;Falsche Zielgruppe&ldquo; bekommt bewusst kein automatisches Recycling.
+            Die Verlustgründe &bdquo;Falsche Zielgruppe&ldquo; und &bdquo;Kein Fit&ldquo; bekommen bewusst
+            kein automatisches Recycling.
           </p>
         </div>
 

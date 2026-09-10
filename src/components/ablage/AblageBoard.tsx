@@ -24,8 +24,9 @@ import { excludeFromRecycle } from "@/app/actions/recycle";
 import { pullRecycleForward, type DropoutRow } from "@/app/actions/dropout";
 import {
   dropoutListMeta,
-  dropoutReasonLabel,
+  dropoutReasonBadge,
   lineageCounterSummary,
+  listAllowsRevive,
   listFeedsRecycling,
   type DropoutEntity,
   type DropoutListKey,
@@ -44,16 +45,27 @@ import { ownerColor } from "@/lib/ownerColor";
 // Nächstes. Der Grund steht deshalb doppelt: als Code (zählbar, gleich
 // beschriftet wie überall sonst) UND als Freitext daneben, wenn es einen gibt.
 //
-// Drei Aktionen, mehr nicht:
-//   · „Recycling vorziehen" setzt die Wiedervorlage auf heute — der Vorgang
-//     erscheint dann in der Recycling-Sektion von /nachfassen. Ist das nicht
-//     möglich, steht der Grund am ausgeschalteten Knopf statt einer
-//     Fehlermeldung nach dem Klick (recycleBlockedReason, lib/dropoutLists.ts).
+// Drei Aktionen, mehr nicht — und jede nur dort, wo sie auch geht:
+//   · „Jetzt wieder anschreiben" setzt die Wiedervorlage auf heute; der Vorgang
+//     erscheint dann in der Recycling-Sektion von /nachfassen.
 //   · „Endgültig sperren" schreibt das dauerhafte Kontaktverbot — die einzige
 //     Aktion hier, die etwas wegnimmt, deshalb mit Rückfrage.
-//   · „Zurückholen" (Entscheidung K10) legt einen NEUEN Erstgesprächs-Termin
-//     an; die alte Zeile bleibt terminal und bekommt nur `revived_at`. Sperren
-//     nach demselben Muster über `reviveBlockedReason`.
+//   · „Neuen Termin ansetzen" (Entscheidung K10) legt einen NEUEN
+//     Erstgesprächs-Termin an; der alte Vorgang bleibt abgeschlossen und bekommt
+//     nur `revived_at`.
+//
+// Was nicht geht, wird WEGGELASSEN statt ausgegraut (recycleBlockedReason /
+// reviveBlockedReason, lib/dropoutLists.ts). Ein toter Knopf auf jeder von
+// zwanzig Karten ist zwanzigmal dieselbe Absage; der Grund steht einmal — am
+// Fuß des Boards, wenn er für die ganze Liste gilt (listFeedsRecycling /
+// listAllowsRevive), sonst als Satz unter den Aktionen der betroffenen Karte.
+// Das gilt für JEDEN Knopf der Karte, auch für den Verweis auf Liste bzw.
+// Termin: Eine Ausnahme daneben wäre nicht eine mildere Regel, sondern eine
+// zweite — und die Karte hätte wieder beide.
+//
+// Genau EIN Knopf trägt seinen Grund weder unten noch im Fuß: „Endgültig
+// sperren" fehlt, wenn die Zeile schon gesperrt ist — und das sagt der Badge
+// „Gesperrt" oben bereits. Ein zweiter Satz darunter wiederholte ihn nur.
 //
 // Die Kette bleibt in beide Richtungen sichtbar: Eine Karte, die selbst aus
 // einer Rückholung entstanden ist, zeigt die Zähler ihrer VORGÄNGERZEILE —
@@ -72,7 +84,7 @@ const ENTITY_META: Record<
     label: string;
     stage: StageKey;
     icon: React.ReactNode;
-    /** null = kein Ziel auflösbar (Lead ohne Liste) — der Knopf bleibt dann aus. */
+    /** null = kein Ziel auflösbar (Lead ohne Liste) — der Verweis entfällt dann. */
     href: (row: DropoutRow) => string | null;
     linkLabel: string;
     /** Anker des Lead-Dossiers — `entity_id` ist immer die Ursprungszeile. */
@@ -80,7 +92,7 @@ const ENTITY_META: Record<
   }
 > = {
   setting: {
-    label: "Erstgespräch",
+    label: "Setting",
     stage: "setting",
     icon: <ClipboardCheck size={12} />,
     href: (row) => `/setting/${row.entity_id}`,
@@ -129,14 +141,6 @@ const ghostBtn: React.CSSProperties = {
   textDecoration: "none",
   cursor: "pointer",
   transition: "background var(--transition-fast), border-color var(--transition-fast)",
-};
-
-const disabledBtn: React.CSSProperties = {
-  ...ghostBtn,
-  color: "var(--text-disabled)",
-  borderColor: "var(--border-subtle)",
-  background: "transparent",
-  cursor: "default",
 };
 
 /** Datum de-DE (Europe/Berlin). Verträgt Datum-only (`next_recycle_at`) und
@@ -248,6 +252,9 @@ function DropoutCard({
   // Liste kein Recycling speisen, stünde derselbe Satz auf jeder Karte — den
   // trägt dann eine Zeile am Fuß des Boards.
   const rowCouldFeed = listFeedsRecycling(list, row.entity_type);
+  // Dasselbe für das Ansetzen eines neuen Termins: In der Sperrliste ist jede
+  // Zeile gesperrt, der Grund gilt also für die ganze Ansicht und steht am Fuß.
+  const rowCouldRevive = listAllowsRevive(list);
   const predecessor = row.lineage.predecessor;
   const successor = row.lineage.successor;
   // „3× verschoben · 1× nicht erschienen" — leer, wenn der Vorgänger sauber
@@ -255,6 +262,20 @@ function DropoutCard({
   const predecessorCounters = predecessor
     ? lineageCounterSummary(predecessor.reschedule_count, predecessor.no_show_count)
     : null;
+
+  // Ein weggelassener Knopf braucht seinen Satz, sonst verschwindet mit dem
+  // Knopf auch die Absage — und der Nutzer sucht auf der Karte nach etwas, das
+  // dort bewusst fehlt. Die Sätze stehen in der Reihenfolge der Aktionszeile.
+  // Aufgenommen wird nur, was an DIESER Zeile hängt: Was für die ganze Liste
+  // gilt, trägt der Fuß des Boards einmal.
+  const hints: string[] = [];
+  if (!href) {
+    hints.push(
+      "Die Liste zu diesem Lead gibt es nicht mehr — deshalb fehlt der Verweis. Der Verlauf steht im Dossier.",
+    );
+  }
+  if (blocked && rowCouldFeed) hints.push(blocked);
+  if (row.revive_blocked && rowCouldRevive) hints.push(row.revive_blocked);
 
   function run(work: () => Promise<{ error?: string } | void>) {
     setError(null);
@@ -348,17 +369,30 @@ function DropoutCard({
       {/* ── Grund: Code (zählbar) und Freitext (Gedächtnis) ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
-          <Badge tone={row.reason_code ? "neutral" : "warning"} title="Grund als Code — danach wird gezählt">
-            {dropoutReasonLabel(row.reason_code)}
+          <Badge
+            tone={row.reason_code ? "neutral" : "warning"}
+            title={
+              row.reason_code
+                ? "Grund als Code — danach wird gezählt"
+                : row.reason_hidden
+                  ? "Der Vorgang gehört einer anderen Person. Die Sperrliste zeigt ihn org-weit, seinen Grund liest die eingestellte Datensicht aber nicht."
+                  : "Für diesen Vorgang ist kein Grund erfasst"
+            }
+          >
+            {dropoutReasonBadge(row.reason_code, row.reason_hidden)}
           </Badge>
           {row.excluded && (
             <Badge tone="error" title="Dauerhaftes Kontaktverbot">
               <Lock size={11} /> Gesperrt
             </Badge>
           )}
+          {/* Dasselbe Ereignis wie am Knopf „Neuen Termin ansetzen" — also
+              auch dasselbe Wort. Drei Namen für einen Vorgang (wiederbelebt,
+              zurückgeholt, neuer Termin) lasen sich auf einer Karte wie drei
+              verschiedene Dinge. */}
           {row.revived_at && (
-            <Badge tone="success" title={`Zurück im Funnel seit ${formatDay(row.revived_at)}`}>
-              Wiederbelebt
+            <Badge tone="success" title={`Am ${formatDay(row.revived_at)} wurde ein neuer Termin angesetzt`}>
+              Neuer Termin angesetzt
             </Badge>
           )}
         </div>
@@ -424,8 +458,8 @@ function DropoutCard({
           <span>
             Zweiter Anlauf.{" "}
             {predecessorCounters
-              ? `Der Vorgänger stand bei ${predecessorCounters} — die Zähler oben zählen erst ab dieser Rückholung.`
-              : "Die Zähler oben zählen erst ab dieser Rückholung."}{" "}
+              ? `Der Vorgänger stand bei ${predecessorCounters} — die Zähler oben zählen erst ab diesem neuen Termin.`
+              : "Die Zähler oben zählen erst ab diesem neuen Termin."}{" "}
             <Link
               href={`/${predecessor.entity}/${predecessor.id}`}
               style={{ color: "var(--info-fg)", textDecoration: "none", whiteSpace: "nowrap" }}
@@ -448,7 +482,7 @@ function DropoutCard({
             textDecoration: "none",
           }}
         >
-          <RotateCcw size={11} /> Zurückgeholt — zum neuen Erstgespräch
+          <RotateCcw size={11} /> Neuer Termin angesetzt — zum Setting
           {successor.appointment_at ? ` am ${formatDay(successor.appointment_at)}` : ""}
         </Link>
       )}
@@ -479,14 +513,16 @@ function DropoutCard({
           marginTop: "auto",
         }}
       >
-        {href ? (
+        {/* Dieselbe Regel wie bei den drei Aktionen unten, damit es EINE Regel
+            bleibt: Ein LinkedIn-Kontakt oder Telefon-Lead, dessen Liste
+            gelöscht wurde, hat kein Ziel — dann entfällt der Verweis, statt als
+            toter Knopf dazustehen; sein Grund steht dafür unten bei den
+            Hinweisen. Verloren geht dabei nichts: Zum Lead selbst führte er bei
+            diesen beiden Ursprüngen ohnehin nie, das tut das Dossier daneben. */}
+        {href && (
           <Link href={href} style={ghostBtn}>
             {meta.linkLabel} <ArrowUpRight size={12} />
           </Link>
-        ) : (
-          <button type="button" disabled style={disabledBtn} title="Der Lead hängt an keiner Liste mehr.">
-            {meta.linkLabel} <ArrowUpRight size={12} />
-          </button>
         )}
 
         {/* Die Akte zum abgelegten Vorgang. Hier trägt sie mehr als auf den
@@ -504,11 +540,11 @@ function DropoutCard({
           <Users size={12} /> Dossier
         </button>
 
-        {blocked ? (
-          <button type="button" disabled style={disabledBtn} title={blocked}>
-            <ChevronsRight size={12} /> Recycling vorziehen
-          </button>
-        ) : (
+        {/* Nicht mögliche Aktionen werden WEGGELASSEN, nicht ausgegraut. In der
+            Sperrliste wäre sonst auf jeder einzelnen Karte derselbe tote Knopf
+            zu sehen, und der Grund dafür steht ohnehin einmal am Fuß des Boards
+            bzw. — wenn er an dieser Zeile hängt — als Satz unter den Aktionen. */}
+        {!blocked && (
           <button
             type="button"
             disabled={isPending}
@@ -516,15 +552,15 @@ function DropoutCard({
             title="Wiedervorlage auf heute setzen — der Vorgang erscheint dann in der Recycling-Sektion von Nachfassen."
             style={{ ...ghostBtn, cursor: isPending ? "default" : "pointer" }}
           >
-            <ChevronsRight size={12} /> Recycling vorziehen
+            <ChevronsRight size={12} /> Jetzt wieder anschreiben
           </button>
         )}
 
-        {row.excluded ? (
-          <button type="button" disabled style={disabledBtn} title="Der Vorgang ist bereits dauerhaft gesperrt.">
-            <Ban size={12} /> Gesperrt
-          </button>
-        ) : (
+        {/* Ist die Zeile gesperrt, trägt der Badge „Gesperrt" oben die Aussage
+            — ein Knopf daneben, der dasselbe noch einmal sagt, ist nur Fläche.
+            Eine Sonderregel für die Sperrliste braucht es dafür nicht: Dort ist
+            jede Zeile gesperrt, `dropout_lists()` liefert gar keine andere. */}
+        {!row.excluded && (
           <button
             type="button"
             disabled={isPending}
@@ -536,19 +572,20 @@ function DropoutCard({
           </button>
         )}
 
-        {row.revive_blocked ? (
-          <button type="button" disabled style={disabledBtn} title={row.revive_blocked}>
-            <RotateCcw size={12} /> Zurückholen
-          </button>
-        ) : (
+        {/* „Neuen Termin ansetzen" statt „Zurückholen": Der Unterschied zum
+            Knopf daneben ist, dass hier wirklich ein Termin im Kalender
+            entsteht. Stand er nur im Tooltip, war er auf dem Touchgerät gar
+            nicht zu erfahren — und ein Fehlgriff legt einen Termin an, den
+            niemand wollte. */}
+        {!row.revive_blocked && (
           <button
             type="button"
             disabled={isPending}
             onClick={() => setReviveOpen(true)}
-            title="Neues Erstgespräch für diesen Lead anlegen. Die alte Zeile bleibt terminal stehen."
+            title="Neues Setting für diesen Lead anlegen. Der alte Vorgang bleibt abgeschlossen stehen."
             style={{ ...ghostBtn, cursor: isPending ? "default" : "pointer" }}
           >
-            <RotateCcw size={12} /> Zurückholen
+            <RotateCcw size={12} /> Neuen Termin ansetzen
           </button>
         )}
 
@@ -560,21 +597,27 @@ function DropoutCard({
         )}
       </div>
 
-      {/* Der Grund gegen das Vorziehen gehört sichtbar in die Karte und nicht
-          nur in einen Tooltip: auf dem Touchgerät gibt es keinen Hover. */}
-      {blocked && rowCouldFeed && (
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "flex-start",
-            gap: "var(--sp-3)",
-            fontSize: "var(--fs-2xs)",
-            color: "var(--text-subtle)",
-          }}
-        >
-          <AlertTriangle size={11} style={{ flexShrink: 0, marginTop: 1 }} />
-          {blocked}
-        </span>
+      {/* Warum ein Knopf fehlt, gehört sichtbar in die Karte und nicht nur in
+          einen Tooltip: auf dem Touchgerät gibt es keinen Hover — und einen
+          Tooltip an etwas, das gar nicht mehr da ist, gibt es ohnehin nicht. */}
+      {hints.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+          {hints.map((hint) => (
+            <span
+              key={hint}
+              style={{
+                display: "inline-flex",
+                alignItems: "flex-start",
+                gap: "var(--sp-3)",
+                fontSize: "var(--fs-2xs)",
+                color: "var(--text-subtle)",
+              }}
+            >
+              <AlertTriangle size={11} style={{ flexShrink: 0, marginTop: 1 }} />
+              {hint}
+            </span>
+          ))}
+        </div>
       )}
 
       <LeadDossierSheet
@@ -623,6 +666,10 @@ export function AblageBoard({
   // ist „Recycling vorziehen" auf jeder Karte aus demselben Grund aus — der
   // steht dann einmal hier statt sechsmal untereinander.
   const listFeeds = listFeedsRecycling(list, "setting") || listFeedsRecycling(list, "closing");
+  // Und dieselbe Frage für den zweiten Knopf: Wo er auf keiner Karte steht,
+  // erklärt der Fuß ihn auch nicht — sonst schickt der Text den Nutzer auf die
+  // Suche nach einem Knopf, den es in dieser Ansicht bewusst nicht gibt.
+  const listRevives = listAllowsRevive(list);
 
   const confirmBlock = (row: DropoutRow) =>
     confirm({
@@ -665,7 +712,7 @@ export function AblageBoard({
               maxWidth: "62ch",
             }}
           >
-            Die Funktion <code>dropout_lists</code> fehlt in der Datenbank — die Migration ist noch nicht
+            Der Datenbank fehlt die Abfrage, aus der die Ablage entsteht &mdash; Migration 0033 ist noch nicht
             eingespielt. Das ist ausdrücklich <strong>nicht</strong> dasselbe wie &bdquo;die Liste ist leer&ldquo;:
             Es liegen möglicherweise ausgeschiedene Vorgänge da, die hier gerade niemand sieht. Ein Administrator
             spielt die Migration im Supabase-SQL-Editor ein.
@@ -759,17 +806,21 @@ export function AblageBoard({
         >
           {!listFeeds && (
             <span>
+              {/* In der Sperrliste fehlen BEIDE Knöpfe, und zwar aus einem
+                  Grund — dann ist es auch ein Satz. */}
               {list === "gesperrt"
-                ? "Gesperrte Vorgänge bekommen keine Wiedervorlage mehr — das ist der Zweck der Sperre."
+                ? "Gesperrte Vorgänge bekommen weder eine Wiedervorlage noch einen neuen Termin — das ist der Zweck der Sperre."
                 : "Hier gibt es kein Recycling: Der nächste Schritt ist der Ersatztermin, nicht eine Wiedervorlage in Wochen."}
             </span>
           )}
-          <span>
-            &bdquo;Zur&uuml;ckholen&ldquo; legt ein <strong>neues Erstgespr&auml;ch</strong> an; die alte Zeile
-            bleibt terminal stehen (Entscheidung K10). Ein zur&uuml;ckgedrehter Vorgang ver&auml;nderte
-            r&uuml;ckwirkend die Quoten eines abgeschlossenen Zeitraums. Der neue Termin beginnt mit leeren
-            Z&auml;hlern &mdash; die des Vorg&auml;ngers stehen daf&uuml;r auf seiner Karte.
-          </span>
+          {listRevives && (
+            <span>
+              &bdquo;Neuen Termin ansetzen&ldquo; legt ein <strong>neues Erstgespr&auml;ch</strong> an; der alte
+              Vorgang bleibt abgeschlossen stehen. Ein zur&uuml;ckgedrehter Vorgang ver&auml;nderte r&uuml;ckwirkend
+              die Quoten eines abgeschlossenen Zeitraums. Der neue Termin beginnt mit leeren Z&auml;hlern &mdash;
+              die des Vorg&auml;ngers stehen daf&uuml;r auf seiner Karte.
+            </span>
+          )}
         </div>
       )}
     </div>

@@ -99,8 +99,8 @@ export const NUMBER_INPUT: CSSProperties = {
   fontVariantNumeric: "tabular-nums",
 };
 
-/** Der ✓-Knopf neben einem einzeiligen Feld. */
-export const SAVE_BUTTON: CSSProperties = {
-  padding: "0 var(--sp-5)",
-  flexShrink: 0,
-};
+// Ein SAVE_BUTTON stand hier für den ✓-Knopf neben einem einzeiligen Feld.
+// Seit alle drei Speichern-Knöpfe der Seite beschriftet sind und über
+// <Button variant="secondary" size="sm"> laufen, hatte er keinen Verwender
+// mehr — ein exportierter Stil ohne Aufrufer sieht aus wie die geltende
+// Konvention und wäre der nächste, den jemand wieder einbaut.

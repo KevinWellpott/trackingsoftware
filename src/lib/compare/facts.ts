@@ -296,6 +296,12 @@ export function buildFacts(src: CompareSources): CompareData {
       lost: r.status === "verloren" ? 1 : 0,
       revenue: won ? Number(r.deal_volume) || 0 : 0,
       closing_cancelled: r.cancelled_at ? 1 : 0,
+      // Gegenstueck dazu, und zwar als eigene Groesse: Der Nenner der
+      // Show-Quote Closing muss die abgesagten Termine loswerden (sie zaehlten
+      // dort als Nicht-Erschienen), die Registry kann aber nur zaehlen und
+      // teilen, nicht subtrahieren. `closings` bleibt daneben die ABSOLUTE
+      // Termin-Menge — wie im Setting-Block eine Zeile hoeher.
+      closing_not_cancelled: r.cancelled_at ? 0 : 1,
     });
   }
 

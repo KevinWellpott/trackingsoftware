@@ -5,11 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import { loadClosingCalls, loadRecycleData, loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
 import { personOf } from "@/lib/personResolution";
 import {
-  CHANNELS, CHANNEL_NO_VOLUME, channelOf, channelVolumeLabel, hasVolume,
+  CHANNELS, CHANNEL_NO_VOLUME, channelVolumeLabel, hasVolume,
   type Channel, type ChannelKey,
 } from "@/lib/channels";
 import {
-  NUM, bucketOf, buildBuckets, closingEffDate, eur, fmtPct, ownerKey, pct, settingEffDate,
+  NUM, bucketOf, buildBuckets, channelKeyOf, closingEffDate, eur, fmtPct, ownerKey, pct, settingEffDate,
   type Granularity,
 } from "@/lib/analyse";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
@@ -136,14 +136,6 @@ const VOLUME_NOTE: Partial<Record<ChannelKey, string>> = {
   linkedin: "DMs zählen am Pitch-Tag.",
   telefon: "Erstkontakte zählen am Tag des ersten Anrufs.",
 };
-
-/**
- * DB-Wert → Registry-Schlüssel. Unbekannte oder leere Werte landen bei
- * "sonstige" — genau der Topf, in den `channelLabel()` sie ohnehin beschriftet.
- */
-function channelKeyOf(source: string | null | undefined): ChannelKey {
-  return channelOf(source)?.key ?? "sonstige";
-}
 
 // ── Kennzahl-Satz je Kanal ───────────────────────────────────
 /**

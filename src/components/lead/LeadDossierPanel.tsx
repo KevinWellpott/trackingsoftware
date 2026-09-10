@@ -19,11 +19,13 @@ import {
   Users,
 } from "lucide-react";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 import { ownerColor } from "@/lib/ownerColor";
 import { formatTerminParts } from "@/lib/apptTime";
 import {
   DOSSIER_ENTITY_LABELS,
+  dossierEmptyKind,
   dossierPath,
   type DossierChannel,
   type DossierEntityKind,
@@ -53,7 +55,7 @@ import {
 const SOURCE_META: Record<DossierEventSource, { label: string; stage: StageKey | null }> = {
   linkedin: { label: "LinkedIn", stage: "linkedin" },
   telefon: { label: "Telefon", stage: "telefon" },
-  setting: { label: "Erstgespräch", stage: "setting" },
+  setting: { label: "Setting", stage: "setting" },
   closing: { label: "Closing", stage: "closing" },
   erinnerung: { label: "Erinnerung", stage: "nachfassen" },
   recycling: { label: "Recycling", stage: null },
@@ -448,12 +450,11 @@ export function LeadDossierPanel({ dossier }: { dossier: LeadDossier }) {
         <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
           <SectionTitle count={dossier.members.length}>Belegt zusammengehörig</SectionTitle>
           <InfoPopover label="Wie das Dossier zusammengeführt wird" width={400}>
-            Zusammengeführt wird ausschließlich über echte Fremdschlüssel: ein Erstgespräch nennt seinen
-            LinkedIn-Kontakt (<code>source_contact_id</code>) oder seinen Telefon-Lead
-            (<code>source_phone_lead_id</code>), ein Closing sein Erstgespräch. Nur diese Zeilen speisen Zeitleiste
-            und &bdquo;zuletzt kontaktiert&ldquo;. Ein LinkedIn-Kontakt und ein Telefon-Lead derselben Firma haben
-            dagegen <strong>keinen</strong> gemeinsamen Schlüssel — sie erscheinen unten als Vermutung und werden
-            bewusst nicht verschmolzen.
+            Zusammengeführt wird nur, was nachweislich zusammengehört: ein Setting, das seinen
+            LinkedIn-Kontakt oder seinen Telefon-Lead festhält, und ein Closing, das aus diesem Setting
+            entstanden ist. Nur diese Vorgänge speisen Zeitleiste und &bdquo;zuletzt kontaktiert&ldquo;. Ein
+            LinkedIn-Kontakt und ein Telefon-Lead derselben Firma sind dagegen nirgends miteinander verbunden —
+            sie erscheinen unten als Vermutung und werden bewusst nicht verschmolzen.
           </InfoPopover>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
@@ -595,8 +596,19 @@ export function LeadDossierPanel({ dossier }: { dossier: LeadDossier }) {
  * Leerzustände — zwei verschiedene Sätze, bewusst
  * ------------------------------------------------------------------ */
 
-export function LeadDossierEmpty({ available, error }: { available: boolean; error?: string }) {
-  const missingSchema = !available;
+export function LeadDossierEmpty({
+  available,
+  error,
+  onRetry,
+}: {
+  available: boolean;
+  error?: string;
+  /** Fehlt der Handler (eigene Route statt Overlay), entfällt der Knopf — dort
+      ist das Neuladen der Seite der zweite Versuch. */
+  onRetry?: () => void;
+}) {
+  const kind = dossierEmptyKind(available, error);
+  const alarm = kind !== "not_found";
   return (
     <div
       className="card"
@@ -605,11 +617,11 @@ export function LeadDossierEmpty({ available, error }: { available: boolean; err
         display: "flex",
         gap: "var(--sp-5)",
         alignItems: "flex-start",
-        background: missingSchema ? "var(--danger-bg)" : undefined,
-        borderColor: missingSchema ? "rgb(214 90 82 / 0.28)" : undefined,
+        background: alarm ? "var(--danger-bg)" : undefined,
+        borderColor: alarm ? "rgb(214 90 82 / 0.28)" : undefined,
       }}
     >
-      {missingSchema ? (
+      {alarm ? (
         <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2, color: "var(--danger-fg)" }} />
       ) : (
         <CircleHelp size={18} style={{ flexShrink: 0, marginTop: 2, color: "var(--text-muted)" }} />
@@ -619,17 +631,32 @@ export function LeadDossierEmpty({ available, error }: { available: boolean; err
           style={{
             fontSize: "var(--fs-md)",
             fontWeight: 600,
-            color: missingSchema ? "var(--danger-fg)" : "var(--text-primary)",
+            color: alarm ? "var(--danger-fg)" : "var(--text-primary)",
           }}
         >
-          {missingSchema ? "Dossier nicht verfügbar" : "Kein Lead unter dieser Adresse"}
+          {kind === "missing_schema"
+            ? "Dossier nicht verfügbar"
+            : kind === "load_failed"
+              ? "Dossier konnte nicht geladen werden"
+              : "Kein Lead unter dieser Adresse"}
         </div>
         <p style={{ margin: "var(--sp-3) 0 0", fontSize: "var(--fs-sm)", color: "var(--text-secondary)", maxWidth: "62ch" }}>
-          {missingSchema
+          {kind === "missing_schema"
             ? (error ??
               "Der Datenbank fehlen Spalten, die das Dossier liest — eine Migration ist nicht eingespielt.")
-            : "Die Zeile gibt es in dieser Organisation nicht (mehr), oder die eingestellte Datensicht zeigt woandershin."}
+            : kind === "load_failed"
+              ? // Der Fehlertext gehört sichtbar hierher: Er ist der einzige
+                // Hinweis darauf, dass über den Lead selbst nichts gesagt wurde.
+                `${error} Über diesen Lead sagt das nichts — der Abruf ist gescheitert, nicht die Suche.`
+              : "Die Zeile gibt es in dieser Organisation nicht (mehr), oder die eingestellte Datensicht zeigt woandershin."}
         </p>
+        {kind === "load_failed" && onRetry && (
+          <div style={{ marginTop: "var(--sp-5)" }}>
+            <Button type="button" variant="secondary" size="sm" onClick={onRetry}>
+              Nochmal versuchen
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

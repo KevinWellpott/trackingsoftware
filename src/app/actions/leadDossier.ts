@@ -326,14 +326,16 @@ export async function getLeadDossier(kind: string, id: string): Promise<LeadDoss
   } catch (e) {
     const missing = isMissingSchema(e);
     if (!missing) console.error("getLeadDossier:", e instanceof Error ? e.message : e);
+    // Der ROHE Fehlertext bleibt im Server-Log (oben) und geht nicht an den
+    // Bildschirm: Er ist englisch, nennt Tabellen- und Spaltennamen und sagt
+    // niemandem, was er jetzt tun soll. Die Fehlerkarte zeigt den Text
+    // wörtlich an — sie braucht deshalb einen Satz, der für sich steht.
     return {
       dossier: null,
       available: !missing,
       error: missing
         ? "Das Dossier braucht Spalten, die in dieser Datenbank fehlen — eine Migration ist nicht eingespielt."
-        : e instanceof Error
-          ? e.message
-          : "Unbekannter Fehler.",
+        : "Das Dossier ließ sich nicht laden.",
     };
   }
 }

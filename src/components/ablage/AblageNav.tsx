@@ -44,7 +44,15 @@ export function AblageNav({
             }}
           >
             {l.tab}
-            {count != null && <span className="count-pill">{count}</span>}
+            {/* Nur die eine Liste mit offener Handlung trägt eine hervorgehobene
+                Zahl — dieselbe, die auch als einzige ein Badge in der
+                Seitenleiste bekommt. Ohne diesen Unterschied sähen sechs
+                gleichaussehende Zahlen so aus, als warte überall Arbeit. */}
+            {count != null && (
+              <span className="count-pill" data-tone={l.openAction && count > 0 ? "accent" : undefined}>
+                {count}
+              </span>
+            )}
           </Link>
         );
       })}

@@ -1,11 +1,23 @@
-// Reines Analyse-Fundament: Param-Parsing, Zahlen-/Prozent-Helfer, Bucket-Logik
-// und Datums-Auflösung für den Deep-Analytics-Bereich. Kein "use client"/
-// "use server" — überall (Server-Page & Client-Charts) importierbar.
+// Reines Analyse-Fundament: Param-Parsing, Zahlen-/Prozent-Helfer, Bucket-Logik,
+// Datums-Auflösung und die ZÄHL-REGELN, die mehr als ein Tab braucht. Kein
+// "use client"/"use server" — überall (Server-Page & Client-Charts) importierbar.
+//
+// Warum auch Zähl-Regeln hier stehen: Jede Kennzahl des Bereichs besteht aus
+// Zähler UND Nenner (docs §5), und eine Regel, die in zwei Tabs je einmal
+// formuliert ist, driftet auseinander, ohne dass es jemand sieht — die Zahlen
+// bleiben plausibel, sie widersprechen sich nur. Genau so entstanden die
+// Rohwert-Filterung der Quelle (Setting- gegen Funnel-Tab) und die Show-Quote,
+// die jede Absage als Nicht-Erschienen führte.
 
 import { berlinDateISO } from "@/lib/apptTime";
-import { FILTERABLE_CHANNEL_KEYS, type FilterableChannelKey } from "@/lib/channels";
+import {
+  FILTERABLE_CHANNEL_KEYS, channelOf, type ChannelKey, type FilterableChannelKey,
+} from "@/lib/channels";
 import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 import { VIZ_NEUTRAL } from "@/lib/viz";
+// NUR als Typ: `analyseData` ist server-only (cookies()). Ein Wert-Import
+// zöge diese Datei — und damit jede Client-Chart-Komponente — dorthin mit.
+import type { RecycleOriginKey } from "@/lib/analyseData";
 
 /**
  * Flow-Tabs des Analyse-Bereichs.
@@ -234,6 +246,20 @@ export function prevRange(from: string, to: string): { from: string; to: string 
   return { from: addDaysISO(prevTo, -(span - 1)), to: prevTo };
 }
 
+/**
+ * DB-Wert von `setting_calls.source_type` → Registry-Schlüssel; Unbekanntes und
+ * Leeres landet unter „sonstige".
+ *
+ * Steht hier und nicht je Tab, weil genau diese Auflösung der Unterschied
+ * zwischen zwei Terminzahlen war: `source_type` ist nullable und wurde nie
+ * backgefillt. Wer den Rohwert gegen den Filter hält, verliert unter
+ * `?quelle=sonstige` jede Zeile ohne Quelle — während der Donut daneben sie als
+ * „Sonstige" beschriftet, weil `channelLabel()` denselben Rückfall macht.
+ */
+export function channelKeyOf(sourceType: string | null | undefined): ChannelKey {
+  return channelOf(sourceType)?.key ?? "sonstige";
+}
+
 /** Number(v) mit 0 als NaN-/Falsy-Fallback. */
 export function NUM(v: unknown): number {
   return Number(v) || 0;
@@ -256,9 +282,49 @@ export function fmtPct(v: number | null): string {
   return `${PCT_FMT.format(v)} %`;
 }
 
+/**
+ * Show-Quote eines Closing-Fensters: erschienen ÷ (alle Termine − abgesagte).
+ *
+ * Der Nenner bleibt bewusst die VOLLE Termin-Menge und nicht „Termine mit
+ * erfasstem Ergebnis" (docs §5): `show_status` wird beim Eintragen eines
+ * Ergebnisses abgeleitet, ein Nenner aus erfassten Feldern misst deshalb die
+ * Erfassungsdisziplin statt des Ergebnisses.
+ *
+ * Genau EINE Menge kommt heraus: die abgesagten. Eine Absage lässt `status` und
+ * `show_status` unangetastet (docs §3) — im vollen Nenner zählt sie damit als
+ * Nicht-Erschienen, und die Quote sinkt mit jeder erfassten Absage, ohne dass
+ * sich am Vertrieb etwas ändert. Ein abgesagter Termin ist kein „ohne Angabe",
+ * er hat nachweislich nicht stattgefunden.
+ */
+export function closingShowRate(shows: number, closings: number, abgesagt: number): number | null {
+  return pct(shows, Math.max(closings - abgesagt, 0));
+}
+
 /** Normalisiert einen Owner-Namen für case-insensitiven Abgleich. */
 export function ownerKey(name: string | null | undefined): string {
   return (name ?? "").trim().toLowerCase();
+}
+
+/**
+ * Gehört eine listen-gebundene Zeile (LinkedIn-Kontakt, Telefon-Lead) zur
+ * aktuellen Personenauswahl?
+ *
+ * Die Kette ist wörtlich `list_owned_by_user()` in SQL und `matchesOwnScope()`
+ * im Code (docs §2): `owner_name` hat Vorrang, der Ersteller der Liste greift
+ * NUR ohne Namen. Der Rückfall ist kein Beiwerk — eine Liste ohne `owner_name`
+ * gehört sonst niemandem, und ihre Zeilen fallen bei aktivem Personenfilter
+ * stillschweigend aus der Auswertung, statt bei ihrem Ersteller zu zählen.
+ *
+ * Der Name wird über `ownerKey` case-insensitiv verglichen, die ID exakt.
+ */
+export function listOwnerMatches(
+  row: { owner_name: string | null; list_created_by_user_id: string | null },
+  selectedOwners: ReadonlySet<string>,
+  selectedIds: ReadonlySet<string>,
+): boolean {
+  const key = ownerKey(row.owner_name);
+  if (key) return selectedOwners.has(key);
+  return row.list_created_by_user_id !== null && selectedIds.has(row.list_created_by_user_id);
 }
 
 type BucketUnit = "day" | "week" | "month";
@@ -520,6 +586,82 @@ export function bucketIndex(value: number, bounds: readonly number[]): number {
     if (value <= bounds[i]) return i;
   }
   return bounds.length;
+}
+
+// ── Recycling: die Status-Riegel aus `recycle_tasks` ─────────
+// Ein `next_recycle_at` allein beweist nichts. Kein Rückkehrpfad räumt das Feld
+// ab, wenn ein Lead auf ANDEREM Weg zurück in den Funnel kommt — ein
+// gewonnenes Closing, ein Telefon-Lead auf `termin`, ein Kontakt, der doch noch
+// geantwortet hat, tragen ihr Wiedervorlage-Datum weiter mit sich. Die RPC
+// `recycle_tasks` (Migration 0033) fängt das mit einem Status-Riegel je Zweig
+// ab; das Board /nachfassen zeigt solche Leads deshalb längst nicht mehr an.
+//
+// Diese Funktion ist derselbe Riegel für die ANZEIGESEITE. Sie ist bewusst eine
+// Nachbildung und keine zweite Wahrheit: Die Auswertung liest ganze Tabellen
+// statt der RPC (zwei Zeitachsen, kein Fälligkeits-Schnitt, docs §5), kann den
+// Riegel also nicht von der Datenbank bekommen. Wer die RPC ändert, ändert sie
+// hier mit — dafür stehen die Zweige unten in derselben Reihenfolge.
+
+/**
+ * Der Zeilenzustand, den die vier Zweige von `recycle_tasks` abfragen. Optional
+ * ist, was es nur an manchen Ursprungstabellen gibt (`revived_at` etwa erst ab
+ * den beiden Termin-Tabellen aus Migration 0032).
+ */
+export type RecycleRowState = {
+  origin: RecycleOriginKey;
+  excluded_at: string | null;
+  responded_at: string | null;
+  /** LinkedIn: `contacts.blocked_at` — der Lead hat uns blockiert. */
+  blocked_at?: string | null;
+  answered?: boolean | null;
+  appointment_set?: boolean | null;
+  follow_up_number?: number | null;
+  /** Telefon/Erstgespräch/Closing — je Tabelle ein anderer Wertebereich. */
+  status?: string | null;
+  /** Nur Erstgespräch und Closing (Migration 0032). */
+  revived_at?: string | null;
+  no_show_resolution?: string | null;
+  cancel_outlook?: string | null;
+};
+
+/**
+ * Ist die Zeile noch ein Recycling-Kandidat — gäbe `recycle_tasks` sie also
+ * aus, sobald ihr `next_recycle_at` fällig wird?
+ *
+ * Die FÄLLIGKEIT prüft die Funktion bewusst nicht: „Warten aktuell" fragt, was
+ * überhaupt noch in der Wiedervorlage liegt, und das schließt die Termine der
+ * nächsten Monate ein.
+ */
+export function isRecycleCandidate(r: RecycleRowState): boolean {
+  // Gilt in allen vier Zweigen: gesperrt ist endgültig, und wer auf einen
+  // Versuch reagiert hat, ist zurück im Gespräch.
+  if (r.excluded_at || r.responded_at) return false;
+
+  switch (r.origin) {
+    case "linkedin":
+      // `follow_up_number = 3`: Vor der letzten Stufe ist der Kontakt nicht
+      // ausgereizt, sondern noch im normalen Nachfassen.
+      return (
+        !r.blocked_at &&
+        r.answered !== true &&
+        r.appointment_set !== true &&
+        Number(r.follow_up_number) === 3
+      );
+    case "telefon":
+      return r.status === "dead";
+    case "setting":
+      // Drei gleichwertige Auslöser. Die beiden letzten lassen `status`
+      // unangetastet (docs §3) — wer nur den Status liest, verliert sie.
+      return (
+        !r.revived_at &&
+        (r.status === "dead" ||
+          r.status === "unqualifiziert" ||
+          r.no_show_resolution === "ohne_antwort" ||
+          r.cancel_outlook === "ohne_aussicht")
+      );
+    case "closing":
+      return !r.revived_at && r.status === "verloren";
+  }
 }
 
 const EUR_FMT = new Intl.NumberFormat("de-DE", {

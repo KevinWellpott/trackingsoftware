@@ -23,6 +23,16 @@ import type { RecycleOrigin } from "@/lib/recycleCadence";
 //     erlaubten Versuchen. `recycle_attempt()` erhöht ihn in EINER Anweisung,
 //     und der `max_attempts`-Deckel sitzt in derselben Anweisung.
 //
+// Was die Datenbank dabei NICHT abnimmt: die Frage, ob der Anmeldende diese
+// eine Zeile überhaupt anfassen darf. Beide RPCs sind `security definer` und
+// laufen an der Zeilensicherheit vorbei; sie filtern zwar auf
+// `workspace_id`, aber innerhalb einer Organisation sagt das nichts über den
+// Besitz. Jede schreibende Funktion dieser Datei stellt deshalb
+// `canAccessRecycleRow()` voran — die Abfrage läuft durch die RLS und
+// beantwortet genau diese Frage. Seit Migration 0040 prüfen die beiden RPCs
+// denselben Besitz zusätzlich selbst, weil eine App-Prüfung nur den Weg durch
+// die App absichert und nicht den direkten POST auf die RPC.
+//
 // Die Konfiguration (Wartezeiten, `max_attempts`) steht seit 0032 zusammen mit
 // der Kaskade in `pipeline_settings`; gelesen und geschrieben wird sie über
 // `getPipelineSettings()` / `updatePipelineSettings()` in actions/reminders.ts.
@@ -56,6 +66,21 @@ function isMissingSchema(err: unknown): boolean {
   return /does not exist|could not find|schema cache/.test(msg);
 }
 
+/**
+ * Der Text zu `isMissingSchema` — und zwar bewusst OHNE Ursachenbehauptung.
+ *
+ * Vorher stand hier „Migration 0033 fehlt". Das Prädikat oben erkennt aber nur,
+ * dass die Datenbank eine Funktion oder Spalte nicht auflösen konnte, nicht
+ * WARUM: `PGRST202` erwischt auch eine Funktion, deren Signatur nur nicht zur
+ * Parameterliste des Aufrufs passt, und `PGRST205` einen Schema-Cache, der noch
+ * nicht neu geladen wurde. In beiden Fällen ist die Migration längst da, und
+ * die Meldung schickte den Leser trotzdem in den Migrationsordner. Der wahre
+ * Grund steht im Serverlog; die Oberfläche sagt nur, was sie weiß.
+ */
+const RECYCLE_UNAVAILABLE =
+  "Recycling ist gerade nicht verfügbar: Die Datenbank kennt die benötigte Funktion oder Spalte nicht. " +
+  "Wenn das dauerhaft so bleibt, fehlt vermutlich Migration 0033.";
+
 const TABLE_BY_ORIGIN: Record<RecycleOrigin, string> = {
   linkedin: "contacts",
   telefon: "phone_leads",
@@ -74,32 +99,20 @@ function todayBerlin(): string {
  * ------------------------------------------------------------------ */
 
 /**
- * Recycling für einen frisch terminal gewordenen Lead einplanen.
+ * Darf der ANMELDENDE diese Zeile anfassen?
  *
- * Aufrufer: `setClosingOutcome('verloren')`, `setSettingOutcome('dead')`,
- * `setPhoneLeadOutcome('dead')`, `advanceLinkedInFollowUp` (FU3 ohne Antwort).
- * Ohne Grund-Parameter — den liest die RPC selbst aus der Zeile.
+ * Die Abfrage läuft über den Nutzer-Client und damit durch die
+ * Zeilensicherheit: `contacts`/`phone_leads` hängen an ihrer Liste,
+ * `setting_calls`/`closing_calls` an `created_by_user_id` bzw.
+ * `assigned_user_id`. Wer nur eigene Daten sieht, bekommt hier nichts zurück —
+ * das ist deshalb keine bloße Existenzprüfung, sondern die Besitzprüfung
+ * selbst. `workspace_id` steht trotzdem in der Bedingung: Ein Plattform-Admin
+ * sieht über seine zusätzliche Policy jede Organisation, ohne den Filter
+ * griffe der Org-Umschalter hier nicht.
  *
- * `p_today` wird bewusst NICHT mitgeschickt: die Funktion setzt den Berliner
- * Kalendertag selbst ein. Ein Datum als Parameter wäre über einen direkten
- * POST frei wählbar und damit eine zweite Wahrheit neben der Serveruhr.
+ * Steht bewusst VOR `scheduleRecycle` — sie ist die erste Anweisung jeder
+ * schreibenden Aktion dieser Datei, ausnahmslos.
  */
-export async function scheduleRecycle(origin: RecycleOrigin, entityId: string): Promise<void> {
-  try {
-    const access = await getAccessContext();
-    if (!access) return;
-    const supabase = await createClient();
-    const { error } = await supabase.rpc("schedule_recycle", {
-      p_workspace_id: access.workspace_id,
-      p_origin: origin,
-      p_entity_id: entityId,
-    });
-    if (error) console.error("[scheduleRecycle]", error.message);
-  } catch (e) {
-    console.error("[scheduleRecycle]", e instanceof Error ? e.message : e);
-  }
-}
-
 async function canAccessRecycleRow(
   access: AccessContext,
   origin: RecycleOrigin,
@@ -113,6 +126,54 @@ async function canAccessRecycleRow(
     .eq("workspace_id", access.workspace_id)
     .maybeSingle();
   return Boolean(data);
+}
+
+/**
+ * Recycling für einen frisch terminal gewordenen Lead einplanen.
+ *
+ * Aufrufer: `setClosingOutcome('verloren')`, `setSettingOutcome('dead')`,
+ * `setPhoneLeadOutcome('dead')`, `advanceLinkedInFollowUp` (FU3 ohne Antwort).
+ * Ohne Grund-Parameter — den liest die RPC selbst aus der Zeile.
+ *
+ * ZWEI Riegel vor demselben Schreibvorgang, und beide werden gebraucht:
+ *
+ *  1. `canAccessRecycleRow()` hier. Als Server Action ist die Funktion per
+ *     direktem POST erreichbar; ohne die Vorprüfung genügte die UUID eines
+ *     fremden Closings (z. B. aus der bewusst org-weiten Sperrliste in
+ *     `/ablage`), um dessen Wiedervorlage zu setzen. Die drei Geschwister
+ *     unten liefen längst darüber — diese eine nicht.
+ *  2. Derselbe Besitz wird seit Migration 0040 in `schedule_recycle()` selbst
+ *     geprüft. Die RPC ist `security definer` und läuft an der
+ *     Zeilensicherheit vorbei; eine App-Prüfung allein schützt nur den Weg
+ *     durch die App, nicht den direkten POST auf die RPC.
+ *
+ * `p_today` wird explizit mitgeschickt. Der Vorgabewert der RPC rechnet
+ * dasselbe (Berliner Kalendertag, `now() at time zone 'Europe/Berlin'`) — es
+ * geht nicht um den Wert, sondern um die Signatur: Lässt der Aufruf einen
+ * Parameter mit Vorgabewert weg, muss PostgREST die Funktion erst auflösen,
+ * und schlägt das fehl, kommt `PGRST202` zurück. Das sähe hier wie eine
+ * fehlende Migration aus. Sicherheit gewinnt oder verliert der Parameter
+ * nicht: Die RPC nimmt ihn ohnehin von jedem entgegen, der sie direkt aufruft.
+ */
+export async function scheduleRecycle(origin: RecycleOrigin, entityId: string): Promise<void> {
+  try {
+    const access = await getAccessContext();
+    if (!access) return;
+    if (!(await canAccessRecycleRow(access, origin, entityId))) {
+      console.error("[scheduleRecycle] Kein Zugriff auf die Zeile", origin, entityId);
+      return;
+    }
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("schedule_recycle", {
+      p_workspace_id: access.workspace_id,
+      p_origin: origin,
+      p_entity_id: entityId,
+      p_today: todayBerlin(),
+    });
+    if (error) console.error("[scheduleRecycle]", error.message);
+  } catch (e) {
+    console.error("[scheduleRecycle]", e instanceof Error ? e.message : e);
+  }
 }
 
 /** Gemeinsamer Rumpf der drei Board-Aktionen — immer mit `workspace_id` im
@@ -133,9 +194,7 @@ async function updateRecycleRow(
     .eq("id", entityId)
     .eq("workspace_id", access.workspace_id);
   if (error) {
-    return {
-      error: isMissingSchema(error) ? "Recycling ist nicht verfügbar — Migration 0033 fehlt." : error.message,
-    };
+    return { error: isMissingSchema(error) ? RECYCLE_UNAVAILABLE : error.message };
   }
   revalidatePath("/nachfassen");
   return {};
@@ -170,15 +229,18 @@ export async function markRecycleContacted(
   if (!(await canAccessRecycleRow(access, origin, entityId))) return { error: "Nicht gefunden." };
 
   const supabase = await createClient();
+  // `p_today` explizit — dieselbe Begründung wie bei `scheduleRecycle`: ein
+  // ausgelassener Parameter mit Vorgabewert lässt die Funktionsauflösung in
+  // PostgREST scheitern, und `PGRST202` läse sich hier wie eine fehlende
+  // Migration.
   const { data, error } = await supabase.rpc("recycle_attempt", {
     p_workspace_id: access.workspace_id,
     p_origin: origin,
     p_entity_id: entityId,
+    p_today: todayBerlin(),
   });
   if (error) {
-    return {
-      error: isMissingSchema(error) ? "Recycling ist nicht verfügbar — Migration 0033 fehlt." : error.message,
-    };
+    return { error: isMissingSchema(error) ? RECYCLE_UNAVAILABLE : error.message };
   }
   // Fail-soft wie jeder Recycling-Aufruf: ein misslungenes Neu-Einplanen darf
   // den bereits gezählten Versuch nicht zurückrollen.

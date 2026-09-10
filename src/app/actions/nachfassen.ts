@@ -16,6 +16,7 @@ import {
 } from "@/lib/messageTemplates";
 import { renderRecycleTemplate, type RecycleOrigin } from "@/lib/recycleCadence";
 import { contactGapWindowStart, isWithinContactGap } from "@/lib/contactGap";
+import { berlinDateISO } from "@/lib/apptTime";
 
 // Nachfassen-Union: LinkedIn-Follow-up · Telefon-Rückruf · Erstgespräch-
 // Wiedervorlage · Closing-Wiedervorlage (RPC `nachfassen_tasks`) PLUS Recycling
@@ -69,12 +70,35 @@ export type NachfassenResult = {
   tasks: NachfassenTask[];
   hiddenOlder: number; // ältere LinkedIn-Leads (Pitch > 7 Tage), ausgeblendet
   /**
+   * LinkedIn-Aufgaben, deren Kontaktzeile der Nachschlag NICHT lesen konnte.
+   *
+   * Sie werden trotzdem ausgeliefert (die RPC ist die Instanz, die „heute
+   * fällig" entscheidet), tragen aber weder Listenbezug noch Pitch-Datum —
+   * und dürfen deshalb nicht in `hiddenOlder` landen: Diese Zahl behauptet
+   * „Pitch älter als 7 Tage", und das ist hier schlicht unbekannt. Der Pitch
+   * kann von gestern sein.
+   */
+  unreadableContacts: number;
+  /**
    * false = das Recycling-Schema fehlt (Migration 0033). Muss bis in die
    * Oberfläche durchgereicht werden: sonst sieht eine fehlende Migration
    * genauso aus wie „nichts fällig" — und niemand erfährt, dass gerade gar
    * keine toten Leads wiedervorgelegt werden.
    */
   recyclingAvailable: boolean;
+  /**
+   * false = die Union-RPC `nachfassen_tasks` hat nicht geantwortet (Timeout,
+   * RLS-Hänger, Rechteproblem). Dieselbe Doktrin wie beim Recycling und beim
+   * Navigations-Zähler (docs §5.4): `null`/`false` heißt „nicht ermittelbar",
+   * NICHT „nichts zu tun".
+   *
+   * Ohne dieses Flag fielen vier der fünf Quellen still aus und das Board
+   * zeigte den grünen Leerzustand „Alles nachgefasst" — der Mitarbeiter hätte
+   * Follow-ups, Rückrufe und Wiedervorlagen und ginge davon aus, dass keine
+   * da sind. Der Zähler in der Seitenleiste verschwindet in genau dieser Lage
+   * korrekt; die Seite widersprach ihm.
+   */
+  tasksAvailable: boolean;
 };
 
 /* ------------------------------------------------------------------ *
@@ -224,8 +248,18 @@ type NachfassenRpcRow = Pick<
 > & { source: "linkedin" | "telefon" | "closing" | "setting" };
 
 /** `lists` ist eingebettet: die Nachfass-Sequenz der Liste hat Vorrang vor der
-    persönlichen Vorlage und wird sonst in einer eigenen Runde nachgeladen. */
-type ContactRow = { id: string; list_id: string; pitched_at: string | null; lists: unknown };
+    persönlichen Vorlage und wird sonst in einer eigenen Runde nachgeladen.
+    `created_at` kommt mit, weil der Pitch-Tag app-weit
+    `coalesce(pitched_at, created_at::date)` ist (docs §1) — ohne die Spalte
+    ließe sich für eine Zeile ohne `pitched_at` gar keine Aussage über ihr
+    Alter treffen. */
+type ContactRow = {
+  id: string;
+  list_id: string;
+  pitched_at: string | null;
+  created_at: string | null;
+  lists: unknown;
+};
 
 type ListTexts = { fu1_text: string | null; fu2_text: string | null; fu3_text: string | null };
 
@@ -267,7 +301,15 @@ export async function getNachfassenTasks(options?: {
   const access = await getAccessContext();
   // Ohne Anmeldung gibt es keine Aussage über das Schema — hier ist `true` die
   // ehrliche Antwort, sonst behauptete die leere Seite eine fehlende Migration.
-  if (!access) return { tasks: [], hiddenOlder: 0, recyclingAvailable: true };
+  if (!access) {
+    return {
+      tasks: [],
+      hiddenOlder: 0,
+      unreadableContacts: 0,
+      recyclingAvailable: true,
+      tasksAvailable: true,
+    };
+  }
   const supabase = await createClient();
 
   // IMMER personenbezogen: der eingeloggte Nutzer (bzw. die aktive Admin-Datensicht).
@@ -279,6 +321,11 @@ export async function getNachfassenTasks(options?: {
      wenn die Union-RPC samt aller ihrer Nachschläge fertig war. Ein Fehler
      der Union-RPC beendet die Funktion außerdem nicht mehr: das Recycling
      hat damit gar nichts zu tun und bleibt sichtbar.                    */
+  // Der Ausfall muss die Oberfläche erreichen. Eine leere Liste allein ist
+  // nicht unterscheidbar von „heute ist nichts fällig" — und genau diese
+  // Verwechslung ist auf dieser Seite die teuerste: Sie sieht aus wie
+  // Feierabend.
+  let tasksAvailable = true;
   const [rows, recycle] = await Promise.all([
     fetchAllRows<NachfassenRpcRow>((from, to) =>
       supabase
@@ -290,6 +337,7 @@ export async function getNachfassenTasks(options?: {
         })
         .range(from, to),
     ).catch((e: unknown) => {
+      tasksAvailable = false;
       console.error("nachfassen_tasks:", e instanceof Error ? e.message : e);
       return [] as NachfassenRpcRow[];
     }),
@@ -338,7 +386,7 @@ export async function getNachfassenTasks(options?: {
     selectByIds<ContactRow>(contactIds, (chunk) =>
       supabase
         .from("contacts")
-        .select("id, list_id, pitched_at, lists(fu1_text, fu2_text, fu3_text)")
+        .select("id, list_id, pitched_at, created_at, lists(fu1_text, fu2_text, fu3_text)")
         .eq("workspace_id", access.workspace_id)
         .in("id", chunk),
     ),
@@ -353,12 +401,16 @@ export async function getNachfassenTasks(options?: {
     loadRecentContacts(supabase, access.workspace_id, contactSince),
   ]);
 
-  const contactInfo = new Map<string, { list_id: string; pitched_at: string | null; fuTexts: (string | null)[] }>();
+  const contactInfo = new Map<string, { list_id: string; pitchDay: string | null; fuTexts: (string | null)[] }>();
   for (const c of contactRows) {
     const l = embeddedRow<ListTexts>(c.lists);
     contactInfo.set(c.id, {
       list_id: c.list_id,
-      pitched_at: c.pitched_at,
+      // Der Pitch-Tag ist app-weit `coalesce(pitched_at, created_at::date)`
+      // (docs §1, so rechnen auch die RPCs). `berlinDateISO` statt eines
+      // rohen `slice(0,10)`, weil `created_at` timestamptz ist und die
+      // Tageszuordnung überall am Berliner Kalendertag hängt (docs §6).
+      pitchDay: c.pitched_at ?? (berlinDateISO(c.created_at) || null),
       fuTexts: [l?.fu1_text ?? null, l?.fu2_text ?? null, l?.fu3_text ?? null],
     });
   }
@@ -402,6 +454,7 @@ export async function getNachfassenTasks(options?: {
   // ältere sind über includeOlder erreichbar).
   const cutoff = addDaysISO(today, -7);
   let hiddenOlder = 0;
+  let unreadableContacts = 0;
 
   const tasks: NachfassenTask[] = [];
   for (const r of rows) {
@@ -412,10 +465,38 @@ export async function getNachfassenTasks(options?: {
     if (r.source === "linkedin") {
       const info = contactInfo.get(r.entity_id);
       list_id = info?.list_id ?? null;
-      const pitched = info?.pitched_at ?? null;
-      if (!options?.includeOlder && (!pitched || pitched < cutoff)) {
-        hiddenOlder++;
-        continue;
+      if (info) {
+        // Das Pitch-Datum liegt belegt vor — erst jetzt darf der 7-Tage-Schnitt
+        // greifen, und erst jetzt stimmt der Satz „Pitch > 7 Tage".
+        //
+        // Ein FEHLENDES Pitch-Datum ist dabei kein altes Datum: Die Spalte ist
+        // nullable, und der Pitch-Tag fällt dann auf `created_at` zurück (docs
+        // §1). Vorher zählte die leere Spalte die Zeile nach `hiddenOlder` und
+        // blendete sie unter „ältere Leads (Pitch > 7 Tage)" aus — eine
+        // Aussage, die für sie genauso unbelegt ist wie die frühere für die
+        // nicht lesbaren Kontakte im else-Zweig. Derselbe Denkfehler, nur
+        // leiser: Wer die Zahl nachrechnet, findet die Differenz nicht.
+        //
+        // Bleibt auch nach dem Rückfall kein Tag übrig, wird NICHT
+        // ausgeblendet — fällig ist fällig, und über das Alter behauptet die
+        // Seite dann eben nichts.
+        if (!options?.includeOlder && info.pitchDay !== null && info.pitchDay < cutoff) {
+          hiddenOlder++;
+          continue;
+        }
+      } else {
+        // Die RPC kennt die Zeile, der Nachschlag sieht sie nicht. Das ist kein
+        // Fehler, sondern das von docs §2 ausdrücklich unterstützte Muster:
+        // Liste mit `owner_name = Mitglied`, `created_by = Admin`, Datensicht
+        // `own` — `nachfassen_tasks` filtert über `list_owned_by_user()`
+        // (owner_name hat Vorrang), die RLS auf `contacts` nicht.
+        //
+        // Früher fiel diese Aufgabe hier still in `hiddenOlder` und stand damit
+        // unter „ältere Leads (Pitch > 7 Tage) ausgeblendet" — einer Erklärung,
+        // die schlicht falsch ist: Der Pitch kann von gestern sein. Sie wird
+        // deshalb AUSGELIEFERT (fällig ist fällig) und getrennt gezählt, damit
+        // die Oberfläche den Unterschied benennen kann.
+        unreadableContacts++;
       }
       // Der Text der Liste geht vor (`LIST_SCOPED_KEYS`) — er gehört fachlich
       // zum Pitch-Text derselben Liste.
@@ -503,7 +584,13 @@ export async function getNachfassenTasks(options?: {
     });
   }
 
-  return { tasks, hiddenOlder, recyclingAvailable: recycle.available };
+  return {
+    tasks,
+    hiddenOlder,
+    unreadableContacts,
+    recyclingAvailable: recycle.available,
+    tasksAvailable,
+  };
 }
 
 /** LinkedIn-Lead als beantwortet markieren → raus aus dem Follow-up-Flow. */

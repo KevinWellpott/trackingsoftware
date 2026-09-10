@@ -1,5 +1,6 @@
 import { createUserForm, listUsers } from "@/app/actions/workspace";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Button } from "@/components/ui/Button";
 import { FormSelect } from "@/components/ui/Select";
 import { getTargets, setTargetForm } from "@/app/actions/targets";
 import {
@@ -256,14 +257,17 @@ export default async function SettingsPage({
                               className="ui-input"
                               style={{ minWidth: 0, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                             />
-                            <button
-                              type="submit"
-                              title="Ziel speichern"
-                              className="btn-secondary"
-                              style={{ padding: "0 var(--sp-5)", flexShrink: 0 }}
-                            >
-                              ✓
-                            </button>
+                            {/* Beschriftet statt „✓" — wörtlich wie in
+                                PipelineSettingsCard und MessageTemplatesCard:
+                                Ohne Hover war nicht zu erkennen, ob der Knopf
+                                speichert oder etwas abhakt, und dieselbe Seite
+                                trug zwei Konventionen nebeneinander. Der title
+                                nennt zusätzlich das Ziel — fünf gleich
+                                beschriftete Knöpfe je Nutzer sind sonst
+                                untereinander nicht zu unterscheiden. */}
+                            <Button type="submit" variant="secondary" size="sm" title={`${f.label} speichern`}>
+                              Speichern
+                            </Button>
                           </div>
                         </form>
                       );

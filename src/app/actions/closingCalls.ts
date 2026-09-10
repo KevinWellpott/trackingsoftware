@@ -19,9 +19,14 @@ import { revalidatePath } from "next/cache";
 //
 // `supersedeTouches` grenzt jetzt nach KASKADEN-ART ein, nicht mehr nach
 // Touch-Typ: 'closing_msg' ist die geplante Bestätigungs-Kaskade vor dem
-// Closing-Termin. Die Ereignis-Ketten am selben Closing (Kickoff, No-Show,
-// „kein Abschluss") bleiben bewusst stehen — sie beschreiben Geschehenes, keine
+// Closing-Termin. Die Ereignis-Ketten am selben Closing (Kickoff, No-Show)
+// bleiben dabei bewusst stehen — sie beschreiben Geschehenes, keine
 // Vorankündigung.
+//
+// Die eine Ausnahme ist „kein Abschluss": Sie beschreibt zwar ebenfalls
+// Geschehenes, aber genau das Ereignis, das ein neues Ergebnis ZURÜCKNIMMT.
+// Wer nach dem Verlust „Gewonnen" klickt, sagt damit, dass es den Verlust nicht
+// gab — die Kette muss mit.
 
 export type ClosingCallPatch = {
   call_at?: string | null;
@@ -212,7 +217,14 @@ export async function setClosingOutcome(input: {
   // Berechtigung IMMER als erste Anweisung — vor jeder Validierung, sonst
   // verrieten die Fehlermeldungen einem Fremden etwas über die Zeile.
   if (!(await canAccessClosingCall(input.closingId))) return { error: "Keine Berechtigung." };
-  if (input.outcome === "nachfassen" && !input.followUpDue && !input.followUpDueAt) {
+  // Verlangt wird der PRÄZISE Zeitpunkt, nicht irgendeine der beiden Angaben:
+  // `withFollowUpDateSynced` leitet `follow_up_due` unmittelbar aus
+  // `follow_up_due_at` ab. Kommt nur das reine Datum an, überschreibt die
+  // Synchronisierung es einen Schritt später mit NULL — das Closing stünde dann
+  // auf „Nachfassen" ganz ohne Fälligkeit und wäre in /nachfassen unsichtbar,
+  // obwohl der Dialog nach einem Datum gefragt hat. Die Oberfläche schickt den
+  // Zeitpunkt längst; die Lücke stand nur für den direkten POST offen.
+  if (input.outcome === "nachfassen" && !input.followUpDueAt) {
     return { error: "Für „Nachfassen“ ist ein Wiedervorlage-Zeitpunkt erforderlich." };
   }
   // Validiert wird jetzt der CODE, nicht mehr der Freitext: gezählt werden kann
@@ -225,6 +237,34 @@ export async function setClosingOutcome(input: {
     }
     lostReasonCode = input.lostReasonCode;
   }
+
+  const supabase = await createClient();
+
+  // Den Stand VOR dem Schreiben lesen — dasselbe Muster wie in
+  // `cancelAppointment` und `updateClosingCall`. Drei Entscheidungen hängen
+  // daran, und alle drei wären nach dem UPDATE nicht mehr zu treffen: der
+  // abgeleitete Show-Status, die Frage „neuer Verlust oder nur Grund-Korrektur"
+  // und die, ob überhaupt schon eine Wiedervorlage geplant ist.
+  const { data: currentRaw } = await supabase
+    .from("closing_calls")
+    .select("show_status, status, next_recycle_at")
+    .eq("id", input.closingId)
+    .maybeSingle();
+  const before = currentRaw as {
+    show_status: string | null;
+    status: string | null;
+    next_recycle_at: string | null;
+  } | null;
+
+  // Der Verlustgrund ist ausdrücklich nachträglich änderbar („Auch nachträglich
+  // änderbar" steht im Dialog). Ein zweiter Durchlauf auf einer bereits
+  // verlorenen Zeile ist damit eine KORREKTUR und kein neues Ereignis — genau
+  // die Unterscheidung, die `cancelAppointment` über `wasCancelled` trifft.
+  const correctingLoss = input.outcome === "verloren" && before?.status === "verloren";
+  // Die beiden Gründe, die laut CHECK aus 0033 nie ein Recycling-Datum tragen
+  // dürfen: der eine Lead hätte nie in den Funnel gehört, beim anderen hat das
+  // Gespräch gezeigt, dass es nicht passt.
+  const neverRecycled = lostReasonCode === "falsche_zielgruppe" || lostReasonCode === "kein_fit";
 
   const patch: ClosingCallPatch = { status: input.outcome };
   if (input.outcome === "gewonnen") {
@@ -246,21 +286,22 @@ export async function setClosingOutcome(input: {
     patch.lost_reason = input.lostReason?.trim() || null;
     patch.follow_up_due = null;
     patch.follow_up_due_at = null;
-    // Eine bereits geplante Wiedervorlage wird ZUERST abgeräumt. Der Grund ist
-    // nachträglich änderbar („Auch nachträglich änderbar" steht im Dialog), und
-    // 'falsche_zielgruppe' wie 'kein_fit' bekommen nie ein Datum — ein CHECK aus
-    // 0033 hält das fest. Ohne dieses Nullen scheiterte genau der Wechsel von
-    // „Timing" auf „Kein Fit" an diesem CHECK, und der Nutzer bekäme eine rohe
-    // Postgres-Meldung, obwohl er nur einen Grund umgestellt hat. Für alle
-    // anderen Gründe ist es folgenlos: `schedule_recycle()` rechnet die
-    // Wartezeit unmittelbar danach ohnehin ab heute neu aus.
-    patch.next_recycle_at = null;
+    // Eine bereits geplante Wiedervorlage wird abgeräumt, wenn der neue Grund
+    // keine bekommen darf: Ohne dieses Nullen scheiterte genau der Wechsel von
+    // „Timing" auf „Kein Fit" am CHECK aus 0033, und der Nutzer bekäme eine rohe
+    // Postgres-Meldung, obwohl er nur einen Grund umgestellt hat. Beim ERSTEN
+    // Verlust ist das Nullen folgenlos — `schedule_recycle()` rechnet unmittelbar
+    // danach neu.
+    //
+    // Was hier bewusst NICHT mehr passiert: bei einer reinen Grund-Korrektur ein
+    // bestehendes Datum wegzuwerfen. Es stammt vom Tag des Verlusts; heute neu
+    // gerechnet schöbe eine Korrektur den Lead stillschweigend um genau die
+    // Zeit nach hinten, die seit dem Verlust vergangen ist.
+    if (neverRecycled || !correctingLoss) patch.next_recycle_at = null;
   } else {
     patch.follow_up_due = input.followUpDue ?? null;
     patch.follow_up_due_at = input.followUpDueAt ?? null;
   }
-
-  const supabase = await createClient();
 
   // Show-Status ableiten statt auf Erfassungsdisziplin zu hoffen: Ein Ergebnis
   // (gewonnen/verloren/nachfassen) kann es nur geben, wenn das Gespräch
@@ -270,12 +311,7 @@ export async function setClosingOutcome(input: {
   //
   // Nur schreiben, wenn bisher NICHTS erfasst ist: ein bewusst gesetztes
   // 'no_show' gehört dem Nutzer und darf hier nicht überschrieben werden.
-  const { data: current } = await supabase
-    .from("closing_calls")
-    .select("show_status")
-    .eq("id", input.closingId)
-    .maybeSingle();
-  if ((current as { show_status: string | null } | null)?.show_status == null) {
+  if (before?.show_status == null) {
     patch.show_status = "show";
   }
 
@@ -296,6 +332,20 @@ export async function setClosingOutcome(input: {
     // gewonnen/verloren: kein Nachfass-Termin mehr offen.
     await supersedeTouches("closing_followup", input.closingId);
   }
+  // Die „kein Abschluss"-Kette beschreibt den VERLUST — jedes andere Ergebnis
+  // nimmt ihn zurück und muss sie mitnehmen. Der Fall ist alltäglich: verloren
+  // eingetragen, zwei Tage später meldet sich der Lead doch, der Verkäufer
+  // klickt „Gewonnen". Ohne dieses Entwerten stünde am nächsten Tag „sollen wir
+  // es für den Moment ruhen lassen?" für einen unterschriebenen Deal — und die
+  // Karte in /erinnerungen ist eine Kopier-Werkbank, der Satz ginge real raus.
+  // Bei „Nachfassen" liefen Kette und Nachfass-Kaskade sonst gleichzeitig.
+  //
+  // Für 'verloren' passiert hier bewusst nichts: Dort entscheidet der
+  // Übergang weiter unten, ob die Kette neu aufgebaut wird — eine reine
+  // Grund-Korrektur darf die bereits erledigten Stufen nicht wieder öffnen.
+  if (input.outcome !== "verloren") {
+    await supersedeTouches("closing", input.closingId, ["kein_close"]);
+  }
   // Verloren ist kein Ende — der Lead bekommt ein Recycling-Datum, dessen
   // Wartezeit vom Verlustgrund abhängt. 'falsche_zielgruppe' und 'kein_fit'
   // bekommen dort bewusst keins: der eine Lead hätte nie in den Funnel gehört,
@@ -305,14 +355,26 @@ export async function setClosingOutcome(input: {
   // Zeile, die einen Satz weiter oben geschrieben wurde. Ein vom Client
   // gelieferter Grund war per direktem POST frei wählbar — und damit jede
   // beliebige Wartezeit.
+  //
+  // Eingeplant wird nur beim ÜBERGANG in den Verlust — Muster `becomesHopeless`
+  // in `cancelAppointment`. Die eine Ausnahme ist der Wechsel WEG von einem
+  // Grund ohne Wiedervorlage („Kein Fit" → „Timing"): Dort trägt die Zeile noch
+  // kein Datum und bekäme sonst nie eines. `schedule_recycle()` prüft Deckel,
+  // Sperre und Status ohnehin selbst und schreibt im Zweifel gar nichts.
   if (input.outcome === "verloren") {
-    await scheduleRecycle("closing", input.closingId);
+    const needsRecycleDate = !correctingLoss || (!neverRecycled && !before?.next_recycle_at);
+    if (needsRecycleDate) await scheduleRecycle("closing", input.closingId);
     // „Kein Abschluss" ist kein Schweigen: erst die Zusammenfassung, dann —
     // falls keine Antwort kommt — das Nachhaken. Anker ist das EREIGNIS, also
     // dieser Moment, nicht der (womöglich Tage zurückliegende) Termin. Fail-soft
     // wie alle Kaskaden-Aufrufe: eine ausgefallene Kette darf ein eingetragenes
     // Ergebnis nicht zurückrollen.
-    await generateKeinCloseChain(input.closingId);
+    //
+    // Nur beim Übergang: `apply_reminder_touches` entwertet die offenen Stufen
+    // dieser Kaskade und legt sie neu an — bei einer Grund-Korrektur stünden
+    // damit drei Wochen später die längst erledigten Stufen wieder unerledigt
+    // da, und die „Erinnerungs-Disziplin" in /analyse zählte sie erneut.
+    if (!correctingLoss) await generateKeinCloseChain(input.closingId);
   }
 
   revalidatePath(`/closing/${input.closingId}`, "page");

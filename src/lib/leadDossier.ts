@@ -68,7 +68,7 @@ export type DossierAnchor = { kind: DossierEntityKind; id: string };
 export const DOSSIER_ENTITY_LABELS: Record<DossierEntityKind, string> = {
   contact: "LinkedIn-Kontakt",
   phone_lead: "Telefon-Lead",
-  setting: "Erstgespräch",
+  setting: "Setting",
   closing: "Closing",
 };
 
@@ -85,6 +85,29 @@ export function isDossierEntityKind(value: unknown): value is DossierEntityKind 
  */
 export function dossierPath(kind: DossierEntityKind, id: string): string {
   return `/lead/${kind}/${id}`;
+}
+
+/**
+ * Warum steht hier kein Dossier? Drei Antworten, die man nicht verwechseln darf.
+ *
+ *  · `missing_schema` — der Datenbank fehlen Spalten (Migration nicht
+ *    eingespielt). Das trifft JEDEN Lead, nicht diesen einen.
+ *  · `load_failed`   — die Abfrage ist gescheitert (Netz, Zeitüberschreitung,
+ *    Zugriffsrecht). Über den Lead sagt das GAR NICHTS; ein zweiter Versuch
+ *    kann gelingen.
+ *  · `not_found`     — geladen, und es gibt die Zeile hier wirklich nicht.
+ *
+ * Der mittlere Fall hatte bis hierher keine eigene Antwort und fiel auf die
+ * letzte zurück: Bei jedem Fehler, der keine fehlende Migration ist, meldet die
+ * Server-Action `available: true` samt Fehlertext — und die Oberfläche schrieb
+ * daraufhin die definitive Aussage „Kein Lead unter dieser Adresse". Aus einer
+ * abgerissenen Verbindung wurde so die Behauptung, den Menschen gebe es nicht.
+ */
+export type DossierEmptyKind = "missing_schema" | "load_failed" | "not_found";
+
+export function dossierEmptyKind(available: boolean, error?: string | null): DossierEmptyKind {
+  if (!available) return "missing_schema";
+  return error ? "load_failed" : "not_found";
 }
 
 /* ------------------------------------------------------------------ *
@@ -460,6 +483,23 @@ function coreKey(kind: DossierEntityKind, id: string): string {
  * Alle vier sind in beide Richtungen begehbar; die Kante traegt zugleich den
  * Begruendungssatz. Nichts anderes wird als Zugehoerigkeit akzeptiert — der
  * Firmenname ist Stufe 2 (`collectSuspected`).
+ *
+ * DASS IN DIESEN SAETZEN SPALTENNAMEN STEHEN, IST ABSICHT — die eine bewusste
+ * Ausnahme von der Regel „kein Datenbank-Vokabular auf dem Bildschirm".
+ * Begruendung in docs/data-model.md §5.3: Der Satz haengt als Tooltip am Chip
+ * und beantwortet eine einzige, sehr konkrete Rueckfrage — „warum gehoeren
+ * diese beiden Zeilen zusammen?". Darauf ist der Feldname die pruefbare
+ * Antwort; ohne ihn bliebe ein Achselzucken. Er draengt sich niemandem auf
+ * (ein `title` erscheint nur auf Nachfrage), und die allgemeine Erklaerung
+ * daneben — der InfoPopover „Wie das Dossier zusammengefuehrt wird" — kommt
+ * bewusst ganz ohne Spaltennamen aus. Wer das hier aendert, aendert die Doku
+ * mit; halb ist es eine Inkonsistenz.
+ *
+ * Dasselbe gilt fuer das Wort „Fremdschluessel" in den uebrigen via-Saetzen
+ * (`collectSuspected`, der Rueckfall in `members`): Es benennt genau den
+ * Unterschied zwischen BELEGT und VERMUTET. Ohne diesen Unterschied ist die
+ * Zweistufigkeit ueberhaupt nicht erklaerbar — und sie ist die wichtigste
+ * Eigenschaft des Dossiers.
  */
 export function collectCore(input: DossierInput): DossierCore {
   const contactById = new Map(input.contacts.map((c) => [c.id, c]));
@@ -523,23 +563,23 @@ export function collectCore(input: DossierInput): DossierCore {
       if (!row) continue;
       core.settingIds.add(row.id);
       if (row.source_contact_id) {
-        queue.push({ kind: "contact", id: row.source_contact_id, via: "Quelle des Erstgesprächs (source_contact_id)." });
+        queue.push({ kind: "contact", id: row.source_contact_id, via: "Quelle des Settings (source_contact_id)." });
       }
       if (row.source_phone_lead_id) {
         queue.push({
           kind: "phone_lead",
           id: row.source_phone_lead_id,
-          via: "Quelle des Erstgesprächs (source_phone_lead_id).",
+          via: "Quelle des Settings (source_phone_lead_id).",
         });
       }
       for (const c of input.contacts) {
         if (c.setting_call_id === row.id) {
-          queue.push({ kind: "contact", id: c.id, via: "LinkedIn-Kontakt verweist auf dieses Erstgespräch." });
+          queue.push({ kind: "contact", id: c.id, via: "LinkedIn-Kontakt verweist auf dieses Setting." });
         }
       }
       for (const cc of input.closings) {
         if (cc.setting_call_id === row.id) {
-          queue.push({ kind: "closing", id: cc.id, via: "Closing ist aus diesem Erstgespräch entstanden." });
+          queue.push({ kind: "closing", id: cc.id, via: "Closing ist aus diesem Setting entstanden." });
         }
       }
       continue;
@@ -549,7 +589,7 @@ export function collectCore(input: DossierInput): DossierCore {
     if (!row) continue;
     core.closingIds.add(row.id);
     if (row.setting_call_id) {
-      queue.push({ kind: "setting", id: row.setting_call_id, via: "Erstgespräch, aus dem dieses Closing entstand." });
+      queue.push({ kind: "setting", id: row.setting_call_id, via: "Setting, aus dem dieses Closing entstand." });
     }
   }
 
@@ -814,14 +854,26 @@ export function buildDossier(input: DossierInput): LeadDossier {
       });
     }
 
-    b.add({
-      id: `contact:${c.id}:next_fu`,
-      source: "linkedin",
-      title: `Follow-up fällig${c.follow_up_number ? ` (FU${Math.min(c.follow_up_number + 1, 3)})` : ""}`,
-      detail: c.list_name ? `Liste ${c.list_name}` : null,
-      at: c.next_follow_up_at,
-      tone: "info",
-    });
+    // „Steht an" darf nur zeigen, was auch WIRKLICH ansteht. Der Datumswert
+    // allein reicht dafür nicht: `next_follow_up_at` bleibt stehen, wenn der
+    // Lead antwortet, einen Termin bekommt oder uns blockiert, und in
+    // Bestandsdaten steckt zusätzlich eine Fälligkeit aus der Zeit, als nach FU3
+    // noch eine gesetzt wurde. Deshalb hier dieselben vier Ausschlüsse wie im
+    // LinkedIn-Zweig der Wiedervorlage — sonst führt das Dossier eine Aufgabe,
+    // die auf /nachfassen bewusst nicht steht, und jemand fasst gegen eine
+    // laufende Unterhaltung nach.
+    const imFollowUpFlow =
+      c.answered !== true && c.appointment_set !== true && !c.blocked_at && (c.follow_up_number ?? 0) < 3;
+    if (imFollowUpFlow) {
+      b.add({
+        id: `contact:${c.id}:next_fu`,
+        source: "linkedin",
+        title: `Follow-up fällig${c.follow_up_number ? ` (FU${Math.min(c.follow_up_number + 1, 3)})` : ""}`,
+        detail: c.list_name ? `Liste ${c.list_name}` : null,
+        at: c.next_follow_up_at,
+        tone: "info",
+      });
+    }
 
     b.add({
       id: `contact:${c.id}:blocked`,
@@ -916,7 +968,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
     b.add({
       id: `setting:${s.id}:created`,
       source: "setting",
-      title: "Erstgespräch gebucht",
+      title: "Setting gebucht",
       detail: joinDetails([channelLabel(s.source_type, "Quelle unbekannt"), s.source_detail]),
       at: s.created_at,
     });
@@ -931,7 +983,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
     b.add({
       id: `setting:${s.id}:appointment`,
       source: "setting",
-      title: "Erstgespräch",
+      title: "Setting",
       detail: joinDetails([
         s.meeting_kind === "telefon" ? `Telefontermin${s.phone ? ` · ${s.phone}` : ""}` : null,
         outcome,
@@ -963,7 +1015,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
     b.add({
       id: `setting:${s.id}:cancelled`,
       source: "setting",
-      title: "Erstgespräch abgesagt",
+      title: "Setting abgesagt",
       detail: joinDetails([
         dropoutReasonLabel(s.cancel_reason_code),
         lookup(CANCEL_OUTLOOK_LABELS, s.cancel_outlook),
@@ -985,12 +1037,12 @@ export function buildDossier(input: DossierInput): LeadDossier {
     b.add({
       id: `setting:${s.id}:follow_up`,
       source: "setting",
-      title: "Wiedervorlage Erstgespräch",
+      title: "Wiedervorlage Setting",
       at: s.follow_up_due,
       tone: "info",
     });
 
-    note(`setting:${s.id}:notes`, "Notiz zum Erstgespräch", s.notes, "setting");
+    note(`setting:${s.id}:notes`, "Notiz zum Setting", s.notes, "setting");
     note(`setting:${s.id}:ziel`, "Soll / Ziel", s.soll_ziel, "setting");
     note(`setting:${s.id}:obj_handled`, "Behandelte Einwände", s.objections_handled, "setting");
     note(`setting:${s.id}:obj_open`, "Offene Einwände", s.objections_open, "setting");
@@ -1008,7 +1060,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
       id: `closing:${c.id}:created`,
       source: "closing",
       title: "Closing angelegt",
-      detail: c.setting_call_id ? "Aus der Qualifizierung des Erstgesprächs entstanden." : "Ohne Setting-Bezug angelegt.",
+      detail: c.setting_call_id ? "Aus der Qualifizierung des Settings entstanden." : "Ohne Setting-Bezug angelegt.",
       at: c.created_at,
     });
 

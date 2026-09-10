@@ -2,10 +2,11 @@ import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import {
   getDueReminderTouches,
+  getOrgTemplateBundle,
   getTemplateBundles,
   type ReminderTouchWithContext,
 } from "@/app/actions/reminders";
-import type { TemplateBundle } from "@/lib/messageTemplates";
+import { EMPTY_TEMPLATE_BUNDLE, type TemplateBundle } from "@/lib/messageTemplates";
 import { ErinnerungenBoard, type SenderAccount } from "@/components/erinnerungen/ErinnerungenBoard";
 import { BackLink } from "@/components/ui/BackLink";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -254,10 +255,19 @@ export default async function ErinnerungenPage() {
   const all = team ? team.touches : mine.touches;
   const assignedUserIds = [...new Set(all.map((t) => t.assigned_user_id).filter((v): v is string => Boolean(v)))];
 
-  const [bundleMap, senders, doneBy, members] = await Promise.all([
+  // `assigned_user_id` ist `on delete set null`: Ein gelöschtes Konto lässt
+  // seine Erinnerungen stehen, und in der Team-Ansicht sind sie weiter sichtbar.
+  // Für diese Karten gibt es kein Personen-Bundle — ohne den Org-Standard fiele
+  // ihr Text bis auf den Auslieferungstext durch, obwohl die Organisation einen
+  // eigenen hinterlegt hat. Nur dann nachladen: eine Abfrage, die im Normalfall
+  // nichts beiträgt, gehört nicht in jeden Seitenaufruf.
+  const needsOrgFallback = all.some((t) => !t.assigned_user_id);
+
+  const [bundleMap, orgBundle, senders, doneBy, members] = await Promise.all([
     // Vorlagen je ZUSTÄNDIGER Person, nicht je Betrachter — sonst läse ein
     // Owner in der Team-Ansicht seine eigenen Texte unter fremden Namen.
     getTemplateBundles(assignedUserIds),
+    needsOrgFallback ? getOrgTemplateBundle() : Promise.resolve(EMPTY_TEMPLATE_BUNDLE),
     loadSenderAccounts(access.workspace_id, all),
     loadDoneBy(access.workspace_id, all),
     canTeamView ? listDataViewUsers(access.workspace_id).catch(() => []) : Promise.resolve([]),
@@ -285,6 +295,7 @@ export default async function ErinnerungenPage() {
         team={team}
         canTeamView={canTeamView}
         bundles={bundles}
+        orgBundle={orgBundle}
         senders={senders}
         doneBy={doneBy}
         members={members.map((m) => ({ user_id: m.user_id, username: m.username }))}

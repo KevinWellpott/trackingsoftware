@@ -21,8 +21,14 @@ import { revalidatePath } from "next/cache";
 //
 // `supersedeTouches` wird jetzt nach KASKADEN-ART eingegrenzt, nicht mehr nach
 // Touch-Typ: 'setting_msg' ist die geplante Bestätigungs-Kaskade vor dem
-// Termin. Alles andere am selben Setting (No-Show-Kette) bleibt dabei bewusst
-// stehen — es beschreibt ein Ereignis, keine Vorankündigung.
+// Termin. Die No-Show-Kette bleibt dabei bewusst stehen — sie beschreibt ein
+// Ereignis, keine Vorankündigung.
+//
+// Sie geht überall dort mit, wo der Termin nichts mehr von ihr hat: beim
+// Übergang ins Closing (der Lead war da) und bei jedem Ergebnis, das den
+// Vorgang beendet — „Unqualifiziert" ebenso wie „Dead". Ein Lead, für den ein
+// Abschlussgespräch steht oder den jemand als tot markiert hat, darf nicht am
+// nächsten Tag gefragt werden, ob ein neuer Termin passt.
 
 export type SettingCallPatch = {
   call_at?: string | null;
@@ -100,10 +106,56 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
     await supersedeTouches("setting", id, ["no_show_setting"]);
   }
 
+  // Zwei Anlaesse, EIN Regenerator — zwei nebeneinander liefen beim naechsten
+  // Umbau auseinander:
+  //
+  //  · Termin geaendert. Derselbe Block wie in `updateClosingCall` fuer
+  //    `call_at`. Ohne ihn erinnerte die App weiter an die alte Uhrzeit; die
+  //    Kaskade folgte dem Termin nur, wenn er ueber den Kalender
+  //    (`moveSettingAppointment`) oder ueber `postponeAppointment` bewegt wurde.
+  //  · „Ergebnis zuruecksetzen" dreht den Status auf 'offen'. Der Termin steht
+  //    damit wieder an, seine Bestaetigungs-Kaskade wurde beim Ergebnis aber
+  //    entwertet. Fuer ein manuell angelegtes Setting gibt es sonst gar keinen
+  //    Weg zurueck: Das Kaskaden-Panel verweist auf „Termin speichern oder
+  //    verschieben" — und genau das passiert hier.
+  const appointmentChanged = "appointment_at" in patch;
+  const resultCleared = "status" in patch && patch.status === "offen";
+  if (appointmentChanged || resultCleared) {
+    // Beim Zuruecksetzen zusaetzlich die Bedingung „steht noch bevor": Fuer
+    // einen vergangenen Termin findet `planScheduledCascade` keine passende
+    // Stufe mehr und legt EINEN sofort faelligen Touch an. Beim Verschieben ist
+    // genau der gewollt (kurzfristiger Termin), hier waere er eine
+    // Terminbestaetigung fuer ein Gespraech, das laengst gelaufen ist.
+    if (appointmentChanged || (await settingAppointmentAhead(id))) {
+      await generateSettingCascade(id);
+    }
+  }
+
   revalidatePath(`/setting/${id}`, "page");
   revalidatePath("/termine", "page");
   revalidatePath("/erinnerungen", "page");
   return {};
+}
+
+/**
+ * Steht der Termin noch bevor?
+ *
+ * Die Frage stellt sich nur beim zurueckgenommenen Ergebnis: Ein abgesagter
+ * oder laengst vergangener Termin bekommt keine Bestaetigungs-Kaskade mehr,
+ * sonst entstuende ein sofort faelliger Touch fuer ein Gespraech, das schon
+ * stattgefunden hat. Gelesen wird NACH dem UPDATE — im selben Aufruf kann der
+ * Termin mitgeaendert worden sein.
+ */
+async function settingAppointmentAhead(id: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("setting_calls")
+    .select("appointment_at, cancelled_at")
+    .eq("id", id)
+    .maybeSingle();
+  const row = data as { appointment_at: string | null; cancelled_at: string | null } | null;
+  if (!row?.appointment_at || row.cancelled_at) return false;
+  return Date.parse(row.appointment_at) > Date.now();
 }
 
 /**
@@ -197,11 +249,30 @@ export async function setSettingOutcome(input: {
     .eq("id", input.settingId);
   if (error) return { error: error.message };
 
-  // Ein Ergebnis entscheidet das Schicksal des Termins — die Bestätigungs-
-  // Kaskade ist damit obsolet. No-Show bekommt zusätzlich sofort einen
-  // eigenen, dringlichen Nachfass-Touch (kein geplanter Offset).
-  await supersedeTouches("setting", input.settingId, ["setting_msg"]);
-  if (input.outcome === "no_show") await createNoShowTouch("setting", input.settingId);
+  // Ein Ergebnis entscheidet das Schicksal des Termins. WIE viel dabei
+  // entwertet wird, hängt daran, ob der Vorgang weitergeht oder endet.
+  if (input.outcome === "no_show") {
+    // Der Vorgang GEHT WEITER: Die Bestätigungs-Kaskade ist erledigt, an ihre
+    // Stelle tritt die No-Show-Kette — sofort fällig, kein geplanter Offset.
+    // Nur hier wird deshalb eingegrenzt.
+    await supersedeTouches("setting", input.settingId, ["setting_msg"]);
+    await createNoShowTouch("setting", input.settingId);
+  } else {
+    // 'unqualifiziert' und 'dead' BEENDEN ihn — und damit ist jede Erinnerung
+    // an diesem Termin obsolet, nicht nur eine bestimmte. Das Kriterium ist
+    // bewusst nicht mehr „`show_status` springt auf 'show'": Bei 'dead' bleibt
+    // der Show-Status unangetastet, der No-Show ist also technisch weiter wahr
+    // — nur nützt das dem Lead nichts, der am nächsten Tag „Passt ein neuer
+    // Termin bei dir?" liest, obwohl ihn jemand als tot markiert hat. Die
+    // Karte ist eine Kopier-Werkbank, der Satz ginge real raus.
+    //
+    // Ohne Kaskadenliste wie in `cancelAppointment`: Am entity_type 'setting'
+    // hängen die Bestätigungs-Kaskade, ihre (noch abgeschaltete) Mail-Spur und
+    // die No-Show-Kette. Eine Aufzählung müsste bei jeder neuen Kaskaden-Art
+    // nachgezogen werden, und das Vergessen fiele niemandem auf — es ginge
+    // lautlos eine Nachricht zu viel raus.
+    await supersedeTouches("setting", input.settingId);
+  }
   // 'dead' UND 'unqualifiziert' sind tote Enden (§ Konzept-Diskussion) — beide
   // bekommen ein Recycling-Datum statt endgültig zu verschwinden. Ohne
   // Grund-Argument: Grund und Status liest `schedule_recycle()` selbst aus der
@@ -398,8 +469,11 @@ export async function createClosingFromSetting(
 
     // Das Setting ist qualifiziert — seine eigene Kaskade ist damit erledigt;
     // das Closing bekommt (spätestens jetzt, ggf. mit neu gefülltem Termin)
-    // seine eigene.
-    await supersedeTouches("setting", settingId, ["setting_msg"]);
+    // seine eigene. Die No-Show-Kette geht mit: `qualifiedPatch` schreibt
+    // `show_status='show'`, der Lead war also da — „Passt ein neuer Termin bei
+    // dir?" an jemanden, mit dem ein Closing terminiert ist, ist der peinlichste
+    // Satz, den die Kopier-Werkbank ausgeben kann.
+    await supersedeTouches("setting", settingId, ["setting_msg", "no_show_setting"]);
     await generateClosingCascade(existing.id);
 
     revalidatePath("/termine", "page");
@@ -453,7 +527,9 @@ export async function createClosingFromSetting(
     .update({ ...qualifiedPatch, closing_at: closingAt })
     .eq("id", settingId);
 
-  await supersedeTouches("setting", settingId, ["setting_msg"]);
+  // Dieselbe Aufräumung wie im Zweig oben — beide Wege setzen `show_status`
+  // auf 'show' und nehmen einen früheren No-Show damit zurück.
+  await supersedeTouches("setting", settingId, ["setting_msg", "no_show_setting"]);
   await generateClosingCascade(closing.id);
   // Die Nachricht direkt nach der Qualifizierung — Anker ist das ANLEGEN des
   // Closings, nicht sein Termin. Bewusst nur in diesem Zweig: der Zweig oben

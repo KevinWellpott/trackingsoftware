@@ -8,11 +8,11 @@ import { createClient } from "@/lib/supabase/server";
 import { loadReminderTouches, loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
 import { cascadeRank, cascadeStepLabel, type CascadeKind } from "@/lib/cascadeEngine";
 import {
-  WEEKDAY_LABELS, buildBuckets, bucketIndex, bucketOf, daysBetween, pct, settingEffDate, weekdayIndex,
-  type Granularity, type QuelleKey,
+  WEEKDAY_LABELS, buildBuckets, bucketIndex, bucketOf, channelKeyOf, daysBetween, pct, settingEffDate,
+  weekdayIndex, type Granularity, type QuelleKey,
 } from "@/lib/analyse";
 import { berlinDateISO, toBerlinSlot } from "@/lib/apptTime";
-import { CHANNELS, channelLabel, channelOf } from "@/lib/channels";
+import { CHANNELS, channelLabel } from "@/lib/channels";
 import { personIn } from "@/lib/personResolution";
 import { ownerColor } from "@/lib/ownerColor";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
@@ -166,7 +166,12 @@ const BRANCHE_LABELS: Record<string, string> = {
 function sourceKeyOf(r: AnalyseSettingCall): { key: string; label: string; channel: string | null } {
   const detail = (r.source_detail ?? "").trim();
   if (detail) return { key: `d:${detail.toLowerCase()}`, label: detail, channel: channelLabel(r.source_type) };
-  return { key: `t:${r.source_type ?? "sonstige"}`, label: channelLabel(r.source_type), channel: null };
+  // Der Typ-Schlüssel kommt aus der Registry, nicht aus dem Rohwert: Alles
+  // Unbekannte beschriftet `channelLabel()` als „Sonstige" — gegen den Rohwert
+  // geschlüsselt entstünden daraus mehrere Zeilen mit identischem Label, die
+  // sich nicht auseinanderhalten lassen. Der Funnel-Tab schlüsselt aus
+  // demselben Grund über `channelKeyOf` (`srcOf`).
+  return { key: `t:${channelKeyOf(r.source_type)}`, label: channelLabel(r.source_type), channel: null };
 }
 
 /** Zähl-Eimer für „Menge + drei Quoten" — die Form fast aller Schnitte hier. */
@@ -336,7 +341,14 @@ export async function SettingTab({
 
   for (const r of allRows) {
     const day = settingEffDate(r);
-    if (quelle !== "alle" && r.source_type !== quelle) continue;
+    // Der Filter vergleicht den Registry-SCHLÜSSEL, nicht den Rohwert:
+    // `source_type` ist nullable und wurde nie backgefillt. Gegen den Rohwert
+    // gehalten fiel unter `?quelle=sonstige` jede Zeile ohne Quelle aus allen
+    // vier Kacheln — während der Donut weiter unten dieselbe Zeile als
+    // „Sonstige" auswies. Der Funnel-Tab normalisiert seit jeher; damit zeigten
+    // zwei Tabs unter demselben Filter verschiedene Terminzahlen.
+    const channel = channelKeyOf(r.source_type);
+    if (quelle !== "alle" && channel !== quelle) continue;
 
     // Zuweisung schlägt Ersteller. Kein Treffer heißt entweder "bewusst
     // abgewählt" (Personenfilter aktiv → raus) oder "Person gehört nicht mehr
@@ -377,10 +389,10 @@ export async function SettingTab({
     if (isQualified(r)) qualiByBucket[bk] = (qualiByBucket[bk] ?? 0) + 1;
     if (isSentToClosing(r)) closingByBucket[bk] = (closingByBucket[bk] ?? 0) + 1;
 
-    // Kanal-Ebene: unbekannte und leere Werte landen im Registry-Eintrag
-    // „Sonstige", damit nicht zwei Segmente mit demselben Namen entstehen.
-    const chKey = channelOf(r.source_type)?.key ?? "sonstige";
-    channelCounts.set(chKey, (channelCounts.get(chKey) ?? 0) + 1);
+    // Kanal-Ebene: derselbe Schlüssel, den der Filter oben benutzt — unbekannte
+    // und leere Werte landen im Registry-Eintrag „Sonstige", damit nicht zwei
+    // Segmente mit demselben Namen entstehen.
+    channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + 1);
 
     if (r.has_budget_8k === "ja") budget.ja += 1;
     else if (r.has_budget_8k === "nein") budget.nein += 1;

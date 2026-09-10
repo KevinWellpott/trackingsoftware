@@ -10,7 +10,9 @@ import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
 import { Segmented } from "@/components/ui/Segmented";
 
-// „Zurückholen" (Entscheidung K10) — die Anlagestrecke für den zweiten Anlauf.
+// „Neuen Termin ansetzen" (Entscheidung K10) — die Anlagestrecke für den
+// zweiten Anlauf. Titel und Knopf tragen bewusst dasselbe Wort: Ein Dialog, der
+// anders heißt als der Weg hierher, liest sich wie eine andere Aktion.
 //
 // Der Dialog fragt genau das, was der Vorgänger NICHT liefern kann: den neuen
 // Termin. Alles andere — Name, Firma, Herkunft, Zuständigkeit, Kontaktweg —
@@ -121,7 +123,7 @@ export function ReviveDialog({
     <Modal
       open={open}
       onClose={close}
-      title={createdId ? "Zurückgeholt" : "Zurückholen"}
+      title={createdId ? "Termin steht" : "Neuen Termin ansetzen"}
       subtitle={createdId ? undefined : `${leadLabel} bekommt einen neuen Anlauf`}
       width={430}
     >
@@ -143,7 +145,7 @@ export function ReviveDialog({
               textDecoration: "none",
             }}
           >
-            Zum neuen Erstgespräch <ArrowUpRight size={13} />
+            Zum neuen Setting <ArrowUpRight size={13} />
           </Link>
           <Button type="button" variant="secondary" onClick={close} fullWidth>
             Schließen
@@ -160,9 +162,9 @@ export function ReviveDialog({
               color: "var(--text-subtle)",
             }}
           >
-            Es entsteht ein <strong style={{ color: "var(--text-secondary)" }}>neues Erstgespräch</strong>; die alte
-            Zeile bleibt terminal. Ein zurückgedrehter Vorgang veränderte rückwirkend die Quoten eines bereits
-            abgeschlossenen Zeitraums. Name, Firma, Herkunft und Zuständigkeit werden übernommen, die
+            Es entsteht ein <strong style={{ color: "var(--text-secondary)" }}>neues Setting</strong>; der alte
+            Vorgang bleibt abgeschlossen. Ein zurückgedrehter Vorgang veränderte rückwirkend die Quoten eines
+            bereits abgeschlossenen Zeitraums. Name, Firma, Herkunft und Zuständigkeit werden übernommen, die
             Qualifizierung nicht — die ist neu zu führen.
           </p>
 

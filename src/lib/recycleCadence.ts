@@ -36,18 +36,56 @@ export const RECYCLE_REASON_LABELS: Record<string, string> = {
 };
 
 /**
+ * Die Aufhänger stehen als benannte Konstanten da, weil ZWEI Grund-Familien in
+ * derselben Spalte landen: `schedule_recycle()` stempelt bei einem verlorenen
+ * Closing den VERLUST-Code (`lost_reason_code`) und bei einem Erstgespräch den
+ * DISQUALIFIKATIONS-Code (`disqualify_reason_code`) in `recycle_reason_code`
+ * (docs §4). „Falscher Zeitpunkt" und „Timing" meinen dasselbe und müssen
+ * deshalb denselben Satz erzeugen — zwei getippte Zwillinge liefen beim
+ * nächsten Textfeinschliff auseinander.
+ */
+const HINT_TIMING = "vielleicht passt der Zeitpunkt inzwischen besser";
+const HINT_BUDGET = "falls sich beim Budget etwas getan hat";
+const HINT_BEDARF = "falls sich der Bedarf inzwischen geändert hat";
+const HINT_ENTSCHEIDER = "vielleicht sitzt inzwischen jemand anders am Drücker";
+const HINT_WETTBEWERB = "falls die aktuelle Lösung nicht mehr überzeugt";
+
+/**
  * Kurzer, GRUND-spezifischer Anlass für {anlass} in der Vorlage — macht aus
- * "melde mich nochmal" einen konkreten Aufhänger statt einer Floskel. Leer
- * für Gründe ohne plausiblen Anlass (Vertrauen, Ghosting, Sonstiges,
- * dead/fu_exhausted) — dort ersetzt renderRecycleTemplate durch einen
- * neutralen Platzhaltersatz.
+ * "melde mich nochmal" einen konkreten Aufhänger statt einer Floskel. Ohne
+ * Eintrag setzt renderRecycleTemplate einen neutralen Platzhaltersatz.
+ *
+ * WARUM die Disqualifikationsgründe hier stehen müssen: Das Konzept verlangt
+ * beim Erstgespräch ausdrücklich „Nachfassen mit dem Grund der damaligen
+ * Disqualifikation". Von den acht Codes kannte diese Map lange nur
+ * `kein_bedarf` — ein Lead, der wegen `falscher_zeitpunkt` disqualifiziert
+ * wurde, bekam nach 56 Tagen die Floskel „es gibt vielleicht Neues zu
+ * besprechen", obwohl der passende Satz eine Zeile darüber unter `timing`
+ * stand. Ausgerechnet die Gründe, bei denen ein zweiter Anlauf am meisten Sinn
+ * ergibt (Zeitpunkt, Budget, Entscheider), waren die stummen.
+ *
+ * Ohne Aufhänger bleiben bewusst:
+ *  · `vertrauen`, `ghosting`, `sonstiges`, `dead`, `fu_exhausted` — für sie
+ *    gibt es keinen ehrlichen Aufhänger; ein erfundener wäre schlimmer als der
+ *    neutrale Satz.
+ *  · `falsche_zielgruppe` und `keine_zusammenarbeit` (Erstgespräch) sowie
+ *    `falsche_zielgruppe` und `kein_fit` (Closing) — diese vier bekommen nie
+ *    ein Recycling-Datum (docs §4), es kann also gar keine Karte für sie geben.
  */
 const RECYCLE_REASON_HINTS: Record<string, string> = {
-  timing: "vielleicht passt der Zeitpunkt inzwischen besser",
-  preis: "falls sich beim Budget etwas getan hat",
-  kein_bedarf: "falls sich der Bedarf inzwischen geändert hat",
-  entscheider: "vielleicht sitzt inzwischen jemand anders am Drücker",
-  wettbewerb: "falls die aktuelle Lösung nicht mehr überzeugt",
+  // ── Verlustgründe eines Closings (closing_calls.lost_reason_code) ──
+  timing: HINT_TIMING,
+  preis: HINT_BUDGET,
+  kein_bedarf: HINT_BEDARF,
+  entscheider: HINT_ENTSCHEIDER,
+  wettbewerb: HINT_WETTBEWERB,
+  // ── Disqualifikationsgründe eines Erstgesprächs
+  //    (setting_calls.disqualify_reason_code). `kein_bedarf` trägt in beiden
+  //    Familien denselben Schlüssel und steht deshalb schon oben. ──
+  falscher_zeitpunkt: HINT_TIMING,
+  geld: HINT_BUDGET,
+  kein_budget: HINT_BUDGET,
+  kein_entscheider: HINT_ENTSCHEIDER,
 };
 
 const RECYCLE_REASON_FALLBACK_HINT = "es gibt vielleicht Neues zu besprechen";

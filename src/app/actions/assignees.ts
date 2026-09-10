@@ -42,6 +42,27 @@ async function loadEntity(
   return (data as { created_by_user_id: string | null } | null) ?? null;
 }
 
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Gehoert dieses Konto zur Organisation?
+ *
+ * Zweimal gebraucht und deshalb hier: fuer die ausgewaehlte Person und fuer den
+ * Ersteller, auf den „Niemand" zurueckfaellt. Ein Plattform-Admin ist in einer
+ * Kunden-Organisation bewusst KEIN Mitglied (docs §2) — er faellt hier also zu
+ * Recht durch, denn eine Zuweisung auf ihn waere in den Kundendaten genauso
+ * unauffindbar wie die auf ein geloeschtes Konto.
+ */
+async function isMember(supabase: Supabase, workspaceId: string, userId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from("workspace_members")
+    .select("user_id")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return Boolean(data);
+}
+
 /**
  * Zuweisung setzen — `null` bedeutet „Niemand"; die Auswertungen fallen dann
  * auf `created_by_user_id` zurueck (`personOf`, src/lib/personResolution.ts).
@@ -69,13 +90,31 @@ export async function setAssignee(
   // Ohne diese Pruefung koennte hier eine Zuweisung ueber die Org-Grenze
   // entstehen — die Zeile waere danach fuer niemanden mehr auffindbar.
   if (userId) {
-    const { data: member } = await supabase
-      .from("workspace_members")
-      .select("user_id")
-      .eq("workspace_id", access.workspace_id)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!member) return { error: "Nutzer gehört nicht zu dieser Organisation." };
+    if (!(await isMember(supabase, access.workspace_id, userId))) {
+      return { error: "Nutzer gehört nicht zu dieser Organisation." };
+    }
+  } else if (row.created_by_user_id) {
+    // „Niemand" ist kein harmloser Leerwert: Der Termin faellt danach ueber
+    // `personOf()` auf seinen ERSTELLER zurueck, und genau dorthin ziehen die
+    // offenen Erinnerungen mit (weiter unten). Gehoert der Ersteller nicht mehr
+    // zur Organisation — Nutzer-Umzug, geloeschtes Konto —, weist der Trigger
+    // `reminder_touches_ws_guard` (Migration 0032) diese Zuweisung NICHT ab: Er
+    // setzt `superseded_at` und entwertet damit jede offene Erinnerung des
+    // Termins. Lautlos, mit Erfolgsmeldung, und nur an der leeren
+    // /erinnerungen-Seite spaeter zu bemerken.
+    //
+    // Deshalb vorher pruefen und den Fall benennen, statt ihn auszuloesen. Die
+    // Zuweisung ganz abzulehnen ist die ehrlichere Antwort als sie halb
+    // auszufuehren: §8 verlangt ohnehin, dass keine Zuweisung auf ein
+    // Nicht-Mitglied hinauslaeuft, und der Ausweg steht im Satz.
+    if (!(await isMember(supabase, access.workspace_id, row.created_by_user_id))) {
+      return {
+        error:
+          "„Niemand“ geht hier nicht: Der Termin fiele damit auf seinen Ersteller zurück, " +
+          "und der gehört nicht mehr zu dieser Organisation. Die offenen Erinnerungen würden " +
+          "dabei entfallen — bitte stattdessen eine Person auswählen.",
+      };
+    }
   }
 
   const table = entity === "setting_call" ? "setting_calls" : "closing_calls";
@@ -104,6 +143,10 @@ export async function setAssignee(
   // Ersteller sie nie zu Gesicht bekaeme. Die Spalte bleibt dabei belegt: der
   // Trigger `reminder_touches_require_assignee` greift nur beim INSERT, aber
   // eine Erinnerung ohne Zustaendige ist eine, die niemand sieht.
+  //
+  // Dass der Wert hier auf ein MITGLIED zeigt, ist oben geprueft — fuer beide
+  // Wege. Ohne die Pruefung entwertete `reminder_touches_ws_guard` genau an
+  // dieser Stelle alle offenen Erinnerungen des Termins.
   const touchAssignee = userId ?? row.created_by_user_id;
   if (touchAssignee) {
     const entityType = entity === "setting_call" ? "setting" : "closing";

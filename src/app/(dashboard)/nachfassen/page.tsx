@@ -14,7 +14,11 @@ export default async function NachfassenPage({
 }) {
   const sp = await searchParams;
   const showingAll = sp.alle === "1";
-  const { tasks, hiddenOlder, recyclingAvailable } = await getNachfassenTasks({ includeOlder: showingAll });
+  // Bewusst als Ganzes durchgereicht statt Feld für Feld: Das Ergebnis trägt
+  // neben den Aufgaben zwei Verfügbarkeits-Flaggen und zwei Zählwerte, und ein
+  // hier vergessenes Feld wäre auf dieser Seite besonders teuer — eine nicht
+  // durchgereichte Flagge sähe im Board exakt wie „nichts zu tun" aus.
+  const result = await getNachfassenTasks({ includeOlder: showingAll });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
@@ -24,17 +28,12 @@ export default async function NachfassenPage({
         eyebrow="Wiedervorlage"
         title="Nachfassen"
         meta={
-          "Was ist heute fällig? Follow-ups, Rückrufe, Wiedervorlagen aus Erstgespräch und Closing " +
+          "Was ist heute fällig? Follow-ups, Rückrufe, Wiedervorlagen aus Setting und Closing " +
           "sowie fällige Recycling-Versuche — jeweils mit fertigem Text zum Kopieren."
         }
       />
 
-      <NachfassenBoard
-        tasks={tasks}
-        hiddenOlder={hiddenOlder}
-        showingAll={showingAll}
-        recyclingAvailable={recyclingAvailable}
-      />
+      <NachfassenBoard {...result} showingAll={showingAll} />
     </div>
   );
 }

@@ -280,27 +280,21 @@ export async function getCascadeSteps(): Promise<CascadeStepsResult> {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * Die Vorlagen MEHRERER Absender in EINER Query.
- *
- * Absender ist nie der Betrachter, sondern die zuständige Person: auf
- * /erinnerungen rendert jede Karte gegen das Bundle ihres
- * `assigned_user_id`. Ein Owner in der Team-Ansicht sähe sonst seine eigenen
- * Texte unter fremden Namen. Gebündelt geladen, weil eine Query je Karte auf
- * einem vollen Board sofort n+1 wäre.
- *
- * Die Map enthält für JEDE angefragte user_id einen Eintrag — auch ohne eigene
- * Zeile —, damit die Aufrufstelle nicht zwischen „kein Bundle" und „keine
- * persönliche Vorlage" unterscheiden muss; die Auslieferungstexte hängen
- * ohnehin in `resolveTemplate()` dahinter.
- */
-export async function getTemplateBundles(userIds: string[]): Promise<Map<string, TemplateBundle>> {
-  const out = new Map<string, TemplateBundle>();
-  const access = await getAccessContext();
+type LoadedTemplates = {
+  /** Standard der Organisation (`user_id is null`) — gilt für jeden. */
+  org: Partial<Record<TemplateKey, TemplateText>>;
+  /** Persönliche Übersteuerungen je angefragter user_id. */
+  own: Map<string, Partial<Record<TemplateKey, TemplateText>>>;
+};
 
-  // Die IDs landen in einem PostgREST-`or`-Ausdruck, in dem Komma und Punkt
-  // Trennzeichen sind — deshalb nur echte UUIDs durchlassen.
-  const ids = [...new Set(userIds.filter((id) => UUID_RE.test(id)))];
+/**
+ * Beide Vorlagen-Ebenen in EINER Query. Getrennt von `getTemplateBundles`,
+ * damit `getOrgTemplateBundle()` denselben Weg nimmt: Die Organisations-Ebene
+ * hängt an keiner Person und darf deshalb nicht davon abhängen, ob eine
+ * Personen-Id mitgeschickt wurde.
+ */
+async function loadTemplates(ids: string[]): Promise<LoadedTemplates> {
+  const access = await getAccessContext();
   const org: Partial<Record<TemplateKey, TemplateText>> = {};
   const own = new Map<string, Partial<Record<TemplateKey, TemplateText>>>();
   ids.forEach((id) => own.set(id, {}));
@@ -337,8 +331,51 @@ export async function getTemplateBundles(userIds: string[]): Promise<Map<string,
     }
   }
 
+  return { org, own };
+}
+
+/**
+ * Die Vorlagen MEHRERER Absender in EINER Query.
+ *
+ * Absender ist nie der Betrachter, sondern die zuständige Person: auf
+ * /erinnerungen rendert jede Karte gegen das Bundle ihres
+ * `assigned_user_id`. Ein Owner in der Team-Ansicht sähe sonst seine eigenen
+ * Texte unter fremden Namen. Gebündelt geladen, weil eine Query je Karte auf
+ * einem vollen Board sofort n+1 wäre.
+ *
+ * Die Map enthält für JEDE angefragte user_id einen Eintrag — auch ohne eigene
+ * Zeile —, damit die Aufrufstelle nicht zwischen „kein Bundle" und „keine
+ * persönliche Vorlage" unterscheiden muss; die Auslieferungstexte hängen
+ * ohnehin in `resolveTemplate()` dahinter.
+ */
+export async function getTemplateBundles(userIds: string[]): Promise<Map<string, TemplateBundle>> {
+  // Die IDs landen in einem PostgREST-`or`-Ausdruck, in dem Komma und Punkt
+  // Trennzeichen sind — deshalb nur echte UUIDs durchlassen.
+  const ids = [...new Set(userIds.filter((id) => UUID_RE.test(id)))];
+  const { org, own } = await loadTemplates(ids);
+
+  const out = new Map<string, TemplateBundle>();
   for (const id of ids) out.set(id, { own: own.get(id) ?? {}, org });
   return out;
+}
+
+/**
+ * Nur die Organisations-Ebene — für Touches OHNE zuständige Person.
+ *
+ * `reminder_touches.assigned_user_id` ist `on delete set null`: Wird ein Konto
+ * gelöscht, bleibt die Erinnerung stehen und ist in der Team-Ansicht weiter
+ * sichtbar. Ohne diese Funktion bekäme ihre Karte gar kein Bundle, und
+ * `resolveTemplate()` fiele nicht nur an der persönlichen, sondern auch an der
+ * ORGANISATIONS-Ebene durch — direkt auf den Auslieferungstext. Der Kunde hat
+ * seinen Org-Text geändert und läse trotzdem unseren, ohne jede Meldung.
+ *
+ * Die Personen-Ebene bleibt hier bewusst leer: Es gibt keine Person, deren
+ * Vorlagen gelten könnten — die des Betrachters wären genau der Fehler, den
+ * `getTemplateBundles` verhindert.
+ */
+export async function getOrgTemplateBundle(): Promise<TemplateBundle> {
+  const { org } = await loadTemplates([]);
+  return { own: {}, org };
 }
 
 /* ------------------------------------------------------------------ *

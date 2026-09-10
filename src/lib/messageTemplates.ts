@@ -99,7 +99,7 @@ export function isMailTemplate(key: TemplateKey): boolean {
 export const LIST_SCOPED_KEYS: readonly TemplateKey[] = ["linkedin_fu_1", "linkedin_fu_2", "linkedin_fu_3"];
 
 export type TemplateGroup =
-  | "Erstgespräch"
+  | "Setting"
   | "Closing"
   | "Nachfass-Kontakt"
   | "No-Show"
@@ -108,46 +108,89 @@ export type TemplateGroup =
   | "LinkedIn"
   | "Aufgaben";
 
-/** Gruppe + Beschriftung je Key — die einzige Quelle für den Vorlagen-Editor (M13). */
-export const TEMPLATE_META: Record<TemplateKey, { group: TemplateGroup; label: string; hint?: string }> = {
-  setting_msg_1: { group: "Erstgespräch", label: "1. Erinnerung", hint: "Bestätigung, mehrere Tage vorher" },
-  setting_msg_2: { group: "Erstgespräch", label: "2. Erinnerung", hint: "Vorfreude, am Tag davor" },
-  setting_msg_3: { group: "Erstgespräch", label: "3. Erinnerung", hint: "Meeting-Link, kurz vorher" },
-  setting_mail_1: { group: "Erstgespräch", label: "1. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv" },
-  setting_mail_2: { group: "Erstgespräch", label: "2. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv" },
+/**
+ * Welche Platzhalter eine Vorlage füllen KANN — je Schlüssel, nicht global.
+ *
+ * `template_catalog.placeholders` (Migration 0031) pflegt dieselbe Angabe in
+ * der Datenbank, wird aber von keiner Zeile Code gelesen; der Editor bot
+ * deshalb allen 31 Vorlagen dieselben elf Platzhalter an. Wer in
+ * `setting_msg_1` ein `{notiz}` schrieb, kam durch die Prüfung, und beim
+ * Rendern verschwand der Platzhalter lautlos — der Gedankenstrich davor blieb
+ * stehen („wegen — steht unser Termin"). Zu unauffällig zum Bemerken,
+ * auffällig genug zum Rausgehen.
+ *
+ * Maßgeblich ist, was der jeweilige RENDERPFAD tatsächlich übergibt — nicht,
+ * was der Katalog aufzählt. An zwei Stellen laufen beide auseinander, jeweils
+ * mit Absicht:
+ *   • Die Sets hier sind an mehreren Stellen GRÖSSER (etwa {absender} und
+ *     {kanal} in jeder Kaskaden-Stufe): Die Renderer füllen sie, eine Warnung
+ *     dafür wäre falsch — und eine Warnung, die auch dann erscheint, wenn
+ *     alles stimmt, bringt man sich schnell bei zu übersehen.
+ *   • Bei `kein_close_1/2` sind sie KLEINER: Der Katalog nennt dort {notiz},
+ *     der No-Close-Pfad läuft aber über die beiden Touch-Renderer, und die
+ *     übergeben keins. Da irrt der Katalog (0031 ist eingefroren, das ist erst
+ *     mit einer neuen Migration zu korrigieren und bleibt folgenlos, solange
+ *     die Spalte niemand liest).
+ */
+const P_LEAD = ["vorname", "nachname", "name", "firma"] as const;
+/** Wiedervorlage-Aufgaben: Lead + Fälligkeitstag + zuständige Person. */
+const P_AUFGABE = [...P_LEAD, "datum", "uhrzeit", "absender"] as const;
+/** Telefon-Rückruf — wie eine Aufgabe, zusätzlich mit festem Kanal. */
+const P_RUECKRUF = [...P_AUFGABE, "kanal"] as const;
+/** Kaskaden- und Ketten-Stufen: was ErinnerungenBoard und CascadePanel übergeben. */
+const P_TOUCH = [...P_AUFGABE, "link", "kanal"] as const;
+/** LinkedIn-Nachfassen: kein Termin, also weder Datum noch Uhrzeit noch Link. */
+const P_LINKEDIN = [...P_LEAD, "absender"] as const;
+/** Recycling: kein Termin, dafür Anlass und der Freitext neben dem Grund. */
+const P_RECYCLING = [...P_LEAD, "anlass", "notiz"] as const;
 
-  closing_kickoff: { group: "Closing", label: "Nachricht direkt nach der Qualifizierung" },
-  closing_msg_1: { group: "Closing", label: "1. Erinnerung", hint: "Bestätigung, mehrere Tage vorher" },
-  closing_msg_2: { group: "Closing", label: "2. Erinnerung", hint: "Vorfreude, am Tag davor" },
-  closing_msg_3: { group: "Closing", label: "3. Erinnerung", hint: "Meeting-Link, kurz vorher" },
-  closing_mail_1: { group: "Closing", label: "1. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv" },
-  closing_mail_2: { group: "Closing", label: "2. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv" },
-  closing_mail_3: { group: "Closing", label: "3. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv" },
+type TemplateMeta = {
+  group: TemplateGroup;
+  label: string;
+  hint?: string;
+  placeholders: readonly Placeholder[];
+};
 
-  followup_msg_1: { group: "Nachfass-Kontakt", label: "1. Erinnerung" },
-  followup_msg_2: { group: "Nachfass-Kontakt", label: "2. Erinnerung" },
-  followup_msg_3: { group: "Nachfass-Kontakt", label: "3. Erinnerung" },
+/** Gruppe + Beschriftung + gültige Platzhalter je Key — die einzige Quelle für den Vorlagen-Editor. */
+export const TEMPLATE_META: Record<TemplateKey, TemplateMeta> = {
+  setting_msg_1: { group: "Setting", label: "1. Erinnerung", hint: "Bestätigung, mehrere Tage vorher", placeholders: P_TOUCH },
+  setting_msg_2: { group: "Setting", label: "2. Erinnerung", hint: "Vorfreude, am Tag davor", placeholders: P_TOUCH },
+  setting_msg_3: { group: "Setting", label: "3. Erinnerung", hint: "kurz vorher, mit Meeting-Link", placeholders: P_TOUCH },
+  setting_mail_1: { group: "Setting", label: "1. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv", placeholders: P_TOUCH },
+  setting_mail_2: { group: "Setting", label: "2. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv", placeholders: P_TOUCH },
 
-  no_show_setting_1: { group: "No-Show", label: "Erstgespräch — sofort", hint: "direkt im Termin" },
-  no_show_setting_2: { group: "No-Show", label: "Erstgespräch — Tag danach", hint: "wenn keine Antwort kam" },
-  no_show_closing_1: { group: "No-Show", label: "Closing — sofort", hint: "direkt im Termin anrufen" },
-  no_show_closing_2: { group: "No-Show", label: "Closing — Tag danach", hint: "wenn keine Antwort kam" },
+  closing_kickoff: { group: "Closing", label: "Nachricht direkt nach der Qualifizierung", placeholders: P_TOUCH },
+  closing_msg_1: { group: "Closing", label: "1. Erinnerung", hint: "Bestätigung, mehrere Tage vorher", placeholders: P_TOUCH },
+  closing_msg_2: { group: "Closing", label: "2. Erinnerung", hint: "Vorfreude, am Tag davor", placeholders: P_TOUCH },
+  closing_msg_3: { group: "Closing", label: "3. Erinnerung", hint: "kurz vorher, mit Meeting-Link", placeholders: P_TOUCH },
+  closing_mail_1: { group: "Closing", label: "1. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv", placeholders: P_TOUCH },
+  closing_mail_2: { group: "Closing", label: "2. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv", placeholders: P_TOUCH },
+  closing_mail_3: { group: "Closing", label: "3. Erinnerungs-Mail", hint: "Mail-Spur, noch nicht aktiv", placeholders: P_TOUCH },
 
-  kein_close_1: { group: "Kein Close", label: "Sofort nach dem Termin" },
-  kein_close_2: { group: "Kein Close", label: "Tag danach", hint: "anrufen und schreiben" },
+  followup_msg_1: { group: "Nachfass-Kontakt", label: "1. Erinnerung", placeholders: P_TOUCH },
+  followup_msg_2: { group: "Nachfass-Kontakt", label: "2. Erinnerung", placeholders: P_TOUCH },
+  followup_msg_3: { group: "Nachfass-Kontakt", label: "3. Erinnerung", placeholders: P_TOUCH },
 
-  recycle_linkedin: { group: "Recycling", label: "LinkedIn-Kontakt" },
-  recycle_telefon: { group: "Recycling", label: "Telefon-Lead" },
-  recycle_setting: { group: "Recycling", label: "Erstgespräch" },
-  recycle_closing: { group: "Recycling", label: "Closing" },
+  no_show_setting_1: { group: "No-Show", label: "Setting — sofort", hint: "direkt im Termin", placeholders: P_TOUCH },
+  no_show_setting_2: { group: "No-Show", label: "Setting — Tag danach", hint: "wenn keine Antwort kam", placeholders: P_TOUCH },
+  no_show_closing_1: { group: "No-Show", label: "Closing — sofort", hint: "direkt im Termin anrufen", placeholders: P_TOUCH },
+  no_show_closing_2: { group: "No-Show", label: "Closing — Tag danach", hint: "wenn keine Antwort kam", placeholders: P_TOUCH },
 
-  linkedin_fu_1: { group: "LinkedIn", label: "Follow-up 1", hint: "Text der Liste geht vor" },
-  linkedin_fu_2: { group: "LinkedIn", label: "Follow-up 2", hint: "Text der Liste geht vor" },
-  linkedin_fu_3: { group: "LinkedIn", label: "Follow-up 3", hint: "Text der Liste geht vor" },
+  kein_close_1: { group: "Kein Close", label: "Sofort nach dem Termin", placeholders: P_TOUCH },
+  kein_close_2: { group: "Kein Close", label: "Tag danach", hint: "anrufen und schreiben", placeholders: P_TOUCH },
 
-  telefon_rueckruf: { group: "Aufgaben", label: "Telefon-Rückruf" },
-  setting_wiedervorlage: { group: "Aufgaben", label: "Erstgespräch-Wiedervorlage" },
-  closing_wiedervorlage: { group: "Aufgaben", label: "Closing-Wiedervorlage" },
+  recycle_linkedin: { group: "Recycling", label: "LinkedIn-Kontakt", placeholders: P_RECYCLING },
+  recycle_telefon: { group: "Recycling", label: "Telefon-Lead", placeholders: P_RECYCLING },
+  recycle_setting: { group: "Recycling", label: "Setting", placeholders: P_RECYCLING },
+  recycle_closing: { group: "Recycling", label: "Closing", placeholders: P_RECYCLING },
+
+  linkedin_fu_1: { group: "LinkedIn", label: "Follow-up 1", hint: "Text der Liste geht vor", placeholders: P_LINKEDIN },
+  linkedin_fu_2: { group: "LinkedIn", label: "Follow-up 2", hint: "Text der Liste geht vor", placeholders: P_LINKEDIN },
+  linkedin_fu_3: { group: "LinkedIn", label: "Follow-up 3", hint: "Text der Liste geht vor", placeholders: P_LINKEDIN },
+
+  telefon_rueckruf: { group: "Aufgaben", label: "Telefon-Rückruf", placeholders: P_RUECKRUF },
+  setting_wiedervorlage: { group: "Aufgaben", label: "Setting-Wiedervorlage", placeholders: P_AUFGABE },
+  closing_wiedervorlage: { group: "Aufgaben", label: "Closing-Wiedervorlage", placeholders: P_AUFGABE },
 };
 
 /* ------------------------------------------------------------------ *
@@ -160,7 +203,8 @@ export type TemplateText = { body: string; subject?: string };
  * Die einzige Fundstelle der Standardtexte — bewusst kein SQL-DEFAULT und kein
  * Seeding bei der Anlage einer Organisation. Eine Zeile in `message_templates`
  * entsteht erst, wenn jemand einen Text bewusst ändert; ein geleertes Textfeld
- * löscht sie wieder (Muster setFollowupTemplate). Damit können SQL und TS nicht
+ * löscht sie wieder (so halten es die beiden Actions in
+ * app/actions/messageTemplates.ts). Damit können SQL und TS nicht
  * auseinanderlaufen, und eine Textverbesserung wirkt sofort bei jedem Kunden,
  * der den Text nie angefasst hat.
  *
@@ -184,8 +228,15 @@ export type TemplateText = { body: string; subject?: string };
 export const TEMPLATE_DEFAULTS: Record<TemplateKey, TemplateText> = {
   setting_msg_1: { body: "Hi {vorname}, unser Termin für {datum} steht noch wie geplant?" },
   setting_msg_2: { body: "Hi {vorname}, wird ein cooles Meeting morgen um {uhrzeit}." },
+  // Kein Satz über den Link, sondern der Link als Anhang: Ein Erstgespräch mit
+  // meeting_kind='telefon' hat gar keinen meet_link (die Rufnummer steht in
+  // setting_calls.phone und ist kein Platzhalter), und seit Migration 0029 ist
+  // Telefon eine gleichberechtigte Termin-Art. „wollte dir noch einmal den Link
+  // durchschicken." ging dort ohne Link raus — der Satz blieb, der Gegenstand
+  // fehlte. So trägt der Text beide Termin-Arten, und mit Link steht er
+  // trotzdem drin.
   setting_msg_3: {
-    body: "Hi {vorname}, unser Termin ist ja gleich — wollte dir noch einmal den Link durchschicken. {link}",
+    body: "Hi {vorname}, es geht gleich um {uhrzeit} los — bis dann! {link}",
   },
   setting_mail_1: {
     subject: "Unser Termin für {datum}",
@@ -193,7 +244,7 @@ export const TEMPLATE_DEFAULTS: Record<TemplateKey, TemplateText> = {
   },
   setting_mail_2: {
     subject: "Es geht gleich los um {uhrzeit}",
-    body: "Hallo {vorname},\n\nunser Termin startet in einer Stunde. Ich schicke dir den Link noch einmal mit. {link}\n\nViele Grüße\n{absender}",
+    body: "Hallo {vorname},\n\nunser Termin startet in einer Stunde. {link}\n\nViele Grüße\n{absender}",
   },
 
   closing_kickoff: {
@@ -201,8 +252,9 @@ export const TEMPLATE_DEFAULTS: Record<TemplateKey, TemplateText> = {
   },
   closing_msg_1: { body: "Hi {vorname}, der Termin für {datum} steht noch wie geplant?" },
   closing_msg_2: { body: "Hi {vorname}, wird ein cooles Meeting morgen um {uhrzeit}." },
+  // Wie setting_msg_3 (s. o.): der Link als Anhang statt als Ankündigung.
   closing_msg_3: {
-    body: "Hi {vorname}, unser Termin ist ja gleich — wollte dir noch einmal den Link durchschicken. {link}",
+    body: "Hi {vorname}, es geht gleich um {uhrzeit} los — bis dann! {link}",
   },
   closing_mail_1: {
     subject: "Unser Termin für {datum}",
@@ -214,7 +266,7 @@ export const TEMPLATE_DEFAULTS: Record<TemplateKey, TemplateText> = {
   },
   closing_mail_3: {
     subject: "Es geht gleich los um {uhrzeit}",
-    body: "Hallo {vorname},\n\nunser Termin startet in einer Stunde. Ich schicke dir den Link noch einmal mit. {link}\n\nViele Grüße\n{absender}",
+    body: "Hallo {vorname},\n\nunser Termin startet in einer Stunde. {link}\n\nViele Grüße\n{absender}",
   },
 
   followup_msg_1: { body: "Hi {vorname}, wie besprochen melde ich mich {datum} bei dir zurück." },
@@ -234,11 +286,18 @@ export const TEMPLATE_DEFAULTS: Record<TemplateKey, TemplateText> = {
     body: "Hi {vorname}, ich habe es gestern und heute nicht erreicht. Sag mir gern kurz, ob und wann es bei dir passt.",
   },
 
+  // Beide Texte benutzten früher {notiz} — den füllt auf diesem Weg niemand:
+  // Die No-Close-Kette läuft über die beiden Touch-Renderer, und die übergeben
+  // Lead, Firma, Termin, Link, Kanal und Absender, aber keine Notiz. Gerendert
+  // stand da „…was du noch brauchst." — es ging nur deshalb grammatisch gut,
+  // weil „zu" in CONNECTORS steht. Statt den Platzhalter zu füllen (der Grund
+  // ist an dieser Stelle noch gar nicht erfasst) sagen die Texte dasselbe ohne
+  // ihn.
   kein_close_1: {
-    body: "Hi {vorname}, danke für das Gespräch. Ich fasse dir das Besprochene zusammen — sag mir gern, was du zu {notiz} noch brauchst.",
+    body: "Hi {vorname}, danke für das Gespräch. Ich fasse dir das Besprochene gleich noch einmal zusammen — sag mir gern, was du für deine Entscheidung noch brauchst.",
   },
   kein_close_2: {
-    body: "Hi {vorname}, ich wollte nochmal nachhören: Gibt es zu {notiz} noch offene Punkte, oder sollen wir es für den Moment ruhen lassen?",
+    body: "Hi {vorname}, ich wollte nochmal nachhören: Gibt es aus unserem Gespräch noch offene Punkte, oder sollen wir es für den Moment ruhen lassen?",
   },
 
   recycle_linkedin: {
@@ -342,7 +401,20 @@ function valuesFor(ctx: TemplateContext): Record<Placeholder, string> {
   };
 }
 
-const TOKEN_RE = /\{([A-Za-zÄÖÜäöüß_]+)\}/g;
+/**
+ * Alles zwischen zwei geschweiften Klammern gilt als Platzhalter-VERSUCH — auch
+ * das, was nicht wie ein gültiger Name aussieht. Das engere Muster
+ * (`[A-Za-zÄÖÜäöüß_]+`) übersah ausgerechnet die beiden häufigsten Vertipper:
+ * `{vorname2}` (Ziffer) und `{ vorname }` (Leerzeichen). Beide wurden weder
+ * ersetzt NOCH gemeldet und gingen wörtlich an den Lead — der stillste
+ * Fehlerweg von allen. Ersetzt wird weiterhin nur, was exakt einem bekannten
+ * Platzhalter entspricht (`renderTemplate`); alles andere bleibt sichtbar
+ * stehen und wird von `validateTemplate()` gemeldet.
+ *
+ * Ohne Zeilenumbruch im Token: Eine vergessene schließende Klammer soll nicht
+ * den halben Mailtext als ein Token verschlucken.
+ */
+const TOKEN_RE = /\{([^{}\n]*)\}/g;
 
 /**
  * Markiert die Stelle eines Platzhalters, der zu nichts aufgelöst hat. Ein
@@ -353,6 +425,23 @@ const EMPTY_MARK = String.fromCharCode(0);
 
 /** Verbindungswörter, die ohne ihr Bezugswort sinnlos werden. */
 const CONNECTORS = "von|bei|für|aus|in|mit|zu|an|nach|über|um";
+
+/**
+ * Wortzeichen EINSCHLIESSLICH Umlauten — der Ersatz für `\b`.
+ *
+ * `\b` ist in JavaScript ohne `u`-Flag ASCII-basiert, und auch mit `u`-Flag
+ * bleibt es das: `ü` gilt dort als Nicht-Wortzeichen. Zwischen einem
+ * Leerzeichen und einem `ü` liegt damit keine Wortgrenze, und `\büber\b` griff
+ * schlicht NIE — „über" war der einzige der elf Verbinder, den `tidy()` stehen
+ * ließ. Aus „Frage über {firma}." wurde ohne Firma wörtlich „Frage über.",
+ * während alle zehn anderen sauber zu „Frage." kollabierten. Auslieferungstexte
+ * traf das nicht, jeden selbst geschriebenen Listen-, Organisations- und
+ * Nutzertext aber schon — also genau die Menge, für die CONNECTORS existiert.
+ *
+ * Lookarounds statt `\b` lösen das, ohne die Gegenrichtung zu opfern: „Umsatz"
+ * darf sein „Um" nicht verlieren und „zufrieden" nicht sein „zu".
+ */
+const WORD_CHAR = "A-Za-zÄÖÜäöüß0-9_";
 
 /**
  * Aufräumen, nachdem leere Platzhalter weggefallen sind. Ohne diesen Schritt
@@ -371,7 +460,10 @@ const CONNECTORS = "von|bei|für|aus|in|mit|zu|an|nach|über|um";
 function tidy(text: string): string {
   return text
     // Verbindungswort samt dem leeren Platzhalter, an dem es hing
-    .replace(new RegExp(`\\s*\\b(?:${CONNECTORS})\\b\\s*${EMPTY_MARK}`, "gi"), "")
+    .replace(
+      new RegExp(`\\s*(?<![${WORD_CHAR}])(?:${CONNECTORS})(?![${WORD_CHAR}])\\s*${EMPTY_MARK}`, "gi"),
+      "",
+    )
     // Übrige leere Platzhalter
     .replace(new RegExp(`\\s*${EMPTY_MARK}`, "g"), "")
     // Leerzeichen vor Satzzeichen
@@ -404,14 +496,97 @@ export function renderTemplate(template: string, ctx: TemplateContext): string {
   return tidy(filled);
 }
 
-/** Im Editor verwendete Prüfung: welche Token kennt die App nicht? */
-export function validateTemplate(template: string): { unknownTokens: string[] } {
+/**
+ * Zwei Listen statt einer, weil die beiden Fehler verschieden AUSGEHEN und
+ * deshalb verschieden klingen müssen:
+ *   • unbekannt   → geht mit Klammer wörtlich an den Lead raus (sichtbar)
+ *   • nicht gefüllt → verschwindet lautlos und lässt den Trenner davor stehen
+ */
+export type TemplateIssues = {
+  /** Token, das die App überhaupt nicht kennt. */
+  unknownTokens: string[];
+  /** Token, das die App kennt — nur füllt dieser Vorlagenpfad es nie. */
+  unsupportedTokens: string[];
+};
+
+/**
+ * Im Editor verwendete Prüfung. MIT Vorlagenschlüssel prüft sie zusätzlich
+ * gegen `TEMPLATE_META[key].placeholders`, ohne ihn nur global.
+ *
+ * Alle heutigen Aufrufer übergeben den Schlüssel (Editor und Schreib-Action);
+ * der schlüssellose Zweig ist die Tür für einen freien Text ohne Katalog-Eintrag
+ * — der Nachfass-Text einer Liste wäre der Kandidat, dessen Editor prüft heute
+ * aber gar nicht. Er steht bewusst offen, weil die globale Prüfung für so einen
+ * Text die einzig mögliche ist: Ohne Schlüssel gibt es kein Platzhalter-Set.
+ */
+export function validateTemplate(template: string, key?: TemplateKey): TemplateIssues {
+  const allowed = key ? new Set<string>(TEMPLATE_META[key].placeholders) : null;
   const unknown = new Set<string>();
+  const unsupported = new Set<string>();
   for (const match of template.matchAll(TOKEN_RE)) {
-    const token = match[1].toLowerCase();
-    if (!(PLACEHOLDERS as readonly string[]).includes(token)) unknown.add(match[1]);
+    const raw = match[1];
+    // „{}" ist keine Absicht, sondern eine Klammer im Fließtext.
+    if (!raw.trim()) continue;
+    const token = raw.toLowerCase();
+    if (!(PLACEHOLDERS as readonly string[]).includes(token)) unknown.add(raw);
+    else if (allowed && !allowed.has(token)) unsupported.add(token);
   }
-  return { unknownTokens: [...unknown] };
+  return { unknownTokens: [...unknown], unsupportedTokens: [...unsupported] };
+}
+
+/**
+ * Der Beispiel-Lead der Editor-Vorschau. Fest verdrahtet und VOLLSTÄNDIG
+ * gefüllt: Die Vorschau soll zeigen, wie der Text beim Lead aussieht — was
+ * ohne Wert passiert, sagt die Warnung am Feld. Ein halb leeres Beispiel ließe
+ * beides ununterscheidbar aussehen.
+ *
+ * 17.07. ist ein Donnerstag, die Uhrzeit steht in Berliner Wandzeit (14:00 =
+ * 12:00 UTC im Sommer) — die Beschriftung über der Vorschau (PREVIEW_LABEL)
+ * nennt beides wörtlich.
+ */
+export const PREVIEW_EXAMPLE: TemplateContext = {
+  leadName: "Max Meier",
+  company: "Muster GmbH",
+  appointmentAtIso: "2025-07-17T12:00:00.000Z",
+  link: "https://meet.example.com/abc-defg-hij",
+  anlass: "vielleicht passt der Zeitpunkt inzwischen besser",
+  notiz: "Budget",
+  kanal: "LinkedIn",
+  absender: "Simon",
+};
+
+/**
+ * Die Beschriftung über der Vorschau — hier und nicht in der Karte, weil sie
+ * PREVIEW_EXAMPLE wörtlich zitiert: Wer den Beispiel-Lead ändert und die
+ * Beschriftung vergisst, behauptet über der Vorschau einen Namen, der darin
+ * nicht vorkommt. Nebeneinander liegend hält ein Test beide zusammen
+ * (tests/messageTemplates.test.ts).
+ *
+ * Beide Hälften tragen: „Wirkt bei dir" sagt, dass hier der Text der
+ * GEWINNENDEN Ebene steht (das Badge daneben nennt welche) — nicht zwingend
+ * der eigene Entwurf; der Rest nennt die Beispielwerte, damit niemand die
+ * erfundenen Daten für echte hält. Ohne die erste Hälfte hing die ganze
+ * Information am Badge.
+ */
+export const PREVIEW_LABEL = "Wirkt bei dir — Beispiel: Max Meier, Muster GmbH, Do 17.07., 14:00";
+
+/**
+ * Übersetzt den einen Datenbankfehler, den der Vorlagen-Editor im Alltag
+ * auslösen kann. Der Schreibpfad liest erst und schreibt dann — die beiden
+ * Unique-Indizes aus Migration 0031 sind PARTIELL, ein `upsert` fände keinen
+ * Arbiter. Zwischen Lesen und Schreiben kann eine zweite Sitzung dieselbe
+ * Vorlage anlegen; Postgres wirft dann 23505, und ohne Übersetzung stand
+ * „duplicate key value violates unique constraint uq_message_templates_org"
+ * als Feldfehler unter dem Textfeld.
+ *
+ * Alles andere bleibt wörtlich stehen: Eine erfundene Übersetzung ließe
+ * RLS-Verweigerung und fehlende Migration gleich aussehen.
+ */
+export function templateWriteErrorMessage(error: { code?: string | null; message: string }): string {
+  if (error.code === "23505") {
+    return "Diese Vorlage wurde gerade an anderer Stelle gespeichert. Lade die Seite neu — dann steht der aktuelle Text im Feld und du kannst deine Änderung noch einmal eintragen.";
+  }
+  return error.message;
 }
 
 /* ------------------------------------------------------------------ *
@@ -448,6 +623,22 @@ function usable(text: TemplateText | undefined): TemplateText | null {
 }
 
 /**
+ * Der Betreff läuft SEPARAT durch dieselbe Kette — und das ist kein Detail:
+ * Der Editor hat für den Betreff bis heute gar kein Feld, eine persönliche
+ * Mail-Vorlage ohne Betreff ist also der Normalfall. Hing der Betreff am
+ * Fundort des Textes, verlor genau dieser Normalfall den Betreff der Ebene
+ * darunter, und die Mail ginge betrefflos raus. Heute folgenlos (die Mail-Spur
+ * ist abgeschaltet), beim Aktivieren von Phase 2 nicht mehr.
+ */
+function resolveSubject(key: TemplateKey, bundle: TemplateBundle | null | undefined): string | null {
+  for (const candidate of [bundle?.own?.[key]?.subject, bundle?.org?.[key]?.subject, TEMPLATE_DEFAULTS[key].subject]) {
+    const trimmed = candidate?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+/**
  * Vorrangkette — genau eine Implementierung für die ganze App:
  *
  *   1. Text der Liste   (nur linkedin_fu_1..3, siehe unten)
@@ -466,18 +657,21 @@ export function resolveTemplate(
   bundle: TemplateBundle | null | undefined,
   listText?: string | null,
 ): ResolvedTemplate {
+  // `source` beschreibt den TEXT — er trägt die Nachricht und steht als Badge
+  // im Editor. Der Betreff kommt unabhängig davon (resolveSubject).
+  const subject = resolveSubject(key, bundle);
+
   if (LIST_SCOPED_KEYS.includes(key) && listText?.trim()) {
-    return { body: listText.trim(), subject: null, source: "liste" };
+    return { body: listText.trim(), subject, source: "liste" };
   }
 
   const own = usable(bundle?.own?.[key]);
-  if (own) return { body: own.body, subject: own.subject ?? null, source: "persoenlich" };
+  if (own) return { body: own.body, subject, source: "persoenlich" };
 
   const org = usable(bundle?.org?.[key]);
-  if (org) return { body: org.body, subject: org.subject ?? null, source: "organisation" };
+  if (org) return { body: org.body, subject, source: "organisation" };
 
-  const fallback = TEMPLATE_DEFAULTS[key];
-  return { body: fallback.body, subject: fallback.subject ?? null, source: "auslieferung" };
+  return { body: TEMPLATE_DEFAULTS[key].body, subject, source: "auslieferung" };
 }
 
 /** Auflösen und in einem Schritt rendern — der Normalfall in den Boards. */

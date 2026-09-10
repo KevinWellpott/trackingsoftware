@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
 import { generateSettingCascade } from "@/app/actions/reminders";
+import { SELECTABLE_CHANNELS } from "@/lib/channels";
 import { reviveBlockedReason, type DropoutAppointmentEntity } from "@/lib/dropoutLists";
 
 // „Zurückholen" aus der Ablage (Entscheidung K10).
@@ -35,6 +36,27 @@ const TABLE_BY_ENTITY: Record<DropoutAppointmentEntity, string> = {
 
 function isAppointmentEntity(value: unknown): value is DropoutAppointmentEntity {
   return value === "setting" || value === "closing";
+}
+
+const SELECTABLE_SOURCE_KEYS = new Set<string>(SELECTABLE_CHANNELS.map((c) => c.key));
+
+/**
+ * Die Herkunft des Vorgängers, aber nur, wenn sie heute noch vergeben wird.
+ *
+ * Die Altwerte ('manuell', 'inbound', 'website') stehen weiter im CHECK der
+ * Tabelle — sonst ließe sich kein alter Termin mehr bearbeiten —, dürfen aber
+ * NEU nicht mehr entstehen. Eine Rückholung legt eine neue Zeile an; ungefiltert
+ * geerbt wüchse damit genau die Restkategorie weiter, die aus dem Funnel
+ * verschwinden soll. `null` ist der ehrlichere Wert: Die Spalte darf leer sein,
+ * und „Sonstige" zu raten erfände eine Herkunft, die niemand erfasst hat.
+ *
+ * Dieselbe Regel wie `normalizeSource` in actions/appointments.ts; beide lesen
+ * die Kanal-Registry als einzige Quelle, statt die Schlüssel abzuschreiben.
+ * Eine gemeinsame Funktion geht nicht: Eine „use server"-Datei darf nur
+ * asynchrone Funktionen exportieren.
+ */
+function inheritableSource(value: string | null | undefined): string | null {
+  return value && SELECTABLE_SOURCE_KEYS.has(value) ? value : null;
 }
 
 /** Termin-Art des neuen Anlaufs; `null`/fehlend = die des Vorgängers übernehmen. */
@@ -84,7 +106,10 @@ const CLOSING_COLUMNS =
  *
  * ÜBERNOMMEN wird nur, was den Lead beschreibt: Name, Firma, Herkunft
  * (`source_type`/`source_detail` und die Verweise auf Quellkontakt bzw.
- * Telefon-Lead), die zuständige Person und der Kontaktweg.
+ * Telefon-Lead), die zuständige Person und der Kontaktweg. Der Kanal läuft dabei
+ * durch `inheritableSource()`: Ein Altwert wird nicht weitergereicht, sonst
+ * entstünde beim Zurückholen eine NEUE Zeile mit einem Wert, den kein Formular
+ * mehr vergibt. Der Freitext daneben bleibt — er trägt den echten Ursprung.
  *
  * BEWUSST NICHT übernommen:
  *  · `reschedule_count` und `no_show_count` — der neue Anlauf startet bei 0
@@ -113,7 +138,10 @@ export async function reviveDropout(
   const access = await getAccessContext();
   if (!access) return { error: "Nicht angemeldet." };
   if (!isAppointmentEntity(entity)) {
-    return { error: "Nur Termine lassen sich zurückholen." };
+    // Wortgleich zum ersten Riegel in `reviveBlockedReason` — dieselbe Ursache
+    // darf nicht zwei Sätze haben, nur weil sie einmal am Knopf und einmal in
+    // der Action auffällt.
+    return { error: "Nur für Termine lässt sich ein neuer ansetzen — ein Lead bekommt seinen Termin aus seiner Liste heraus." };
   }
 
   // Berlin-Wandzeit aus dem Formular; die Spalte will echtes UTC (docs §6).
@@ -198,7 +226,10 @@ export async function reviveDropout(
     .select("id");
   if (claimError) return { error: claimError.message };
   if (!claimed || claimed.length === 0) {
-    return { error: "Bereits zurückgeholt — der neue Termin steht schon." };
+    // „Inzwischen" steht bewusst davor: Beim Öffnen des Dialogs war der Knopf
+    // noch da, jemand anders war schneller. Der Kartensatz nennt denselben
+    // Zustand ohne dieses Wort, und genau der Unterschied ist die Auskunft.
+    return { error: "Inzwischen steht der neue Termin bereits." };
   }
 
   const { data: created, error: insertError } = await supabase
@@ -215,7 +246,7 @@ export async function reviveDropout(
       // über die Org-Grenze zeigte.
       assigned_user_id:
         row.assigned_user_id ?? parent?.assigned_user_id ?? (access.is_foreign_org ? null : access.user.id),
-      source_type: row.source_type ?? parent?.source_type ?? null,
+      source_type: inheritableSource(row.source_type ?? parent?.source_type),
       source_detail: row.source_detail ?? parent?.source_detail ?? null,
       source_contact_id: row.source_contact_id ?? parent?.source_contact_id ?? null,
       source_phone_lead_id: row.source_phone_lead_id ?? parent?.source_phone_lead_id ?? null,

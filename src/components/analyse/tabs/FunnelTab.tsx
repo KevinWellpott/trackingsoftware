@@ -7,11 +7,11 @@ import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { loadClosingCalls, loadSettingCalls } from "@/lib/analyseData";
 import {
-  NUM, buildBuckets, bucketOf, closingEffDate, eur, fmtPct, ownerKey, pct, settingEffDate,
+  NUM, buildBuckets, bucketOf, channelKeyOf, closingEffDate, eur, fmtPct, ownerKey, pct, settingEffDate,
   type FunnelModus, type Granularity, type QuelleKey,
 } from "@/lib/analyse";
 import { berlinDateISO } from "@/lib/apptTime";
-import { CHANNELS, channelLabel, channelOf, type ChannelKey } from "@/lib/channels";
+import { CHANNELS, channelLabel } from "@/lib/channels";
 import { dropoutReasonLabel } from "@/lib/dropoutLists";
 import { personOf } from "@/lib/personResolution";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
@@ -198,11 +198,6 @@ const ZERO = (): Person => ({
  */
 function isQualified(r: { show_status: "show" | "no_show" | null; status: string }): boolean {
   return r.show_status === "show" && (r.status === "qualifiziert" || r.status === "closing_gelegt");
-}
-
-/** DB-Wert → Registry-Schlüssel; Unbekanntes/Leeres landet unter „sonstige". */
-function channelKeyOf(sourceType: string | null | undefined): ChannelKey {
-  return channelOf(sourceType)?.key ?? "sonstige";
 }
 
 /** Eine Zeile der Quellen-Tabelle: Freitext-Ursprung, sonst Kanal. */

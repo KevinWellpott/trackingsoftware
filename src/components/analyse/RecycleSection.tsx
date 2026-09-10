@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import type { AnalyseRecycleRow, RecycleData, RecycleOriginKey } from "@/lib/analyseData";
-import { fmtPct, ownerKey, pct } from "@/lib/analyse";
+import { fmtPct, isRecycleCandidate, listOwnerMatches, ownerKey, pct } from "@/lib/analyse";
 import { berlinDateISO } from "@/lib/apptTime";
 import { dropoutReasonLabel } from "@/lib/dropoutLists";
 import { personOf } from "@/lib/personResolution";
@@ -55,7 +55,7 @@ const ORIGIN_ORDER: readonly RecycleOriginKey[] = ["linkedin", "telefon", "setti
 const ORIGIN_LABELS: Record<RecycleOriginKey, string> = {
   linkedin: "LinkedIn",
   telefon: "Telefon",
-  setting: "Erstgespräch",
+  setting: "Setting",
   closing: "Closing",
 };
 
@@ -123,10 +123,18 @@ export function RecycleSection({
    * Telefon hängen am Owner ihrer Liste, die beiden Termin-Ursprünge an
    * `personOf()`. Ohne aktiven Filter zählt alles mit — auch Zeilen, deren
    * Person sich nicht mehr auflösen lässt.
+   *
+   * Bei den beiden Listen-Ursprüngen trägt `listOwnerMatches` die volle Kette
+   * `owner_name` → Ersteller der Liste. Hier stand lange nur der Namensteil,
+   * und `ownerKey(null)` ergibt "" — eine Liste ohne Besitzernamen traf damit
+   * keine Auswahl und verschwand bei aktivem Personenfilter aus der ganzen
+   * Sektion, statt bei ihrem Ersteller zu zählen.
    */
   const inScope = (r: AnalyseRecycleRow): boolean => {
     if (allSelected) return true;
-    if (r.origin === "linkedin" || r.origin === "telefon") return selectedOwners.has(ownerKey(r.owner_name));
+    if (r.origin === "linkedin" || r.origin === "telefon") {
+      return listOwnerMatches(r, selectedOwners, selectedIds);
+    }
     const uid = personOf(r);
     return uid !== null && selectedIds.has(uid);
   };
@@ -136,7 +144,15 @@ export function RecycleSection({
   const attemptDist = [0, 0, 0];
   const total = ZERO();
   let excludedInRange = 0;
-  /** Zustand von HEUTE, keine Zeitraum-Zahl — die Meta-Zeile sagt das. */
+  /**
+   * Zustand von HEUTE, keine Zeitraum-Zahl — die Meta-Zeile sagt das.
+   *
+   * Gezählt wird nur, was `recycle_tasks` auch ausgeben WÜRDE (docs §5): Kein
+   * Rückkehrpfad räumt `next_recycle_at` ab, das Feld allein steht deshalb auch
+   * an einem gewonnenen Closing und an einem Telefon-Lead, der längst einen
+   * Termin hat. Ohne den Status-Riegel behauptet die Kachel eine Warteschlange,
+   * die im Board /nachfassen gar nicht auftaucht.
+   */
   let waiting = 0;
   /** Ältester Versuch überhaupt: der Anker gegen die Deploy-Datum-Falle. */
   let firstContact: string | null = null;
@@ -147,7 +163,7 @@ export function RecycleSection({
     }
     if (!inScope(r)) continue;
 
-    if (r.next_recycle_at) waiting += 1;
+    if (r.next_recycle_at && isRecycleCandidate(r)) waiting += 1;
     if (r.excluded_at) {
       const day = berlinDateISO(r.excluded_at);
       if (day >= from && day <= to) excludedInRange += 1;
@@ -198,12 +214,17 @@ export function RecycleSection({
   // Telefon-Tab (Anruf-Log, Migration 0028).
   const startDay = firstContact ? berlinDateISO(firstContact) : null;
   const covers = data.available && startDay !== null && startDay <= to;
+  // Der Anker gilt nur den VERSUCHEN. Stehen daneben Sperren, sagt die Fußnote
+  // das dazu — sonst liest sich „kein Versuch protokolliert" wie „hier ist
+  // nichts passiert", während die Kachel eine Zahl zeigt.
+  const sperrenHinweis =
+    excludedInRange > 0 ? " Gesperrte Vorgänge zählen trotzdem — sie hängen an ihrem eigenen Datum." : "";
   const note = !data.available
     ? "Die Recycling-Daten ließen sich nicht laden — die leere Anzeige heißt hier nicht „kein Recycling“, sondern „keine Daten“. Migration 0033 im SQL-Editor prüfen."
     : startDay === null
-      ? "Bisher wurde kein einziger Recycling-Versuch protokolliert. Die Felder dafür gibt es erst seit dem Umbau, und es gibt bewusst keinen Backfill — „0“ hieße hier „gab es damals noch nicht“."
+      ? `Bisher wurde kein einziger Recycling-Versuch protokolliert. Die Felder dafür gibt es erst seit dem Umbau, und es gibt bewusst keinen Backfill — „0“ hieße hier „gab es damals noch nicht“.${sperrenHinweis}`
       : !covers
-        ? `Der erste Recycling-Versuch stammt vom ${deDate(startDay)}; dieser Zeitraum liegt davor.`
+        ? `Der erste Recycling-Versuch stammt vom ${deDate(startDay)}; dieser Zeitraum liegt davor.${sperrenHinweis}`
         : startDay > from
           ? `Recycling-Versuche sind erst ab dem ${deDate(startDay)} protokolliert — für die Tage davor steht im Nenner zwangsläufig nichts.`
           : null;
@@ -261,15 +282,28 @@ export function RecycleSection({
     ? "Im Zeitraum wurde kein toter Lead erneut angesprochen."
     : "Für diesen Zeitraum gibt es noch keine Recycling-Daten.";
 
+  // Dieselbe Trennung wie bei der Kachel „Gesperrt": Nur der linke Teil hängt
+  // an `covers`, weil nur er aus den VERSUCHEN kommt. Die Warteschlange ist der
+  // Stand von heute — genau das sagt der Infotext —, und sie steht schon am
+  // ersten Tag, an dem ein Closing verloren geht, während der erste Versuch
+  // frühestens Wochen später fällig wird. An `covers` gehängt wäre sie
+  // ausgerechnet dann unsichtbar, wenn sie als einzige Zahl etwas zu sagen hat.
+  const meta = [
+    covers
+      ? `${fmtPct(rate)} von ${INT.format(total.contacted)} Versuchen`
+      : "noch keine Recycling-Versuche",
+    // Ohne geladene Daten bleibt der Teil weg, statt eine leere Warteschlange
+    // zu behaupten.
+    data.available ? `${INT.format(waiting)} warten aktuell` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+
   return (
     <AnalyseSection
       title="Lohnt das Recycling?"
       icon={RefreshCw}
-      meta={
-        covers
-          ? `${fmtPct(rate)} von ${INT.format(total.contacted)} Versuchen · ${INT.format(waiting)} warten aktuell`
-          : "noch keine Recycling-Versuche"
-      }
+      meta={meta}
       collapsible
       defaultOpen={false}
       info={
@@ -320,7 +354,16 @@ export function RecycleSection({
               label: "Am Deckel",
               value: covers && data.maxAttempts !== null ? INT.format(total.atCap) : "—",
             },
-            { label: "Gesperrt", value: covers ? INT.format(excludedInRange) : "—" },
+            {
+              // NICHT an `covers` gehängt: Der Datenlage-Anker kommt aus dem
+              // ersten VERSUCH, eine Sperre entsteht aber ohne jeden Versuch —
+              // bei `keine_zusammenarbeit` setzt die App sie sofort, während
+              // ein erster Versuch frühestens nach Wochen fällig wird. Bis
+              // dahin stand hier „—", obwohl korrekt gezählt wurde. Die Sperre
+              // zählt ohnehin auf ihrer eigenen Zeitachse (docs §5).
+              label: "Gesperrt",
+              value: data.available ? INT.format(excludedInRange) : "—",
+            },
           ]}
         />
 
