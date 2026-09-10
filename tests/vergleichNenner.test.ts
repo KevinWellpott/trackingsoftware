@@ -21,7 +21,12 @@ import { describe, test } from "node:test";
 
 import { METRICS, metricOf, metricSources } from "@/lib/compare/metrics";
 
-const FACTS = readFileSync(fileURLToPath(new URL("../src/lib/compare/facts.ts", import.meta.url)), "utf8");
+// Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
+// unter Windows mit CRLF ab; Anker mit `\n` fänden sie sonst nicht.
+const FACTS = readFileSync(fileURLToPath(new URL("../src/lib/compare/facts.ts", import.meta.url)), "utf8").replace(
+  /\r\n/g,
+  "\n",
+);
 
 describe("Show-Quote Closing — derselbe Nenner wie im Closing-Tab", () => {
   test("die abgesagten Termine stehen nicht mehr im Nenner", () => {

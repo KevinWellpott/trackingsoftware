@@ -19,18 +19,21 @@ import {
   Clock,
   Download,
   GitCompare,
+  Inbox,
   LineChart,
   LogOut,
   Phone,
+  PieChart,
   Plus,
   Settings,
   ShieldCheck,
   Users,
+  Wrench,
   X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState, useSyncExternalStore } from "react";
 import { AnchoredPopover, useAnchor } from "@/components/ui/AnchoredPopover";
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { ownerInitials } from "@/lib/ownerColor";
@@ -50,8 +53,147 @@ import { ownerInitials } from "@/lib/ownerColor";
 // globals.css, kein neuer — und er kommt nur an einer Stelle vor, an der eine
 // Zahl steht.
 
+// GLIEDERUNG (Rueckmeldung aus dem ersten produktiven Tag: „super unsortiert").
+// Vorher lagen rund zwanzig Zeilen auf EINER Ebene — Dashboard, Analyse,
+// Vergleich, Termine, drei Aufgaben-Seiten, zwei Listen-Abschnitte, Export,
+// Einstellungen, Admin. Jetzt tragen sie fuenf benannte, aufklappbare Bloecke,
+// geschnitten nach dem Arbeitstag und nicht nach dem Datenmodell:
+//
+//   (ohne Block)  Suche · Dashboard · Termin buchen  — Einstieg, kein Thema
+//   Meine Arbeit  Termine · Erinnerungen · Nachfassen · Ablage
+//   LinkedIn      Pitch-Listen + Ansichten
+//   Telefon       Telefonlisten
+//   Auswertung    Team · Analyse · Vergleich
+//   Verwaltung    Export · Einstellungen · Organisationen (zugeklappt vorbelegt)
+//
+// „Meine Arbeit" fasst bewusst die drei Nachfass-Mechanismen zusammen, die man
+// sonst verwechselt (docs/data-model.md §1): /nachfassen = was ist heute
+// faellig, /erinnerungen = was steht in den naechsten Stunden an, /ablage = was
+// ist herausgefallen. Sie beantworten dieselbe Frage auf drei Zeitkoernungen —
+// getrennt in der Navigation waeren sie drei unabhaengige Werkzeuge.
+
 /** Ab wie vielen Listen die Sidebar auf die Uebersichtsseite verweist. */
 const SIDEBAR_LIST_CAP = 7;
+
+/**
+ * Liegt `pathname` auf `href` oder darunter? Die eine Aktiv-Regel der Datei —
+ * `NavLink` faerbt danach seine Zeile, die Bloecke entscheiden danach, ob die
+ * geoeffnete Seite in ihnen steckt. Zwei Fassungen davon liefen frueher oder
+ * spaeter auseinander, und dann faerbte eine Zeile aktiv, deren Block sich
+ * zuklappen liess.
+ */
+function matchesHref(pathname: string, href: string, exact = false): boolean {
+  if (exact) return pathname === href;
+  return pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
+}
+
+/** Steckt die geoeffnete Seite in einem dieser Zweige? */
+function containsActive(pathname: string, hrefs: readonly string[]): boolean {
+  return hrefs.some((h) => matchesHref(pathname, h));
+}
+
+// Welche Routen zu welchem Block gehoeren. Praefixe, keine exakten Adressen:
+// /lists/<id>, /ansicht/<id> und /analyse/vergleich sollen ihren Block genauso
+// aufgeklappt halten wie die Uebersichtsseite darueber.
+const ARBEIT_HREFS = ["/termine", "/erinnerungen", "/nachfassen", "/ablage"] as const;
+const LINKEDIN_HREFS = ["/listen", "/lists", "/ansicht"] as const;
+const TELEFON_HREFS = ["/telefon"] as const;
+const AUSWERTUNG_HREFS = ["/team", "/analyse"] as const;
+const VERWALTUNG_HREFS = ["/export", "/settings", "/admin"] as const;
+
+/**
+ * Mehrere Zaehler zu einem zusammenfassen — fuer das Abzeichen am zugeklappten
+ * Block und fuer den Punkt am mobilen Menue-Knopf.
+ *
+ * `null` bleibt `null`, solange KEIN Zweig eine Zahl hat: „nicht ermittelbar"
+ * darf nicht als beruhigende 0 durchgehen (lib/navCounts.ts). Liefert nur ein
+ * Teil der Zweige eine Zahl, wird diese Summe gezeigt — eine Teilzahl ist hier
+ * besser als gar keine Nachricht, denn die Einzelzeilen darunter sagen ohnehin,
+ * welcher Zweig schweigt.
+ */
+export function sumNavCounts(counts: (NavCount | null | undefined)[]): NavCount | null {
+  let total = 0;
+  let overdue = 0;
+  let known = false;
+  for (const c of counts) {
+    if (!c) continue;
+    known = true;
+    total += c.total;
+    overdue += c.overdue;
+  }
+  return known ? { total, overdue } : null;
+}
+
+// ── Aufklapp-Zustand der Bloecke ───────────────────────────────────────────
+// Er gehoert NICHT in die URL (er aendert keine Zahl, nur die Ansicht) und muss
+// trotzdem den Seitenwechsel ueberleben — sonst klappt man bei jedem Klick neu
+// auf, und die Gliederung waere schlimmer als keine. Dieselbe Mechanik wie die
+// Filterleiste des Analyse-Bereichs (AnalyseFilterBar.tsx): ein externer Store
+// mit `useSyncExternalStore`, Server-Snapshot = Vorgabewert, danach zieht React
+// den echten Wert nach — ohne Hydrations-Konflikt und ohne die zweite
+// Render-Runde eines `useEffect`+`setState`-Paars.
+//
+// EIN Schluessel fuer alle Bloecke statt fuenf: ein Schreibvorgang, ein Event —
+// und auf Mobil stehen Desktop-Leiste und Drawer gleichzeitig im DOM, beide
+// haengen so an derselben Wahrheit.
+const SECTION_KEY = "sidebar:sections-open";
+const SECTION_EVENT = "sidebar:sections-open-change";
+
+/** Fallback, wenn localStorage blockiert ist (Private Mode) — dann eben nur fuer diese Sitzung. */
+let sectionCache: Record<string, boolean> | null = null;
+
+function readSections(): Record<string, boolean> {
+  if (sectionCache) return sectionCache;
+  const parsed: Record<string, boolean> = {};
+  try {
+    const raw = localStorage.getItem(SECTION_KEY);
+    if (raw) {
+      const obj: unknown = JSON.parse(raw);
+      if (obj && typeof obj === "object") {
+        for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+          if (typeof v === "boolean") parsed[k] = v;
+        }
+      }
+    }
+  } catch {
+    /* blockiert oder kaputter Wert: Vorgabewerte, keine Ausnahme */
+  }
+  sectionCache = parsed;
+  return parsed;
+}
+
+function subscribeSections(onChange: () => void) {
+  // "storage" deckt andere Tabs ab (deren Schreibvorgang unser Abbild
+  // entwertet), das eigene Event diesen hier.
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== null && e.key !== SECTION_KEY) return;
+    sectionCache = null;
+    onChange();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(SECTION_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(SECTION_EVENT, onChange);
+  };
+}
+
+/** Der gespeicherte Zustand EINES Blocks; ohne Eintrag gilt seine Vorbelegung. */
+function readSectionOpen(id: string, fallback: boolean): boolean {
+  const v = readSections()[id];
+  return typeof v === "boolean" ? v : fallback;
+}
+
+function writeSectionOpen(id: string, next: boolean): void {
+  const state = { ...readSections(), [id]: next };
+  sectionCache = state;
+  try {
+    localStorage.setItem(SECTION_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new Event(SECTION_EVENT));
+}
 
 type SidebarList = { id: string; name: string; owner_name: string | null };
 type SidebarPhoneList = {
@@ -150,9 +292,7 @@ function NavLink({
 }) {
   const pathname = usePathname();
   // Aktiv auch auf Unterseiten (/setting/abc → „Setting"); "/" nur exakt.
-  const isActive = exact
-    ? pathname === href
-    : pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
+  const isActive = matchesHref(pathname, href, exact);
   const shows = Boolean(count && count.total > 0);
   const overdue = Boolean(count && count.overdue > 0);
   const noun = count && count.total === 1 ? (countLabel?.[0] ?? "Eintrag") : (countLabel?.[1] ?? "Einträge");
@@ -630,18 +770,49 @@ function ContextReset({
   );
 }
 
-/** Einklappbarer Abschnitt: Eyebrow-Kopf + optionale Aktion rechts. */
+/**
+ * Einklappbarer Block: Eyebrow-Kopf + optionale Aktion rechts.
+ *
+ * Drei Eigenschaften, ohne die eine Gliederung mehr kostet als sie bringt:
+ *
+ *  1. WAS AKTIV IST, BLEIBT SICHTBAR. Steckt die geoeffnete Seite im Block
+ *     (`hasActive`), bleibt er aufgeklappt und sein Schalter ist gesperrt —
+ *     sichtbar gesperrt (`aria-disabled`, eigener Tooltip), nicht wirkungslos.
+ *     Ein Klick, der nichts tut, ist schlimmer als einer, der fehlt. Steht der
+ *     Block nur deswegen offen, faerbt sich sein Titel orange: „hier bist du"
+ *     ist die einzige Bedeutung von Orange in dieser Datei.
+ *  2. DER ZAEHLER UEBERLEBT DAS ZUKLAPPEN. Zugeklappt traegt der Kopf die
+ *     Summe der Zaehler seiner Zeilen — im selben Ueberfaellig-Ton. Ein
+ *     Abzeichen, das man nur nach dem Aufklappen sieht, ist keine Nachricht.
+ *     Aufgeklappt entfaellt es: daneben stehen dann die Einzelzahlen.
+ *  3. DER ZUSTAND UEBERLEBT DEN SEITENWECHSEL (siehe SECTION_KEY oben).
+ */
 function CollapsibleSection({
+  id,
   icon,
   label,
+  defaultOpen = true,
+  hasActive = false,
+  count,
+  countLabel,
   action,
   headerHref,
   headerHrefTitle,
   onHeaderNavigate,
   children,
 }: {
+  /** Schluessel des gespeicherten Aufklapp-Zustands — stabil halten. */
+  id: string;
   icon: React.ReactNode;
   label: string;
+  /** Vorbelegung, solange niemand den Block angefasst hat. */
+  defaultOpen?: boolean;
+  /** Steckt die geoeffnete Seite in diesem Block? Dann bleibt er offen. */
+  hasActive?: boolean;
+  /** Summe der Zaehler dieses Blocks; `null` = nicht ermittelbar (kein Abzeichen). */
+  count?: NavCount | null;
+  /** Was gezaehlt wird, als [Einzahl, Mehrzahl] — fuer den Tooltip. */
+  countLabel?: [singular: string, plural: string];
   action?: (ctx: { open: boolean; setOpen: (open: boolean) => void }) => React.ReactNode;
   /** Optionales Ziel hinter dem Abschnitts-Titel (z. B. LinkedIn → /listen). */
   headerHref?: string;
@@ -649,25 +820,55 @@ function CollapsibleSection({
   onHeaderNavigate?: () => void;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(true);
+  const stored = useSyncExternalStore(
+    subscribeSections,
+    useCallback(() => readSectionOpen(id, defaultOpen), [id, defaultOpen]),
+    // Auf dem Server gibt es kein localStorage — dort gilt die Vorbelegung.
+    useCallback(() => defaultOpen, [defaultOpen]),
+  );
+  const open = stored || hasActive;
+  /** Offen, obwohl zugeklappt gespeichert — der Grund steht auf dem Bildschirm. */
+  const forcedOpen = hasActive && !stored;
   const Chevron = open ? ChevronDown : ChevronRight;
+
+  const badge = !open && count && count.total > 0 ? count : null;
+  const noun = badge && badge.total === 1 ? (countLabel?.[0] ?? "Eintrag") : (countLabel?.[1] ?? "Einträge");
+  const badgeTitle = badge
+    ? `${badge.total} ${noun}${badge.overdue > 0 ? `, davon ${badge.overdue} überfällig` : ""}`
+    : null;
+
+  const toggleTitle = hasActive
+    ? `${label} enthält die geöffnete Seite und bleibt aufgeklappt`
+    : open
+      ? `${label} einklappen`
+      : `${label} ausklappen`;
+  const titleClass = forcedOpen ? "eyebrow" : "eyebrow eyebrow-muted";
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-6) var(--sp-3) var(--sp-3)" }}>
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            // Anforderung: ein zugeklappter Block, in dem die aktuelle Seite
+            // steckt, ist ein Fehler. Also gar nicht erst zulassen.
+            if (!hasActive) writeSectionOpen(id, !open);
+          }}
           aria-expanded={open}
-          title={open ? `${label} einklappen` : `${label} ausklappen`}
+          // Kein `disabled`: ein deaktivierter Knopf nimmt in mehreren Browsern
+          // auch die Maus-Ereignisse mit — und damit den Tooltip, der die
+          // einzige Erklaerung dafuer ist, warum er nicht reagiert.
+          aria-disabled={hasActive || undefined}
+          title={toggleTitle}
           style={{
             display: "flex",
             alignItems: "center",
             gap: "var(--sp-3)",
             background: "none",
             border: "none",
-            cursor: "pointer",
+            cursor: hasActive ? "default" : "pointer",
             padding: "0 var(--sp-2)",
-            color: "var(--text-muted)",
+            color: forcedOpen ? "var(--orange-300)" : "var(--text-muted)",
             flexShrink: 0,
           }}
         >
@@ -682,7 +883,7 @@ function CollapsibleSection({
             href={headerHref}
             onClick={onHeaderNavigate}
             title={headerHrefTitle ?? label}
-            className="eyebrow eyebrow-muted"
+            className={titleClass}
             style={{
               flex: 1,
               minWidth: 0,
@@ -696,7 +897,7 @@ function CollapsibleSection({
           </Link>
         ) : (
           <span
-            className="eyebrow eyebrow-muted"
+            className={titleClass}
             style={{
               flex: 1,
               minWidth: 0,
@@ -708,7 +909,18 @@ function CollapsibleSection({
             {label}
           </span>
         )}
-        {action?.({ open, setOpen })}
+        {badge && (
+          <span
+            className="count-pill"
+            data-tone={badge.overdue > 0 ? "overdue" : undefined}
+            style={{ flexShrink: 0 }}
+            title={badgeTitle ?? undefined}
+            aria-label={badgeTitle ?? undefined}
+          >
+            {badge.total}
+          </span>
+        )}
+        {action?.({ open, setOpen: (next) => writeSectionOpen(id, next) })}
       </div>
       {open && <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>{children}</div>}
     </div>
@@ -788,6 +1000,16 @@ export function SidebarContent({
   const [showNewList, setShowNewList] = useState(false);
   const [showManualAppt, setShowManualAppt] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  // Das Abzeichen am zugeklappten Block „Meine Arbeit". Die Einzelzahlen
+  // stehen weiter an ihren Zeilen; diese Summe erscheint NUR zugeklappt und
+  // beantwortet dort die einzige Frage, die von aussen zaehlt: „liegt da
+  // etwas, und ist etwas davon zu spaet?"
+  const arbeitCount = sumNavCounts([
+    navCounts?.erinnerungen,
+    navCounts?.nachfassen,
+    navCounts?.ablage,
+  ]);
 
   const isImpersonating = Boolean(dataView?.activeUserId);
   const teamUsers = (dataView?.users ?? []).filter((u) => u.username !== username);
@@ -975,58 +1197,11 @@ export function SidebarContent({
       >
         {/* Suche ueber ALLE Listen — ein Name muss nicht mehr in drei, vier
             Listen einzeln gesucht werden. */}
+        {/* Ohne Block: Suche, Heimweg und die eine Anlege-Aktion. Sie gehoeren
+            zu keinem Thema, sondern sind der Einstieg — und duerfen deshalb
+            nie hinter einer Aufklappung liegen. */}
         <SearchTrigger onNavigate={onClose} />
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
-        {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
-        {/* „Analyse" bewusst exakt: /analyse/vergleich hat eine eigene Zeile,
-            sonst leuchteten dort beide gleichzeitig aktiv. */}
-        <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} exact />
-        <NavLink href="/analyse/vergleich" icon={GitCompare} label="Vergleich" onClick={onClose} />
-        <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
-        {/* Zwei bewusst getrennte Werkzeuge, deshalb beide sichtbar UND beide
-            mit erklaerendem Tooltip: "Erinnerungen" ist stundengenau (Termin
-            in 1h unbestaetigt), "Nachfassen" ist die taegliche Wiedervorlage.
-            Einzige Ueberschneidung: ein Closing im Status 'nachfassen' taucht
-            in BEIDEN auf (Tages-Eintrag hier + Uhrzeit-Touches dort) — dafuer
-            hat die Closing-Sektion in NachfassenBoard einen Querverweis. */}
-        <NavLink
-          href="/erinnerungen"
-          icon={BellRing}
-          label="Erinnerungen"
-          onClick={onClose}
-          title="Stundengenaue Termin-Bestätigung vor Setting/Closing/Nachfass-Kontakt"
-          // Gezaehlt wird, was HEUTE dran ist — nicht das ganze Sieben-Tage-
-          // Fenster der Seite. Ein Zaehler, der auch Uebermorgen mitzaehlt,
-          // geht nie auf null und mahnt an, was noch gar nicht faellig ist.
-          count={navCounts?.erinnerungen}
-          countLabel={["Erinnerung heute fällig", "Erinnerungen heute fällig"]}
-        />
-        <NavLink
-          href="/nachfassen"
-          icon={Clock}
-          label="Nachfassen"
-          onClick={onClose}
-          title="Tägliche Wiedervorlage: LinkedIn-Follow-ups, Telefon-Rückrufe, Setting/Closing"
-          count={navCounts?.nachfassen}
-          countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
-        />
-        {/* Die Gegenrichtung zu den beiden Zeilen darueber: dort steht, was
-            noch ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
-            Bereich verschwaende ein abgesagter oder verlorener Vorgang
-            lautlos; die Sperrliste darin ist die einzige Ansicht der App, die
-            die Datensicht bewusst ignoriert. */}
-        <NavLink
-          href="/ablage"
-          icon={Archive}
-          label="Ablage"
-          onClick={onClose}
-          title="Ausgeschiedene Vorgänge: abgesagt, disqualifiziert, kein Close, No-Show ohne Antwort — plus die org-weite Sperrliste"
-          // Bewusst NICHT die Summe aller sechs Listen: Fuenf davon sind ein
-          // Aktenschrank, der nie auf null geht. Gezaehlt wird die eine Liste
-          // mit offener Handlung (navCounts.ts).
-          count={navCounts?.ablage}
-          countLabel={ABLAGE_COUNT_LABEL}
-        />
 
         {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).
             Ghost-Akzent: die einzige Orange-Textaktion in der Navigation. */}
@@ -1053,10 +1228,75 @@ export function SidebarContent({
           onSaved={() => router.refresh()}
         />
 
+        {/* ── Meine Arbeit ── */}
+        {/* Der Kalender und die drei Nachfass-Mechanismen in EINEM Block: Sie
+            beantworten dieselbe Frage auf drei Zeitkoernungen (docs §1) und
+            werden genau deshalb staendig verwechselt. Nebeneinander erklaeren
+            sie sich gegenseitig; verstreut waeren es drei Werkzeuge, von denen
+            man zwei nie benutzt. Der Kopf traegt zugeklappt die Summe ihrer
+            Zaehler — sonst haenge die einzige Benachrichtigung der App an
+            einer Aufklappung. */}
+        <CollapsibleSection
+          id="arbeit"
+          icon={<Inbox size={13} />}
+          label="Meine Arbeit"
+          hasActive={containsActive(pathname, ARBEIT_HREFS)}
+          count={arbeitCount}
+          countLabel={["offene Aufgabe", "offene Aufgaben"]}
+        >
+          <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
+          {/* Zwei bewusst getrennte Werkzeuge, deshalb beide sichtbar UND beide
+              mit erklaerendem Tooltip: "Erinnerungen" ist stundengenau (Termin
+              in 1h unbestaetigt), "Nachfassen" ist die taegliche Wiedervorlage.
+              Einzige Ueberschneidung: ein Closing im Status 'nachfassen' taucht
+              in BEIDEN auf (Tages-Eintrag hier + Uhrzeit-Touches dort) — dafuer
+              hat die Closing-Sektion in NachfassenBoard einen Querverweis. */}
+          <NavLink
+            href="/erinnerungen"
+            icon={BellRing}
+            label="Erinnerungen"
+            onClick={onClose}
+            title="Stundengenaue Termin-Bestätigung vor Setting/Closing/Nachfass-Kontakt"
+            // Gezaehlt wird, was HEUTE dran ist — nicht das ganze Sieben-Tage-
+            // Fenster der Seite. Ein Zaehler, der auch Uebermorgen mitzaehlt,
+            // geht nie auf null und mahnt an, was noch gar nicht faellig ist.
+            count={navCounts?.erinnerungen}
+            countLabel={["Erinnerung heute fällig", "Erinnerungen heute fällig"]}
+          />
+          <NavLink
+            href="/nachfassen"
+            icon={Clock}
+            label="Nachfassen"
+            onClick={onClose}
+            title="Tägliche Wiedervorlage: LinkedIn-Follow-ups, Telefon-Rückrufe, Setting/Closing"
+            count={navCounts?.nachfassen}
+            countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
+          />
+          {/* Die Gegenrichtung zu den beiden Zeilen darueber: dort steht, was
+              noch ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
+              Bereich verschwaende ein abgesagter oder verlorener Vorgang
+              lautlos; die Sperrliste darin ist die einzige Ansicht der App, die
+              die Datensicht bewusst ignoriert. */}
+          <NavLink
+            href="/ablage"
+            icon={Archive}
+            label="Ablage"
+            onClick={onClose}
+            title="Ausgeschiedene Vorgänge: abgesagt, disqualifiziert, kein Close, No-Show ohne Antwort — plus die org-weite Sperrliste"
+            // Bewusst NICHT die Summe aller sechs Listen: Fuenf davon sind ein
+            // Aktenschrank, der nie auf null geht. Gezaehlt wird die eine Liste
+            // mit offener Handlung (navCounts.ts).
+            count={navCounts?.ablage}
+            countLabel={ABLAGE_COUNT_LABEL}
+          />
+        </CollapsibleSection>
+
         {/* ── LinkedIn ── */}
         <CollapsibleSection
+          id="linkedin"
           icon={<LinkedInIcon size={13} />}
           label="LinkedIn"
+          hasActive={containsActive(pathname, LINKEDIN_HREFS)}
           headerHref="/listen"
           headerHrefTitle="Alle Listen (inkl. Archiv)"
           onHeaderNavigate={onClose}
@@ -1184,8 +1424,10 @@ export function SidebarContent({
 
         {/* ── Telefon ── */}
         <CollapsibleSection
-          icon={<Phone size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />}
+          id="telefon"
+          icon={<Phone size={13} style={{ flexShrink: 0 }} />}
           label="Telefon"
+          hasActive={containsActive(pathname, TELEFON_HREFS)}
           headerHref="/telefon"
           headerHrefTitle="Telefon-Übersicht öffnen"
           onHeaderNavigate={onClose}
@@ -1221,15 +1463,45 @@ export function SidebarContent({
           )}
         </CollapsibleSection>
 
+        {/* ── Auswertung ── */}
+        {/* Der Rueckblick, getrennt von der Tagesarbeit darueber: Diese drei
+            Seiten oeffnet man absichtlich, nicht im Vorbeigehen. Zusammen sind
+            sie ausserdem die einzige Stelle, an der Team-Zahlen stehen. */}
+        <CollapsibleSection
+          id="auswertung"
+          icon={<PieChart size={13} />}
+          label="Auswertung"
+          hasActive={containsActive(pathname, AUSWERTUNG_HREFS)}
+        >
+          {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
+          {/* „Analyse" bewusst exakt: /analyse/vergleich hat eine eigene Zeile,
+              sonst leuchteten dort beide gleichzeitig aktiv. */}
+          <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} exact />
+          <NavLink href="/analyse/vergleich" icon={GitCompare} label="Vergleich" onClick={onClose} />
+        </CollapsibleSection>
+
         <div style={{ flex: 1, minHeight: "var(--sp-7)" }} />
 
-        <div style={{ borderTop: "1px solid var(--border-subtle)", marginTop: "var(--sp-4)", paddingTop: "var(--sp-4)" }}>
-          <NavLink href="/export" icon={Download} label="Export (CSV)" onClick={onClose} />
-          <NavLink href="/settings" icon={Settings} label="Einstellungen" onClick={onClose} />
-          {/* Nur Plattform-Admins: Organisationen anlegen, Nutzer verschieben. */}
-          {orgSwitch && (
-            <NavLink href="/admin" icon={ShieldCheck} label="Organisationen" onClick={onClose} />
-          )}
+        {/* ── Verwaltung ── */}
+        {/* Als einziger Block zugeklappt vorbelegt: Export, Einstellungen und
+            die Organisationsverwaltung ruft man selten und gezielt auf. Drei
+            Zeilen, die taeglich Platz kosten und nie gesucht werden — hier ist
+            das Zuklappen der Gewinn, nicht die Ordnung. */}
+        <div style={{ borderTop: "1px solid var(--border-subtle)", marginTop: "var(--sp-4)" }}>
+          <CollapsibleSection
+            id="verwaltung"
+            icon={<Wrench size={13} />}
+            label="Verwaltung"
+            defaultOpen={false}
+            hasActive={containsActive(pathname, VERWALTUNG_HREFS)}
+          >
+            <NavLink href="/export" icon={Download} label="Export (CSV)" onClick={onClose} />
+            <NavLink href="/settings" icon={Settings} label="Einstellungen" onClick={onClose} />
+            {/* Nur Plattform-Admins: Organisationen anlegen, Nutzer verschieben. */}
+            {orgSwitch && (
+              <NavLink href="/admin" icon={ShieldCheck} label="Organisationen" onClick={onClose} />
+            )}
+          </CollapsibleSection>
         </div>
       </nav>
 

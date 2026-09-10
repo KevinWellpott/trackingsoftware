@@ -392,7 +392,7 @@ function skipReason(
   if (due && new Date(due).getTime() > nowMs) {
     return {
       reason:
-        "Nicht geplant — diese Stufe fehlt, obwohl ihre Fälligkeit noch bevorsteht. Termin verschieben erzeugt die Kaskade neu.",
+        "Nicht geplant — diese Stufe fehlt, obwohl ihre Fälligkeit noch bevorsteht. Termin verschieben erzeugt die Erinnerungen neu.",
       neverPlanned: false,
     };
   }
@@ -486,7 +486,7 @@ function TouchHead({
       </span>
       <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
         {cascadeLabel && (
-          <Badge tone="neutral" style={{ height: 18, fontSize: "var(--fs-2xs)" }} title="Aus welcher Kaskade die Stufe stammt">
+          <Badge tone="neutral" style={{ height: 18, fontSize: "var(--fs-2xs)" }} title="Zu welcher Abfolge die Stufe gehört">
             {cascadeLabel}
           </Badge>
         )}
@@ -699,22 +699,50 @@ export function CascadePanel({
   const multiCascade = new Set(groups.map((g) => g.cascadeKind)).size > 1;
   const cascadeLabelOf = (kind: CascadeKind) => (multiCascade ? CASCADE_KIND_LABELS[kind] : null);
 
+  /* ── Der zugeklappte Kopf muss die Karte ersetzen ──
+     Die Karte startet zu (siehe unten), und eine Aufklappung, die nur
+     „Erinnerungen" sagt, zwingt zum Öffnen — gewonnen wäre damit nichts. Der
+     Kopf trägt deshalb genau die beiden Angaben, wegen derer man das Panel
+     überhaupt aufmacht: wie viel steht noch offen, und wann ist das Nächste
+     fällig. Überfälliges bekommt zusätzlich Farbe und Zeichen; sonst müsste
+     man die Uhrzeit im Kopf selbst gegen „jetzt" rechnen, und genau das ist
+     die Frage, die die Karte beantworten soll. */
+  const overdueCount =
+    nowMs == null ? 0 : pending.filter((e) => new Date(e.touch.due_at).getTime() <= nowMs).length;
+  // `pending` ist nach Fälligkeit aufsteigend sortiert (splitRows) — die erste
+  // Zeile ist damit zugleich die nächste fällige UND die älteste überfällige.
+  const nextDue = pending[0]?.touch.due_at ?? null;
+  const summaryText =
+    pending.length === 0
+      ? "Keine offene Erinnerung"
+      : overdueCount > 0
+        ? `${pending.length} offen · ${overdueCount} überfällig seit ${whenLabel(nextDue)}`
+        : `${pending.length} offen · nächste ${whenLabel(nextDue)}`;
+
+  const channelBadge = view ? (
+    <Badge tone={view.channel ? "info" : "warning"} title="Über welchen Kanal die Nachricht rausgeht">
+      {view.channel ? (
+        <>
+          {CHANNEL_META[view.channel].icon} {CHANNEL_META[view.channel].label}
+        </>
+      ) : (
+        "Kanal frei wählen"
+      )}
+    </Badge>
+  ) : null;
+
+  /**
+   * Die Titelzeile — in beiden Bauformen dieselbe. Zugeklappt wird nur der
+   * Normalfall: Ein Ladefehler und eine fehlende Migration hinter einem Pfeil
+   * zu verstecken hieße, die Auskunft zu verstecken, um derentwillen die Karte
+   * in diesem Zustand überhaupt noch da ist.
+   */
   const header = (
     <div style={SECTION_HEAD}>
       <BellRing size={16} color="var(--text-muted)" />
-      <span style={SECTION_TITLE}>Erinnerungs-Kaskade</span>
+      <span style={SECTION_TITLE}>Erinnerungen</span>
       <span style={{ ...SECTION_META, marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
-        {view && (
-          <Badge tone={view.channel ? "info" : "warning"} title="Über welchen Kanal die Nachricht rausgeht">
-            {view.channel ? (
-              <>
-                {CHANNEL_META[view.channel].icon} {CHANNEL_META[view.channel].label}
-              </>
-            ) : (
-              "Kanal frei wählen"
-            )}
-          </Badge>
-        )}
+        {channelBadge}
       </span>
     </div>
   );
@@ -725,7 +753,7 @@ export function CascadePanel({
         {header}
         <div style={SECTION_BODY}>
           <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--danger-fg)" }}>
-            Die Kaskade konnte nicht geladen werden.
+            Die Erinnerungen konnten nicht geladen werden.
           </p>
         </div>
       </div>
@@ -751,7 +779,7 @@ export function CascadePanel({
         <div style={{ ...SECTION_BODY, flexDirection: "row", gap: "var(--sp-5)", alignItems: "flex-start" }}>
           <Database size={18} style={{ flexShrink: 0, marginTop: 2, color: "var(--danger-fg)" }} />
           <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-secondary)", maxWidth: "62ch" }}>
-            Die Kaskaden-Tabellen fehlen in der Datenbank — die Migration ist noch nicht eingespielt. Das ist
+            Die Tabellen für die Erinnerungen fehlen in der Datenbank — die Migration ist noch nicht eingespielt. Das ist
             ausdrücklich <strong>nicht</strong> dasselbe wie &bdquo;nichts geplant&ldquo;: Für diesen Termin
             entsteht derzeit gar keine Erinnerung, und es geht keine Bestätigung raus.
           </p>
@@ -760,10 +788,54 @@ export function CascadePanel({
     );
   }
 
+  /* ── Zugeklappt startet die Karte ──
+     Auf einem Termin mit Vorgeschichte ist sie sehr lang, und die Detailseite
+     dient dem Gespräch, nicht der Erinnerungsverwaltung. Gebaut mit dem
+     Karten-Rezept aus globals.css §6.10 (`collapse-summary` + `collapse-chevron`)
+     — dasselbe, mit dem die „Call-Details" im Closing-Editor zuklappen; ein
+     zweiter Aufklapp-Mechanismus auf derselben Seite sähe aus wie ein anderes
+     Bedienelement. Der Zustand ist bewusst nicht persistent: Was zu startet,
+     startet beim nächsten Aufruf wieder zu. */
   return (
-    <div className="card">
-      {header}
-      <div style={SECTION_BODY}>
+    <details className="card">
+      <summary
+        className="collapse-summary"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--sp-4)",
+          flexWrap: "wrap",
+          padding: "var(--sp-6) var(--sp-8)",
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+      >
+        <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+        <BellRing size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+        <span style={SECTION_TITLE}>Erinnerungen</span>
+        <span
+          style={{
+            marginLeft: "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "var(--sp-3)",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
+          {overdueCount > 0 && <AlertTriangle size={12} style={{ flexShrink: 0, color: "var(--danger-fg)" }} />}
+          <span
+            className="tnum"
+            style={{ ...SECTION_META, color: overdueCount > 0 ? "var(--danger-fg)" : undefined }}
+          >
+            {summaryText}
+          </span>
+          {channelBadge}
+        </span>
+      </summary>
+      {/* Oben ohne Polster: die geöffnete `collapse-summary` bringt ihre eigene
+          Trennlinie samt Abstand mit (§6.10). */}
+      <div style={{ ...SECTION_BODY, padding: "0 var(--sp-8) var(--sp-7)" }}>
         {view.cancelledAt && (
           <div
             style={{
@@ -782,7 +854,7 @@ export function CascadePanel({
                 Vorgang lesen sich im selben Panel wie zwei verschiedene Vorgänge. */}
             <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-secondary)" }}>
               Der Termin ist abgesagt — es gibt nichts mehr zu bestätigen. Offene Stufen sind entfallen; ein
-              Ersatztermin wird als neuer Termin angelegt und bringt seine eigene Kaskade mit.
+              Ersatztermin wird als neuer Termin angelegt und bringt seine eigenen Erinnerungen mit.
             </p>
           </div>
         )}
@@ -790,7 +862,7 @@ export function CascadePanel({
         {groups.length === 0 ? (
           <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-muted)", maxWidth: "62ch" }}>
             {view.steps.length === 0
-              ? "Für diese Organisation ist noch keine Kaskade konfiguriert — es entstehen deshalb keine Erinnerungen."
+              ? "Für diese Organisation ist noch keine Abfolge von Erinnerungen konfiguriert — es entsteht deshalb keine."
               : "Für diesen Termin steht keine Erinnerung an."}
           </p>
         ) : (
@@ -834,7 +906,7 @@ export function CascadePanel({
               <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-muted)", maxWidth: "62ch" }}>
                 {nurNieGeplant
                   ? terminAhead
-                    ? "Für diesen Termin wurde nie eine Erinnerung geplant — Erinnerungen entstehen beim Anlegen oder Verschieben eines Termins, für ältere entsteht rückwirkend keine. Sobald er einmal verschoben wird, legt die Kaskade ihre Stufen an."
+                    ? "Für diesen Termin wurde nie eine Erinnerung geplant — Erinnerungen entstehen beim Anlegen oder Verschieben eines Termins, für ältere entsteht rückwirkend keine. Sobald er einmal verschoben wird, entstehen seine Erinnerungen."
                     : "Für diesen Termin wurde nie eine Erinnerung geplant — Erinnerungen entstehen beim Anlegen oder Verschieben eines Termins, für ältere entsteht rückwirkend keine. Das Gespräch liegt bereits hinter uns; ein Verschieben brächte jetzt nur eine Bestätigung für einen Termin, der längst gelaufen ist."
                   : "Es steht keine Erinnerung mehr aus. Was war, steht unten."}
               </p>
@@ -897,6 +969,6 @@ export function CascadePanel({
           </p>
         )}
       </div>
-    </div>
+    </details>
   );
 }

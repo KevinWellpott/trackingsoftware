@@ -16,7 +16,7 @@ import {
   MessageCircle,
   Phone,
   Split,
-  Users,
+  FileText,
 } from "lucide-react";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -528,7 +528,7 @@ export function LeadDossierPanel({ dossier }: { dossier: LeadDossier }) {
           <InfoPopover label="Was die Zeitleiste zeigt — und was nicht" width={400}>
             Neuestes zuerst. Ein <strong>≈</strong> heißt: Der Zeitpunkt ist nicht erfasst und nur eingeordnet — die
             App speichert für LinkedIn-Follow-ups und für Gesprächsausgänge nur den erreichten Stand, kein Ereignis.
-            Entwertete Erinnerungen (Planungsreste einer verschobenen Kaskade) stehen bewusst nicht hier, erledigte
+            Entwertete Erinnerungen (Planungsreste eines verschobenen Termins) stehen bewusst nicht hier, erledigte
             schon.
           </InfoPopover>
         </div>
@@ -662,11 +662,12 @@ export function LeadDossierEmpty({
   );
 }
 
-/** Kleiner Verweis für Karten anderer Boards — der Einstieg ins Dossier. */
+/** Kleiner Verweis für Karten anderer Boards — der Einstieg in die Akte.
+    Beschriftung wie auf den drei Boards: „Details", nicht „Dossier". */
 export function LeadDossierLink({
   kind,
   id,
-  label = "Dossier",
+  label = "Details",
 }: {
   kind: DossierEntityKind;
   id: string;
@@ -674,7 +675,7 @@ export function LeadDossierLink({
 }) {
   return (
     <Link href={dossierPath(kind, id)} style={ghostBtn} title={`${DOSSIER_ENTITY_LABELS[kind]} — alles zu diesem Lead`}>
-      <Users size={12} /> {label}
+      <FileText size={12} /> {label}
     </Link>
   );
 }

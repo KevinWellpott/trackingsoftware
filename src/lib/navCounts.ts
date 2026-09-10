@@ -24,6 +24,7 @@
 import type { AccessContext } from "@/lib/access";
 import { berlinDateISO, berlinInputToIso } from "@/lib/apptTime";
 import { dueRefNow, isOverdue, type DueGranularity } from "@/lib/dueState";
+import { isStaleDue, staleSourceOf } from "@/lib/staleTasks";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -107,9 +108,19 @@ function tally(rows: DueRow[], exact: number | null): NavCount {
  * Beide müssen antworten. Fällt eine aus, gibt es keinen Zähler — ein Abzeichen,
  * das eine ganze Quelle stillschweigend wegzählt, ist schlimmer als keines.
  *
- * Die Zahl schließt ältere LinkedIn-Leads ein, die das Board zunächst
- * ausblendet (Pitch > 7 Tage). Die Seite rechnet das selbst vor — sie nennt
- * die ausgeblendeten in derselben Zeile, in der sie sie versteckt.
+ * DER ZÄHLER FÄHRT DIESELBEN ZWEI SCHNITTE WIE DIE SEITE. Das ist neu und eine
+ * bewusste Abkehr von der früheren Regel („das Badge zählt mehr, die Seite
+ * erklärt die Differenz", docs §5.4):
+ *
+ *  · Der LinkedIn-Zweig steht gar nicht mehr auf der Seite. Ein Badge, das ihn
+ *    zählt, behauptet Arbeit, die man dort nicht finden kann — es zeigte
+ *    dreistellige Zahlen für ein Board mit einer Handvoll Karten.
+ *  · Die Altlasten (lib/staleTasks.ts) blendet die Seite aus, nennt sie aber
+ *    in derselben Zeile. Als Differenz im Badge wären sie trotzdem genau die
+ *    Zahl, über die sich der Nutzer beschwert hat: eine Mahnung ohne Adressat.
+ *
+ * Beides läuft über dieselben Funktionen wie die Server-Action — zwei Kopien
+ * einer Grenze, die Aufgaben verschwinden lässt, laufen auseinander.
  */
 async function countNachfassen(supabase: Supabase, access: AccessContext): Promise<NavCount | null> {
   const today = berlinDateISO(new Date().toISOString());
@@ -154,19 +165,38 @@ async function countNachfassen(supabase: Supabase, access: AccessContext): Promi
   // weiter oben schon der Fehlerfall steht.
   if (tasks.count == null || recycle.count == null) return null;
 
-  const rows: DueRow[] = [
-    ...((tasks.data ?? []) as unknown as { source: string; due_at: string | null }[]).map((r) => ({
+  const taskRows = (tasks.data ?? []) as unknown as { source: string; due_at: string | null }[];
+  const recycleRows = (recycle.data ?? []) as unknown as { due_at: string | null }[];
+
+  // Der Deckel und die Schnitte vertragen sich nicht: `count` ist exakt, das
+  // Fenster ist es nicht — und weil aufsteigend nach Fälligkeit sortiert wird,
+  // stehen ausgerechnet die ÄLTESTEN (also die wegzuschneidenden) Zeilen vorn.
+  // Wurde abgeschnitten, lässt sich die gefilterte Zahl nicht mehr ermitteln,
+  // und dann gibt es hier kein Badge statt einer zu kleinen Zahl (docs §5.4:
+  // `null` heißt „nicht ermittelbar", nicht „nichts fällig").
+  if (tasks.count > taskRows.length || recycle.count > recycleRows.length) return null;
+
+  const rows: DueRow[] = [];
+  for (const r of taskRows) {
+    // Steht nicht mehr auf der Seite (actions/nachfassen.ts).
+    if (r.source === "linkedin") continue;
+    const stale = staleSourceOf(r.source);
+    if (stale && isStaleDue(stale, r.due_at, today)) continue;
+    rows.push({
       due_at: r.due_at,
       granularity: (r.source === "telefon" ? "moment" : "day") as DueGranularity,
-    })),
+    });
+  }
+  for (const r of recycleRows) {
+    if (isStaleDue("recycling", r.due_at, today)) continue;
     // Ein Recycling-Versuch ist immer auf den Tag fällig (`next_recycle_at`
     // ist eine `date`-Spalte — Wochen-Kadenz, keine Uhrzeit-Präzision).
-    ...((recycle.data ?? []) as unknown as { due_at: string | null }[]).map((r) => ({
-      due_at: r.due_at,
-      granularity: "day" as DueGranularity,
-    })),
-  ];
-  return tally(rows, tasks.count + recycle.count);
+    rows.push({ due_at: r.due_at, granularity: "day" as DueGranularity });
+  }
+  // `rows.length` statt der beiden `count`: Nach den Schnitten oben ist die
+  // gefilterte Liste die Wahrheit, und dass sie vollständig ist, hat die
+  // Deckel-Prüfung gerade festgestellt.
+  return tally(rows, rows.length);
 }
 
 /**

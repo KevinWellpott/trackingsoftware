@@ -20,10 +20,12 @@ import { describe, test } from "node:test";
 
 import { COUNT_LABELS, countLabel, moveWarningText } from "@/lib/lifecycleLabels";
 
+// Zeilenenden vereinheitlichen — `core.autocrlf=true` legt auch die
+// Migrationsdateien unter Windows mit CRLF ab; die Anker unten tragen ein `\n`.
 const MIGRATION_0036 = readFileSync(
   fileURLToPath(new URL("../supabase/migrations/20260404000036_tenant_lifecycle_nachtrag.sql", import.meta.url)),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 /** Alle Schlüssel aus den `'counts', jsonb_build_object(…)`-Blöcken. */
 function zaehlerSchluessel(): string[] {

@@ -36,7 +36,13 @@ import {
 } from "@/lib/dropoutLists";
 
 function migration(name: string): string {
-  return readFileSync(fileURLToPath(new URL(`../supabase/migrations/${name}`, import.meta.url)), "utf8");
+  // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt auch die
+  // Migrationsdateien unter Windows mit CRLF ab; Anker mit `\n` fänden sie
+  // sonst nicht.
+  return readFileSync(fileURLToPath(new URL(`../supabase/migrations/${name}`, import.meta.url)), "utf8").replace(
+    /\r\n/g,
+    "\n",
+  );
 }
 
 const MIGRATION_0032 = migration("20260404000032_reminder_cascade.sql");

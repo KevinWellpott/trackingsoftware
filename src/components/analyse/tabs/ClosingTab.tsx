@@ -913,7 +913,7 @@ export async function ClosingTab({
             <InfoText>
               <p style={INFO_P}>
                 Show-Quote der Closings, deren Touch erledigt wurde, gegen die, deren Touch offen blieb — je
-                Kaskade und Stufe. Nur Closings mit erfasstem Ergebnis, und nur Touches, die VOR dem Gespräch
+                Erinnerungs-Art und Stufe. Nur Closings mit erfasstem Ergebnis, und nur Touches, die VOR dem Gespräch
                 lagen: Der vereinbarte Nachfass-Kontakt und die No-Show-Kette entstehen erst danach und bleiben
                 deshalb außen vor — sonst zählte dasselbe Closing zweimal.
               </p>

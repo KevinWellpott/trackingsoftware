@@ -130,7 +130,7 @@ export function ReviveDialog({
       {createdId ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
           <p style={{ margin: 0, fontSize: "var(--fs-sm)", lineHeight: "var(--lh-base)", color: "var(--text-secondary)" }}>
-            Der neue Termin ist angelegt und hat seine eigene Erinnerungs-Kaskade. Der alte Vorgang bleibt
+            Der neue Termin ist angelegt und hat seine eigenen Erinnerungen. Der alte Vorgang bleibt
             unverändert stehen — er hält die Zahlen seines Zeitraums fest.
           </p>
           <Link

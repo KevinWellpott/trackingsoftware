@@ -221,7 +221,7 @@ export function AppointmentLifecycleBar({
         title={
           cancelled
             ? "Der Termin ist abgesagt — ein Ersatztermin wird als neuer Termin angelegt."
-            : "Termin auf einen anderen Zeitpunkt legen. Die Kaskade wird neu berechnet."
+            : "Termin auf einen anderen Zeitpunkt legen. Die Erinnerungen werden neu berechnet."
         }
         style={barButton}
       >

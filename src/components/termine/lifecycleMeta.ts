@@ -76,7 +76,7 @@ export const NO_SHOW_RESOLUTION_LABELS: Record<NoShowResolution, string> = {
 export const NO_SHOW_RESOLUTION_HINTS: Record<NoShowResolution, string> = {
   antwort: "Beendet die No-Show-Kette — die Stufe „falls keine Antwort kam“ entfällt.",
   ohne_antwort: "Der Lead landet in der Ablage „No-Show ohne Antwort“; die Kette läuft weiter.",
-  ersatztermin: "Beendet die Kette. Danach den neuen Termin eintragen — die Kaskade startet komplett neu.",
+  ersatztermin: "Beendet die Kette. Danach den neuen Termin eintragen — die Erinnerungen starten komplett neu.",
 };
 
 export const NO_SHOW_RESOLUTION_ORDER: readonly NoShowResolution[] = ["antwort", "ohne_antwort", "ersatztermin"];

@@ -18,7 +18,9 @@ import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
 function read(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
+  // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
+  // unter Windows mit CRLF ab; Anker mit `\n` fänden sie sonst nicht.
+  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 }
 
 /** Der Rumpf einer Funktion — von ihrer Signatur bis zum Grant dahinter. */

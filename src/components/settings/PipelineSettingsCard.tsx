@@ -352,7 +352,7 @@ export function PipelineSettingsCard({
             ist ein eigener Arbeitsschritt. Sichtbar sind sie hier trotzdem,
             weil sonst niemand nachvollziehen kann, welche Vorlage wann greift. */}
         {stepsAvailable && (
-          <Collapsible title="Kaskaden-Stufen" meta="nur Ansicht">
+          <Collapsible title="Erinnerungs-Stufen" meta="nur Ansicht">
             <CascadeStepList steps={steps} />
           </Collapsible>
         )}

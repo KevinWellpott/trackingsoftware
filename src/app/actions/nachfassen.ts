@@ -4,9 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 import { localDateISO, addDaysISO } from "@/lib/dates";
-import { FU_MAX_STAGE, nextFollowUpAfter } from "@/lib/followup";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import { loadRecycleTasks, scheduleRecycle } from "@/app/actions/recycle";
+import { loadRecycleTasks } from "@/app/actions/recycle";
 import { getTemplateBundles } from "@/app/actions/reminders";
 import {
   renderResolved,
@@ -15,6 +14,12 @@ import {
   type TemplateSource,
 } from "@/lib/messageTemplates";
 import { renderRecycleTemplate, type RecycleOrigin } from "@/lib/recycleCadence";
+import {
+  emptyStaleCounts,
+  isStaleDue,
+  staleSourceOf,
+  type StaleCounts,
+} from "@/lib/staleTasks";
 import { contactGapWindowStart, isWithinContactGap } from "@/lib/contactGap";
 import { berlinDateISO, berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { markRecycleContacted, markRecycleResponded } from "@/app/actions/recycle";
@@ -22,12 +27,32 @@ import { updateSettingCall } from "@/app/actions/settingCalls";
 import { updateClosingCall } from "@/app/actions/closingCalls";
 import type { SettingStatus } from "@/lib/types";
 
-// Nachfassen-Union: LinkedIn-Follow-up · Telefon-Rückruf · Erstgespräch-
-// Wiedervorlage · Closing-Wiedervorlage (RPC `nachfassen_tasks`) PLUS Recycling
-// (RPC `recycle_tasks`) — fünf Quellen, app-seitig gemischt, weil eine geänderte
+// Nachfassen-Union: Telefon-Rückruf · Erstgespräch-Wiedervorlage ·
+// Closing-Wiedervorlage (RPC `nachfassen_tasks`) PLUS Recycling (RPC
+// `recycle_tasks`) — vier Quellen, app-seitig gemischt, weil eine geänderte
 // RETURNS-TABLE-Signatur ein DROP FUNCTION statt CREATE OR REPLACE bräuchte
 // (docs §5). Jede Karte trägt einen fertigen Text zum Kopieren, KEIN
 // Auto-Versand.
+//
+// LINKEDIN STEHT HIER NICHT MEHR. Der LinkedIn-Zweig der RPC wird app-seitig
+// verworfen (`RPC_SOURCES` unten) — die RPC selbst bleibt unangetastet: Sie ist
+// seit Migration 0030 eingefroren, liegt produktiv auf der Datenbank und speist
+// zusätzlich den Navigations-Zähler (lib/navCounts.ts, der denselben Schnitt
+// fährt). Ein DROP FUNCTION für eine Anzeigefrage wäre der falsche Preis.
+//
+// WARUM RAUS: Die Follow-up-Kadenz gehört an die Liste, nicht in die
+// Tages-Wiedervorlage. Ein Pitch-Board mit 20 DMs pro Tag erzeugt allein drei
+// Fälligkeiten je Kontakt und hat damit jede andere Quelle dieser Seite
+// zugedeckt — /nachfassen war faktisch ein LinkedIn-Board mit vier Anhängseln.
+// Erledigt werden die Follow-ups weiterhin dort, wo auch der Pitch-Text und die
+// FU-Sequenz der Liste stehen: in der Ansicht „Nachfassen" des Listen-Boards
+// (`ListBoardV2`, Stufenfilter FU1–FU3, Fehlklick-Schutz per Undo-Toast) — sie
+// schreibt über `updateContact`, das nach FU3 auch das Recycling einplant.
+//
+// Was NICHT verschwindet: das RECYCLING von LinkedIn-Kontakten. Es ist ein
+// anderer Mechanismus (docs §1) und betrifft ausgerechnet die Kontakte, die das
+// Listen-Board aus seiner Nachfass-Ansicht ausschließt (`follow_up_number !== 3`)
+// — ohne die Recycling-Sektion hier wären sie nirgends mehr erreichbar.
 //
 // Die Texte kommen ausnahmslos aus dem Vorlagen-Katalog (messageTemplates.ts)
 // mit seiner Vorrangkette Liste > persönlich > Organisation > Auslieferung. Die
@@ -44,15 +69,21 @@ import type { SettingStatus } from "@/lib/types";
 // `.in()`-Block zusätzlich Chunk für Chunk), und das Recycling startete erst,
 // wenn alles davor fertig war.
 
+/**
+ * Die vier Quellen, die die Seite zeigt. `linkedin` steht bewusst NICHT darin:
+ * Der Zweig der RPC wird verworfen, bevor eine Aufgabe daraus entsteht — der
+ * Typ hält das fest, damit die Oberfläche gar keinen Fall dafür vorhalten muss.
+ */
+export type NachfassenSource = "telefon" | "closing" | "setting" | "recycling";
+
 export type NachfassenTask = {
-  source: "linkedin" | "telefon" | "closing" | "setting" | "recycling";
+  source: NachfassenSource;
   entity_id: string;
   owner_name: string | null;
   lead_name: string | null;
   company: string | null;
   due_at: string | null;
   channel: string;
-  next_fu_number: number | null;
   list_id: string | null;
   phone: string | null;
   prepared_text: string;
@@ -85,17 +116,21 @@ export type NachfassenTask = {
 
 export type NachfassenResult = {
   tasks: NachfassenTask[];
-  hiddenOlder: number; // ältere LinkedIn-Leads (Pitch > 7 Tage), ausgeblendet
   /**
-   * LinkedIn-Aufgaben, deren Kontaktzeile der Nachschlag NICHT lesen konnte.
+   * Ausgeblendete ALTLASTEN je Quelle — Aufgaben, deren Fälligkeit so lange
+   * vorbei ist, dass sie niemand mehr abarbeitet (Grenzen und Begründung in
+   * `lib/staleTasks.ts`).
    *
-   * Sie werden trotzdem ausgeliefert (die RPC ist die Instanz, die „heute
-   * fällig" entscheidet), tragen aber weder Listenbezug noch Pitch-Datum —
-   * und dürfen deshalb nicht in `hiddenOlder` landen: Diese Zahl behauptet
-   * „Pitch älter als 7 Tage", und das ist hier schlicht unbekannt. Der Pitch
-   * kann von gestern sein.
+   * Bewusst je Quelle statt als eine Summe: Die Grenze ist verschieden, und die
+   * Hinweiszeile muss sagen können, WELCHE gegriffen hat. Eine Zahl, die man
+   * nicht auflösen kann, ist auf dieser Seite dasselbe wie eine verschwundene
+   * Aufgabe.
+   *
+   * Der frühere Zähler `hiddenOlder` („Pitch älter als 7 Tage") ist mit dem
+   * LinkedIn-Zweig entfallen — er beurteilte das Pitch-Datum eines Kontakts,
+   * den die Seite gar nicht mehr zeigt. Ebenso `unreadableContacts`.
    */
-  unreadableContacts: number;
+  hiddenStale: StaleCounts;
   /**
    * false = das Recycling-Schema fehlt (Migration 0033). Muss bis in die
    * Oberfläche durchgereicht werden: sonst sieht eine fehlende Migration
@@ -258,27 +293,26 @@ async function selectByIds<T>(
   return out;
 }
 
-/** Rohzeile der RPC — alles Weitere hängt die App an. */
+/**
+ * Rohzeile der RPC — alles Weitere hängt die App an.
+ *
+ * `source` trägt hier WEITERHIN `linkedin`: Die RPC liefert den Zweig, und der
+ * Typ muss die Wirklichkeit beschreiben, nicht den Wunsch. Verworfen wird er
+ * eine Ebene später, damit genau eine Stelle im Code entscheidet, was auf die
+ * Seite kommt. Ebenso `next_fu_number` — die Spalte kommt mit, wird aber von
+ * keiner verbleibenden Quelle gelesen und deshalb nicht mehr getippt.
+ */
 type NachfassenRpcRow = Pick<
   NachfassenTask,
-  "entity_id" | "owner_name" | "lead_name" | "company" | "due_at" | "channel" | "next_fu_number"
+  "entity_id" | "owner_name" | "lead_name" | "company" | "due_at" | "channel"
 > & { source: "linkedin" | "telefon" | "closing" | "setting" };
 
-/** `lists` ist eingebettet: die Nachfass-Sequenz der Liste hat Vorrang vor der
-    persönlichen Vorlage und wird sonst in einer eigenen Runde nachgeladen.
-    `created_at` kommt mit, weil der Pitch-Tag app-weit
-    `coalesce(pitched_at, created_at::date)` ist (docs §1) — ohne die Spalte
-    ließe sich für eine Zeile ohne `pitched_at` gar keine Aussage über ihr
-    Alter treffen. */
-type ContactRow = {
-  id: string;
-  list_id: string;
-  pitched_at: string | null;
-  created_at: string | null;
-  lists: unknown;
-};
-
-type ListTexts = { fu1_text: string | null; fu2_text: string | null; fu3_text: string | null };
+/**
+ * Nur noch für das RECYCLING eines LinkedIn-Kontakts: Die Karte braucht den
+ * Listenbezug für ihren Sprung-Knopf. Pitch-Datum und die FU-Texte der Liste
+ * sind mit dem Follow-up-Zweig entfallen.
+ */
+type ContactRow = { id: string; list_id: string };
 
 type LeadRow = { id: string; list_id: string; phone: string | null };
 
@@ -293,13 +327,6 @@ type SettingReasonRow = {
   status: SettingStatus | null;
   disqualify_reason_code: string | null;
 };
-
-/** FU-Stufe → Vorlagen-Schlüssel. Die RPC liefert 1–3; alles andere fällt auf FU1. */
-function linkedinTemplateKey(fu: number | null): TemplateKey {
-  if (fu === 2) return "linkedin_fu_2";
-  if (fu === 3) return "linkedin_fu_3";
-  return "linkedin_fu_1";
-}
 
 /** Ursprung → Vorlagen-Schlüssel im gemeinsamen Katalog (messageTemplates.ts). */
 const RECYCLE_TEMPLATE_KEY: Record<RecycleOrigin, TemplateKey> = {
@@ -333,8 +360,7 @@ export async function getNachfassenTasks(options?: {
   if (!access) {
     return {
       tasks: [],
-      hiddenOlder: 0,
-      unreadableContacts: 0,
+      hiddenStale: emptyStaleCounts(),
       recyclingAvailable: true,
       tasksAvailable: true,
     };
@@ -344,6 +370,14 @@ export async function getNachfassenTasks(options?: {
   // IMMER personenbezogen: der eingeloggte Nutzer (bzw. die aktive Admin-Datensicht).
   const scopeUserId = access.effective_user_id ?? access.user.id;
   const today = localDateISO();
+  // Der Altlast-Schnitt rechnet auf dem BERLINER Kalendertag, nicht auf dem des
+  // Servers: Auf Vercel läuft der in UTC, und zwischen Mitternacht und 02:00
+  // Berliner Zeit läge `localDateISO()` einen Tag zurück. Der Navigations-
+  // Zähler fährt denselben Schnitt (lib/navCounts.ts) und benutzt dort schon
+  // immer Berlin — liefen die beiden auseinander, unterschieden sich Badge und
+  // Seite jede Nacht um genau die Aufgaben auf der Grenze. `today` bleibt
+  // daneben unangetastet: Es geht als `p_today` in die eingefrorene RPC.
+  const staleToday = berlinDateISO(new Date().toISOString()) || today;
 
   /* ── Welle 1: beide RPCs parallel ──────────────────────────────────
      Sie hängen nicht voneinander ab. Vorher lief das Recycling erst los,
@@ -373,33 +407,41 @@ export async function getNachfassenTasks(options?: {
     loadRecycleTasks(),
   ]);
 
+  /* ── Der LinkedIn-Zweig wird hier verworfen ────────────────────────────
+     GENAU EINE Stelle entscheidet das, und sie liegt vor allem anderen: vor
+     den Nachschlägen (sonst holte die zweite Welle Kontakte für Karten, die
+     es nicht gibt), vor der Sortierung und vor jeder Zählung.
+
+     Der Typvergleich ist zugleich der Riegel: `NachfassenTask["source"]` kennt
+     `linkedin` nicht mehr (siehe `NachfassenSource`), ein vergessener Zweig
+     wäre also ein Compile-Fehler und keine stille Karte.                    */
+  const visible = rows.filter(
+    (r): r is NachfassenRpcRow & { source: NachfassenSource } => r.source !== "linkedin",
+  );
+
   // Stabile Reihenfolge clientseitig (RPC hat kein ORDER BY)
-  rows.sort(
+  visible.sort(
     (a, b) => (a.due_at ?? "").localeCompare(b.due_at ?? "") || a.entity_id.localeCompare(b.entity_id),
   );
 
   /* ── Welle 2: alle Nachschläge parallel ─────────────────────────────
-     Kontakte und Leads werden für BEIDE Quellen zusammen geholt (Aufgabe
-     und Recycling) — die Entity-IDs sind zwar disjunkt, die Tabelle ist
-     aber dieselbe, und zwei Abfragen gegen dieselbe Tabelle sind ein
-     Roundtrip zu viel. Die Nachfass-Texte der Liste kommen eingebettet mit,
-     statt in einer dritten Runde über die eingesammelten `list_id`.      */
+     Leads werden für BEIDE Quellen zusammen geholt (Aufgabe und Recycling) —
+     die Entity-IDs sind zwar disjunkt, die Tabelle ist aber dieselbe, und
+     zwei Abfragen gegen dieselbe Tabelle sind ein Roundtrip zu viel.
+     Kontakte braucht nur noch das Recycling.                             */
   const contactIds = [
-    ...new Set([
-      ...rows.filter((r) => r.source === "linkedin").map((r) => r.entity_id),
-      ...recycle.tasks.filter((r) => r.origin === "linkedin").map((r) => r.entity_id),
-    ]),
+    ...new Set(recycle.tasks.filter((r) => r.origin === "linkedin").map((r) => r.entity_id)),
   ];
   const leadIds = [
     ...new Set([
-      ...rows.filter((r) => r.source === "telefon").map((r) => r.entity_id),
+      ...visible.filter((r) => r.source === "telefon").map((r) => r.entity_id),
       ...recycle.tasks.filter((r) => r.origin === "telefon").map((r) => r.entity_id),
     ]),
   ];
   // Der Anlass gilt nur für den Setting-ZWEIG der Union-RPC. Ein Erstgespräch,
   // das über das Recycling hereinkommt, trägt seinen Grund bereits im
   // Recycling-Badge — zweimal dieselbe Auskunft auf einer 300-px-Karte.
-  const settingIds = [...new Set(rows.filter((r) => r.source === "setting").map((r) => r.entity_id))];
+  const settingIds = [...new Set(visible.filter((r) => r.source === "setting").map((r) => r.entity_id))];
   // Absender ist die ZUSTÄNDIGE Person der Aufgabe, nicht der Betrachter — ein
   // Owner in der Team-Sicht bekäme sonst seine eigenen Texte unter fremdem
   // Namen. Die vier Zweige der Union-RPC tragen keine Zuweisung; dort gilt die
@@ -419,7 +461,7 @@ export async function getNachfassenTasks(options?: {
     selectByIds<ContactRow>(contactIds, (chunk) =>
       supabase
         .from("contacts")
-        .select("id, list_id, pitched_at, created_at, lists(fu1_text, fu2_text, fu3_text)")
+        .select("id, list_id")
         .eq("workspace_id", access.workspace_id)
         .in("id", chunk),
     ),
@@ -441,19 +483,8 @@ export async function getNachfassenTasks(options?: {
     loadRecentContacts(supabase, access.workspace_id, contactSince),
   ]);
 
-  const contactInfo = new Map<string, { list_id: string; pitchDay: string | null; fuTexts: (string | null)[] }>();
-  for (const c of contactRows) {
-    const l = embeddedRow<ListTexts>(c.lists);
-    contactInfo.set(c.id, {
-      list_id: c.list_id,
-      // Der Pitch-Tag ist app-weit `coalesce(pitched_at, created_at::date)`
-      // (docs §1, so rechnen auch die RPCs). `berlinDateISO` statt eines
-      // rohen `slice(0,10)`, weil `created_at` timestamptz ist und die
-      // Tageszuordnung überall am Berliner Kalendertag hängt (docs §6).
-      pitchDay: c.pitched_at ?? (berlinDateISO(c.created_at) || null),
-      fuTexts: [l?.fu1_text ?? null, l?.fu2_text ?? null, l?.fu3_text ?? null],
-    });
-  }
+  const contactInfo = new Map<string, ContactRow>();
+  for (const c of contactRows) contactInfo.set(c.id, c);
   const leadInfo = new Map<string, LeadRow>();
   for (const l of leadRows) leadInfo.set(l.id, l);
   const settingReason = new Map<string, SettingReasonRow>();
@@ -492,64 +523,26 @@ export async function getNachfassenTasks(options?: {
 
   const bundleFor = (userId: string): TemplateBundle | undefined => bundles.get(userId);
 
-  // Cutoff: nur Leads der letzten 7 Tage nachfassen (Bestandsdaten bleiben unangetastet,
-  // ältere sind über includeOlder erreichbar).
-  const cutoff = addDaysISO(today, -7);
-  let hiddenOlder = 0;
-  let unreadableContacts = 0;
+  // Altlasten je Quelle. Der Schnitt ist der EINZIGE, der auf dieser Seite
+  // etwas ausblendet — der frühere Pitch-Schnitt ist mit LinkedIn entfallen.
+  const hiddenStale = emptyStaleCounts();
 
   const tasks: NachfassenTask[] = [];
-  for (const r of rows) {
+  for (const r of visible) {
+    /* ── Altlast-Schnitt ────────────────────────────────────────────────
+       Steht GANZ vorn: Eine Aufgabe, die niemand zu sehen bekommt, braucht
+       weder Vorlagen-Auflösung noch Kontaktfrequenz-Prüfung.                */
+    const staleSource = options?.includeOlder ? null : staleSourceOf(r.source);
+    if (staleSource && isStaleDue(staleSource, r.due_at, staleToday)) {
+      hiddenStale[staleSource]++;
+      continue;
+    }
+
     let list_id: string | null = null;
     let phone: string | null = null;
     let rendered: { body: string; source: TemplateSource };
 
-    if (r.source === "linkedin") {
-      const info = contactInfo.get(r.entity_id);
-      list_id = info?.list_id ?? null;
-      if (info) {
-        // Das Pitch-Datum liegt belegt vor — erst jetzt darf der 7-Tage-Schnitt
-        // greifen, und erst jetzt stimmt der Satz „Pitch > 7 Tage".
-        //
-        // Ein FEHLENDES Pitch-Datum ist dabei kein altes Datum: Die Spalte ist
-        // nullable, und der Pitch-Tag fällt dann auf `created_at` zurück (docs
-        // §1). Vorher zählte die leere Spalte die Zeile nach `hiddenOlder` und
-        // blendete sie unter „ältere Leads (Pitch > 7 Tage)" aus — eine
-        // Aussage, die für sie genauso unbelegt ist wie die frühere für die
-        // nicht lesbaren Kontakte im else-Zweig. Derselbe Denkfehler, nur
-        // leiser: Wer die Zahl nachrechnet, findet die Differenz nicht.
-        //
-        // Bleibt auch nach dem Rückfall kein Tag übrig, wird NICHT
-        // ausgeblendet — fällig ist fällig, und über das Alter behauptet die
-        // Seite dann eben nichts.
-        if (!options?.includeOlder && info.pitchDay !== null && info.pitchDay < cutoff) {
-          hiddenOlder++;
-          continue;
-        }
-      } else {
-        // Die RPC kennt die Zeile, der Nachschlag sieht sie nicht. Das ist kein
-        // Fehler, sondern das von docs §2 ausdrücklich unterstützte Muster:
-        // Liste mit `owner_name = Mitglied`, `created_by = Admin`, Datensicht
-        // `own` — `nachfassen_tasks` filtert über `list_owned_by_user()`
-        // (owner_name hat Vorrang), die RLS auf `contacts` nicht.
-        //
-        // Früher fiel diese Aufgabe hier still in `hiddenOlder` und stand damit
-        // unter „ältere Leads (Pitch > 7 Tage) ausgeblendet" — einer Erklärung,
-        // die schlicht falsch ist: Der Pitch kann von gestern sein. Sie wird
-        // deshalb AUSGELIEFERT (fällig ist fällig) und getrennt gezählt, damit
-        // die Oberfläche den Unterschied benennen kann.
-        unreadableContacts++;
-      }
-      // Der Text der Liste geht vor (`LIST_SCOPED_KEYS`) — er gehört fachlich
-      // zum Pitch-Text derselben Liste.
-      const listFu = r.next_fu_number != null ? info?.fuTexts[r.next_fu_number - 1] ?? null : null;
-      rendered = renderResolved(
-        linkedinTemplateKey(r.next_fu_number),
-        bundleFor(scopeUserId),
-        { leadName: r.lead_name, company: r.company, absender: r.owner_name },
-        listFu,
-      );
-    } else if (r.source === "telefon") {
+    if (r.source === "telefon") {
       const info = leadInfo.get(r.entity_id);
       list_id = info?.list_id ?? null;
       phone = info?.phone ?? null;
@@ -588,6 +581,14 @@ export async function getNachfassenTasks(options?: {
   // nicht mehr im LinkedIn-Zweig, ein toter Telefon-Lead nicht mehr im
   // Rückruf-Zweig usw.), deshalb kein Konflikt mit den Karten davor.
   for (const r of recycle.tasks) {
+    // Derselbe Altlast-Schnitt, nur mit der Recycling-Grenze: Die Wartezeiten
+    // selbst liegen zwischen 28 und 270 Tagen (docs §5), auf dieser Kadenz
+    // sind vier Wochen Verzug nichts. Erst ab einem Vierteljahr ist der
+    // Versuch wirklich liegen geblieben.
+    if (!options?.includeOlder && isStaleDue("recycling", r.due_at, staleToday)) {
+      hiddenStale.recycling++;
+      continue;
+    }
     // Vorrangkette persönlich > Organisation > Auslieferung (resolveTemplate);
     // der Freitext neben dem Grund steht als {notiz} zur Verfügung — Code ist
     // Statistik, Freitext ist Gedächtnis.
@@ -617,7 +618,6 @@ export async function getNachfassenTasks(options?: {
       company: r.company,
       due_at: r.due_at,
       channel: "Recycling",
-      next_fu_number: null,
       list_id,
       phone,
       prepared_text: rendered.body,
@@ -631,8 +631,7 @@ export async function getNachfassenTasks(options?: {
 
   return {
     tasks,
-    hiddenOlder,
-    unreadableContacts,
+    hiddenStale,
     recyclingAvailable: recycle.available,
     tasksAvailable,
   };
@@ -643,22 +642,27 @@ export async function getNachfassenTasks(options?: {
  * ------------------------------------------------------------------ */
 
 /**
- * Warum es das gibt: Auf diesem Board liegt „Beantwortet" wenige Pixel neben
- * „Erledigt → nächste Stufe", und ein Fehlgriff setzte `answered = true` sowie
- * `next_follow_up_at = null` — der Kontakt fiel DAUERHAFT aus dem
- * Follow-up-Fluss, ohne dass die Oberfläche einen Weg zurück angeboten hätte.
- * Auf `/erinnerungen` kann derselbe Nutzer längst jede Stufe einzeln
- * zurücknehmen; zwei Boards, dieselbe Arbeit, gegensätzliche Zusagen.
+ * Warum es das gibt: Auf diesem Board liegen die Aktionen wenige Pixel
+ * nebeneinander, und ein Fehlgriff verschob eine Wiedervorlage oder verbrannte
+ * einen von zwei erlaubten Recycling-Versuchen, ohne dass die Oberfläche einen
+ * Weg zurück angeboten hätte. Auf `/erinnerungen` kann derselbe Nutzer längst
+ * jede Stufe einzeln zurücknehmen; zwei Boards, dieselbe Arbeit, gegensätzliche
+ * Zusagen.
  *
  * Zurückgeschrieben werden AUSSCHLIESSLICH die Spalten, die die jeweilige
  * Aktion vorher überschrieben hat — mit den Werten, die dort standen. Kein
  * Nachrechnen, kein Raten: Wo eine Aktion einen Wert vernichtet hat, den
  * niemand mehr kennt, gibt es hier keinen Eintrag und im Board keinen Knopf
  * („Endgültig raus" ist genau dieser Fall und sagt es im Bestätigungsdialog).
+ *
+ * Die beiden LinkedIn-Arten (`linkedin_stufe`, `linkedin_antwort`) sind mit dem
+ * Follow-up-Zweig entfallen. Sie hatten nur einen Aufrufer, und der steht nicht
+ * mehr auf der Seite; ein erreichbarer Schreibpfad ohne Bedienung ist kein
+ * Rest, sondern eine offene Tür (Server Actions sind per direktem POST
+ * ansprechbar). Der Rückweg für ein Follow-up liegt jetzt dort, wo auch die
+ * Aktion liegt: im Undo-Toast des Listen-Boards.
  */
 export type UndoKind =
-  | "linkedin_stufe"
-  | "linkedin_antwort"
   | "telefon_rueckruf"
   | "setting_wiedervorlage"
   | "closing_wiedervorlage"
@@ -687,8 +691,6 @@ export type NachfassenActionResult = { error?: string; undo?: NachfassenUndo };
  * so ist es die Rücknahme genau einer bekannten Aktion.
  */
 const UNDO_COLUMNS: Record<UndoKind, readonly string[]> = {
-  linkedin_stufe: ["follow_up_number", "next_follow_up_at", "next_recycle_at", "recycle_reason_code"],
-  linkedin_antwort: ["answered", "next_follow_up_at"],
   telefon_rueckruf: ["callback_at"],
   setting_wiedervorlage: ["follow_up_due"],
   closing_wiedervorlage: ["follow_up_due", "follow_up_due_at"],
@@ -698,8 +700,6 @@ const UNDO_COLUMNS: Record<UndoKind, readonly string[]> = {
 
 /** null = die Tabelle steht im `origin` des Tokens (Recycling deckt alle vier ab). */
 const UNDO_TABLE: Record<UndoKind, string | null> = {
-  linkedin_stufe: "contacts",
-  linkedin_antwort: "contacts",
   telefon_rueckruf: "phone_leads",
   setting_wiedervorlage: "setting_calls",
   closing_wiedervorlage: "closing_calls",
@@ -818,102 +818,6 @@ export async function undoNachfassenTask(undo: NachfassenUndo): Promise<{ error?
   return {};
 }
 
-/** LinkedIn-Lead als beantwortet markieren → raus aus dem Follow-up-Flow. */
-export async function markLinkedInAnswered(contactId: string): Promise<NachfassenActionResult> {
-  // Ohne Org-Filter waere dies fuer einen Plattform-Admin ein Schreibzugriff
-  // auf JEDEN Kontakt der Plattform — RLS laesst dort alles durch.
-  const access = await getAccessContext();
-  if (!access) return { error: "Nicht angemeldet." };
-  const supabase = await createClient();
-  // Die beiden Spalten, die gleich überschrieben werden, kommen im selben
-  // Select mit — der Zustand VOR dem Schreiben ist danach nicht mehr lesbar.
-  const { data: c } = await supabase
-    .from("contacts")
-    .select("id, list_id, answered, next_follow_up_at")
-    .eq("id", contactId)
-    .eq("workspace_id", access.workspace_id)
-    .maybeSingle();
-  if (!c) return { error: "Kontakt nicht gefunden." };
-  const { error } = await supabase
-    .from("contacts")
-    .update({ answered: true, next_follow_up_at: null })
-    .eq("id", contactId);
-  if (error) return { error: error.message };
-  revalidatePath("/nachfassen", "page");
-  revalidatePath(`/lists/${(c as { list_id: string }).list_id}`, "page");
-  revalidatePath("/", "layout");
-  return {
-    undo: {
-      kind: "linkedin_antwort",
-      entity_id: contactId,
-      values: snapshotOf(c, UNDO_COLUMNS.linkedin_antwort),
-    },
-  };
-}
-
-/**
- * LinkedIn-Follow-up erledigt: Stufe hochzählen und die nächste Wiedervorlage
- * setzen (nach FU1 +5, nach FU2 +7, nach FU3 keine mehr — der Flow endet).
- */
-export async function advanceLinkedInFollowUp(contactId: string): Promise<NachfassenActionResult> {
-  const access = await getAccessContext();
-  if (!access) return { error: "Nicht angemeldet." };
-  const supabase = await createClient();
-  const { data: c } = await supabase
-    .from("contacts")
-    .select("id, list_id, follow_up_number, next_follow_up_at")
-    .eq("id", contactId)
-    .eq("workspace_id", access.workspace_id)
-    .maybeSingle();
-  if (!c) return { error: "Kontakt nicht gefunden." };
-
-  const current = (c as { follow_up_number: number | null }).follow_up_number ?? 0;
-  // `done` ist die Stufe, die mit diesem Klick ABGESCHLOSSEN wird — und genau
-  // nach ihr ist der Rhythmus geschlüsselt: nach FU1 folgt FU2 in +5 Tagen,
-  // nicht in +3 (das ist der Abstand Pitch → FU1). Vorher rechnete dieser Pfad
-  // mit `current`, der Stufe DAVOR, und lag damit systematisch zwei Tage vor
-  // dem Listen-Board (calcNextFollowUp in actions/contacts.ts).
-  const done = Math.min(current + 1, FU_MAX_STAGE);
-  // Anker ist HEUTE, nicht das Pitch-Datum: bei älteren Leads läge die nächste
-  // Stufe sonst sofort in der Vergangenheit und bliebe überfällig hängen.
-  // Nach FU3 liefert nextFollowUpAfter null — der Flow endet dort wirklich
-  // (vorher wurde noch +7 gesetzt; das fiel nur nicht auf, weil die RPCs
-  // Stufe 3 ohnehin ausschließen).
-  const nextDate = nextFollowUpAfter(done, localDateISO());
-
-  const { error } = await supabase
-    .from("contacts")
-    .update({ follow_up_number: done, next_follow_up_at: nextDate })
-    .eq("id", contactId);
-  if (error) return { error: error.message };
-
-  const values = snapshotOf(c, ["follow_up_number", "next_follow_up_at"]);
-
-  // FU3 erledigt, ohne dass je geantwortet wurde: der Flow endet hier für
-  // immer (nextDate === null) — eines der vier "toten Enden" (§ Konzept-
-  // Diskussion). Statt spurlos zu verschwinden, bekommt der Kontakt ein
-  // Recycling-Datum. Ohne Grund-Argument: Grund und Status liest
-  // `schedule_recycle()` selbst aus der Zeile.
-  if (nextDate === null && done >= FU_MAX_STAGE) {
-    // Erst lesen, dann planen — sonst steht im Rückgängig schon das Datum, das
-    // dieser Klick gerade gesetzt hat. Die beiden Spalten hängen an Migration
-    // 0033; fehlt sie, weist PostgREST die Abfrage ab, und der Snapshot bleibt
-    // ohne sie: Es gibt dann auch nichts einzuplanen, also nichts zurückzunehmen.
-    const { data: r } = await supabase
-      .from("contacts")
-      .select("next_recycle_at, recycle_reason_code")
-      .eq("id", contactId)
-      .eq("workspace_id", access.workspace_id)
-      .maybeSingle();
-    Object.assign(values, snapshotOf(r, ["next_recycle_at", "recycle_reason_code"]));
-    await scheduleRecycle("linkedin", contactId);
-  }
-  revalidatePath("/nachfassen", "page");
-  revalidatePath(`/lists/${(c as { list_id: string }).list_id}`, "page");
-  revalidatePath("/", "layout");
-  return { undo: { kind: "linkedin_stufe", entity_id: contactId, values } };
-}
-
 /* ------------------------------------------------------------------ *
  * Vom Tisch nehmen, ohne die Seite zu verlassen
  * ------------------------------------------------------------------ *
@@ -934,10 +838,10 @@ const FOLLOW_UP_PUSH_DAYS = 7;
 /**
  * Erstgespräch- oder Closing-Wiedervorlage um eine Woche vorschieben.
  *
- * Anker ist HEUTE, nicht das alte Fälligkeitsdatum — dieselbe Begründung wie
- * bei `advanceLinkedInFollowUp`: Bei einer überfälligen Aufgabe läge das neue
- * Datum sonst wieder in der Vergangenheit, und die Karte stünde morgen
- * unverändert da.
+ * Anker ist HEUTE, nicht das alte Fälligkeitsdatum: Bei einer überfälligen
+ * Aufgabe läge das neue Datum sonst wieder in der Vergangenheit, und die Karte
+ * stünde morgen unverändert da. (Dieselbe Regel fährt das Listen-Board für die
+ * LinkedIn-Kadenz, `calcNextFollowUp` mit `anchor: "today"`.)
  *
  * Beide Quellen tragen ein TAGESDATUM (`follow_up_due`, `DUE_GRANULARITY:
  * day`) — anders als der Telefon-Rückruf, der eine mit dem Lead verabredete

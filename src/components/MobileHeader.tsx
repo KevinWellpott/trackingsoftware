@@ -5,7 +5,7 @@ import { SearchTrigger } from "@/components/search/SearchDialog";
 import type { ViewNode } from "@/lib/listViews";
 import type { NavCounts } from "@/lib/navCounts";
 import { useState } from "react";
-import { MobileDrawer } from "./Sidebar";
+import { MobileDrawer, sumNavCounts } from "./Sidebar";
 
 // Topbar (COMPONENTS.md §10.2): 56px, Glass-Nav-Rezept, sticky. Sie blendet
 // bei Scroll nicht aus — das hier ist eine App, kein Marketing-Header.
@@ -50,9 +50,12 @@ type Props = {
 export function MobileHeader({ workspaceName, username, workspaceId, lists, viewTree, phoneLists, dataScope, dataView, orgSwitch, navCounts }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const pending = [navCounts?.nachfassen, navCounts?.erinnerungen, navCounts?.ablage];
-  const total = pending.reduce((n, c) => n + (c?.total ?? 0), 0);
-  const overdue = pending.reduce((n, c) => n + (c?.overdue ?? 0), 0);
+  // Dieselbe Zusammenfassung wie am zugeklappten Block „Meine Arbeit" in der
+  // Seitenleiste (sumNavCounts, Sidebar.tsx) — zwei eigene Summen waeren zwei
+  // Gelegenheiten, dieselbe Zahl unterschiedlich zu bilden.
+  const pending = sumNavCounts([navCounts?.nachfassen, navCounts?.erinnerungen, navCounts?.ablage]);
+  const total = pending?.total ?? 0;
+  const overdue = pending?.overdue ?? 0;
 
   return (
     <>

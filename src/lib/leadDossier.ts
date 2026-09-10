@@ -1029,7 +1029,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
       id: `setting:${s.id}:revived`,
       source: "setting",
       title: "Ersatztermin eingetragen",
-      detail: "Die Kaskade startet damit neu.",
+      detail: "Die Erinnerungen starten damit neu.",
       tone: "success",
       at: s.revived_at,
     });

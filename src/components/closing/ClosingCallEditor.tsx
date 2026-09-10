@@ -351,6 +351,19 @@ export function ClosingCallEditor({
   const currentDealVolume = call.deal_volume == null ? null : Number(call.deal_volume);
   const followUpLabel = formatDateTime(call.follow_up_due);
 
+  /**
+   * Gibt es überhaupt etwas zurückzusetzen? Geprüft wird, was `handleReset`
+   * leert — steht nichts davon, ist der Knopf ein Klick ohne Wirkung, und der
+   * stünde auf jedem noch offenen Closing.
+   */
+  const hasResult =
+    status !== "offen" ||
+    showStatus !== null ||
+    call.deal_volume != null ||
+    Boolean(call.lost_reason_code) ||
+    Boolean(call.follow_up_due) ||
+    Boolean(call.signature_received);
+
   // Warum der Termin hier nicht mehr änderbar ist — dieselbe Regel und
   // derselbe Satz wie im Kalender und in den beiden Server-Riegeln
   // (`moveLockReason`, src/lib/terminMeta.ts). Ohne sie war das Feld auch bei
@@ -699,164 +712,194 @@ export function ClosingCallEditor({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      {/* ── Ergebnis ──
-          Das hier ist EIN Entscheid mit drei Antworten, keine drei Aktionen.
-          Deshalb eine Gruppe statt drei freistehender, vollflaechig getoenter
-          Buttons: still, solange nichts feststeht — und sobald ein Ergebnis
-          gesetzt ist, traegt genau ein Segment den Outcome-Ton. Damit zeigt
-          die Gruppe den Status selbst und die frueher danebenstehende
-          Status-Pille ist ersatzlos entfallen.
-          Aufteilung: links Label + Kontext, rechts die Aktionen. */}
+      {/* ── Kopfkarte: ZWEI Reihen, nicht eine Kette ──
+          Dieselbe Aufteilung wie im Setting-Editor, damit beide Detailansichten
+          gleich zu bedienen sind:
+
+            Reihe 1 — DAS GESPRÄCH. Anwesenheit, das erfasste Ergebnis als
+              Kontext (Deal-Größe, Onboarding, Wiedervorlage, Verlustgrund) und
+              rechts die Ergebnis-Gruppe. Das hier ist EIN Entscheid mit drei
+              Antworten, keine drei Aktionen — deshalb eine Gruppe statt drei
+              freistehender, vollflächig getönter Buttons: still, solange nichts
+              feststeht, und sobald ein Ergebnis gesetzt ist, trägt genau ein
+              Segment den Outcome-Ton. Eine Status-Pille daneben braucht es
+              dadurch nicht.
+
+            Reihe 2 — AUSNAHMEN. Verschieben, Absagen, No-Show-Ausgang und ganz
+              rechts die Korrektur „Zurücksetzen". Abgesetzt durch eine
+              Trennlinie, alle Knöpfe leise. Verschieben und Absagen sagen
+              nichts über den Ausgang des Gesprächs und rühren
+              `status`/`show_status` bewusst nicht an — zwischen den
+              Ergebnis-Knöpfen hätten sie nichts verloren. */}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          flexDirection: "column",
           gap: "var(--sp-5)",
-          flexWrap: "wrap",
           background: "var(--surface-100)",
           border: "1px solid var(--border)",
           borderRadius: "var(--radius-lg)",
           padding: "var(--sp-5) var(--sp-7)",
         }}
       >
-        {/* Links: Anwesenheit als frei umschaltbarer Selektor — identisch
-            zum Setting, damit beide Detailansichten gleich zu bedienen sind. */}
-        <span className="eyebrow eyebrow-muted">Anwesenheit</span>
-        <div className="show-group" role="group" aria-label="Anwesenheit">
-          <button
-            type="button"
-            className="show-seg"
-            data-tone="show"
-            data-active={showStatus === "show"}
-            aria-pressed={showStatus === "show"}
-            onClick={() => handleShowStatus("show")}
-            disabled={isPending}
+        {/* ── Reihe 1: das Gespräch ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)", flexWrap: "wrap" }}>
+          {/* Links: Anwesenheit als frei umschaltbarer Selektor — identisch
+              zum Setting, damit beide Detailansichten gleich zu bedienen sind. */}
+          <span className="eyebrow eyebrow-muted">Anwesenheit</span>
+          <div className="show-group" role="group" aria-label="Anwesenheit">
+            <button
+              type="button"
+              className="show-seg"
+              data-tone="show"
+              data-active={showStatus === "show"}
+              aria-pressed={showStatus === "show"}
+              onClick={() => handleShowStatus("show")}
+              disabled={isPending}
+            >
+              Erschienen
+            </button>
+            <button
+              type="button"
+              className="show-seg"
+              data-tone="noshow"
+              data-active={showStatus === "no_show"}
+              aria-pressed={showStatus === "no_show"}
+              onClick={() => handleShowStatus("no_show")}
+              disabled={isPending}
+            >
+              Nicht erschienen
+            </button>
+          </div>
+
+          {status === "gewonnen" && currentDealVolume != null && !Number.isNaN(currentDealVolume) && (
+            <span className="tnum" style={metaText}>
+              {formatEur(currentDealVolume)}
+              {call.payment_type ? ` · ${call.payment_type}` : ""}
+            </span>
+          )}
+          {/* Neben der Deal-Größe, weil beide zum selben Ergebnis gehören: Was ist
+              der Abschluss wert — und ab wann wird geliefert? Ohne diese Zeile
+              stünde das Datum nur im Dialog und wäre faktisch unsichtbar. */}
+          {status === "gewonnen" && call.onboarding_at && (
+            <span className="tnum" style={metaText}>
+              Onboarding {formatDateDe(call.onboarding_at)}
+            </span>
+          )}
+          {status === "nachfassen" && followUpLabel && (
+            <span className="tnum" style={metaText}>
+              Wiedervorlage {followUpLabel}
+            </span>
+          )}
+          {/* Zuerst der CODE, dann der Freitext: Die Kategorie ist die Aussage,
+              der Freitext nur ihr Beleg. Vorher stand hier ausschliesslich der
+              Freitext — bei einem leeren Feld war ueberhaupt nichts zu sehen. */}
+          {status === "verloren" && (call.lost_reason_code || call.lost_reason?.trim()) && (
+            <span
+              className="tnum"
+              style={{ ...metaText, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              title={[call.lost_reason_code ? CLOSING_LOST_REASON_LABELS[call.lost_reason_code] : null, call.lost_reason?.trim() || null]
+                .filter(Boolean)
+                .join(" · ")}
+            >
+              {call.lost_reason_code ? CLOSING_LOST_REASON_LABELS[call.lost_reason_code] : "Ohne Grund"}
+              {call.lost_reason?.trim() ? ` · ${call.lost_reason.trim()}` : ""}
+            </span>
+          )}
+
+          <span style={{ flex: 1 }} />
+
+          {savedTick && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "var(--sp-2)",
+                fontSize: "var(--fs-xs)",
+                color: "var(--success-fg)",
+              }}
+            >
+              <Check size={12} /> Gespeichert
+            </span>
+          )}
+
+          {/* Rechts: die Aktionen. Bewusst NICHT an isPending gekoppelt — die
+              Buttons oeffnen nur einen Dialog. Vorher waren sie waehrend jedes
+              Autosaves deaktiviert und wirkten dadurch tot. Das Absenden im
+              Dialog sperrt weiterhin. */}
+          <div
+            role="group"
+            aria-label="Ergebnis des Closings"
+            style={{ display: "flex", gap: "var(--sp-4)", flexWrap: "wrap", marginLeft: "auto" }}
           >
-            Erschienen
-          </button>
-          <button
-            type="button"
-            className="show-seg"
-            data-tone="noshow"
-            data-active={showStatus === "no_show"}
-            aria-pressed={showStatus === "no_show"}
-            onClick={() => handleShowStatus("no_show")}
-            disabled={isPending}
-          >
-            Nicht erschienen
-          </button>
+            {outcomes.map((o) => {
+              const active = status === o.key;
+              return (
+                <button
+                  key={o.key}
+                  type="button"
+                  className="outcome-btn"
+                  data-tone={o.tone}
+                  data-active={active}
+                  aria-pressed={active}
+                  onClick={() => {
+                    setModalError(null);
+                    o.open();
+                  }}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Korrektur-Ausgang, bewusst leise. */}
-        <button
-          type="button"
-          className="ui-btn"
-          data-variant="ghost"
-          onClick={handleReset}
-          disabled={isPending}
-          title="Ergebnis zurücksetzen"
-          style={{ minHeight: 28, padding: "0 var(--sp-5)", fontSize: "var(--fs-sm)" }}
-        >
-          <RotateCcw size={13} /> Zurücksetzen
-        </button>
-
-        {/* Termin-Ereignisse neben der Korrektur, nicht bei den Ergebnissen:
-            Verschieben und Absagen sagen nichts über den Ausgang des Gesprächs
-            und rühren `status`/`show_status` bewusst nicht an. */}
-        <AppointmentLifecycleBar
-          entityType="closing"
-          id={call.id}
-          appointmentAt={call.call_at}
-          showStatus={showStatus}
-          lifecycle={call}
-          disabled={isPending}
-          onChanged={() => {
-            flashSaved();
-            bumpCascade();
-            router.refresh();
-          }}
-        />
-        <RescheduleHint lifecycle={call} />
-
-        {status === "gewonnen" && currentDealVolume != null && !Number.isNaN(currentDealVolume) && (
-          <span className="tnum" style={metaText}>
-            {formatEur(currentDealVolume)}
-            {call.payment_type ? ` · ${call.payment_type}` : ""}
-          </span>
-        )}
-        {/* Neben der Deal-Größe, weil beide zum selben Ergebnis gehören: Was ist
-            der Abschluss wert — und ab wann wird geliefert? Ohne diese Zeile
-            stünde das Datum nur im Dialog und wäre faktisch unsichtbar. */}
-        {status === "gewonnen" && call.onboarding_at && (
-          <span className="tnum" style={metaText}>
-            Onboarding {formatDateDe(call.onboarding_at)}
-          </span>
-        )}
-        {status === "nachfassen" && followUpLabel && (
-          <span className="tnum" style={metaText}>
-            Wiedervorlage {followUpLabel}
-          </span>
-        )}
-        {/* Zuerst der CODE, dann der Freitext: Die Kategorie ist die Aussage,
-            der Freitext nur ihr Beleg. Vorher stand hier ausschliesslich der
-            Freitext — bei einem leeren Feld war ueberhaupt nichts zu sehen. */}
-        {status === "verloren" && (call.lost_reason_code || call.lost_reason?.trim()) && (
-          <span
-            className="tnum"
-            style={{ ...metaText, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-            title={[call.lost_reason_code ? CLOSING_LOST_REASON_LABELS[call.lost_reason_code] : null, call.lost_reason?.trim() || null]
-              .filter(Boolean)
-              .join(" · ")}
-          >
-            {call.lost_reason_code ? CLOSING_LOST_REASON_LABELS[call.lost_reason_code] : "Ohne Grund"}
-            {call.lost_reason?.trim() ? ` · ${call.lost_reason.trim()}` : ""}
-          </span>
-        )}
-
-        <span style={{ flex: 1 }} />
-
-        {savedTick && (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "var(--sp-2)",
-              fontSize: "var(--fs-xs)",
-              color: "var(--success-fg)",
-            }}
-          >
-            <Check size={12} /> Gespeichert
-          </span>
-        )}
-
-        {/* Rechts: die Aktionen. Bewusst NICHT an isPending gekoppelt — die
-            Buttons oeffnen nur einen Dialog. Vorher waren sie waehrend jedes
-            Autosaves deaktiviert und wirkten dadurch tot. Das Absenden im
-            Dialog sperrt weiterhin. */}
+        {/* ── Reihe 2: Termin & Korrektur ── */}
         <div
-          role="group"
-          aria-label="Ergebnis des Closings"
-          style={{ display: "flex", gap: "var(--sp-4)", flexWrap: "wrap", marginLeft: "auto" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-4)",
+            flexWrap: "wrap",
+            borderTop: "1px solid var(--border-subtle)",
+            paddingTop: "var(--sp-5)",
+          }}
         >
-          {outcomes.map((o) => {
-            const active = status === o.key;
-            return (
-              <button
-                key={o.key}
-                type="button"
-                className="outcome-btn"
-                data-tone={o.tone}
-                data-active={active}
-                aria-pressed={active}
-                onClick={() => {
-                  setModalError(null);
-                  o.open();
-                }}
-              >
-                {o.label}
-              </button>
-            );
-          })}
+          <span className="eyebrow eyebrow-muted">Termin</span>
+          <AppointmentLifecycleBar
+            entityType="closing"
+            id={call.id}
+            appointmentAt={call.call_at}
+            showStatus={showStatus}
+            lifecycle={call}
+            disabled={isPending}
+            onChanged={() => {
+              flashSaved();
+              bumpCascade();
+              router.refresh();
+            }}
+          />
+          <RescheduleHint lifecycle={call} />
+
+          <span style={{ flex: 1 }} />
+
+          {/* Weggelassen statt ausgegraut, wenn es nichts zurückzusetzen gibt —
+              dasselbe Muster wie in der Ablage (AblageBoard.tsx). Auf einem
+              offenen Closing ohne erfasste Anwesenheit leerte der Klick vier
+              Felder, die alle schon leer sind. */}
+          {hasResult && (
+            <button
+              type="button"
+              className="ui-btn"
+              data-variant="ghost"
+              onClick={handleReset}
+              disabled={isPending}
+              title="Anwesenheit, Status und alle erfassten Deal-Daten leeren"
+              style={{ minHeight: 28, padding: "0 var(--sp-5)", fontSize: "var(--fs-sm)" }}
+            >
+              <RotateCcw size={13} /> Zurücksetzen
+            </button>
+          )}
         </div>
       </div>
 

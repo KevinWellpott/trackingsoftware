@@ -83,9 +83,31 @@ Nachfassen-Umbau in der Sidebar verlinkt, mit erklärendem Tooltip):
 
 | Mechanismus | Frage | Körnung | Seite | Quellen |
 |---|---|---|---|---|
-| **Nachfassen** | „Was ist heute fällig?" | Tag | `/nachfassen` | LinkedIn-FU, Telefon-Rückruf, Setting-Wiedervorlage (no_show/unqualifiziert), Closing-Wiedervorlage (nachfassen), **Recycling** (5. Sektion) |
+| **Nachfassen** | „Was ist heute fällig?" | Tag | `/nachfassen` | Telefon-Rückruf, Setting-Wiedervorlage (no_show/unqualifiziert), Closing-Wiedervorlage (nachfassen), **Recycling** (4. Sektion) — **kein LinkedIn-Follow-up mehr**, s. u. |
 | **Erinnerungen** | „Was steht in den nächsten Stunden/Tagen vor einem Termin an?" | Stunde | `/erinnerungen` | Setting-Termin, Closing-Termin, Closing-Nachfass-Kontakt — plus die Ereignis-Ketten (No-Show, Kickoff, kein Abschluss) |
-| **Recycling** | „Welcher tote Lead ist wieder einen Versuch wert?" | Woche/Monat | 5. Sektion in `/nachfassen` | Closing verloren, Telefon-/Setting-Lead dead, Setting abgesagt ohne Aussicht / No-Show ohne Antwort, LinkedIn FU3 ohne Antwort |
+| **Recycling** | „Welcher tote Lead ist wieder einen Versuch wert?" | Woche/Monat | 4. Sektion in `/nachfassen` | Closing verloren, Telefon-/Setting-Lead dead, Setting abgesagt ohne Aussicht / No-Show ohne Antwort, LinkedIn FU3 ohne Antwort |
+
+> **Das LinkedIn-Follow-up steht nicht mehr in `/nachfassen`.** Gefiltert wird
+> **app-seitig** in `getNachfassenTasks()` (`src/app/actions/nachfassen.ts`, Konstante
+> `RPC_SOURCES` und der eine `filter()` davor); die RPC `nachfassen_tasks` ist
+> **unverändert** und liefert ihren Zweig ① weiter (§5). Der Grund für den Schnitt ist eine
+> Mengenfrage: Die Follow-up-Kadenz gehört an die Liste, nicht in eine Tages-Wiedervorlage —
+> ein Pitch-Board mit 20 DMs am Tag erzeugt allein drei Fälligkeiten je Kontakt und deckte
+> damit jede andere Quelle der Seite zu; `/nachfassen` war faktisch ein LinkedIn-Board mit
+> vier Anhängseln. Erledigt werden die Follow-ups jetzt ausschließlich dort, wo auch der
+> Pitch-Text und die FU-Sequenz der Liste stehen: in der Ansicht **„Nachfassen" des
+> Listen-Boards** (`ListBoardV2`, Stufenfilter FU1–FU3), die über `updateContact` schreibt
+> und nach FU3 auch das Recycling einplant.
+>
+> **Das RECYCLING von LinkedIn-Kontakten bleibt dagegen in `/nachfassen`** — und das ist
+> keine Inkonsequenz, sondern die Bedingung dafür, dass der Schnitt oben überhaupt
+> verlustfrei ist. Das Listen-Board zeigt in seiner Nachfass-Ansicht nur Kontakte mit
+> `follow_up_number !== 3` (`isDueFollowUp` in `ListBoardV2.tsx`); der Recycling-Zweig für
+> LinkedIn verlangt umgekehrt genau `follow_up_number = 3` (`recycle_tasks`, §5). Die beiden
+> Mengen sind also disjunkt: Ein nach FU3 erschöpfter Kontakt ist im Listen-Board per
+> Definition unsichtbar. Ohne die Recycling-Sektion in `/nachfassen` wäre er **nirgends mehr
+> erreichbar** — es sind zwei verschiedene Mechanismen (Tag vs. Woche/Monat), und nur der
+> zweite hat für diese Kontakte noch eine Oberfläche.
 
 **Genau ZWEI echte Überschneidungen** — bis zum Termin-Ereignis-Umbau war es eine:
 
@@ -102,10 +124,11 @@ Nachfassen-Umbau in der Sidebar verlinkt, mit erklärendem Tooltip):
 Beide Seiten **verlinken genau an diesen zwei Stellen** aufeinander, statt die Logik zu
 duplizieren: im Board über `SECTION_CROSSLINK` (`NachfassenBoard.tsx`, nur die Sektionen
 `closing` und `setting`), auf der Gegenseite über die Rückverweise im `ErinnerungenBoard`.
-Die übrigen `/nachfassen`-Sektionen bekommen bewusst **keinen** Verweis: LinkedIn-Follow-up
-und Telefon-Rückruf erzeugen gar keine Kaskade, und das Recycling eines verlorenen Closings
-folgt Wochen NACH dessen „Kein Abschluss"-Kette — ein Verweis zeigte dort auf lauter längst
-erledigte Stufen.
+Die übrigen `/nachfassen`-Sektionen bekommen bewusst **keinen** Verweis: Der Telefon-Rückruf
+erzeugt gar keine Kaskade, und das Recycling eines verlorenen Closings folgt Wochen NACH
+dessen „Kein Abschluss"-Kette — ein Verweis zeigte dort auf lauter längst erledigte Stufen.
+(Für das LinkedIn-Follow-up galt dasselbe; seit es nicht mehr auf der Seite steht, stellt
+sich die Frage dort nicht mehr.)
 
 Was **keine** Überschneidung ist, obwohl es so aussieht: `unqualifiziert` setzt zwar
 ebenfalls eine Wiedervorlage, erzeugt aber keinen Touch; und ein verlorenes Closing steht in
@@ -142,7 +165,7 @@ Begriffe:
 - **Termine** = `/termine`: gemeinsamer Kalender über beide Tabellen (Monat/Woche/Tag + versteckte Listenansicht). Feste Dauern: Setting 30 min, Closing 60 min. `/setting` und `/closing` leiten dorthin um; die Detailrouten `/setting/[id]` und `/closing/[id]` bleiben. **Es wird nichts ausgeblendet** — auch nicht `dead`/`unqualifiziert`. Der frühere „Versteckt"-Schalter ließ Termine lautlos verschwinden; stattdessen kodiert der Chip beides zugleich: **Füllung = Typ** (Setting/Closing), **Rahmen = Status** (durchgezogen = steht noch an, gestrichelt = Ergebnis steht fest, abgeblendet = erledigt). Definitionen ausschließlich in `src/lib/terminMeta.ts` (`outlineFor`).
 - **Termin-Art** (`setting_calls.meeting_kind`) = `link` **oder** `telefon`. Die dritte Option „Ohne" gibt es nicht mehr: Bei `telefon` ist die Rufnummer (`setting_calls.phone`) Pflicht, bei `link` der Meet-Link — ein Termin ohne beides ist einer, den niemand übernehmen kann. Bestandszeilen mit `meeting_kind is null` bleiben gültig.
 - **Kanal / Quelle** = `setting_calls.source_type`. Schlüssel, Labels, Farben und die Frage, ob ein Kanal ein eigenes Akquise-Volumen hat, stehen an genau **einer** Stelle: der Kanal-Registry `src/lib/channels.ts` (§4). Nur LinkedIn (`contacts`) und Telefon (`phone_leads`) haben eine Stufe **vor** dem Termin; Ads, Social Media und Sonstige beginnen erst beim Termin und zeigen dort „—" statt 0.
-- **Nachfassen** = zentrale Wiedervorlage (`/nachfassen`), gespeist aus RPC `nachfassen_tasks` (4 Quellen, siehe §5) **plus** RPC `recycle_tasks` (Recycling, 4 weitere Quellen) — beide werden app-seitig in `getNachfassenTasks()` (`src/app/actions/nachfassen.ts`) zu einer Union gemischt, nicht in SQL: eine geänderte `RETURNS TABLE`-Signatur einer bestehenden Funktion bräuchte `DROP FUNCTION` statt `CREATE OR REPLACE` (§5).
+- **Nachfassen** = zentrale Wiedervorlage (`/nachfassen`), gespeist aus RPC `nachfassen_tasks` (4 Zweige, davon **3 angezeigt** — der LinkedIn-Zweig wird app-seitig verworfen, siehe §5) **plus** RPC `recycle_tasks` (Recycling, 4 weitere Quellen, alle angezeigt) — beide werden app-seitig in `getNachfassenTasks()` (`src/app/actions/nachfassen.ts`) zu einer Union gemischt, nicht in SQL: eine geänderte `RETURNS TABLE`-Signatur einer bestehenden Funktion bräuchte `DROP FUNCTION` statt `CREATE OR REPLACE` (§5). Über die Anzeige legt sich zusätzlich der **Altlasten-Schnitt** (`src/lib/staleTasks.ts`, §5.5).
 - **Erinnerung / Touch** = eine Zeile in `reminder_touches` (Migration 0032): ein fälliger Kontakt vor einem Setting-/Closing-Termin, vor einem vereinbarten Nachfass-Kontakt oder nach einem Ereignis. Seite `/erinnerungen` ("Meine Erinnerungen"), stundengenau gruppiert (Überfällig/Nächste Stunde/Heute/Diese Woche); der Blick nach vorn endet nach `pipeline_settings.reminder_horizon_days` (Default 7) — ohne obere Grenze stünde ein Touch in fünf Wochen unter „Diese Woche". Rein manuell — kein Auto-Versand, die App liefert nur den fertigen Text zum Kopieren, ein Erledigt-Häkchen und ein `outcome`.
 - **Kaskade** = die konfigurierte Abfolge von Stufen, aus der Touches entstehen. Neun benannte Kaskaden je Organisation (`cascade_steps.cascade_kind`, §4), nicht mehr EIN Offset-Tripel für alles: Setting und Closing tragen eigene Abstände, die Mail-Spur eigene Stufen, jede Stufe ist abschaltbar. Gerechnet wird ausschließlich in `src/lib/cascadeEngine.ts` — und zwar in **Berliner Wandzeit**: „1 Tag vorher" heißt dieselbe Uhrzeit einen Tag früher, über eine Zeitumstellung hinweg läge eine Millisekunden-Rechnung eine Stunde daneben.
 - **Vorlage** = ein Nachrichtentext aus dem gemeinsamen Katalog (`template_catalog`, 31 Schlüssel) mit einer Vorrangkette: **Liste > persönlich > Organisation > Auslieferungstext** (`resolveTemplate()` in `src/lib/messageTemplates.ts`). Die Auslieferungstexte stehen bewusst **nur in TypeScript** (`TEMPLATE_DEFAULTS`), nicht in der DB — eine geseedete Textkopie je Organisation friert den Text ein und erreicht Bestandskunden nicht mehr. Eine Zeile in `message_templates` entsteht erst, wenn jemand einen Text ändert.
@@ -383,7 +406,7 @@ Die Dashboards rechnen nicht frei, sondern über diese SECURITY-DEFINER-RPCs —
 | `rpc_phone_owner_metrics(ws, from, to, user?)` | je Owner: `calls`, `gatekeeper_reached`, `decider_reached`, `appointments`, `callbacks`, `dead` | **`calls` = Erstkontakte** (Firmen mit `first_call_at`), **nicht** Anwahlen (§1) — Wählversuche stehen nur in `phone_call_attempts`. **Achtung: nur `calls` ist zeitraumgefiltert** (`first_call_at between`), die übrigen Spalten sind all-time-Zählungen. Personenfilter über `list_owned_by_user()` — `owner_name` hat Vorrang |
 | `rpc_phone_day_metrics(ws, from, to, user?)` | wie oben, aber je Owner+**Tag** | Tag = `coalesce(first_call_at, created_at::date)`; `calls` zählt nur Leads mit `first_call_at is not null` (wieder: Erstkontakte); für Zeitraum-Analysen diese RPC nutzen. Personenfilter wie oben |
 | `rpc_phone_list_counts(ws, user?)` | Status-Counts je Telefonliste | Personenfilter über `list_owned_by_user()` |
-| `nachfassen_tasks(ws, today, now, user?)` | fällige Aufgaben (Union) | 4 Zweige: ① LinkedIn-FU (`next_follow_up_at <= today`, Ausschlüsse §4) ② Telefon-Rückruf (`status='rueckruf'`, `callback_at <= now`) ③ Closing (`status='nachfassen'`, `follow_up_due <= today`) ④ Setting (`status in ('no_show','unqualifiziert')`, `follow_up_due <= today`). Personenfilter: ①② über `list_owned_by_user()`, ③④ über `coalesce(assigned_user_id, created_by_user_id)`. App blendet zusätzlich LinkedIn-Tasks mit Pitch > 7 Tage aus. **Signatur und Verhalten unverändert seit 0030** — der ganze Nachfassen-Umbau hat sie nicht angefasst; Recycling ist bewusst eine eigene RPC, siehe nächste Zeile. |
+| `nachfassen_tasks(ws, today, now, user?)` | fällige Aufgaben (Union) | 4 Zweige: ① LinkedIn-FU (`next_follow_up_at <= today`, Ausschlüsse §4) ② Telefon-Rückruf (`status='rueckruf'`, `callback_at <= now`) ③ Closing (`status='nachfassen'`, `follow_up_due <= today`) ④ Setting (`status in ('no_show','unqualifiziert')`, `follow_up_due <= today`). Personenfilter: ①② über `list_owned_by_user()`, ③④ über `coalesce(assigned_user_id, created_by_user_id)`. **Signatur und Verhalten unverändert seit 0030** — der ganze Nachfassen-Umbau hat sie nicht angefasst; Recycling ist bewusst eine eigene RPC, siehe nächste Zeile.<br>**⚠ Die RPC liefert vier Zweige, die Seite zeigt drei.** Zweig ① (LinkedIn) wird **app-seitig verworfen** — in `getNachfassenTasks()` an genau einer Stelle, vor jedem Nachschlag und jeder Zählung (`r.source !== "linkedin"`); der Typ `NachfassenSource` kennt den Wert nicht mehr, ein vergessener Zweig wäre also ein Compile-Fehler. In der Datenbank ist nichts geändert: **Wer per SQL auswertet, bekommt weiterhin alle vier** — `select source, count(*) from nachfassen_tasks(…) group by 1` zeigt LinkedIn-Zeilen, die auf keiner Oberfläche stehen. (Der frühere Zusatz-Schnitt „LinkedIn-Tasks mit Pitch > 7 Tage" ist damit ersatzlos entfallen; an seine Stelle ist für die verbliebenen drei Zweige der Altlasten-Schnitt getreten, §5.5.) |
 | `recycle_tasks(ws, today, user?)` | fällige Recycling-Versuche (Union, **v2** aus Migration 0033) | 4 Zweige über die „toten Enden" (§1). **Jeder Zweig prüft zusätzlich den STATUS** — das ist der Unterschied zur ersten Fassung, die nur auf das Datum sah: ein Lead, der auf anderem Weg wiederbelebt oder gewonnen wurde, tauchte dort Monate später als Aufgabe auf. LinkedIn: `next_recycle_at <= today`, `blocked_at is null`, `answered is not true`, `appointment_set is not true`, **`follow_up_number = 3`** · Telefon: `status='dead'` · Setting: `status in ('dead','unqualifiziert')` **oder** `no_show_resolution='ohne_antwort'` **oder** `cancel_outlook='ohne_aussicht'`, dazu `revived_at is null` · Closing: `status='verloren'`, `revived_at is null`. Alle vier zusätzlich `recycle_excluded_at is null` **und `recycle_responded_at is null`**. Liefert `reason` (`recycle_reason_code`, ersatzweise `lost_reason_code`/`sonstiges`), `reason_note`, `attempt_count`, `last_contacted_at`. Personenfilter wie bei `nachfassen_tasks`. **Eigene RPC statt Erweiterung von `nachfassen_tasks`**: eine geänderte `RETURNS TABLE`-Signatur verlangt `DROP FUNCTION` statt `CREATE OR REPLACE` — zwei stabile RPCs sind das kleinere Risiko als ein Drop mit Grants/Abhängigkeiten einer produktiv genutzten Funktion. Die App mischt beide Listen zu einer Union in `getNachfassenTasks()` (`src/app/actions/nachfassen.ts`). |
 | `dropout_lists(ws, list, user?)` | Zeilen einer der sechs Ablage-Listen (Migration 0033) | `list` ∈ `abgesagt` · `ersatztermin_offen` · `disqualifiziert` · `kein_close` · `no_show_ohne_antwort` · `gesperrt` (unbekannter Wert → Exception). Abgeleitet aus dem Zeilenzustand, **keine eigene Tabelle** (§1). Fünf Listen kennen nur `setting_calls`/`closing_calls`; **`gesperrt` deckt alle vier Recycling-Tabellen ab** (auch `contacts` und `phone_leads` — „Endgültig sperren" ist im Nachfassen-Board für alle vier Ursprünge anklickbar) und **setzt den Personenfilter bewusst außer Kraft**: `v_user := null`, die Liste liefert immer org-weit. Die Spalte `list_id` ist nur bei den beiden Lead-Ursprüngen gefüllt (sie haben keine Detailseite, der Verweis führt zur Liste); bei Terminen bleibt sie NULL. |
 | `schedule_recycle(ws, origin, entity_id, today?)` | das gesetzte `next_recycle_at` oder `null` (Migration 0033, Zugriffsprüfung 0037) | Bestimmt die Wartezeit **serverseitig** und schreibt `next_recycle_at` + `recycle_reason_code` in die Ursprungszeile. Grund UND Status kommen aus der Zeile, nie vom Aufrufer. Gibt `null` zurück (und schreibt nichts), wenn: keine `pipeline_settings`-Zeile existiert · der Vorgang ausgeschlossen/wiederbelebt/nicht terminal ist · der Grund nie recycelt wird · `recycle_attempt_count >= max_attempts`. **Fasst den Versuchszähler NICHT an** — die alte Fassung setzte ihn bei jedem Aufruf auf 0 und startete den Deckel neu. Prüft seit 0037 die Mitgliedschaft selbst (`workspace_members` oder Plattform-Admin). |
@@ -898,13 +921,30 @@ Drei Eigenschaften, die man kennen muss, bevor man eine Badge-Zahl gegen eine Se
   aktiv ist, genau wie die Seite selbst. Gezählt wird dort nur die eine Liste mit offener
   Handlung („Abgesagt, Ersatztermin steht aus"), nicht die Summe aller sechs: Ein Badge auf
   einem Archiv, das nie auf null geht, ist eine Mahnung ohne Adressat.
-- **Zwei der drei weichen bewusst von ihrer Seite ab, und zwar in bekannter Richtung:**
+- **Nur noch EINES der drei weicht von seiner Seite ab** — früher waren es zwei:
 
 | Badge | Verhältnis zur Seite |
 |---|---|
 | **Ablage** | **deckungsgleich** — dieselbe RPC, dieselben Parameter wie der Tab-Zähler |
-| **Nachfassen** | **zählt mehr**: dieselben zwei RPCs wie die Seite, aber ohne deren Ausblendung älterer LinkedIn-Leads (Pitch > 7 Tage). Die Seite nennt die versteckte Zahl in derselben Zeile — die Differenz ist also auflösbar, nicht rätselhaft |
+| **Nachfassen** | **deckungsgleich** — dieselben zwei RPCs *und* dieselben zwei Schnitte wie die Seite: der LinkedIn-Zweig wird verworfen (§5), die Altlasten fallen über `isStaleDue()` heraus (§5.5). Beides läuft über **dieselben Funktionen** wie die Server-Action, nicht über nachgebaute Kopien |
 | **Erinnerungen** | **zählt anders in beide Richtungen**: nur **heute** statt des vollen `reminder_horizon_days`-Fensters und nur unerledigte Touches (ein 7-Tage-Badge ginge nie auf null und mahnte an, was noch gar nicht fällig ist) — dafür zählt es **Touches**, während die Seite mehrere Stufen desselben Termins zu EINER Karte bündelt. Das Badge kann die Kartenzahl deshalb überschreiten |
+
+> **Warum das Nachfassen-Badge die Regel gewechselt hat.** Bis zum LinkedIn-Schnitt galt hier
+> ausdrücklich „das Badge zählt mehr, die Seite erklärt die Differenz". Diese Regel trägt nur,
+> solange die Differenz klein und auflösbar ist. Beide neuen Schnitte verletzen genau das: Ein
+> Badge, das die LinkedIn-Follow-ups mitzählt, behauptet dreistellige Arbeit für ein Board mit
+> einer Handvoll Karten — und zwar Arbeit, die man dort **nicht finden kann**. Und die
+> Altlasten wären als Differenz genau die Zahl, deretwegen der Schnitt eingeführt wurde: eine
+> Mahnung ohne Adressat.
+>
+> **Der Preis dafür ist ein neuer `null`-Fall, und er ist bewusst gewählt.** Der 500er-Deckel
+> (`ROW_CAP`) und die Schnitte vertragen sich nicht: `count: 'exact'` ist exakt, das
+> Zeilenfenster ist es nicht — und weil aufsteigend nach Fälligkeit sortiert wird, stehen
+> ausgerechnet die ÄLTESTEN, also die wegzuschneidenden Zeilen **vorn**. Wurde abgeschnitten
+> (`count > rows.length` bei einer der beiden RPCs), lässt sich die gefilterte Zahl gar nicht
+> mehr ermitteln. Dann gibt es **kein Badge** statt einer zu kleinen Zahl — dieselbe Doktrin
+> wie oben: `null` heißt „nicht ermittelbar", und eine zu niedrige Zahl wäre schlimmer als
+> keine, weil sie glaubwürdig aussieht.
 
 **Was Badge und Seite garantiert teilen, ist die Überfällig-Regel** — sie steht einmal in
 `src/lib/dueState.ts` und wird von beiden gelesen (§6). Genau dafür wurde die Datei angelegt:
@@ -915,8 +955,68 @@ Betriebsverhalten: kein Caching (die Zähler laufen bei jedem Seitenaufruf im be
 `Promise.all` des Layouts mit), aber eine harte **Frist von 1,5 s** — was länger braucht,
 liefert `null` und damit kein Badge, statt das Layout aufzuhalten. Der Überfällig-Anteil wird
 über höchstens 500 Zeilen ermittelt (nach Fälligkeit aufsteigend sortiert, überfällige stehen
-also vorn); `total` kommt aus `count: 'exact'` und ist von dieser Grenze **nicht** betroffen.
-Eine „99+"-Kappung gibt es nicht.
+also vorn). Bei **Erinnerungen** und **Ablage** kommt `total` aus `count: 'exact'` und ist von
+dieser Grenze **nicht** betroffen; bei **Nachfassen** ist das seit den beiden Schnitten anders
+— dort ist die gefilterte Zeilenliste die Wahrheit, und ein angeschnittenes Fenster liefert
+statt einer Zahl gar kein Badge (Kasten oben). Eine „99+"-Kappung gibt es nicht.
+
+### 5.5 Der Altlasten-Schnitt (`src/lib/staleTasks.ts`)
+
+Der zweite der beiden Schnitte, die zwischen `nachfassen_tasks`/`recycle_tasks` und dem
+Bildschirm liegen (der erste ist der LinkedIn-Zweig, §1/§5). Er blendet Aufgaben aus, deren
+Fälligkeit so lange vorbei ist, dass sie niemand mehr abarbeitet.
+
+**Das Problem, das er löst.** `/nachfassen` beantwortet „was ist heute fällig?" und lieferte
+dafür alles aus, was jemals fällig geworden und nie abgehakt worden ist — am ersten
+produktiven Tag 425 Aufgaben. Das ist keine Arbeitsliste mehr, sondern ein Archiv: Der
+überfällige Rückruf von gestern, um den es wirklich geht, liegt zwischen zweihundert
+Karteileichen. **Und der Bestand wächst monoton**, denn keiner der drei verbliebenen Status
+läuft je von allein ab: Ein Erstgespräch bleibt `unqualifiziert`, ein Closing bleibt
+`nachfassen`, ein Lead bleibt `rueckruf` — bis jemand von Hand etwas anderes einträgt. Ohne
+Schnitt ist das Board nicht heute wieder voll, sondern in einem halben Jahr, und dann mit
+denselben 400 Karten.
+
+**Was er ausdrücklich NICHT tut: Überfälliges ausblenden.** Überfällige Aufgaben sind der
+Zweck der Seite. Jede Grenze liegt weit hinter dem Punkt, an dem eine Aufgabe überfällig wird.
+
+**Vier Quellen, vier Zahlen — und für jede ein eigener Grund.** Eine gemeinsame Zahl wäre für
+die eine Quelle zu scharf und für die andere wirkungslos, weil die Quellen in völlig
+verschiedenen Kadenzen ticken (§1):
+
+| Quelle | Grenze | Warum gerade diese |
+|---|---|---|
+| **Telefon-Rückruf** | **14 Tage** | Der einzige Wert des Boards mit einer *mit dem Lead verabredeten Uhrzeit* (`callback_at`, Körnung `moment`, §6). Zwei Wochen nach dem zugesagten Zeitpunkt ist die Verabredung kein Versprechen mehr, sondern eine Notiz — anrufen darf man weiter, nur eben nicht mehr „weil wir das so ausgemacht hatten" |
+| **Setting-Wiedervorlage** | **30 Tage** | Wiedervorlagen werden in 7-Tage-Schritten weitergeschoben (`FOLLOW_UP_PUSH_DAYS`). Wer **vier** solche Schritte hat verstreichen lassen, hat den Vorgang nicht verschoben, sondern liegen gelassen — er gehört in die Ablage, nicht in den Vormittag |
+| **Closing-Wiedervorlage** | **30 Tage** | dieselbe Begründung, derselbe Schrittabstand |
+| **Recycling** | **90 Tage** | Die Wartezeiten selbst liegen zwischen 28 und 270 Tagen (`pipeline_settings`, §5). Auf dieser Kadenz sind 30 Tage Verzug nichts; ein Schnitt in der Größenordnung der anderen Quellen erwischte reihenweise Leads, die **planmäßig** warten |
+
+**LinkedIn steht bewusst nicht in dieser Tabelle.** `staleSourceOf("linkedin")` liefert `null`:
+Der Wert kommt aus der RPC weiterhin an, aber eine Grenze für ihn wäre eine Aussage über
+etwas, das die Seite gar nicht zeigt.
+
+Mechanik und Fallstricke:
+
+- **Gerechnet wird auf dem Berliner Kalendertag**, nicht auf Millisekunden: `isStaleDue()`
+  reduziert die Fälligkeit über `dueDayOf()` (`src/lib/dueState.ts`) auf einen Tag und
+  vergleicht ihn gegen `heute − Grenze`. Der Referenztag kommt vom **Aufrufer**, nicht aus
+  `new Date()` — ein Board voller Karten würde sonst mitten im Durchlauf den Tag wechseln,
+  und zwei Aufgaben mit derselben Fälligkeit fielen verschieden aus.
+- **Ohne Fälligkeitswert keine Aussage.** Fehlt `due_at`, bleibt die Aufgabe sichtbar —
+  dieselbe Regel wie überall: Wo die Seite nichts über das Alter weiß, behauptet sie nichts.
+- **Die Zahl steht auf dem Bildschirm und ist auflösbar.** Was ausgeblendet wurde, zählt
+  `getNachfassenTasks()` in `hiddenStale` mit und das Board nennt es je Quelle samt Grenze
+  („12 Rückrufe (über 14 Tage überfällig)", `staleParts()`). **`?alle=1`** lädt sie zurück
+  (`includeOlder`) — der Schnitt versteckt also nichts, er räumt nur den Vormittag frei.
+- **Die Zahlen stehen an EINER Stelle.** Server-Action, Navigations-Zähler (§5.4) und die
+  Beschriftung des Boards lesen alle `STALE_AFTER_DAYS` bzw. `isStaleDue()`. Drei Kopien einer
+  Zahl, die Aufgaben verschwinden lässt, laufen auseinander — und dann nennt die Seite eine
+  andere Grenze, als sie anwendet.
+
+**Für Auswertungen heißt das:** Der Schnitt ist reine Anzeige. In `nachfassen_tasks` und
+`recycle_tasks` steht weiterhin alles; wer per SQL zählt, bekommt die Altlasten mit. Die
+Differenz zwischen „was die RPC liefert" und „was auf dem Board steht" ist damit vollständig
+erklärt durch diese beiden Schritte: **LinkedIn-Zweig verworfen** (§5) und
+**Altlasten geschnitten** (hier).
 
 ## 6. Zeit & Zeitzonen (Fallstricke für Auswertungen)
 

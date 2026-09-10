@@ -951,7 +951,7 @@ export async function SettingTab({
           info={
             <InfoText>
               <p style={INFO_P}>
-                Fällige Bestätigungs-Touches vor dem Setting-Termin (§ Erinnerungs-Kaskade), je zuständiger
+                Fällige Bestätigungs-Touches vor dem Setting-Termin, je zuständiger
                 Person. Ein Touch gilt als erledigt, sobald das manuelle Häkchen in &bdquo;Meine Erinnerungen heute&ldquo;
                 gesetzt wurde — unabhängig vom Kanal.
               </p>
@@ -994,7 +994,7 @@ export async function SettingTab({
             <InfoText>
               <p style={INFO_P}>
                 Show-Quote der Termine, deren Touch erledigt wurde, gegen die, deren Touch offen blieb — je
-                Kaskade und Stufe. Nur Termine mit erfasstem Ergebnis; Stufen, die erst NACH dem Termin greifen
+                Erinnerungs-Art und Stufe. Nur Termine mit erfasstem Ergebnis; Stufen, die erst NACH dem Termin greifen
                 (No-Show-Kette), bleiben außen vor — sie können den Ausgang nicht mehr beeinflusst haben.
               </p>
             </InfoText>

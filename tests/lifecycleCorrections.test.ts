@@ -18,7 +18,9 @@ import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
 function read(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
+  // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
+  // unter Windows mit CRLF ab; Anker mit `\n` fänden sie sonst nicht.
+  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 }
 
 /** Der Rumpf einer Funktion — von ihrer Signatur bis zur nächsten. */
@@ -154,17 +156,26 @@ describe("Die Vor-Termin-Kaskade folgt dem Termin und dem zurückgenommenen Erge
 
 describe("Ein Pflichtfeld prüft, was die Folge-Logik wirklich braucht", () => {
   test("M1 · das Gate rechnet mit derselben Bedingung wie der Kanal-Auflöser", () => {
-    // `resolveFollowUpChannel` verlangt Nummer UND Einwilligung. Das Gate
-    // prüfte nur die Nummer — eine eingetragene Nummer ohne Einwilligung ging
-    // durch, und bei Ads/Social/Sonstige trugen danach alle drei Erinnerungen
-    // „Kanal frei wählen".
-    const gate = slice(SETTING_EDITOR, "Kontaktweg für die Closing-Kaskade", "function saveWaContact");
-    assert.match(gate, /waConsent/, "das Gate kennt die Einwilligung nicht");
+    // `resolveFollowUpChannel` verlangt Nummer UND Einwilligung — daran hat
+    // sich nichts geändert. Was sich geändert hat, ist die Herkunft der
+    // Einwilligung: Sie ist kein eigenes Häkchen mehr, sondern folgt der
+    // Nummer (`saveWaContact` / `withWaConsentDerived`). Damit sind „Nummer
+    // da" und „WhatsApp auflösbar" dasselbe, und das Gate darf genau darauf
+    // prüfen. Die frühere Fassung verlangte hier zusätzlich `waConsent` — ein
+    // Feld, das es in der Oberfläche nicht mehr gibt; die Prüfung wäre eine
+    // Sperre ohne Ausweg.
+    const gate = slice(SETTING_EDITOR, "Kontaktweg für die Closing-Erinnerungen", "function saveWaContact");
     assert.match(gate, /resolveCascadeChannel\(call\.source_type\)/);
     assert.match(SETTING_EDITOR, /import \{ resolveCascadeChannel \} from "@\/lib\/reminderCascade"/);
     // Die dokumentierte Verweigerung bleibt die Ausnahme (Entscheidung E10) —
     // ohne sie gäbe es für eine Quelle ohne Akquise-Kanal keinen Weg vorwärts.
-    assert.match(gate, /const waReady = waRefused \|\|/);
+    assert.match(gate, /const waReady = waRefused \|\| waPhoneGiven;/);
+    // Die Gegenprobe zum Gate: Eine eingetragene Nummer MUSS den Beleg
+    // mitbringen, sonst ginge sie wieder als erfüllte Pflicht durch, ohne
+    // einen Kanal zu ergeben. Der ausführliche Test dazu (samt Gegenrichtung
+    // auf `resolveFollowUpChannel`) steht in terminDetailKarten.test.ts.
+    assert.match(SETTING_EDITOR, /wa_consent_at: phone \? new Date\(\)\.toISOString\(\) : null/);
+    assert.match(SETTING_CALLS, /function withWaConsentDerived/);
   });
 });
 

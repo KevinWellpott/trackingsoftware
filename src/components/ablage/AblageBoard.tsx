@@ -12,6 +12,7 @@ import {
   ChevronsRight,
   ClipboardCheck,
   Database,
+  FileText,
   Handshake,
   History,
   Inbox,
@@ -530,14 +531,17 @@ function DropoutCard({
             sperrt, ist der Verlauf die einzige Grundlage für die Entscheidung —
             und der Verweis daneben führt bei LinkedIn- und Telefon-Zeilen nur
             zur Liste, nicht zum Lead. Der einzige Weg zur Historie einer
-            solchen Zeile führt über das Dossier. */}
+            solchen Zeile führt über diesen Knopf.
+            Beschriftet ist er „Details" und nicht „Dossier": Das war ein Wort
+            aus dem Code, das dem Vertrieb nicht sagte, was passiert. Dieselbe
+            Beschriftung tragen die Knöpfe in /nachfassen und /erinnerungen. */}
         <button
           type="button"
           onClick={() => setDossierOpen(true)}
           style={ghostBtn}
-          title="Alles zu diesem Lead — Verlauf, Kanäle, Notizen"
+          title="Alles zu diesem Lead — Verlauf, Kontaktwege, Notizen"
         >
-          <Users size={12} /> Dossier
+          <FileText size={12} /> Details
         </button>
 
         {/* Nicht mögliche Aktionen werden WEGGELASSEN, nicht ausgegraut. In der

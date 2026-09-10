@@ -115,7 +115,10 @@ describe("A · Das Kaskaden-Panel trennt den Bestandstermin vom abgearbeiteten",
   test("die Kopier-Anleitung steht nur da, wo es einen Text zu kopieren gibt", () => {
     // Unter einem Bestandstermin stand „Text kopieren, über den genannten
     // Kanal schicken" — ohne dass irgendwo ein Text stand.
-    const koerper = slice(PANEL, "{groups.length === 0 ? (", "</div>\n    </div>\n  );");
+    // Endanker `</details>`: Die Karte ist seit dem Aufräumen der Detailseiten
+    // zuklappbar (`<details className="card">`), der Rumpf endet deshalb nicht
+    // mehr in einem zweiten `</div>`.
+    const koerper = slice(PANEL, "{groups.length === 0 ? (", "</div>\n    </details>\n  );");
     const riegel = koerper.lastIndexOf("{pending.length > 0 && (");
     const liste = koerper.indexOf("{pending.map(");
     const fuss = koerper.indexOf("Nichts geht automatisch raus");

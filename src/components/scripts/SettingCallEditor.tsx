@@ -221,9 +221,16 @@ export function SettingCallEditor({
   const [followUpDue, setFollowUpDue] = useState<string | null>(call.follow_up_due);
   const [recordingLink, setRecordingLink] = useState(call.recording_link ?? "");
   const [waPhone, setWaPhone] = useState(call.wa_phone ?? "");
-  const [waConsent, setWaConsent] = useState(Boolean(call.wa_consent_at));
   // „Will keine Nummer rausgeben" (E10) — eine dokumentierte Ausnahme, kein
   // leeres Feld. Nur so ist sie von einer Erfassungslücke zu unterscheiden.
+  //
+  // Ein Häkchen für die EINWILLIGUNG gibt es nicht mehr: Wer seine persönliche
+  // Nummer im Gespräch für genau diesen Zweck herausgibt, hat eingewilligt —
+  // ein zweites Feld daneben fragte dasselbe noch einmal und blieb in der
+  // Praxis leer. `wa_consent_at` wird deshalb aus der Nummer abgeleitet
+  // (`saveWaContact`), nicht mehr erfragt; ohne den Stempel fiele
+  // `resolveFollowUpChannel` still auf den Akquise-Kanal zurück und die
+  // WhatsApp-Spur wäre lautlos abgeschaltet.
   const [waRefused, setWaRefused] = useState(Boolean(call.wa_refused_at));
   const [notes, setNotes] = useState(call.notes ?? "");
   const [closingDone, setClosingDone] = useState(call.status === "closing_gelegt");
@@ -451,54 +458,52 @@ export function SettingCallEditor({
   }
 
   /**
-   * Kontaktweg für die Closing-Kaskade (Entscheidung E10).
+   * Kontaktweg für die Closing-Erinnerungen (Entscheidung E10).
    *
    * Ohne Nummer und ohne dokumentierte Verweigerung hätte das Closing keinen
    * verlässlichen Kanal: `resolveFollowUpChannel` fiele auf den Akquise-Kanal
-   * zurück, und bei Ads/Social/Sonstige gibt es gar keinen — die drei
-   * Erinnerungen vor dem Abschlussgespräch stünden dann ohne Weg da.
+   * zurück, und bei Ads/Social/Sonstige gibt es gar keinen — die Erinnerungen
+   * vor dem Abschlussgespräch stünden dann ohne Weg da.
    *
-   * Das Gate rechnet deshalb mit DERSELBEN Bedingung wie der Auflöser: WhatsApp
-   * entsteht nur mit Nummer UND dokumentierter Einwilligung. Eine eingetragene
-   * Nummer ohne Einwilligung war genau die Lücke — sie sah wie eine erfüllte
-   * Pflicht aus, ergab aber keinen Kanal, und bei einer Quelle ohne
-   * Akquise-Kanal trugen danach alle drei Erinnerungen „Kanal frei wählen".
-   *
-   * Wo es einen Akquise-Kanal gibt (LinkedIn, Telefon), bleibt die fehlende
-   * Einwilligung dagegen erlaubt: Dort trägt die Kaskade, und ein Gate, das
-   * hier sperrte, drängte den Verkäufer nur dazu, eine Einwilligung
-   * anzuhaken, die es nicht gibt — ausgerechnet das Feld, das sie belegen soll.
+   * Zwei Zustände, nicht mehr drei: Nummer da ODER Verweigerung dokumentiert.
+   * Die Einwilligung ist kein eigener Zustand mehr — sie wird beim Speichern
+   * aus der Nummer abgeleitet (`saveWaContact`), also ist „Nummer da" und
+   * „WhatsApp auflösbar" ab jetzt dasselbe. Ein Gate, das zusätzlich auf ein
+   * Feld prüfte, das es in der Oberfläche nicht mehr gibt, wäre eine Sperre
+   * ohne Ausweg.
    */
   const waPhoneGiven = !waRefused && waPhone.trim().length > 0;
   const fallbackChannel = resolveCascadeChannel(call.source_type);
-  const waReady = waRefused || (waPhoneGiven && (waConsent || fallbackChannel !== null));
+  const waReady = waRefused || waPhoneGiven;
 
   /** Was fehlt — im Modal und als Titel des gesperrten Knopfes derselbe Satz. */
-  const waBlockedHint = waPhoneGiven
-    ? "Für diese Quelle gibt es keinen Akquise-Kanal — ohne dokumentierte Einwilligung hätten die Erinnerungen keinen Weg. Bitte Einwilligung bestätigen oder „Will keine Nummer rausgeben“ wählen."
-    : "Ohne persönliche Nummer kein Closing — bitte eintragen oder „Will keine Nummer rausgeben“ wählen.";
+  const waBlockedHint =
+    "Ohne persönliche Nummer kein Closing — bitte eintragen oder „Will keine Nummer rausgeben“ wählen.";
 
   /**
    * Nummer bzw. Verweigerung speichern. Die beiden CHECKs aus 0032 sind hier
    * der Grund für das gemeinsame Patch: `wa_refused_at` darf nur OHNE Nummer
    * stehen, `wa_consent_at` nur MIT einer — einzeln geschrieben weist Postgres
    * die Zeile ab, und der Nutzer sähe eine Constraint-Meldung.
+   *
+   * Die Einwilligung hängt seit dem Wegfall des Häkchens an genau EINER
+   * Bedingung: Es gibt eine Nummer. Damit sind beide CHECKs strukturell
+   * erfüllt — mit Nummer steht `wa_consent_at` und `wa_refused_at` ist NULL,
+   * ohne Nummer ist `wa_consent_at` NULL. Wird eine Nummer wieder gelöscht,
+   * geht der Stempel deshalb mit; ein stehen gebliebener Beleg ohne Nummer
+   * wäre nicht nur verboten, er behauptete auch etwas über einen Menschen,
+   * dessen Nummer wir gar nicht mehr haben.
    */
-  function saveWaContact(next: { phone: string; consent: boolean; refused: boolean }) {
+  function saveWaContact(next: { phone: string; refused: boolean }) {
     if (next.refused) {
       setWaPhone("");
-      setWaConsent(false);
       save({ wa_phone: null, wa_consent_at: null, wa_refused_at: new Date().toISOString() });
       return;
     }
     const phone = next.phone.trim() || null;
-    // Ohne Nummer keine Einwilligung — der CHECK aus 0032 verlangt es, und ein
-    // gesetztes Häkchen neben einem leeren Feld behauptete etwas, das nirgends
-    // gespeichert ist.
-    if (!phone && next.consent) setWaConsent(false);
     save({
       wa_phone: phone,
-      wa_consent_at: phone && next.consent ? new Date().toISOString() : null,
+      wa_consent_at: phone ? new Date().toISOString() : null,
       wa_refused_at: null,
     });
   }
@@ -523,7 +528,8 @@ export function SettingCallEditor({
           ? { wa_phone: null, wa_consent_at: null, wa_refused_at: new Date().toISOString() }
           : {
               wa_phone: waPhone.trim() || null,
-              wa_consent_at: waPhone.trim() && waConsent ? new Date().toISOString() : null,
+              // Dieselbe Ableitung wie in `saveWaContact`: Nummer da = Beleg da.
+              wa_consent_at: waPhone.trim() ? new Date().toISOString() : null,
               wa_refused_at: null,
             },
       );
@@ -581,6 +587,14 @@ export function SettingCallEditor({
 
   const statusMeta = STATUS_META[status];
 
+  /**
+   * Gibt es überhaupt etwas zurückzusetzen? Genau die vier Felder, die
+   * `handleReset` leert — steht keines davon, ist der Knopf ein Klick ohne
+   * Wirkung, und der stünde auf jedem frisch angelegten Termin.
+   */
+  const hasResult =
+    status !== "offen" || showStatus !== null || followUpDue != null || call.no_show_count > 0;
+
   // Antworten auf Bloecke, die es im aktuellen Skript nicht mehr gibt.
   const legacyAnswers = LEGACY_SETTING_BLOCKS.map((b) => ({
     key: b.key,
@@ -590,139 +604,181 @@ export function SettingCallEditor({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      {/* ── Aktionsleiste ── */}
+      {/* ── Kopfkarte: ZWEI Reihen, nicht eine Kette ──
+          Vorher standen Anwesenheit, Status, Zurücksetzen, Verschieben,
+          Absagen, Unqualifiziert und „Closing anlegen" in einer einzigen
+          umbrechenden Reihe — sieben Bedienelemente, alle gleich laut, und auf
+          einem schmalen Fenster in beliebiger Reihenfolge untereinander.
+
+          Die Aufteilung folgt der Frage, wie oft man etwas anfasst:
+
+            Reihe 1 — DAS GESPRÄCH. Was man bei jedem Termin einträgt:
+              Anwesenheit, der erreichte Status, und rechts der Ausgang
+              (Unqualifiziert · Closing anlegen). Nur hier steht ein CTA.
+
+            Reihe 2 — AUSNAHMEN. Was am Termin selbst passiert (verschieben,
+              absagen, No-Show-Ausgang) und die Korrektur (Zurücksetzen).
+              Optisch abgesetzt durch eine Trennlinie, alle Knöpfe leise
+              (`ghost`, 28px). „Zurücksetzen" sitzt dabei am rechten Rand —
+              also so weit wie möglich von den alltäglichen Knöpfen entfernt,
+              damit es nicht mitgeklickt wird.
+
+          Damit stehen die beiden EINGREIFENDEN Aktionen (Absagen,
+          Zurücksetzen) nicht mehr zwischen den alltäglichen. */}
       <div
         className="card"
         style={{
           display: "flex",
-          alignItems: "center",
+          flexDirection: "column",
           gap: "var(--sp-5)",
-          flexWrap: "wrap",
           padding: "var(--sp-5) var(--sp-7)",
         }}
       >
-        {/* Links: Anwesenheit als frei umschaltbarer Selektor. */}
-        <span className="eyebrow eyebrow-muted">Anwesenheit</span>
-        <div className="show-group" role="group" aria-label="Anwesenheit">
+        {/* ── Reihe 1: das Gespräch ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)", flexWrap: "wrap" }}>
+          <span className="eyebrow eyebrow-muted">Anwesenheit</span>
+          <div className="show-group" role="group" aria-label="Anwesenheit">
+            <button
+              type="button"
+              className="show-seg"
+              data-tone="show"
+              data-active={showStatus === "show"}
+              aria-pressed={showStatus === "show"}
+              onClick={handleMarkShow}
+              disabled={isPending}
+            >
+              Erschienen
+            </button>
+            <button
+              type="button"
+              className="show-seg"
+              data-tone="noshow"
+              data-active={showStatus === "no_show"}
+              aria-pressed={showStatus === "no_show"}
+              onClick={handleMarkNoShow}
+              disabled={isPending}
+            >
+              Nicht erschienen
+            </button>
+          </div>
+
+          <span
+            className="badge"
+            style={{ color: statusMeta.color, backgroundColor: statusMeta.bg, border: `1px solid ${statusMeta.border}` }}
+          >
+            {statusMeta.label}
+          </span>
+
+          <span style={{ flex: 1 }} />
+
+          {savedTick && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "var(--sp-2)",
+                fontSize: "var(--fs-xs)",
+                color: "var(--success-fg)",
+              }}
+            >
+              <Check size={12} /> Gespeichert
+            </span>
+          )}
+
+          {/* Der Ausgang des Gesprächs — die einzigen lauten Knöpfe der Karte. */}
           <button
             type="button"
-            className="show-seg"
-            data-tone="show"
-            data-active={showStatus === "show"}
-            aria-pressed={showStatus === "show"}
-            onClick={handleMarkShow}
+            className="outcome-btn"
+            data-tone="lost"
+            data-active={status === "unqualifiziert"}
+            onClick={() => openFollowUpModal("unqualifiziert")}
             disabled={isPending}
           >
-            Erschienen
+            Unqualifiziert
           </button>
-          <button
-            type="button"
-            className="show-seg"
-            data-tone="noshow"
-            data-active={showStatus === "no_show"}
-            aria-pressed={showStatus === "no_show"}
-            onClick={handleMarkNoShow}
-            disabled={isPending}
-          >
-            Nicht erschienen
-          </button>
+          {closingDone ? (
+            <>
+              <span className="badge badge-green">
+                <Check size={12} /> Closing angelegt
+              </span>
+              <button type="button" className="btn-primary" onClick={handleGoToClosing} disabled={isPending}>
+                Zum Closing <ArrowRight size={15} />
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={openClosingModal} disabled={isPending} className="btn-primary">
+              Closing anlegen <ArrowRight size={15} />
+            </button>
+          )}
         </div>
 
-        <span className="badge" style={{ color: statusMeta.color, backgroundColor: statusMeta.bg, border: `1px solid ${statusMeta.border}` }}>
-          {statusMeta.label}
-        </span>
-
-        {/* Korrektur-Ausgang, bewusst leise: er steht neben dem Status, nicht
-            bei den Aktionen. Bei angelegtem Closing gesperrt — sonst haenge
-            das Closing an einem Setting, das wieder auf „Offen“ steht. */}
-        <button
-          type="button"
-          className="ui-btn"
-          data-variant="ghost"
-          onClick={handleReset}
-          disabled={isPending || status === "closing_gelegt"}
-          title={
-            status === "closing_gelegt"
-              ? "Nicht möglich, solange ein Closing an diesem Setting hängt"
-              : "Ergebnis zurücksetzen"
-          }
-          style={{ minHeight: 28, padding: "0 var(--sp-5)", fontSize: "var(--fs-sm)" }}
-        >
-          <RotateCcw size={13} /> Zurücksetzen
-        </button>
-
-        {/* Die Termin-Ereignisse stehen bei der Korrektur, nicht bei den
-            Ergebnissen: Verschieben und Absagen sagen nichts über den Ausgang
-            des Gesprächs aus — sie rühren Status und Show-Quote bewusst nicht
-            an (Migration 0032 hat dafür eigene Spalten). */}
-        <AppointmentLifecycleBar
-          entityType="setting"
-          id={call.id}
-          appointmentAt={call.appointment_at}
-          showStatus={showStatus}
-          lifecycle={call}
-          disabled={isPending}
-          onChanged={() => {
-            flashSaved();
-            bumpCascade();
-            router.refresh();
+        {/* ── Reihe 2: Termin & Korrektur ── */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-4)",
+            flexWrap: "wrap",
+            borderTop: "1px solid var(--border-subtle)",
+            paddingTop: "var(--sp-5)",
           }}
-          onErsatztermin={() => {
-            setModalError(null);
-            setRescheduleAt(toDatetimeLocal(call.appointment_at));
-            setRescheduleOpen(true);
-          }}
-        />
-        <RescheduleHint lifecycle={call} />
-
-        <span style={{ flex: 1 }} />
-
-        {savedTick && (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "var(--sp-2)",
-              fontSize: "var(--fs-xs)",
-              color: "var(--success-fg)",
-            }}
-          >
-            <Check size={12} /> Gespeichert
-          </span>
-        )}
-
-        {/* Rechts stehen nur noch die ERGEBNISSE des Gesprächs; Verschieben und
-            Absagen sind links zu den Korrekturen gewandert. Closing anlegen
-            bleibt der eine CTA. */}
-        <button
-          type="button"
-          className="outcome-btn"
-          data-tone="lost"
-          data-active={status === "unqualifiziert"}
-          onClick={() => openFollowUpModal("unqualifiziert")}
-          disabled={isPending}
         >
-          Unqualifiziert
-        </button>
-        {closingDone ? (
-          <>
-            <span className="badge badge-green">
-              <Check size={12} /> Closing angelegt
-            </span>
-            <button type="button" className="btn-primary" onClick={handleGoToClosing} disabled={isPending}>
-              Zum Closing <ArrowRight size={15} />
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={openClosingModal}
+          <span className="eyebrow eyebrow-muted">Termin</span>
+          {/* Verschieben und Absagen sagen nichts über den Ausgang des
+              Gesprächs aus — sie rühren Status und Show-Quote bewusst nicht an
+              (Migration 0032 hat dafür eigene Spalten). Deshalb stehen sie hier
+              und nicht bei den Ergebnissen. */}
+          <AppointmentLifecycleBar
+            entityType="setting"
+            id={call.id}
+            appointmentAt={call.appointment_at}
+            showStatus={showStatus}
+            lifecycle={call}
             disabled={isPending}
-            className="btn-primary"
-          >
-            Closing anlegen <ArrowRight size={15} />
-          </button>
-        )}
+            onChanged={() => {
+              flashSaved();
+              bumpCascade();
+              router.refresh();
+            }}
+            onErsatztermin={() => {
+              setModalError(null);
+              setRescheduleAt(toDatetimeLocal(call.appointment_at));
+              setRescheduleOpen(true);
+            }}
+          />
+          <RescheduleHint lifecycle={call} />
+
+          <span style={{ flex: 1 }} />
+
+          {/* Weggelassen statt ausgegraut, wenn es nichts zurückzusetzen gibt —
+              dasselbe Muster wie in der Ablage (AblageBoard.tsx): Auf einem
+              frisch angelegten Termin stand hier bisher auf JEDER Seite ein
+              Knopf, dessen Klick nichts bewirkt hätte, weil weder Anwesenheit
+              noch Status noch Wiedervorlage gesetzt sind.
+
+              Der eine verbleibende gesperrte Fall ist bewusst KEIN Weglassen:
+              Bei angelegtem Closing gäbe es etwas zurückzusetzen, es ist nur
+              nicht erlaubt (das Closing hinge sonst an einem Setting auf
+              „Offen"). Diese Absage muss der Nutzer lesen können — ein
+              spurlos verschwundener Knopf ließe ihn danach suchen. */}
+          {hasResult && (
+            <button
+              type="button"
+              className="ui-btn"
+              data-variant="ghost"
+              onClick={handleReset}
+              disabled={isPending || status === "closing_gelegt"}
+              title={
+                status === "closing_gelegt"
+                  ? "Nicht möglich, solange ein Closing an diesem Setting hängt"
+                  : "Anwesenheit, Status und Wiedervorlage leeren"
+              }
+              style={{ minHeight: 28, padding: "0 var(--sp-5)", fontSize: "var(--fs-sm)" }}
+            >
+              <RotateCcw size={13} /> Zurücksetzen
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── No-Show: Wiedervorlage ── */}
@@ -875,17 +931,20 @@ export function SettingCallEditor({
 
       {/* ── WhatsApp-Kontakt ──
           Wird HIER eingesammelt (nicht am Lead), weil zu diesem Zeitpunkt
-          zum ersten Mal echtes Vertrauen besteht — Grundlage der Closing-/
-          Nachfass-Erinnerungskaskade (Migration 0031). wa_consent_at
-          dokumentiert die Einwilligung (UWG-Pflicht, auch B2B): eine reine
-          Termin-/Service-Nachricht ist danach unkritisch, eine Nachricht
-          ohne dokumentierten Beleg nicht.
+          zum ersten Mal echtes Vertrauen besteht — Grundlage der Erinnerungen
+          vor Closing und Nachfass-Kontakt (Migration 0032).
 
-          Dritter Zustand seit Entscheidung E10: „will keine Nummer rausgeben".
-          Ohne ihn wäre eine Verweigerung von einer Erfassungslücke nicht zu
-          unterscheiden — und genau das entscheidet, ob die Kaskade auf den
-          Akquise-Kanal zurückfallen darf oder ob schlicht jemand vergessen hat
-          zu fragen. */}
+          Zwei Felder, nicht drei: die Nummer und die dokumentierte Verweigerung
+          „will keine Nummer rausgeben" (Entscheidung E10). Ohne diese zweite
+          Angabe wäre eine Verweigerung von einer Erfassungslücke nicht zu
+          unterscheiden — und genau das entscheidet, ob die Erinnerungen auf den
+          Akquise-Kanal zurückfallen dürfen oder ob schlicht jemand vergessen
+          hat zu fragen.
+
+          Das frühere Häkchen „Einwilligung erhalten" ist weg. Der Beleg
+          (`wa_consent_at`, UWG-Pflicht auch im B2B) bleibt und wird beim
+          Speichern aus der Nummer abgeleitet: Wer sie im Gespräch für genau
+          diesen Zweck herausgibt, willigt damit ein. */}
       <div
         style={{
           display: "flex",
@@ -910,34 +969,11 @@ export function SettingCallEditor({
           onChange={(e) => setWaPhone(e.target.value)}
           onBlur={() => {
             if (waPhone.trim() === (call.wa_phone ?? "")) return;
-            saveWaContact({ phone: waPhone, consent: waConsent, refused: false });
+            saveWaContact({ phone: waPhone, refused: false });
           }}
           placeholder={waRefused ? "Keine Nummer — bewusst so erfasst" : "Persönliche Nummer des Entscheiders"}
           style={{ ...fieldInput, flex: "1 1 220px", width: "auto", opacity: waRefused ? 0.5 : 1 }}
         />
-        <label
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            fontSize: "0.75rem",
-            color: "var(--text-muted)",
-            cursor: waRefused ? "default" : "pointer",
-            opacity: waRefused ? 0.5 : 1,
-            flexShrink: 0,
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={waConsent}
-            disabled={waRefused}
-            onChange={(e) => {
-              setWaConsent(e.target.checked);
-              saveWaContact({ phone: waPhone, consent: e.target.checked, refused: false });
-            }}
-          />
-          Einwilligung zur WhatsApp-Kontaktierung erhalten
-        </label>
         <label
           style={{
             display: "inline-flex",
@@ -954,7 +990,7 @@ export function SettingCallEditor({
             checked={waRefused}
             onChange={(e) => {
               setWaRefused(e.target.checked);
-              saveWaContact({ phone: waPhone, consent: waConsent, refused: e.target.checked });
+              saveWaContact({ phone: waPhone, refused: e.target.checked });
             }}
           />
           Will keine Nummer rausgeben
@@ -1279,12 +1315,12 @@ export function SettingCallEditor({
           </div>
 
           {/* ── Kontaktweg (Entscheidung E10) ──
-              Pflicht mit begründeter Ausnahme: Die drei Erinnerungen vor dem
+              Pflicht mit begründeter Ausnahme: Die Erinnerungen vor dem
               Abschlussgespräch brauchen einen Weg zum Entscheider. Ohne Nummer
-              fällt die Kaskade auf den Akquise-Kanal zurück — den gibt es aber
-              nur bei LinkedIn und Telefon; bei Ads, Social Media und Sonstige
-              stünde der Termin ganz ohne Erinnerung da. Deshalb hier abfragen,
-              wo der Übergang stattfindet, und nicht irgendwann später. */}
+              fallen sie auf den Akquise-Kanal zurück — den gibt es aber nur bei
+              LinkedIn und Telefon; bei Ads, Social Media und Sonstige stünde der
+              Termin ganz ohne Erinnerung da. Deshalb hier abfragen, wo der
+              Übergang stattfindet, und nicht irgendwann später. */}
           <div>
             <span style={fieldLabel}>Persönliche Nummer des Entscheiders *</span>
             <input
@@ -1302,26 +1338,6 @@ export function SettingCallEditor({
                 gap: "0.4rem",
                 marginTop: "0.5rem",
                 fontSize: "0.75rem",
-                color: "var(--text-muted)",
-                cursor: waRefused ? "default" : "pointer",
-                opacity: waRefused ? 0.5 : 1,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={waConsent}
-                disabled={waRefused}
-                onChange={(e) => setWaConsent(e.target.checked)}
-              />
-              Einwilligung zur WhatsApp-Kontaktierung erhalten
-            </label>
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                marginTop: "0.35rem",
-                fontSize: "0.75rem",
                 color: waRefused ? "var(--color-warning-text)" : "var(--text-muted)",
                 cursor: "pointer",
               }}
@@ -1329,21 +1345,18 @@ export function SettingCallEditor({
               <input
                 type="checkbox"
                 checked={waRefused}
-                onChange={(e) => {
-                  setWaRefused(e.target.checked);
-                  if (e.target.checked) setWaConsent(false);
-                }}
+                onChange={(e) => setWaRefused(e.target.checked)}
               />
               Will keine Nummer rausgeben
             </label>
             <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", lineHeight: 1.45, color: "var(--text-subtle)" }}>
               {waRefused
-                ? `Festgehalten als bewusste Ausnahme — die Erinnerungen laufen dann über ${channelLabel(call.source_type, "den Akquise-Kanal")}.`
-                : waConsent
-                  ? "Mit dokumentierter Einwilligung laufen die Erinnerungen über WhatsApp."
-                  : fallbackChannel
-                    ? "Ohne dokumentierte Einwilligung laufen die Erinnerungen über den Akquise-Kanal — die Nummer bleibt trotzdem am Termin."
-                    : "Ohne dokumentierte Einwilligung bleibt kein Weg: Diese Quelle hat keinen Akquise-Kanal, auf den die Erinnerungen zurückfallen könnten."}
+                ? fallbackChannel
+                  ? `Festgehalten als bewusste Ausnahme — die Erinnerungen laufen dann über ${channelLabel(call.source_type, "den Akquise-Kanal")}.`
+                  : "Festgehalten als bewusste Ausnahme. Für diese Quelle gibt es keinen Akquise-Kanal, auf den die Erinnerungen zurückfallen könnten — der Kanal ist dann bei jeder Erinnerung frei zu wählen."
+                : waPhoneGiven
+                  ? "Die Erinnerungen laufen über WhatsApp an diese Nummer."
+                  : "Ohne Nummer bleibt nur die Ausnahme daneben — bitte eintragen oder ankreuzen."}
             </p>
           </div>
 
@@ -1392,7 +1405,7 @@ export function SettingCallEditor({
         open={rescheduleOpen}
         onClose={() => setRescheduleOpen(false)}
         title="Ersatztermin eintragen"
-        subtitle="Neuer Anlauf: Der Call geht zurück auf „Offen“ und bekommt die volle Erinnerungs-Kaskade. Ein vorheriger No-Show bleibt in der Auswertung erhalten."
+        subtitle="Neuer Anlauf: Der Call geht zurück auf „Offen“ und bekommt wieder alle Erinnerungen. Ein vorheriger No-Show bleibt in der Auswertung erhalten."
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           <div>

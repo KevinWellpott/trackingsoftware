@@ -38,11 +38,11 @@ import {
   Clock,
   Copy,
   Database,
+  FileText,
   MessageCircle,
   Phone,
   Undo2,
   UserCog,
-  Users,
 } from "lucide-react";
 
 // "Meine Erinnerungen" — eine Karte je TERMIN, nicht je Kaskadenstufe.
@@ -939,17 +939,21 @@ function TerminCard({
           {appt ? `${appt.date}, ${appt.time} Uhr` : "Termin —"}
         </span>
         {/* Gesprächsvorbereitung, deshalb VOR dem Termin und ohne die
-            Arbeitsliste zu verlassen: das Dossier öffnet als Overlay und lädt
-            erst beim Öffnen. Es steht neben dem Sprung in den Editor, weil es
+            Arbeitsliste zu verlassen: die Akte öffnet als Overlay und lädt
+            erst beim Öffnen. Sie steht neben dem Sprung in den Editor, weil sie
             dieselbe Frage beantwortet — was weiß ich über diesen Lead —, nur
-            ohne wegzunavigieren. */}
+            ohne wegzunavigieren.
+            Beschriftet ist sie „Details" und nicht „Dossier": Das war ein
+            Wort aus dem Code, das dem Vertrieb nicht sagte, was passiert.
+            Dieselbe Beschriftung tragen die Knöpfe in /nachfassen und /ablage
+            — dieselbe Sache darf nicht an drei Orten anders heißen. */}
         <button
           type="button"
           onClick={() => setDossierOpen(true)}
           style={{ ...ghostBtn, marginLeft: "auto" }}
-          title="Alles zu diesem Lead — Verlauf, Kanäle, Notizen"
+          title="Alles zu diesem Lead — Verlauf, Kontaktwege, Notizen"
         >
-          <Users size={12} /> Dossier
+          <FileText size={12} /> Details
         </button>
         <Link href={meta.href(card.entityId)} style={ghostBtn}>
           {meta.linkLabel} <ArrowUpRight size={12} />
@@ -1281,7 +1285,7 @@ export function ErinnerungenBoard({
             Erinnerungen sind nicht verfügbar
           </div>
           <p style={{ margin: "var(--sp-3) 0 0", fontSize: "var(--fs-sm)", color: "var(--text-secondary)", maxWidth: "62ch" }}>
-            Die Kaskaden-Tabellen fehlen in der Datenbank — die Migration ist noch nicht eingespielt. Das ist
+            Die Tabellen für die Erinnerungen fehlen in der Datenbank — die Migration ist noch nicht eingespielt. Das ist
             ausdrücklich <strong>nicht</strong> dasselbe wie &bdquo;nichts f&auml;llig&ldquo;: Es entstehen derzeit gar keine
             Erinnerungen, und keine Terminbestätigung geht raus. Ein Administrator spielt die Migration im
             Supabase-SQL-Editor ein.

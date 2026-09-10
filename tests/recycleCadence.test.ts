@@ -21,10 +21,13 @@ import { describe, test } from "node:test";
 
 import { RECYCLE_REASON_LABELS, renderRecycleTemplate } from "@/lib/recycleCadence";
 
+// Zeilenenden vereinheitlichen — `core.autocrlf=true` legt auch die
+// Migrationsdateien unter Windows mit CRLF ab; Anker mit `\n` fänden sie sonst
+// nicht.
 const MIGRATION_0033 = readFileSync(
   fileURLToPath(new URL("../supabase/migrations/20260404000033_lead_recycling.sql", import.meta.url)),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 describe("Recycling-Kadenz (in der Datenbank)", () => {
   test("'falsche_zielgruppe' und 'kein_fit' bekommen NIE ein Recycling", () => {

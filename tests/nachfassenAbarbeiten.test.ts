@@ -3,7 +3,8 @@
 // Vier Zusagen werden hier festgehalten — jede davon war vorher gebrochen:
 //  1. Jede Aktion, die eine Karte wegnimmt, hat einen Rückweg (außer der einen,
 //     die im Bestätigungsdialog ausdrücklich das Gegenteil zusagt).
-//  2. Drei der fünf Sektionen konnte man auf der Seite gar nicht abhaken.
+//  2. Drei der damals fünf Sektionen konnte man auf der Seite gar nicht
+//     abhaken — es sind heute drei von vier, LinkedIn ist entfallen.
 //  3. Der Zurück-Pfeil der Detailseite führte in den Kalender.
 //  4. Die Setting-Karte verschwieg, WARUM sie fällig ist.
 //
@@ -78,38 +79,40 @@ describe("1 · Ein Fehlklick ist kein Endzustand mehr", () => {
 
   test("zurückgeschrieben wird GENAU das, was die Aktion überschrieben hat", () => {
     const spalten = slice(ACTION, "const UNDO_COLUMNS", "/** null = die Tabelle");
-    // Die beiden Spalten, die `markLinkedInAnswered` anfasst — nicht mehr.
-    assert.match(spalten, /linkedin_antwort: \["answered", "next_follow_up_at"\]/);
-    // Die zwei Spalten des UPDATE plus die zwei, die `schedule_recycle()` nach
-    // FU3 stempelt: sonst bliebe nach dem Rückgängig ein Recycling-Datum für
-    // einen Kontakt stehen, der wieder mitten in der Kadenz steht.
+    // Die eine Spalte, die `pushPhoneCallback` anfasst — nicht mehr.
+    assert.match(spalten, /telefon_rueckruf: \["callback_at"\]/);
+    // Das Closing hält zwei Spalten synchron (`follow_up_due` speist die RPC,
+    // `follow_up_due_at` die Kaskade) — beide gehören in den Rückweg.
+    assert.match(spalten, /closing_wiedervorlage: \["follow_up_due", "follow_up_due_at"\]/);
+    // Die vier, die `recycle_attempt()` + `schedule_recycle()` zusammen
+    // anfassen: sonst bliebe nach dem Rückgängig ein Versuchszähler stehen.
     assert.match(
       spalten,
-      /linkedin_stufe: \["follow_up_number", "next_follow_up_at", "next_recycle_at", "recycle_reason_code"\]/,
+      /recycling_versuch: \["recycle_attempt_count", "recycle_last_contacted_at", "next_recycle_at", "recycle_reason_code"\]/,
     );
   });
 
   test("die Werte werden VOR dem Schreiben gelesen — danach sind sie weg", () => {
-    const antwort = slice(ACTION, "export async function markLinkedInAnswered", "export async function advanceLinkedInFollowUp");
-    // Der Existenz-/Scope-Select nimmt die beiden Spalten gleich mit; ein
-    // zweiter Roundtrip wäre hier auch zu spät.
-    assert.match(antwort, /\.select\("id, list_id, answered, next_follow_up_at"\)/);
-    const selectPos = antwort.indexOf('.select("id, list_id, answered');
-    const updatePos = antwort.indexOf(".update({ answered: true");
+    // Der Existenz-/Scope-Select nimmt die zu überschreibende Spalte gleich
+    // mit; ein zweiter Roundtrip wäre hier auch zu spät.
+    const callback = slice(ACTION, "export async function pushPhoneCallback", "Recycling — dieselben Aktionen");
+    const selectPos = callback.indexOf('.select("id, list_id, callback_at")');
+    const updatePos = callback.indexOf(".update({ callback_at: iso })");
     assert.ok(selectPos !== -1 && updatePos !== -1 && selectPos < updatePos);
 
-    // Und beim Recycling-Datum dieselbe Reihenfolge: erst lesen, dann planen.
-    const stufe = slice(ACTION, "export async function advanceLinkedInFollowUp", "Vom Tisch nehmen");
-    const lesen = stufe.indexOf('.select("next_recycle_at, recycle_reason_code")');
-    const planen = stufe.indexOf('await scheduleRecycle("linkedin", contactId)');
-    assert.ok(lesen !== -1 && planen !== -1 && lesen < planen, "Sonst steht im Rückweg das Datum von gerade eben.");
+    // Beim Recycling dieselbe Reihenfolge: Die Hülle liest den Stand VOR dem
+    // Klick, sonst verbrennt ein Fehlgriff einen von zwei erlaubten Versuchen.
+    const versuch = slice(ACTION, "export async function recycleContactedUndoable", '/** „Reagiert"');
+    const lesen = versuch.indexOf("const values = await recycleSnapshot(");
+    const schreiben = versuch.indexOf("await markRecycleContacted(");
+    assert.ok(lesen !== -1 && schreiben !== -1 && lesen < schreiben, "Sonst steht im Rückweg der Stand von gerade eben.");
   });
 
   test("Tabelle und Spalten bestimmt der Server, nicht das mitgeschickte Token", () => {
     // Server Actions sind per direktem POST erreichbar. Käme die Spaltenliste
     // vom Aufrufer, wäre `undoNachfassenTask` ein beliebiges UPDATE auf vier
     // Tabellen statt der Rücknahme genau einer bekannten Aktion.
-    const undo = slice(ACTION, "export async function undoNachfassenTask", "/** LinkedIn-Lead als beantwortet");
+    const undo = slice(ACTION, "export async function undoNachfassenTask", "Vom Tisch nehmen");
     assert.match(undo, /const columns = kind \? UNDO_COLUMNS\[kind\] : undefined;/);
     assert.match(undo, /const table = UNDO_TABLE\[kind\] \?\? \(undo\.origin \? TABLE_BY_ORIGIN\[undo\.origin\] : null\);/);
     assert.match(undo, /for \(const col of columns\)/);
@@ -130,7 +133,7 @@ describe("1 · Ein Fehlklick ist kein Endzustand mehr", () => {
     // zwei Überschneidungen mit /erinnerungen (docs §1). Ein rohes UPDATE
     // ließe die Erinnerungen auf dem verschobenen Zeitpunkt stehen, und der
     // Text ginge real zum falschen Termin raus.
-    const undo = slice(ACTION, "export async function undoNachfassenTask", "/** LinkedIn-Lead als beantwortet");
+    const undo = slice(ACTION, "export async function undoNachfassenTask", "Vom Tisch nehmen");
     assert.match(undo, /if \(kind === "closing_wiedervorlage"\) \{[\s\S]*await updateClosingCall\(/);
 
     // …und das Tagesdatum wird danach wörtlich zurückgeschrieben.
@@ -295,7 +298,10 @@ describe("4 · Der Anlass steht auf der Karte", () => {
     const rpc = slice(ACTION, '.rpc("nachfassen_tasks", {', "})");
     assert.match(rpc, /p_workspace_id: access\.workspace_id,\s*p_today: today,\s*p_now: [^\n]*\n\s*p_effective_user_id: scopeUserId,/);
 
-    assert.match(ACTION, /const settingIds = \[\.\.\.new Set\(rows\.filter\(\(r\) => r\.source === "setting"\)/);
+    // `visible` statt `rows`: die Liste NACH dem Verwerfen des LinkedIn-Zweigs
+    // (docs — actions/nachfassen.ts). Über `rows` gelesen holte der Nachschlag
+    // Gründe für Karten, die es gar nicht gibt.
+    assert.match(ACTION, /const settingIds = \[\.\.\.new Set\(visible\.filter\(\(r\) => r\.source === "setting"\)/);
     assert.match(ACTION, /selectByIds<SettingReasonRow>\(settingIds, \(chunk\) =>/);
     assert.match(ACTION, /\.select\("id, status, disqualify_reason_code"\)/);
   });

@@ -63,7 +63,11 @@ export function LeadDossierSheet({ open, onClose, kind, id }: Props) {
     <Modal
       open={open}
       onClose={onClose}
-      title="Lead-Dossier"
+      /* „Details zum Lead" statt „Lead-Dossier": Der Titel des Overlays muss
+         dasselbe Wort tragen wie der Knopf, der es öffnet (alle drei Boards
+         beschriften ihn „Details") — sonst fragt sich der Nutzer beim ersten
+         Klick, ob er gelandet ist, wo er wollte. */
+      title="Details zum Lead"
       subtitle="Alles zu diesem Lead — für das Gespräch"
       width={760}
     >

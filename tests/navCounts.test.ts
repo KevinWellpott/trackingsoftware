@@ -132,32 +132,78 @@ describe("Nachfassen-Zähler", () => {
       zugriff(),
     );
 
-    // Läse der Zähler alle sechs Zeilen nach ihrem Datentyp, stünden hier fünf
+    // Läse der Zähler alle Zeilen nach ihrem Datentyp, stünden hier fünf
     // Überfällige — um 10 Uhr morgens, an einem Tag, an dem nichts zu spät ist.
-    assert.deepEqual(counts.nachfassen, { total: 6, overdue: 2 });
+    //
+    // Fünf statt sechs: Die LinkedIn-Zeile fällt heraus. Der Zweig steht nicht
+    // mehr auf /nachfassen, und ein Badge, das ihn zählt, behauptet Arbeit,
+    // die man dort nicht finden kann.
+    assert.deepEqual(counts.nachfassen, { total: 5, overdue: 2 });
   });
 
-  test("die Gesamtzahl ist der count der Datenbank, nicht die Zahl der geholten Zeilen", async (t) => {
+  test("der Zähler schneidet Altlasten weg — genau wie die Seite darunter", async (t) => {
+    // Das Badge zeigte am ersten produktiven Tag 425. Es zählt jetzt dieselbe
+    // Menge, die die Seite zeigt: LinkedIn raus, lange Überfälliges raus
+    // (lib/staleTasks.ts). Sonst mahnt die Navigation Arbeit an, die auf dem
+    // Board gar nicht steht — und §5.4 verspricht, dass die Differenz
+    // auflösbar bleibt.
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const protokoll: Protokoll[] = [];
     const counts = await loadNavCounts(
       supabase(
         {
-          // 500 ist der Deckel des Fensters; die exakte Zahl kommt daneben.
           nachfassen_tasks: {
-            data: [{ source: "linkedin", due_at: "2026-09-01T00:00:00+00:00" }],
-            count: 812,
+            data: [
+              // Rückruf, Grenze 14 Tage: gestern zählt, ein Vierteljahr nicht.
+              { source: "telefon", due_at: "2026-09-07T07:00:00+00:00" },
+              { source: "telefon", due_at: "2026-06-01T07:00:00+00:00" },
+              // Wiedervorlagen, Grenze 30 Tage.
+              { source: "setting", due_at: "2026-09-01T00:00:00+00:00" },
+              { source: "setting", due_at: "2026-05-01T00:00:00+00:00" },
+              { source: "closing", due_at: "2026-01-15T00:00:00+00:00" },
+            ],
+            count: 5,
           },
-          recycle_tasks: { data: [{ due_at: "2026-09-01T00:00:00+00:00" }], count: 4 },
+          // Recycling, Grenze 90 Tage: eine frische, eine uralte Fälligkeit.
+          recycle_tasks: {
+            data: [{ due_at: "2026-08-20T00:00:00+00:00" }, { due_at: "2025-11-01T00:00:00+00:00" }],
+            count: 2,
+          },
         },
-        protokoll,
+        [],
       ),
       zugriff(),
     );
 
-    assert.equal(counts.nachfassen?.total, 816);
-    // Nur die Aufteilung fällig/überfällig ist gedeckelt — sie zählt Zeilen.
-    assert.equal(counts.nachfassen?.overdue, 2);
+    // Übrig: 1 Rückruf + 1 Setting + 1 Recycling. Alle drei sind überfällig —
+    // und genau das darf das Badge weiterhin sagen.
+    assert.deepEqual(counts.nachfassen, { total: 3, overdue: 3 });
+  });
+
+  test("wurde das Fenster abgeschnitten, gibt es KEIN Badge statt einer zu kleinen Zahl", async (t) => {
+    // `count` ist exakt, das 500er-Fenster ist es nicht — und weil aufsteigend
+    // nach Fälligkeit sortiert wird, stehen ausgerechnet die
+    // wegzuschneidenden Zeilen vorn. Die gefilterte Gesamtzahl lässt sich dann
+    // nicht mehr ermitteln: `null` heißt „nicht ermittelbar", nicht „nichts
+    // fällig" (docs §5.4).
+    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
+    const counts = await loadNavCounts(
+      supabase(
+        {
+          nachfassen_tasks: {
+            data: [{ source: "setting", due_at: "2026-09-08T00:00:00+00:00" }],
+            count: 812,
+          },
+          recycle_tasks: { data: [{ due_at: "2026-09-08T00:00:00+00:00" }], count: 4 },
+          dropout_lists: { count: 2 },
+        },
+        [],
+      ),
+      zugriff(),
+    );
+
+    assert.equal(counts.nachfassen, null);
+    // …und die anderen Zweige stehen trotzdem.
+    assert.deepEqual(counts.ablage, { total: 2, overdue: 0 });
   });
 
   test("fällt EINE der beiden Quellen aus, gibt es keinen Zähler statt einer halben Wahrheit", async (t) => {

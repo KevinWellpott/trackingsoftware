@@ -155,65 +155,65 @@ describe("B · Der Anlass-Satz kennt die Disqualifikations-Gründe", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * C — „nicht lesbar" ist nicht „zu alt"
+ * C — LinkedIn steht nicht mehr auf dieser Seite
  * ------------------------------------------------------------------ */
 
-describe("C · Nicht lesbare Kontakte werden nicht als „ältere Leads\" verbucht", () => {
-  test("der 7-Tage-Schnitt greift nur bei belegtem Pitch-Datum", () => {
-    const zweig = slice(ACTION, 'if (r.source === "linkedin") {', 'else if (r.source === "telefon")');
+describe("C · Der LinkedIn-Zweig wird verworfen, die RPC bleibt unangetastet", () => {
+  test("gefiltert wird app-seitig, an GENAU EINER Stelle", () => {
+    // Die RPC `nachfassen_tasks` ist seit Migration 0030 eingefroren, liegt
+    // produktiv auf der Datenbank und speist zusätzlich den Navigations-Zähler.
+    // Eine geänderte RETURNS-TABLE-Signatur bräuchte DROP FUNCTION statt
+    // CREATE OR REPLACE — für eine Anzeigefrage der falsche Preis.
+    assert.match(ACTION, /const visible = rows\.filter\(/);
+    assert.match(ACTION, /r\.source !== "linkedin"/);
 
-    // Die Reihenfolge ist die Aussage: hiddenOlder++ steht INNERHALB von
-    // `if (info)`, unreadableContacts++ im else. Vorher lief beides über
-    // `info?.pitched_at ?? null` in einen Topf — eine nicht lesbare Zeile
-    // landete unter „Pitch > 7 Tage", obwohl ihr Pitch von gestern sein kann.
-    assert.match(
-      zweig,
-      /if \(info\) \{[\s\S]*hiddenOlder\+\+;[\s\S]*\} else \{[\s\S]*unreadableContacts\+\+;/,
-      "hiddenOlder darf nur im belegten Zweig hochzählen, unreadableContacts nur im anderen.",
-    );
-
-    // Gegenprobe zum alten Verhalten: Der Kurzschluss über `info?.pitched_at`
-    // ist verschwunden — mit ihm war die Unterscheidung gar nicht formulierbar.
-    assert.doesNotMatch(zweig, /const pitched = info\?\.pitched_at/);
+    // Die RPC wird weiterhin mit denselben vier Argumenten aufgerufen.
+    const rpc = slice(ACTION, '.rpc("nachfassen_tasks", {', "})");
+    assert.match(rpc, /p_workspace_id: access\.workspace_id,/);
+    assert.doesNotMatch(rpc, /source|linkedin/i, "Kein Filter im RPC-Aufruf.");
   });
 
-  test("die Aufgabe verschwindet nicht, sie wird nur getrennt gezählt", () => {
-    // Fällig ist fällig: Die RPC entscheidet, was heute ansteht — der
-    // Nachschlag liefert nur Beiwerk (Listenbezug, Pitch-Alter).
-    const zweig = slice(ACTION, 'if (r.source === "linkedin") {', 'else if (r.source === "telefon")');
-    const elseZweig = slice(zweig, "} else {", "}");
-    assert.doesNotMatch(elseZweig, /continue;/, "Eine nicht lesbare Zeile darf nicht stillschweigend wegfallen.");
-
-    assert.match(ACTION, /unreadableContacts: number/);
-    assert.match(slice(ACTION, "  return {\n    tasks,", "\n}"), /unreadableContacts,/);
+  test("der Typ hält es fest, statt sich auf Disziplin zu verlassen", () => {
+    // `NachfassenSource` kennt `linkedin` nicht mehr. Ein vergessener Zweig
+    // wäre damit ein Compile-Fehler und keine stille Karte.
+    assert.match(ACTION, /export type NachfassenSource = "telefon" \| "closing" \| "setting" \| "recycling";/);
+    assert.match(ACTION, /source: NachfassenSource;/);
   });
 
-  test("das Board erklärt den Unterschied in einer eigenen Zeile", () => {
-    assert.match(BOARD, /unreadableContacts: number/);
-    assert.match(BOARD, /\{unreadableContacts > 0 && \(/);
-    // Die alte Zeile bleibt daneben stehen und behält ihre Aussage — sie gilt
-    // ab jetzt nur noch für Kontakte, deren Alter wirklich bekannt ist.
-    assert.match(BOARD, /Pitch &gt; 7 Tage\) ausgeblendet/);
+  test("das Board hält gar keinen LinkedIn-Fall mehr vor", () => {
+    // Kanal-Meta, Filter-Pille, FU-Schnellauswahl und die vier FU-Sektionen
+    // sind mit der Quelle verschwunden — nicht nur ausgeblendet. Ein toter
+    // Zweig sieht später aus wie ein Fehler.
+    assert.doesNotMatch(BOARD, /task\.source === "linkedin"/, "Keine LinkedIn-Karte mehr.");
+    assert.doesNotMatch(BOARD, /value: "linkedin"/, "Keine LinkedIn-Filterpille mehr.");
+    assert.doesNotMatch(BOARD, /^ {2}linkedin: /m, "Kein LinkedIn-Eintrag in CHANNEL_META/DUE_GRANULARITY.");
+    assert.doesNotMatch(BOARD, /fuFilter|fuCounts|showFuPills/, "Die FU-Schnellauswahl ist weg.");
+    assert.doesNotMatch(BOARD, /Follow-up \$\{fu\}|Weitere Follow-ups/, "Keine FU-Sektionen mehr.");
   });
 
-  test("Restfall: ein LESBARER Kontakt ohne Pitch-Datum ist nicht „zu alt\"", () => {
-    const zweig = slice(ACTION, 'if (r.source === "linkedin") {', 'else if (r.source === "telefon")');
-
-    // Dieselbe Falschaussage eine Ebene tiefer: `!info.pitched_at` zählte eine
-    // lesbare Zeile ohne Pitch-Datum nach `hiddenOlder` und blendete sie unter
-    // „ältere Leads (Pitch > 7 Tage)" aus. Die Spalte ist nullable (docs §3),
-    // der Pitch kann von heute sein — wer die Zahl nachrechnet, findet die
-    // Differenz nicht.
-    assert.doesNotMatch(zweig, /!info\.pitched_at/, "Kein Pitch-Datum heißt nicht „alt\".");
-    assert.match(zweig, /info\.pitchDay !== null && info\.pitchDay < cutoff/);
+  test("die beiden LinkedIn-Schreibpfade sind mitentfernt worden", () => {
+    // Sie hatten genau einen Aufrufer, und der steht nicht mehr auf der Seite.
+    // Server Actions sind per direktem POST erreichbar — ein Schreibpfad ohne
+    // Bedienung ist kein Rest, sondern eine offene Tür. Erledigt werden
+    // Follow-ups im Listen-Board (`updateContact`), das nach FU3 auch das
+    // Recycling einplant.
+    //
+    // Geprüft am CODE, nicht am Fließtext: Die Kommentare dürfen weiter
+    // erklären, warum es die beiden nicht mehr gibt.
+    assert.doesNotMatch(ACTION, /export async function (advanceLinkedInFollowUp|markLinkedInAnswered)/);
+    assert.doesNotMatch(BOARD, /advanceLinkedInFollowUp|markLinkedInAnswered/);
+    for (const katalog of ["const UNDO_COLUMNS", "const UNDO_TABLE"]) {
+      assert.doesNotMatch(slice(ACTION, katalog, "\n};"), /linkedin_stufe|linkedin_antwort/, katalog);
+    }
+    assert.match(ACTION, /export type UndoKind =\n {2}\| "telefon_rueckruf"/);
   });
 
-  test("Restfall: der Rückfall ist der app-weite Pitch-Tag, und die Spalte wird geladen", () => {
-    // `coalesce(pitched_at, created_at::date)` ist die Definition, mit der auch
-    // die RPCs rechnen (docs §1/§5). Ohne `created_at` im Select gäbe es für
-    // eine Zeile ohne `pitched_at` gar keine Aussage — nur eine geratene.
-    assert.match(ACTION, /pitchDay: c\.pitched_at \?\? \(berlinDateISO\(c\.created_at\) \|\| null\)/);
-    assert.match(ACTION, /\.select\("id, list_id, pitched_at, created_at, lists\(/);
+  test("das RECYCLING von LinkedIn-Kontakten bleibt — sonst wären sie nirgends", () => {
+    // Es ist ein anderer Mechanismus (docs §1) und betrifft ausgerechnet die
+    // Kontakte, die das Listen-Board aus seiner Nachfass-Ansicht ausschließt
+    // (`follow_up_number !== 3`).
+    assert.match(ACTION, /recycle\.tasks\.filter\(\(r\) => r\.origin === "linkedin"\)/);
+    assert.match(BOARD, /task\.recycle_origin === "linkedin" && task\.list_id/);
   });
 });
 
@@ -224,14 +224,18 @@ describe("C · Nicht lesbare Kontakte werden nicht als „ältere Leads\" verbuc
 describe("Abarbeitbarkeit", () => {
   test("Rückrufe stehen ganz oben — sie sind die einzige Aufgabe mit Uhrzeit", () => {
     // `DUE_GRANULARITY.telefon === "moment"`: ein mit dem Lead VERABREDETER
-    // Zeitpunkt. Unter bis zu vier LinkedIn-Sektionen rief man um 11:30
-    // zurück, was für 09:00 zugesagt war.
+    // Zeitpunkt, der vorbeigehen kann. Alle anderen Sektionen haben den ganzen
+    // Tag Zeit — sie dürfen nicht darüber stehen. (Früher lagen bis zu vier
+    // LinkedIn-Sektionen dazwischen; man rief um 11:30 zurück, was für 09:00
+    // zugesagt war. Die Sektionen sind weg, die Regel bleibt.)
     const sektionen = slice(BOARD, "const sections = useMemo<Section[]>", "return s;");
     const telefon = sektionen.indexOf('label: "Rückrufe"');
-    const linkedin = sektionen.indexOf('label: `Follow-up ${fu}`');
     assert.notEqual(telefon, -1);
-    assert.notEqual(linkedin, -1);
-    assert.ok(telefon < linkedin, "Die Rückruf-Sektion muss vor den Follow-up-Sektionen einsortiert werden.");
+    for (const spaeter of ['label: "Setting (No-Show & Unqualifiziert)"', 'label: "Closing"', 'label: "Recycling"']) {
+      const pos = sektionen.indexOf(spaeter);
+      assert.notEqual(pos, -1, spaeter);
+      assert.ok(telefon < pos, `Die Rückruf-Sektion muss vor ${spaeter} einsortiert werden.`);
+    }
   });
 
   test("„Endgültig raus\" fragt nach, bevor es den Lead für immer sperrt", () => {

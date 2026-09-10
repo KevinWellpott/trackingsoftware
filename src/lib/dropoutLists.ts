@@ -96,7 +96,7 @@ export const DROPOUT_LISTS: readonly DropoutListMeta[] = [
     title: "Abgesagt, Ersatztermin steht aus",
     meta: "Abgesagt mit Aussicht auf einen neuen Termin — der aber noch nicht steht.",
     derivation:
-      "Absagen mit Aussicht „neuer Termin“, bei denen noch kein Ersatz eingetragen ist. Sobald der Ersatztermin steht, verschwindet der Vorgang hier und die Kaskade startet neu.",
+      "Absagen mit Aussicht „neuer Termin“, bei denen noch kein Ersatz eingetragen ist. Sobald der Ersatztermin steht, verschwindet der Vorgang hier und die Erinnerungen starten neu.",
     openAction: true,
   },
   {

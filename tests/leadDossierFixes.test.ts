@@ -29,7 +29,9 @@ import {
 } from "@/lib/leadDossier";
 
 function read(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
+  // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
+  // unter Windows mit CRLF ab; mehrere Anker unten tragen ein `\n`.
+  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 }
 
 /** Der Rumpf einer Funktion — von ihrer Signatur bis zum nächsten Anker. */

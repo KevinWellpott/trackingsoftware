@@ -94,7 +94,11 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
     previousShowStatus = (current as { show_status: "show" | "no_show" | null } | null)?.show_status ?? null;
   }
 
-  const { error } = await supabase.from("setting_calls").update(withNoShowResolutionCleared(patch)).eq("id", id);
+  // Zwei Normalisierungen, die kein Aufrufer vergessen können darf: der
+  // No-Show-Ausgang folgt dem Show-Status, die WhatsApp-Einwilligung der
+  // Nummer. Beide halten je einen CHECK aus 0032 ein.
+  const normalized = withWaConsentDerived(withNoShowResolutionCleared(patch));
+  const { error } = await supabase.from("setting_calls").update(normalized).eq("id", id);
   if (error) return { error: error.message };
 
   // Der Weg ZURUECK muss die Kette abraeumen, die `setSettingOutcome('no_show')`
@@ -692,6 +696,37 @@ function isOneOf<T extends string>(codes: readonly T[], value: unknown): value i
 function withNoShowResolutionCleared<T extends { show_status?: "show" | "no_show" | null }>(patch: T): T {
   if (!("show_status" in patch) || patch.show_status === "no_show") return patch;
   return { ...patch, no_show_resolution: null };
+}
+
+/**
+ * Die Einwilligung folgt der NUMMER — es gibt kein Häkchen mehr dafür.
+ *
+ * Wer seine persönliche Nummer im Erstgespräch für genau diesen Zweck
+ * herausgibt, hat eingewilligt; das frühere zweite Feld daneben fragte
+ * dasselbe noch einmal und blieb in der Praxis leer. Genau das war teuer:
+ * `resolveFollowUpChannel` (src/lib/reminderCascade.ts) liefert WhatsApp nur
+ * mit Nummer UND `wa_consent_at` — eine Nummer ohne Stempel schaltete die
+ * ganze WhatsApp-Spur lautlos ab und ließ die Erinnerungen auf den
+ * Akquise-Kanal fallen, den es bei Ads/Social/Sonstige gar nicht gibt.
+ *
+ * Die Ableitung sitzt HIER und nicht nur im Editor, weil eine Server Action
+ * per direktem POST erreichbar ist und weil beide CHECKs aus 0032 damit
+ * strukturell erfüllt sind, egal wer schreibt: `wa_consent_at` steht nur MIT
+ * Nummer, und eine geleerte Nummer nimmt ihren Beleg mit. `wa_refused_at`
+ * (nur OHNE Nummer) bleibt Sache des Aufrufers — es ist eine Aussage, keine
+ * Ableitung.
+ *
+ * Nebeneffekt, der so gewollt ist: Eine Bestandszeile mit Nummer, aber ohne
+ * Stempel bekommt ihn beim nächsten Speichern der Nummer nachgereicht.
+ */
+function withWaConsentDerived<T extends { wa_phone?: string | null; wa_consent_at?: string | null }>(patch: T): T {
+  if (!("wa_phone" in patch)) return patch;
+  const phone = patch.wa_phone?.trim() || null;
+  return {
+    ...patch,
+    wa_phone: phone,
+    wa_consent_at: phone ? (patch.wa_consent_at ?? new Date().toISOString()) : null,
+  };
 }
 
 // Die Pruefung stuetzt sich nicht allein darauf, dass RLS die Zeile
