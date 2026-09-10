@@ -4,7 +4,7 @@ import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { formatTermin } from "@/lib/apptTime";
 import { createClient } from "@/lib/supabase/server";
 import type { ClosingCall } from "@/lib/types";
-import { BackLink } from "@/components/ui/BackLink";
+import { BackLink, backTargetFrom } from "@/components/ui/BackLink";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { CalendarClock } from "lucide-react";
 import { notFound } from "next/navigation";
@@ -36,8 +36,20 @@ const STATUS_META: Record<ClosingCall["status"], { label: string; color: string;
   },
 };
 
-export default async function ClosingCallPage({ params }: { params: Promise<{ callId: string }> }) {
+export default async function ClosingCallPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ callId: string }>;
+  // Beide sind Promises und muessen erwartet werden (Next 16). `searchParams`
+  // macht die Seite request-abhaengig — hier ohnehin der Fall, sie liest
+  // Anmeldung und Datensicht.
+  searchParams: Promise<{ from?: string }>;
+}) {
   const { callId } = await params;
+  // Woher der Nutzer kam. Ohne den Parameter bleibt es beim Kalender — das
+  // ist der Weg, auf dem die Detailseite normalerweise erreicht wird.
+  const back = backTargetFrom((await searchParams).from, { href: "/termine", label: "Termine" });
   const access = await getAccessContext();
   if (!access) notFound();
 
@@ -92,7 +104,7 @@ export default async function ClosingCallPage({ params }: { params: Promise<{ ca
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       {/* ── Header ── */}
-      <BackLink href="/termine" label="Termine" />
+      <BackLink href={back.href} label={back.label} />
 
       <PageHeader
         eyebrow="Closing-Call"

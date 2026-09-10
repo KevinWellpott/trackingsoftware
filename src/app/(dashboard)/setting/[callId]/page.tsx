@@ -4,7 +4,7 @@ import { formatTerminParts } from "@/lib/apptTime";
 import { channelColor, channelLabel } from "@/lib/channels";
 import { createClient } from "@/lib/supabase/server";
 import type { SettingCall } from "@/lib/types";
-import { BackLink } from "@/components/ui/BackLink";
+import { BackLink, backTargetFrom } from "@/components/ui/BackLink";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Phone } from "lucide-react";
 import { notFound } from "next/navigation";
@@ -14,8 +14,20 @@ import { notFound } from "next/navigation";
 // LinkedIn-Kontakt bzw. Telefon-Lead, read-only). Die Zuweisung steht als
 // Spalte am Call selbst und wird direkt mitgelesen.
 
-export default async function SettingCallPage({ params }: { params: Promise<{ callId: string }> }) {
+export default async function SettingCallPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ callId: string }>;
+  // Beide sind Promises und muessen erwartet werden (Next 16). `searchParams`
+  // macht die Seite request-abhaengig — hier ohnehin der Fall, sie liest
+  // Anmeldung und Datensicht.
+  searchParams: Promise<{ from?: string }>;
+}) {
   const { callId } = await params;
+  // Woher der Nutzer kam. Ohne den Parameter bleibt es beim Kalender — das
+  // ist der Weg, auf dem die Detailseite normalerweise erreicht wird.
+  const back = backTargetFrom((await searchParams).from, { href: "/termine", label: "Termine" });
   const access = await getAccessContext();
   if (!access) notFound();
 
@@ -85,7 +97,7 @@ export default async function SettingCallPage({ params }: { params: Promise<{ ca
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       {/* ── Header ── */}
-      <BackLink href="/termine" label="Termine" />
+      <BackLink href={back.href} label={back.label} />
 
       <PageHeader
         eyebrow="Setting-Call"

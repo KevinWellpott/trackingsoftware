@@ -9,7 +9,9 @@
 import { toBerlinSlot } from "@/lib/apptTime";
 import { personOf, type AssignableRow } from "@/lib/personResolution";
 import {
+  CANCELLED_PILL,
   CLOSING_STATUS_META,
+  moveLockReason,
   outlineFor,
   SETTING_STATUS_META,
   TERMINAL_CLOSING_STATUS,
@@ -19,6 +21,19 @@ import {
   type ShowStatus,
 } from "@/lib/terminMeta";
 import type { ClosingCall, SettingCall } from "@/lib/types";
+
+/**
+ * Die Absage-Spalte aus Migration 0032 — als OPTIONALES Feld neben dem
+ * geteilten Typ, nicht darin (Muster `AppointmentLifecycle`,
+ * components/termine/lifecycleMeta.ts).
+ *
+ * Die Kalender-Abfrage lädt mit `select("*")`, der Wert ist zur Laufzeit also
+ * längst da; `SettingCall`/`ClosingCall` tragen dagegen die Achsen sämtlicher
+ * Auswertungen und sollen nicht bei jedem Lebenszyklus-Feld wachsen. Optional
+ * deklariert, damit die Seite unverändert `SettingCall[]` übergeben kann —
+ * fehlt das Feld, gilt der Termin als nicht abgesagt.
+ */
+export type WithCancellation<T> = T & { cancelled_at?: string | null };
 
 /** Feste Termin-Dauern — die App plant Setting halbstündig, Closing stündig. */
 export const DURATION_MIN = { setting: 30, closing: 60 } as const;
@@ -84,8 +99,22 @@ export type TerminEvent = {
    * Nutzer, `on delete set null`).
    */
   assignee: Assignee | null;
-  /** Abgeschlossen → nicht per Drag verschiebbar. */
+  /** Abgeschlossen → der Chip nimmt sich über `data-terminal` zurück. */
   terminal: boolean;
+  /**
+   * Abgesagt (Migration 0032). Steht in KEINEM Status — wer nur `status` liest,
+   * hält einen abgesagten Termin für „offen" (docs §3).
+   */
+  cancelled: boolean;
+  /**
+   * Warum dieser Termin nicht verschoben werden darf; `null` = er darf.
+   *
+   * Der Grund reist mit dem Event, statt am Drop nachgeschlagen zu werden: Der
+   * Kalender muss ihn schon beim ZIEHEN zeigen können, und ein Riegel, der
+   * einen Zug wortlos schlucken lässt, ist schlimmer als einer, der eine
+   * Meldung zeigt.
+   */
+  lockedReason: string | null;
 };
 
 function resolveAssignee(row: AssignableRow, names: UsernameById): Assignee | null {
@@ -107,7 +136,18 @@ function resolveAssignee(row: AssignableRow, names: UsernameById): Assignee | nu
  * Beschriftung „Offen" wäre in Liste und Popover ein Widerspruch — Farbe und
  * Label müssen dasselbe sagen.
  */
-function pillFor(base: Pill, kind: TerminKind, status: string, showStatus: ShowStatus): Pill {
+function pillFor(
+  base: Pill,
+  kind: TerminKind,
+  status: string,
+  showStatus: ShowStatus,
+  cancelled: boolean,
+): Pill {
+  // Die Absage schlägt alles: Sie lässt `status` und `show_status` bewusst
+  // unangetastet (docs §3), also sagt keiner der beiden sie an. Ohne diesen
+  // Zweig stand in Liste und Popover „Offen" über einem Termin, den beide
+  // Seiten abgeräumt haben.
+  if (cancelled) return CANCELLED_PILL;
   if (showStatus !== "no_show" || status !== "offen") return base;
   // Setting: es gibt einen echten No-Show-Status, also dessen Pill.
   // Closing: kein solcher Status — dort ist „Nicht erschienen" das Ergebnis,
@@ -117,8 +157,9 @@ function pillFor(base: Pill, kind: TerminKind, status: string, showStatus: ShowS
     : { ...CLOSING_STATUS_META.nachfassen, label: "Nicht erschienen" };
 }
 
-function fromSetting(c: SettingCall, names: UsernameById): TerminEvent {
+function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById): TerminEvent {
   const slot = c.appointment_at ? toBerlinSlot(c.appointment_at) : null;
+  const cancelled = Boolean(c.cancelled_at);
   return {
     id: `s:${c.id}`,
     kind: "setting",
@@ -130,8 +171,8 @@ function fromSetting(c: SettingCall, names: UsernameById): TerminEvent {
     title: c.lead_name ?? "Unbenannter Lead",
     company: c.company,
     status: c.status,
-    statusPill: pillFor(SETTING_STATUS_META[c.status], "setting", c.status, c.show_status),
-    outline: outlineFor("setting", c.status, c.show_status),
+    statusPill: pillFor(SETTING_STATUS_META[c.status], "setting", c.status, c.show_status, cancelled),
+    outline: outlineFor("setting", c.status, c.show_status, cancelled),
     href: `/setting/${c.id}`,
     meetLink: c.meet_link,
     meetingKind: c.meeting_kind,
@@ -142,11 +183,14 @@ function fromSetting(c: SettingCall, names: UsernameById): TerminEvent {
     showStatus: c.show_status,
     assignee: resolveAssignee(c, names),
     terminal: TERMINAL_SETTING_STATUS.includes(c.status),
+    cancelled,
+    lockedReason: moveLockReason("setting", c.status, cancelled),
   };
 }
 
-function fromClosing(c: ClosingCall, names: UsernameById): TerminEvent {
+function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById): TerminEvent {
   const slot = c.call_at ? toBerlinSlot(c.call_at) : null;
+  const cancelled = Boolean(c.cancelled_at);
   return {
     id: `c:${c.id}`,
     kind: "closing",
@@ -158,8 +202,8 @@ function fromClosing(c: ClosingCall, names: UsernameById): TerminEvent {
     title: c.lead_name ?? "Unbenannter Lead",
     company: c.company,
     status: c.status,
-    statusPill: pillFor(CLOSING_STATUS_META[c.status], "closing", c.status, c.show_status),
-    outline: outlineFor("closing", c.status, c.show_status),
+    statusPill: pillFor(CLOSING_STATUS_META[c.status], "closing", c.status, c.show_status, cancelled),
+    outline: outlineFor("closing", c.status, c.show_status, cancelled),
     href: `/closing/${c.id}`,
     meetLink: c.meet_link,
     meetingKind: null,
@@ -170,6 +214,8 @@ function fromClosing(c: ClosingCall, names: UsernameById): TerminEvent {
     showStatus: c.show_status,
     assignee: resolveAssignee(c, names),
     terminal: TERMINAL_CLOSING_STATUS.includes(c.status),
+    cancelled,
+    lockedReason: moveLockReason("closing", c.status, cancelled),
   };
 }
 
@@ -179,8 +225,8 @@ function fromClosing(c: ClosingCall, names: UsernameById): TerminEvent {
  * dürfen aber nicht verschwinden → eigener Abschnitt in der Listenansicht.
  */
 export function buildEvents(
-  settings: SettingCall[],
-  closings: ClosingCall[],
+  settings: WithCancellation<SettingCall>[],
+  closings: WithCancellation<ClosingCall>[],
   names: UsernameById,
 ): { events: TerminEvent[]; ohneTermin: TerminEvent[] } {
   const all = [

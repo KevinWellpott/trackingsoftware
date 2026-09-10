@@ -19,6 +19,7 @@ import {
 } from "@/components/termine/AppointmentLifecycleBar";
 import type { AppointmentLifecycle } from "@/components/termine/lifecycleMeta";
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
+import { moveLockReason } from "@/lib/terminMeta";
 import { CLOSING_BLOCKS, LEGACY_CLOSING_BLOCKS } from "@/lib/scripts";
 import {
   CLOSING_LOST_REASON_CODES,
@@ -350,6 +351,16 @@ export function ClosingCallEditor({
   const currentDealVolume = call.deal_volume == null ? null : Number(call.deal_volume);
   const followUpLabel = formatDateTime(call.follow_up_due);
 
+  // Warum der Termin hier nicht mehr änderbar ist — dieselbe Regel und
+  // derselbe Satz wie im Kalender und in den beiden Server-Riegeln
+  // (`moveLockReason`, src/lib/terminMeta.ts). Ohne sie war das Feld auch bei
+  // „Gewonnen"/„Verloren" bedienbar, und ein Tippfehler darin legte über
+  // `updateClosingCall` → `generateClosingCascade` eine frische
+  // Bestätigungs-Kaskade für ein Gespräch an, dessen Ergebnis längst feststeht.
+  // Der Status ist der LOKALE — nach „Als gewonnen markieren" greift der Riegel
+  // sofort, nicht erst nach dem nächsten Laden der Seite.
+  const terminLocked = moveLockReason("closing", status, Boolean(call.cancelled_at));
+
   // Die drei terminalen Ergebnisse. Jedes oeffnet seinen Erfassungs-Dialog —
   // auch das bereits gesetzte, damit man Deal-Volumen oder Grund nachtragen kann.
   // Farben stecken in den .outcome-btn-Regeln (globals.css §6.6b);
@@ -624,8 +635,12 @@ export function ClosingCallEditor({
             // die alten weiterzeigen.
             bumpCascade();
           }}
+          disabled={Boolean(terminLocked)}
           ariaLabel="Termin"
         />
+        {/* Ein gesperrtes Feld ohne Begründung liest sich als Fehler der App —
+            dieselbe Ansage, die auch der Kalender-Zug bekommt. */}
+        {terminLocked && <span style={{ ...metaText, display: "block", marginTop: "0.35rem" }}>{terminLocked}</span>}
       </div>
 
       <div>

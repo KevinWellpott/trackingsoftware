@@ -11,23 +11,70 @@
 // Geprüft wird deshalb am QUELLTEXT statt am Verhalten — dieselbe Bauart wie
 // die Migrations-Gegenproben in revive.test.ts. Eine echte Probe bräuchte eine
 // Datenbank; eine Attrappe bewiese nur, dass die Attrappe stimmt.
+//
+// Daraus folgt die eine Regel für die Anker unten: Ein Anker hängt an einem
+// BEZEICHNER oder einer Bedingung, nie an Formatierung. Ein Endanker aus
+// Klammer und Zeilenumbrüchen (`\n}\n`) beschreibt keine Aussage — er ist schon
+// einmal gebrochen, als eine der Quelldateien mit CRLF neu geschrieben wurde,
+// und meldete danach einen fehlenden Abschnitt, obwohl die Zusicherung selbst
+// unverändert galt. Ein Test, der bei einer Umformatierung rot wird, verbraucht
+// genau das Vertrauen, das er schützen soll.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
+/**
+ * Quelltext lesen — mit vereinheitlichten Zeilenumbrüchen.
+ *
+ * Geprüft werden Aussagen IM Quelltext, nicht die Frage, welchen Umbruch der
+ * zuletzt schreibende Editor gewählt hat. Auf Windows entstehen CRLF-Dateien;
+ * ein Anker, der ein `\n` enthält, traf darin nie — und zwar unabhängig davon,
+ * ob die geprüfte Zusicherung noch gilt. Ein Test, der beim Umschalten der
+ * Zeilenenden umkippt, misst das Werkzeug statt den Code.
+ */
 function read(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
+  const text = readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
+  return text.replace(/\r\n/g, "\n");
 }
 
-/** Der Rumpf einer Funktion — von ihrer Signatur bis zur nächsten. */
+/**
+ * Der Rumpf einer Funktion — von ihrer Signatur bis zur nächsten.
+ *
+ * Beide Anker MÜSSEN treffen. Ein fehlender Anker ist ein benannter Fehlschlag,
+ * nie eine still geprüfte leere Zeichenkette: sonst bestünde jede Zusicherung
+ * darunter genau dann, wenn es nichts mehr zu prüfen gibt. Der Anker wird
+ * escaped gemeldet, weil ein Anker aus Zeilenumbrüchen sonst als Leerzeile in
+ * der Fehlermeldung steht und nichts verrät.
+ */
 function slice(source: string, from: string, to: string): string {
   const start = source.indexOf(from);
-  assert.notEqual(start, -1, `Anker nicht gefunden: ${from}`);
+  assert.notEqual(start, -1, `Anker nicht gefunden: ${JSON.stringify(from)}`);
   const end = source.indexOf(to, start + from.length);
-  assert.notEqual(end, -1, `Endanker nicht gefunden: ${to}`);
+  assert.notEqual(end, -1, `Endanker nicht gefunden: ${JSON.stringify(to)}`);
   return source.slice(start, end);
+}
+
+/**
+ * Dasselbe bis zum Dateiende — für Funktionen, die als LETZTE in ihrer Datei
+ * stehen. Dort gibt es keinen nachfolgenden Bezeichner, auf den ein Endanker
+ * zeigen könnte, und ein erfundener aus Klammer und Zeilenumbruch ist genau die
+ * Sorte Anker, die beim nächsten Umformatieren wandert. Die Gegenprobe hält
+ * fest, dass die Funktion wirklich die letzte ist: Kommt eine Deklaration
+ * dahinter, wüchse der Ausschnitt sonst lautlos über sie hinweg, und eine
+ * Zusicherung bestünde wegen fremden Codes.
+ */
+function sliceToEnd(source: string, from: string): string {
+  const start = source.indexOf(from);
+  assert.notEqual(start, -1, `Anker nicht gefunden: ${JSON.stringify(from)}`);
+  const body = source.slice(start);
+  assert.equal(
+    body.slice(from.length).search(/\n(export |async function |function )/),
+    -1,
+    `Nach ${JSON.stringify(from)} steht eine weitere Deklaration — hier muss ein Endanker hin`,
+  );
+  return body;
 }
 
 const SETTING_CALLS = read("src/app/actions/settingCalls.ts");
@@ -47,7 +94,11 @@ describe("Recycling: jeder Zweig, den die Datenbank abfragt, wird auch beliefert
     assert.match(MIGRATION_0037, /when sc\.status = 'unqualifiziert'\s*\n\s*then s\.days_default_setting_disqualified/);
     assert.match(MIGRATION_0033, /sc\.status in \('dead', 'unqualifiziert'\)/);
 
-    const outcome = slice(SETTING_CALLS, "export async function setSettingOutcome(", "\nexport ");
+    const outcome = slice(
+      SETTING_CALLS,
+      "export async function setSettingOutcome(",
+      "export async function rescheduleSetting(",
+    );
     assert.match(outcome, /scheduleRecycle\("setting"/);
     // Beide Status im selben Aufruf: bis hierher stand dort nur 'dead', und die
     // Spalte days_default_setting_disqualified war damit toter Code.
@@ -63,7 +114,11 @@ describe("Recycling: jeder Zweig, den die Datenbank abfragt, wird auch beliefert
     // erreichbar, weil sie `recycle_attempt_count > 0` verlangt.
     assert.match(MIGRATION_0037, /when v_attempts = 0 then s\.days_ghosting_breakup else s\.days_ghosting end/);
 
-    const marked = slice(RECYCLE, "export async function markRecycleContacted(", "\n/**");
+    const marked = slice(
+      RECYCLE,
+      "export async function markRecycleContacted(",
+      "export async function markRecycleResponded(",
+    );
     const attemptAt = marked.indexOf('rpc("recycle_attempt"');
     const scheduleAt = marked.indexOf("scheduleRecycle(origin, entityId)");
     assert.notEqual(attemptAt, -1);
@@ -78,7 +133,11 @@ describe("Recycling: jeder Zweig, den die Datenbank abfragt, wird auch beliefert
     // dieselbe Action. `cancelled_at` trägt in der Ablage die Spalte „Eingang",
     // und `schedule_recycle()` rechnet `heute + Wartezeit` — beides neu zu
     // setzen schöbe den Lead um Monate nach hinten, ohne es zu sagen.
-    const cancel = slice(SETTING_CALLS, "export async function cancelAppointment(", "\n/**");
+    const cancel = slice(
+      SETTING_CALLS,
+      "export async function cancelAppointment(",
+      "async function applyDisqualifyConsequences(",
+    );
     assert.match(cancel, /wasCancelled \? \{\} : \{ cancelled_at:/);
     assert.match(cancel, /becomesHopeless/);
     assert.match(cancel, /previous\?\.cancel_outlook !== "ohne_aussicht"/);
@@ -87,7 +146,7 @@ describe("Recycling: jeder Zweig, den die Datenbank abfragt, wird auch beliefert
 
 describe("Rückholen: der Rollback nimmt genau das zurück, was der Claim gesetzt hat", () => {
   test("alle drei Claim-Felder stehen auch im Rollback", () => {
-    const body = slice(REVIVE, "export async function reviveDropout(", "\n}\n");
+    const body = sliceToEnd(REVIVE, "export async function reviveDropout(");
     // Ohne `next_recycle_at` im Rollback stünde der Vorgang nach einem
     // gescheiterten Insert wieder als nicht-zurückgeholt in der Ablage, wäre
     // aber lautlos aus `recycle_tasks` verschwunden: dessen Zweig verlangt
@@ -110,7 +169,12 @@ describe("Erinnerungen folgen der zuständigen Person, nicht dem Anmeldekonto", 
     // die Kaskade dort auf `created_by_user_id` zurück, entstünden aktive
     // Erinnerungen, die in KEINEM „Meine Erinnerungen" auftauchen und die
     // Invariante aus 0036 verletzen.
-    const helper = slice(REMINDERS, "function assigneeFor(", "\n}\n");
+    // Endanker ist der NAME der nächsten Funktion, nicht die schließende
+    // Klammer des Helfers: Ein Anker aus `}` und Zeilenumbrüchen beschreibt
+    // keine Aussage und wandert bei jeder Umformatierung. Dass der Ausschnitt
+    // dabei den Kommentarkopf von `applyPlan` mitnimmt, ist unschädlich — die
+    // Zählung unten pinnt den Fallback ohnehin dateiweit auf genau eine Stelle.
+    const helper = slice(REMINDERS, "function assigneeFor(", "async function applyPlan(");
     assert.match(helper, /access\.is_foreign_org\) return row\.assigned_user_id/);
     // Und beide Kaskaden-Rümpfe nutzen ihn, statt den Fallback zu wiederholen.
     assert.equal(REMINDERS.split("assigneeFor(access, row)").length - 1, 2);
@@ -125,7 +189,7 @@ describe("Erinnerungen folgen der zuständigen Person, nicht dem Anmeldekonto", 
     // die Touches beim bisherigen Zuständigen, sähe der bei `data_scope='own'`
     // eine Karte ohne Lead-Namen (der Termin ist ihm durch die RLS entzogen),
     // und der Ersteller bekäme sie nie zu Gesicht.
-    const body = slice(ASSIGNEES, "export async function setAssignee(", "\n}\n");
+    const body = sliceToEnd(ASSIGNEES, "export async function setAssignee(");
     assert.match(body, /const touchAssignee = userId \?\? row\.created_by_user_id;/);
     assert.match(body, /if \(touchAssignee\) \{/);
     // Das Nachführen darf NICHT mehr an `if (userId)` hängen.
@@ -144,13 +208,21 @@ describe("Korrigierte Ergebnisse entwerten ihre Ereignis-Kette", () => {
     // createNoShowTouch). Ohne den Weg ZURÜCK liegt in /erinnerungen weiter
     // „wir waren gerade verabredet — ist etwas dazwischengekommen?" für einen
     // Lead, der erschienen ist; die Karte ist eine Kopier-Werkbank.
-    const body = slice(SETTING_CALLS, "export async function updateSettingCall(", "\n/**");
+    const body = slice(
+      SETTING_CALLS,
+      "export async function updateSettingCall(",
+      "async function settingAppointmentAhead(",
+    );
     assert.match(body, /previousShowStatus === "no_show"/);
     assert.match(body, /supersedeTouches\("setting", id, \["no_show_setting"\]\)/);
   });
 
   test("dasselbe beim Closing — plus die „kein Abschluss\"-Kette beim Zurücksetzen", () => {
-    const body = slice(CLOSING_CALLS, "export async function updateClosingCall(", "\n/**");
+    const body = slice(
+      CLOSING_CALLS,
+      "export async function updateClosingCall(",
+      "async function closingAppointmentAhead(",
+    );
     assert.match(body, /supersedeTouches\("closing", id, \["no_show_closing"\]\)/);
     assert.match(body, /supersedeTouches\("closing", id, \["kein_close"\]\)/);
   });

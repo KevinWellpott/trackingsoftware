@@ -16,7 +16,11 @@ import {
 } from "@/lib/messageTemplates";
 import { renderRecycleTemplate, type RecycleOrigin } from "@/lib/recycleCadence";
 import { contactGapWindowStart, isWithinContactGap } from "@/lib/contactGap";
-import { berlinDateISO } from "@/lib/apptTime";
+import { berlinDateISO, berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
+import { markRecycleContacted, markRecycleResponded } from "@/app/actions/recycle";
+import { updateSettingCall } from "@/app/actions/settingCalls";
+import { updateClosingCall } from "@/app/actions/closingCalls";
+import type { SettingStatus } from "@/lib/types";
 
 // Nachfassen-Union: LinkedIn-Follow-up · Telefon-Rückruf · Erstgespräch-
 // Wiedervorlage · Closing-Wiedervorlage (RPC `nachfassen_tasks`) PLUS Recycling
@@ -64,6 +68,19 @@ export type NachfassenTask = {
   /** lost_reason_code | 'dead' | 'fu_exhausted' — für Badge + Aktionen. */
   recycle_reason?: string | null;
   recycle_attempt?: number;
+  /**
+   * Nur bei `source === "setting"`: WARUM diese Wiedervorlage fällig ist.
+   *
+   * Der Zweig der RPC vereint `no_show` und `unqualifiziert` — zwei völlig
+   * verschiedene Anlässe, die dieselbe Vorlage bekommen. Ohne dieses Feld stand
+   * auf der Karte nichts davon, und man musste jede einzelne öffnen, um zu
+   * wissen, was man schreiben soll. Die RPC liefert es nicht mit und bleibt
+   * unangetastet (sie speist auch den Navigations-Zähler) — es kommt aus dem
+   * Nachschlag der zweiten Welle.
+   */
+  setting_status?: SettingStatus | null;
+  /** Nur bei `setting_status === "unqualifiziert"` interessant: der Grund-Code. */
+  setting_disqualify_reason?: string | null;
 };
 
 export type NachfassenResult = {
@@ -265,6 +282,18 @@ type ListTexts = { fu1_text: string | null; fu2_text: string | null; fu3_text: s
 
 type LeadRow = { id: string; list_id: string; phone: string | null };
 
+/**
+ * Der Anlass einer Erstgespräch-Wiedervorlage. Fail-soft wie jeder Nachschlag:
+ * fehlt `disqualify_reason_code` (Migration 0032), weist PostgREST die ganze
+ * Abfrage ab, `selectByIds` protokolliert das und liefert nichts — die Karte
+ * steht dann ohne Anlass-Badge da, statt dass die Seite ausfällt.
+ */
+type SettingReasonRow = {
+  id: string;
+  status: SettingStatus | null;
+  disqualify_reason_code: string | null;
+};
+
 /** FU-Stufe → Vorlagen-Schlüssel. Die RPC liefert 1–3; alles andere fällt auf FU1. */
 function linkedinTemplateKey(fu: number | null): TemplateKey {
   if (fu === 2) return "linkedin_fu_2";
@@ -367,6 +396,10 @@ export async function getNachfassenTasks(options?: {
       ...recycle.tasks.filter((r) => r.origin === "telefon").map((r) => r.entity_id),
     ]),
   ];
+  // Der Anlass gilt nur für den Setting-ZWEIG der Union-RPC. Ein Erstgespräch,
+  // das über das Recycling hereinkommt, trägt seinen Grund bereits im
+  // Recycling-Badge — zweimal dieselbe Auskunft auf einer 300-px-Karte.
+  const settingIds = [...new Set(rows.filter((r) => r.source === "setting").map((r) => r.entity_id))];
   // Absender ist die ZUSTÄNDIGE Person der Aufgabe, nicht der Betrachter — ein
   // Owner in der Team-Sicht bekäme sonst seine eigenen Texte unter fremdem
   // Namen. Die vier Zweige der Union-RPC tragen keine Zuweisung; dort gilt die
@@ -382,7 +415,7 @@ export async function getNachfassenTasks(options?: {
   // `isWithinContactGap` (Berliner Kalendertage), siehe lib/contactGap.ts.
   const contactSince = contactGapWindowStart(nowIso);
 
-  const [contactRows, leadRows, bundles, touchContacts] = await Promise.all([
+  const [contactRows, leadRows, settingReasonRows, bundles, touchContacts] = await Promise.all([
     selectByIds<ContactRow>(contactIds, (chunk) =>
       supabase
         .from("contacts")
@@ -394,6 +427,13 @@ export async function getNachfassenTasks(options?: {
       supabase
         .from("phone_leads")
         .select("id, list_id, phone")
+        .eq("workspace_id", access.workspace_id)
+        .in("id", chunk),
+    ),
+    selectByIds<SettingReasonRow>(settingIds, (chunk) =>
+      supabase
+        .from("setting_calls")
+        .select("id, status, disqualify_reason_code")
         .eq("workspace_id", access.workspace_id)
         .in("id", chunk),
     ),
@@ -416,6 +456,8 @@ export async function getNachfassenTasks(options?: {
   }
   const leadInfo = new Map<string, LeadRow>();
   for (const l of leadRows) leadInfo.set(l.id, l);
+  const settingReason = new Map<string, SettingReasonRow>();
+  for (const s of settingReasonRows) settingReason.set(s.id, s);
 
   // Recycling-Versuche sind ebenfalls belegte Kontakte — die Zeile trägt ihren
   // letzten Versuch selbst mit (`recycle_last_contacted_at`).
@@ -528,6 +570,7 @@ export async function getNachfassenTasks(options?: {
       });
     }
 
+    const anlass = r.source === "setting" ? settingReason.get(r.entity_id) : undefined;
     tasks.push({
       ...r,
       list_id,
@@ -535,6 +578,8 @@ export async function getNachfassenTasks(options?: {
       prepared_text: rendered.body,
       text_source: rendered.source,
       recent_contact_at: recentContactFor(r),
+      setting_status: anlass?.status ?? null,
+      setting_disqualify_reason: anlass?.disqualify_reason_code ?? null,
     });
   }
 
@@ -593,16 +638,198 @@ export async function getNachfassenTasks(options?: {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Rückgängig
+ * ------------------------------------------------------------------ */
+
+/**
+ * Warum es das gibt: Auf diesem Board liegt „Beantwortet" wenige Pixel neben
+ * „Erledigt → nächste Stufe", und ein Fehlgriff setzte `answered = true` sowie
+ * `next_follow_up_at = null` — der Kontakt fiel DAUERHAFT aus dem
+ * Follow-up-Fluss, ohne dass die Oberfläche einen Weg zurück angeboten hätte.
+ * Auf `/erinnerungen` kann derselbe Nutzer längst jede Stufe einzeln
+ * zurücknehmen; zwei Boards, dieselbe Arbeit, gegensätzliche Zusagen.
+ *
+ * Zurückgeschrieben werden AUSSCHLIESSLICH die Spalten, die die jeweilige
+ * Aktion vorher überschrieben hat — mit den Werten, die dort standen. Kein
+ * Nachrechnen, kein Raten: Wo eine Aktion einen Wert vernichtet hat, den
+ * niemand mehr kennt, gibt es hier keinen Eintrag und im Board keinen Knopf
+ * („Endgültig raus" ist genau dieser Fall und sagt es im Bestätigungsdialog).
+ */
+export type UndoKind =
+  | "linkedin_stufe"
+  | "linkedin_antwort"
+  | "telefon_rueckruf"
+  | "setting_wiedervorlage"
+  | "closing_wiedervorlage"
+  | "recycling_versuch"
+  | "recycling_reaktion";
+
+/** Zellwerte, wie PostgREST sie liefert — nichts Verschachteltes. */
+export type UndoValue = string | number | boolean | null;
+
+export type NachfassenUndo = {
+  kind: UndoKind;
+  entity_id: string;
+  /** Nur bei den beiden Recycling-Arten: welche der vier Ursprungstabellen. */
+  origin?: RecycleOrigin;
+  /** Vorherige Werte GENAU der Spalten, die die Aktion angefasst hat. */
+  values: Record<string, UndoValue>;
+};
+
+export type NachfassenActionResult = { error?: string; undo?: NachfassenUndo };
+
+/**
+ * Tabelle UND erlaubte Spalten je Art — beides serverseitig, nie aus dem Token.
+ *
+ * Server Actions sind per direktem POST erreichbar. Käme die Spaltenliste vom
+ * Aufrufer, wäre `undoNachfassenTask` ein beliebiges UPDATE auf vier Tabellen;
+ * so ist es die Rücknahme genau einer bekannten Aktion.
+ */
+const UNDO_COLUMNS: Record<UndoKind, readonly string[]> = {
+  linkedin_stufe: ["follow_up_number", "next_follow_up_at", "next_recycle_at", "recycle_reason_code"],
+  linkedin_antwort: ["answered", "next_follow_up_at"],
+  telefon_rueckruf: ["callback_at"],
+  setting_wiedervorlage: ["follow_up_due"],
+  closing_wiedervorlage: ["follow_up_due", "follow_up_due_at"],
+  recycling_versuch: ["recycle_attempt_count", "recycle_last_contacted_at", "next_recycle_at", "recycle_reason_code"],
+  recycling_reaktion: ["next_recycle_at", "recycle_responded_at"],
+};
+
+/** null = die Tabelle steht im `origin` des Tokens (Recycling deckt alle vier ab). */
+const UNDO_TABLE: Record<UndoKind, string | null> = {
+  linkedin_stufe: "contacts",
+  linkedin_antwort: "contacts",
+  telefon_rueckruf: "phone_leads",
+  setting_wiedervorlage: "setting_calls",
+  closing_wiedervorlage: "closing_calls",
+  recycling_versuch: null,
+  recycling_reaktion: null,
+};
+
+const TABLE_BY_ORIGIN: Record<RecycleOrigin, string> = {
+  linkedin: "contacts",
+  telefon: "phone_leads",
+  setting: "setting_calls",
+  closing: "closing_calls",
+};
+
+/**
+ * Vorherige Werte einer Zeile lesen — die Grundlage jedes Rückgängig.
+ *
+ * Der Select steht bei jedem Aufrufer als LITERAL da und nicht als
+ * zusammengesetzter String: supabase-js leitet den Zeilentyp aus dem Literal
+ * ab, eine Konkatenation kippt die Inferenz auf `GenericStringError` (dieselbe
+ * Falle wie in closing/[callId]/page.tsx).
+ *
+ * `null` heißt „nicht gelesen", nicht „leer" — die betroffenen Spalten bleiben
+ * dann aus dem Token heraus und werden folglich auch nicht zurückgeschrieben.
+ */
+function snapshotOf(row: unknown, columns: readonly string[]): Record<string, UndoValue> {
+  const source = (row ?? {}) as Record<string, unknown>;
+  const out: Record<string, UndoValue> = {};
+  for (const c of columns) {
+    const v = source[c];
+    if (v === undefined) continue;
+    out[c] = (v ?? null) as UndoValue;
+  }
+  return out;
+}
+
+/**
+ * Eine Aktion zurücknehmen.
+ *
+ * Zugriffsprüfung wie bei allen Nachbarn dieser Datei: die Zeile wird über den
+ * NUTZER-Client gelesen (läuft also durch die Zeilensicherheit) UND gegen die
+ * aktive Organisation gefiltert — für einen Plattform-Admin lässt RLS sonst
+ * jede Zeile der Plattform durch.
+ */
+export async function undoNachfassenTask(undo: NachfassenUndo): Promise<{ error?: string }> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
+
+  const kind = undo?.kind;
+  const columns = kind ? UNDO_COLUMNS[kind] : undefined;
+  if (!columns || typeof undo.entity_id !== "string" || !undo.entity_id) return { error: "Nicht gefunden." };
+  const table = UNDO_TABLE[kind] ?? (undo.origin ? TABLE_BY_ORIGIN[undo.origin] : null);
+  if (!table) return { error: "Nicht gefunden." };
+
+  // Nur die Spalten dieser Art, und nur einfache Werte: alles andere wäre kein
+  // zurückgelesener Zellwert, sondern etwas Untergeschobenes.
+  const patch: Record<string, UndoValue> = {};
+  for (const col of columns) {
+    if (!undo.values || !(col in undo.values)) continue;
+    const v = undo.values[col];
+    if (v !== null && typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") {
+      return { error: "Nicht gefunden." };
+    }
+    patch[col] = v;
+  }
+  if (Object.keys(patch).length === 0) return {};
+
+  const supabase = await createClient();
+  const { data: row } = await supabase
+    .from(table)
+    .select("id")
+    .eq("id", undo.entity_id)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  if (!row) return { error: "Nicht gefunden." };
+
+  // Das Closing geht bewusst NICHT den direkten Weg: `follow_up_due_at` speist
+  // die Kaskade `followup_msg` (docs §1, eine der genau zwei Überschneidungen
+  // mit /erinnerungen). Ein rohes UPDATE ließe dort die Erinnerungen zum
+  // verschobenen Zeitpunkt stehen — der Text ginge real zum falschen Termin
+  // raus. `updateClosingCall` entwertet sie und baut sie neu auf.
+  if (kind === "closing_wiedervorlage") {
+    const res = await updateClosingCall(undo.entity_id, {
+      follow_up_due_at: (patch.follow_up_due_at ?? null) as string | null,
+    });
+    if (res.error) return res;
+    // `updateClosingCall` LEITET `follow_up_due` aus `follow_up_due_at` ab.
+    // Eine Bestandszeile trägt aber womöglich nur das Tagesdatum —
+    // `follow_up_due_at` gibt es erst seit Migration 0032, und
+    // `nachfassen_tasks` liest weiterhin `follow_up_due` (docs §5). Ohne
+    // dieses wörtliche Zurückschreiben stünde dort danach NULL: Das Closing
+    // fiele lautlos ganz aus der Wiedervorlage — ausgerechnet durch einen
+    // Klick, der nur etwas zurücknehmen sollte.
+    if ("follow_up_due" in patch) {
+      const { error: dayError } = await supabase
+        .from("closing_calls")
+        .update({ follow_up_due: patch.follow_up_due })
+        .eq("id", undo.entity_id)
+        .eq("workspace_id", access.workspace_id);
+      if (dayError) return { error: dayError.message };
+    }
+    revalidatePath("/nachfassen", "page");
+    return {};
+  }
+
+  const { error } = await supabase
+    .from(table)
+    .update(patch)
+    .eq("id", undo.entity_id)
+    .eq("workspace_id", access.workspace_id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/nachfassen", "page");
+  revalidatePath("/erinnerungen", "page");
+  revalidatePath("/", "layout");
+  return {};
+}
+
 /** LinkedIn-Lead als beantwortet markieren → raus aus dem Follow-up-Flow. */
-export async function markLinkedInAnswered(contactId: string): Promise<{ error?: string }> {
+export async function markLinkedInAnswered(contactId: string): Promise<NachfassenActionResult> {
   // Ohne Org-Filter waere dies fuer einen Plattform-Admin ein Schreibzugriff
   // auf JEDEN Kontakt der Plattform — RLS laesst dort alles durch.
   const access = await getAccessContext();
   if (!access) return { error: "Nicht angemeldet." };
   const supabase = await createClient();
+  // Die beiden Spalten, die gleich überschrieben werden, kommen im selben
+  // Select mit — der Zustand VOR dem Schreiben ist danach nicht mehr lesbar.
   const { data: c } = await supabase
     .from("contacts")
-    .select("id, list_id")
+    .select("id, list_id, answered, next_follow_up_at")
     .eq("id", contactId)
     .eq("workspace_id", access.workspace_id)
     .maybeSingle();
@@ -613,22 +840,28 @@ export async function markLinkedInAnswered(contactId: string): Promise<{ error?:
     .eq("id", contactId);
   if (error) return { error: error.message };
   revalidatePath("/nachfassen", "page");
-  revalidatePath(`/lists/${c.list_id}`, "page");
+  revalidatePath(`/lists/${(c as { list_id: string }).list_id}`, "page");
   revalidatePath("/", "layout");
-  return {};
+  return {
+    undo: {
+      kind: "linkedin_antwort",
+      entity_id: contactId,
+      values: snapshotOf(c, UNDO_COLUMNS.linkedin_antwort),
+    },
+  };
 }
 
 /**
  * LinkedIn-Follow-up erledigt: Stufe hochzählen und die nächste Wiedervorlage
  * setzen (nach FU1 +5, nach FU2 +7, nach FU3 keine mehr — der Flow endet).
  */
-export async function advanceLinkedInFollowUp(contactId: string): Promise<{ error?: string }> {
+export async function advanceLinkedInFollowUp(contactId: string): Promise<NachfassenActionResult> {
   const access = await getAccessContext();
   if (!access) return { error: "Nicht angemeldet." };
   const supabase = await createClient();
   const { data: c } = await supabase
     .from("contacts")
-    .select("id, list_id, follow_up_number")
+    .select("id, list_id, follow_up_number, next_follow_up_at")
     .eq("id", contactId)
     .eq("workspace_id", access.workspace_id)
     .maybeSingle();
@@ -654,14 +887,224 @@ export async function advanceLinkedInFollowUp(contactId: string): Promise<{ erro
     .eq("id", contactId);
   if (error) return { error: error.message };
 
+  const values = snapshotOf(c, ["follow_up_number", "next_follow_up_at"]);
+
   // FU3 erledigt, ohne dass je geantwortet wurde: der Flow endet hier für
   // immer (nextDate === null) — eines der vier "toten Enden" (§ Konzept-
   // Diskussion). Statt spurlos zu verschwinden, bekommt der Kontakt ein
   // Recycling-Datum. Ohne Grund-Argument: Grund und Status liest
   // `schedule_recycle()` selbst aus der Zeile.
-  if (nextDate === null && done >= FU_MAX_STAGE) await scheduleRecycle("linkedin", contactId);
+  if (nextDate === null && done >= FU_MAX_STAGE) {
+    // Erst lesen, dann planen — sonst steht im Rückgängig schon das Datum, das
+    // dieser Klick gerade gesetzt hat. Die beiden Spalten hängen an Migration
+    // 0033; fehlt sie, weist PostgREST die Abfrage ab, und der Snapshot bleibt
+    // ohne sie: Es gibt dann auch nichts einzuplanen, also nichts zurückzunehmen.
+    const { data: r } = await supabase
+      .from("contacts")
+      .select("next_recycle_at, recycle_reason_code")
+      .eq("id", contactId)
+      .eq("workspace_id", access.workspace_id)
+      .maybeSingle();
+    Object.assign(values, snapshotOf(r, ["next_recycle_at", "recycle_reason_code"]));
+    await scheduleRecycle("linkedin", contactId);
+  }
   revalidatePath("/nachfassen", "page");
   revalidatePath(`/lists/${(c as { list_id: string }).list_id}`, "page");
   revalidatePath("/", "layout");
-  return {};
+  return { undo: { kind: "linkedin_stufe", entity_id: contactId, values } };
+}
+
+/* ------------------------------------------------------------------ *
+ * Vom Tisch nehmen, ohne die Seite zu verlassen
+ * ------------------------------------------------------------------ *
+ *
+ * Drei der fünf Sektionen hatten bis hierher nur Links: Telefon-Rückruf,
+ * Erstgespräch- und Closing-Wiedervorlage verschwanden erst, wenn jemand auf
+ * der ZIELSEITE eine neue Wiedervorlage setzte. Wer den Kontakt gerade
+ * erledigt hatte, ließ die Karte stehen — und fand sie am nächsten Morgen
+ * wieder, überfällig.
+ *
+ * Die Links bleiben daneben bestehen: Wer das Gespräch führen will, braucht
+ * die Detailseite weiterhin.
+ */
+
+/** Um wie viel eine Tages-Wiedervorlage vorgeschoben wird. */
+const FOLLOW_UP_PUSH_DAYS = 7;
+
+/**
+ * Erstgespräch- oder Closing-Wiedervorlage um eine Woche vorschieben.
+ *
+ * Anker ist HEUTE, nicht das alte Fälligkeitsdatum — dieselbe Begründung wie
+ * bei `advanceLinkedInFollowUp`: Bei einer überfälligen Aufgabe läge das neue
+ * Datum sonst wieder in der Vergangenheit, und die Karte stünde morgen
+ * unverändert da.
+ *
+ * Beide Quellen tragen ein TAGESDATUM (`follow_up_due`, `DUE_GRANULARITY:
+ * day`) — anders als der Telefon-Rückruf, der eine mit dem Lead verabredete
+ * Uhrzeit trägt und deshalb kein festes Intervall bekommt.
+ *
+ * Geschrieben wird über die bestehenden Actions der beiden Detailseiten, nicht
+ * per rohem UPDATE: `updateClosingCall` hält `follow_up_due` synchron zu
+ * `follow_up_due_at` und baut die Kaskade `followup_msg` neu auf. Ein rohes
+ * UPDATE ließe die Erinnerungen auf dem alten Zeitpunkt stehen.
+ */
+export async function pushFollowUpDue(
+  entity: "setting" | "closing",
+  id: string,
+): Promise<NachfassenActionResult> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
+  if (entity !== "setting" && entity !== "closing") return { error: "Nicht gefunden." };
+  if (typeof id !== "string" || !id) return { error: "Nicht gefunden." };
+
+  const supabase = await createClient();
+  const nextDay = addDaysISO(localDateISO(), FOLLOW_UP_PUSH_DAYS);
+
+  if (entity === "setting") {
+    const { data: row } = await supabase
+      .from("setting_calls")
+      .select("id, follow_up_due")
+      .eq("id", id)
+      .eq("workspace_id", access.workspace_id)
+      .maybeSingle();
+    if (!row) return { error: "Nicht gefunden." };
+    const res = await updateSettingCall(id, { follow_up_due: nextDay });
+    if (res.error) return res;
+    revalidatePath("/nachfassen", "page");
+    return {
+      undo: {
+        kind: "setting_wiedervorlage",
+        entity_id: id,
+        values: snapshotOf(row, UNDO_COLUMNS.setting_wiedervorlage),
+      },
+    };
+  }
+
+  const { data: row } = await supabase
+    .from("closing_calls")
+    .select("id, follow_up_due, follow_up_due_at")
+    .eq("id", id)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  if (!row) return { error: "Nicht gefunden." };
+  const previous = row as { follow_up_due_at: string | null };
+  // Die UHRZEIT des vereinbarten Nachfass-Kontakts bleibt stehen und nur der
+  // Tag wandert: „nächste Woche um zehn" ist eine Verabredung, „nächste Woche
+  // um 00:00" wäre eine erfundene. Ohne Vorgänger (Bestandszeilen ohne
+  // `follow_up_due_at`) bleibt es bei einem ruhigen Vormittagstermin.
+  const time = previous.follow_up_due_at ? isoToBerlinInput(previous.follow_up_due_at).slice(11, 16) : "09:00";
+  const res = await updateClosingCall(id, { follow_up_due_at: berlinInputToIso(`${nextDay}T${time}`) });
+  if (res.error) return res;
+  revalidatePath("/nachfassen", "page");
+  return {
+    undo: {
+      kind: "closing_wiedervorlage",
+      entity_id: id,
+      values: snapshotOf(row, UNDO_COLUMNS.closing_wiedervorlage),
+    },
+  };
+}
+
+/**
+ * Telefon-Rückruf auf einen neuen Zeitpunkt verschieben.
+ *
+ * `callback_at` ist der einzige Fälligkeitswert dieses Boards mit einer MIT DEM
+ * LEAD VERABREDETEN Uhrzeit (`DUE_GRANULARITY: moment`, docs §1). Ein festes
+ * „+7 Tage" wie bei den beiden Wiedervorlagen wäre hier fachlich falsch, und
+ * eine automatisch gesetzte Uhrzeit wäre keine Angabe, sondern eine Behauptung
+ * — deshalb kommt der Zeitpunkt aus dem Feld auf der Karte.
+ *
+ * KEIN Anruf-Protokoll: `phone_call_attempts` zählt Wählversuche (docs §3), und
+ * hier hat niemand gewählt. Der Weg für ein echtes Gespräch bleibt der
+ * Call-Modus hinter „Anrufen".
+ */
+export async function pushPhoneCallback(leadId: string, berlinInput: string): Promise<NachfassenActionResult> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
+  if (typeof leadId !== "string" || !leadId) return { error: "Nicht gefunden." };
+  const iso = berlinInputToIso(berlinInput);
+  if (!iso) return { error: "Bitte Datum und Uhrzeit für den Rückruf angeben." };
+
+  const supabase = await createClient();
+  const { data: lead } = await supabase
+    .from("phone_leads")
+    .select("id, list_id, callback_at")
+    .eq("id", leadId)
+    .eq("workspace_id", access.workspace_id)
+    .maybeSingle();
+  if (!lead) return { error: "Nicht gefunden." };
+
+  const { error } = await supabase
+    .from("phone_leads")
+    .update({ callback_at: iso })
+    .eq("id", leadId)
+    .eq("workspace_id", access.workspace_id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/nachfassen", "page");
+  revalidatePath(`/telefon/${(lead as { list_id: string }).list_id}`, "page");
+  revalidatePath("/", "layout");
+  return {
+    undo: {
+      kind: "telefon_rueckruf",
+      entity_id: leadId,
+      values: snapshotOf(lead, UNDO_COLUMNS.telefon_rueckruf),
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Recycling — dieselben Aktionen, nur mit Rückweg
+ * ------------------------------------------------------------------ *
+ *
+ * Die beiden Knöpfe schreiben weiterhin ausschließlich über actions/recycle.ts
+ * (dort sitzen Besitzprüfung, Deckel und die beiden RPCs). Hier kommt nur der
+ * Blick auf die Zeile DAVOR dazu — `recycle_attempt()` und `schedule_recycle()`
+ * überschreiben ihn, und „Nochmal versucht" verbrennt dabei einen von
+ * standardmäßig zwei erlaubten Versuchen.
+ */
+
+/** Die vier Spalten, die `recycle_attempt()` + `schedule_recycle()` zusammen anfassen. */
+async function recycleSnapshot(
+  workspaceId: string,
+  origin: RecycleOrigin,
+  entityId: string,
+  columns: readonly string[],
+): Promise<Record<string, UndoValue>> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from(TABLE_BY_ORIGIN[origin])
+    .select("recycle_attempt_count, recycle_last_contacted_at, recycle_responded_at, next_recycle_at, recycle_reason_code")
+    .eq("id", entityId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  return snapshotOf(data, columns);
+}
+
+/** „Nochmal versucht" — mit Rückweg (der Versuchszähler ist gedeckelt). */
+export async function recycleContactedUndoable(
+  origin: RecycleOrigin,
+  entityId: string,
+): Promise<NachfassenActionResult> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
+  if (!TABLE_BY_ORIGIN[origin]) return { error: "Nicht gefunden." };
+  const values = await recycleSnapshot(access.workspace_id, origin, entityId, UNDO_COLUMNS.recycling_versuch);
+  const res = await markRecycleContacted(origin, entityId);
+  if (res.error) return { error: res.error };
+  return { undo: { kind: "recycling_versuch", entity_id: entityId, origin, values } };
+}
+
+/** „Reagiert" — mit Rückweg. */
+export async function recycleRespondedUndoable(
+  origin: RecycleOrigin,
+  entityId: string,
+): Promise<NachfassenActionResult> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
+  if (!TABLE_BY_ORIGIN[origin]) return { error: "Nicht gefunden." };
+  const values = await recycleSnapshot(access.workspace_id, origin, entityId, UNDO_COLUMNS.recycling_reaktion);
+  const res = await markRecycleResponded(origin, entityId);
+  if (res.error) return { error: res.error };
+  return { undo: { kind: "recycling_reaktion", entity_id: entityId, origin, values } };
 }

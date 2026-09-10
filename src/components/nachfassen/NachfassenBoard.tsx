@@ -1,7 +1,18 @@
 "use client";
 
-import { advanceLinkedInFollowUp, markLinkedInAnswered, type NachfassenTask } from "@/app/actions/nachfassen";
-import { excludeFromRecycle, markRecycleContacted, markRecycleResponded } from "@/app/actions/recycle";
+import {
+  advanceLinkedInFollowUp,
+  markLinkedInAnswered,
+  pushFollowUpDue,
+  pushPhoneCallback,
+  recycleContactedUndoable,
+  recycleRespondedUndoable,
+  undoNachfassenTask,
+  type NachfassenActionResult,
+  type NachfassenTask,
+  type NachfassenUndo,
+} from "@/app/actions/nachfassen";
+import { excludeFromRecycle } from "@/app/actions/recycle";
 // Bewusst `dropoutReasonLabel` statt der Recycling-Map: `schedule_recycle()`
 // stempelt bei einem Erstgespraech den DISQUALIFIKATIONS-Code in
 // `recycle_reason_code`, und von dessen acht Werten kennt die Recycling-Map nur
@@ -14,14 +25,19 @@ import { dropoutReasonLabel } from "@/lib/dropoutLists";
 import { TEMPLATE_SOURCE_LABELS } from "@/lib/messageTemplates";
 import { contactAgeDays, lastContactLabel } from "@/lib/contactGap";
 import { isOverdue, type DueGranularity } from "@/lib/dueState";
+import { isoToBerlinInput } from "@/lib/apptTime";
+import { addDaysISO, localDateISO } from "@/lib/dates";
+import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { DateTimeField } from "@/components/ui/DateTimeField";
 import {
   AlertTriangle,
   ArrowUpRight,
   AtSign,
+  CalendarClock,
   Check,
   CheckCheck,
   CheckCircle2,
@@ -34,12 +50,13 @@ import {
   History,
   Phone,
   RefreshCw,
+  Undo2,
   Users,
   UserX,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 
 // Nachfassen-Board (Client): Union-Tasklist aus fünf Quellen — Telefon-Rückruf,
 // LinkedIn-Follow-up, Erstgespräch-Wiedervorlage, Closing-Wiedervorlage und
@@ -247,6 +264,98 @@ const linkBtnStyle: React.CSSProperties = {
   transition: "background var(--transition-fast), border-color var(--transition-fast)",
 };
 
+/* Der eine Erledigt-Knopf einer Karte. Lag bisher nur bei LinkedIn als
+   Inline-Objekt; seit auch Telefon, Setting und Closing eine Abhak-Aktion haben,
+   steht er einmal hier — vier Kopien derselben Pille laufen sonst auseinander. */
+const primaryBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.3rem",
+  padding: "0.3rem 0.625rem",
+  borderRadius: "var(--r-full)",
+  border: "none",
+  background: "var(--grad-cta)",
+  color: "var(--text-on-accent)",
+  boxShadow: "var(--shadow-btn-primary)",
+  fontSize: "0.6875rem",
+  fontWeight: 600,
+  cursor: "pointer",
+  transition: "all 0.1s",
+};
+
+/* Grund-/Anlass-Badge in der Kopfzeile. Recycling und Erstgespräch benutzen
+   bewusst DENSELBEN Baustein: Beide beantworten dieselbe Frage („warum liegt
+   diese Karte hier?"), und zwei verschiedene Optiken dafür wären eine
+   Unterscheidung ohne Unterschied. */
+const reasonBadgeStyle: React.CSSProperties = {
+  fontSize: "0.625rem",
+  fontWeight: 600,
+  color: "var(--text-muted)",
+  background: "var(--surface-150)",
+  border: "1px solid var(--border)",
+  borderRadius: 99,
+  padding: "0.1rem 0.4rem",
+};
+
+/* ── Erledigt, aber noch zurücknehmbar ────────────────────────────────
+   Die Karte verschwand bisher in dem Moment, in dem eine Aktion durchlief —
+   „Beantwortet" liegt wenige Pixel neben „Erledigt → nächste Stufe", und ein
+   Fehlgriff nahm den Kontakt DAUERHAFT aus dem Follow-up-Fluss. Auf
+   /erinnerungen kann derselbe Nutzer längst jede Stufe einzeln zurücknehmen.
+
+   Deshalb bleibt sie kurz gedimmt stehen und trägt einen Ghost-Knopf. Der
+   Zustand liegt am BOARD, nicht an der Karte: `router.refresh()` läuft sofort
+   (die Zähler in der Seitenleiste sollen stimmen), und danach liefert der
+   Server die erledigte Aufgabe nicht mehr — ohne diesen Merge wäre die Karte
+   samt Rückweg im selben Augenblick weg. */
+const UNDO_WINDOW_MS = 9000;
+
+type DoneEntry = {
+  /** Die Aufgabe, wie sie war — der Server liefert sie nach dem Refresh nicht mehr. */
+  task: NachfassenTask;
+  /** null = diese Aktion ist nicht sauber umkehrbar; dann gibt es keinen Knopf. */
+  undo: NachfassenUndo | null;
+  label: string;
+  /** Marke des Fensters — siehe `doneToken` im Board. */
+  token: number;
+};
+
+type DoneApi = {
+  entries: Record<string, DoneEntry>;
+  mark: (task: NachfassenTask, undo: NachfassenUndo | null, label: string) => void;
+  /** Rückgängig hat geklappt — Karte kehrt in den normalen Zustand zurück. */
+  restore: (task: NachfassenTask) => void;
+};
+
+/** Derselbe Schlüssel wie im Grid — eine Aufgabe ist Quelle + Zeile. */
+function taskKey(t: NachfassenTask): string {
+  return `${t.source}-${t.entity_id}`;
+}
+
+/**
+ * Vorschlag für den verschobenen Rückruf: derselbe Zeitpunkt einen Tag später.
+ *
+ * Bewusst nur ein VORSCHLAG in einem editierbaren Feld: `callback_at` ist mit
+ * dem Lead verabredet (docs §1) — eine Uhrzeit, die die Software sich selbst
+ * ausdenkt, wäre keine Angabe, sondern eine Behauptung. Die Tageszeit des
+ * bisherigen Termins bleibt deshalb stehen; nur der Tag wandert.
+ */
+function callbackSuggestion(dueAt: string | null): string {
+  const current = dueAt ? isoToBerlinInput(dueAt) : "";
+  const day = current.slice(0, 10) || localDateISO();
+  const time = current.slice(11, 16) || "09:00";
+  return `${addDaysISO(day, 1)}T${time}`;
+}
+
+/**
+ * Herkunft für den Rückweg der Detailseite.
+ *
+ * Ohne sie führt der „Zurück"-Link dort nach /termine — wer aus dem Board kam,
+ * landete im Kalender, und das Board wurde beim Zurücknavigieren komplett neu
+ * aufgebaut (Kanalfilter, Sektionszustand, Scrollposition weg).
+ */
+const FROM_NACHFASSEN = "?from=nachfassen";
+
 /* ── Fehlermeldungen: was auf einer Vertriebs-Karte stehen darf ────────
    Die Server-Actions liefern zwei sehr verschiedene Sorten Text: eigene, für
    Menschen geschriebene Sätze („Nicht angemeldet.") — und alles, was Postgres
@@ -262,6 +371,12 @@ const KNOWN_ERROR_MESSAGES: ReadonlySet<string> = new Set([
   "Nicht gefunden.",
   "Kontakt nicht gefunden.",
   "Kopieren fehlgeschlagen — Text bitte manuell markieren.",
+  // Die beiden neuen Abhak-Aktionen schreiben über die Actions der
+  // Detailseiten bzw. prüfen selbst — ihre Absagen sind Klartext und sollen
+  // nicht unter „bitte erneut versuchen" verschwinden: „Keine Berechtigung"
+  // wird durch einen zweiten Versuch nicht besser.
+  "Keine Berechtigung.",
+  "Bitte Datum und Uhrzeit für den Rückruf angeben.",
 ]);
 
 const GENERIC_ERROR_MESSAGE = "Konnte nicht gespeichert werden — bitte erneut versuchen.";
@@ -276,13 +391,14 @@ function friendlyError(raw: string): string {
   return GENERIC_ERROR_MESSAGE;
 }
 
-function TaskCard({ task }: { task: NachfassenTask }) {
-  const router = useRouter();
+function TaskCard({ task, done }: { task: NachfassenTask; done: DoneApi }) {
   const [isPending, startTransition] = useTransition();
   const [copied, setCopied] = useState(false);
-  const [hidden, setHidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dossierOpen, setDossierOpen] = useState(false);
+  // Offenes Verschiebe-Feld des Telefon-Rückrufs (Berlin-Wandzeit wie
+  // <input type="datetime-local">); null = zu.
+  const [callbackDraft, setCallbackDraft] = useState<string | null>(null);
   // Der Text steht standardmäßig auf drei Zeilen gekürzt. Aufklappbar, weil man
   // sonst blind kopiert: Ob ein {name}-Platzhalter wirklich ersetzt wurde,
   // sieht man erst am ganzen Text — und genau das ist die Sorge vor dem Senden.
@@ -298,8 +414,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
   // Zweizeiler nichts tut, ist schlimmer als einer, der bei einem
   // Grenzfall fehlt — deshalb bewusst konservativ.
   const textIsLong = task.prepared_text.length > 150 || task.prepared_text.split("\n").length > 3;
-
-  if (hidden) return null;
+  const doneEntry = done.entries[taskKey(task)] ?? null;
 
   const copyText = async () => {
     try {
@@ -312,9 +427,11 @@ function TaskCard({ task }: { task: NachfassenTask }) {
     }
   };
 
-  // Gemeinsamer Runner für alle "Klick löst Server-Action aus, Karte
-  // verschwindet danach"-Buttons (LinkedIn UND Recycling).
-  const runAction = (promise: Promise<{ error?: string }>) => {
+  // Gemeinsamer Runner für alle "Klick löst Server-Action aus, Karte ist
+  // danach erledigt"-Buttons. `label` steht anschließend auf der gedimmten
+  // Karte: „Erledigt" allein sagt bei fünf verschiedenen Aktionen zu wenig,
+  // um einen Fehlgriff zu erkennen — und genau dafür ist das Fenster da.
+  const runAction = (promise: Promise<NachfassenActionResult>, label: string) => {
     setError(null);
     startTransition(async () => {
       const res = await promise;
@@ -322,8 +439,22 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         setError(res.error);
         return;
       }
-      setHidden(true);
-      router.refresh();
+      setCallbackDraft(null);
+      done.mark(task, res.undo ?? null, label);
+    });
+  };
+
+  const undoNow = () => {
+    if (!doneEntry?.undo) return;
+    const token = doneEntry.undo;
+    setError(null);
+    startTransition(async () => {
+      const res = await undoNachfassenTask(token);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      done.restore(task);
     });
   };
 
@@ -339,7 +470,9 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         flexDirection: "column",
         gap: "0.5rem",
         minWidth: 0,
-        opacity: isPending ? 0.55 : 1,
+        // Erledigt sieht aus wie „gerade in Arbeit" — dieselbe Abblendung, die
+        // es hier schon gab. Die Karte ist dann fertig, aber noch da.
+        opacity: isPending || doneEntry ? 0.55 : 1,
         transition: "opacity 0.15s, border-color 0.15s",
       }}
     >
@@ -401,20 +534,25 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           {/* Grund + Versuchszähler — nur bei Recycling: der Kanal-Badge sagt
               hier nur "Recycling", nicht mehr WARUM der Lead hier gelandet ist. */}
           {task.source === "recycling" && (
-            <span
-              style={{
-                fontSize: "0.625rem",
-                fontWeight: 600,
-                color: "var(--text-muted)",
-                background: "var(--surface-150)",
-                border: "1px solid var(--border)",
-                borderRadius: 99,
-                padding: "0.1rem 0.4rem",
-              }}
-            >
+            <span style={reasonBadgeStyle}>
               {dropoutReasonLabel(task.recycle_reason ?? null)}
               {typeof task.recycle_attempt === "number" && task.recycle_attempt > 0
                 ? ` · Versuch ${task.recycle_attempt + 1}`
+                : ""}
+            </span>
+          )}
+          {/* Anlass — nur beim Erstgespräch. Die Sektion vereint `no_show` und
+              `unqualifiziert`: zwei völlig verschiedene Anlässe mit derselben
+              Vorlage. Ohne diesen Badge musste man jede Karte einzeln öffnen,
+              um zu wissen, was man überhaupt schreiben soll — bei
+              „Unqualifiziert" steht deshalb auch der Grund dabei, denn davon
+              hängt ab, ob der Text „passt es zeitlich jetzt besser?" oder
+              „hat sich beim Budget etwas getan?" heißt. */}
+          {task.source === "setting" && task.setting_status && (
+            <span style={reasonBadgeStyle}>
+              {SETTING_STATUS_LABEL[task.setting_status]}
+              {task.setting_status === "unqualifiziert" && task.setting_disqualify_reason
+                ? ` · ${dropoutReasonLabel(task.setting_disqualify_reason)}`
                 : ""}
             </span>
           )}
@@ -571,36 +709,66 @@ function TaskCard({ task }: { task: NachfassenTask }) {
         </button>
       </div>
 
-      {/* ── Aktionen je Kanal ── */}
+      {/* ── Aktionen je Kanal — oder, direkt nach dem Erledigen, der Rückweg ──
+          Beides in DERSELBEN Reihe und als Entweder-oder: Eine erledigte
+          Aufgabe soll nicht ein zweites Mal erledigt werden können, und die
+          Fehlermeldung darunter gibt es weiterhin nur EINMAL (sie gehört zu
+          beiden Zuständen — auch ein Rückgängig kann scheitern).
+          Kein Rückgängig-Knopf, wenn die Aktion keinen Rückweg mitgeliefert
+          hat („Endgültig raus" ist genau dieser Fall und hat es im
+          Bestätigungsdialog angekündigt) — lieber gar keiner als einer, der
+          einen Zustand rät. */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap", marginTop: "auto" }}>
-        {task.source === "linkedin" && (
+        {doneEntry && (
           <>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => runAction(advanceLinkedInFollowUp(task.entity_id))}
+            <span
               style={{
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "0.3rem",
-                padding: "0.3rem 0.625rem",
-                borderRadius: "var(--r-full)",
-                border: "none",
-                background: "var(--grad-cta)",
-                color: "var(--text-on-accent)",
-                boxShadow: "var(--shadow-btn-primary)",
                 fontSize: "0.6875rem",
                 fontWeight: 600,
-                cursor: isPending ? "default" : "pointer",
-                transition: "all 0.1s",
+                color: "var(--success-fg)",
               }}
+            >
+              <Check size={12} style={{ flexShrink: 0 }} /> {doneEntry.label}
+            </span>
+            {doneEntry.undo && (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={undoNow}
+                title="Diese Aktion zurücknehmen — die Aufgabe steht danach wieder hier"
+                style={{
+                  ...linkBtnStyle,
+                  background: "transparent",
+                  borderColor: "transparent",
+                  color: "var(--text-muted)",
+                  cursor: isPending ? "default" : "pointer",
+                }}
+              >
+                <Undo2 size={12} /> Rückgängig
+              </button>
+            )}
+          </>
+        )}
+
+        {!doneEntry && task.source === "linkedin" && (
+          <>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() =>
+                runAction(advanceLinkedInFollowUp(task.entity_id), "Erledigt — nächste Stufe steht")
+              }
+              style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
             >
               <CheckCheck size={12} /> Erledigt → nächste Stufe
             </button>
             <button
               type="button"
               disabled={isPending}
-              onClick={() => runAction(markLinkedInAnswered(task.entity_id))}
+              onClick={() => runAction(markLinkedInAnswered(task.entity_id), "Als beantwortet markiert")}
               style={{
                 ...linkBtnStyle,
                 color: "var(--color-success-text)",
@@ -619,8 +787,51 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           </>
         )}
 
-        {task.source === "telefon" && (
+        {/* Telefon-Rückruf: verschieben statt „+7 Tage".
+            `callback_at` ist der einzige Fälligkeitswert dieses Boards mit
+            einer MIT DEM LEAD VERABREDETEN Uhrzeit (DUE_GRANULARITY: moment).
+            Ein festes Intervall wäre dort fachlich falsch, eine automatisch
+            gesetzte Uhrzeit eine Behauptung — deshalb ein Feld mit Vorschlag
+            (morgen, gleiche Uhrzeit) statt eines stillen Sprungs. */}
+        {!doneEntry && task.source === "telefon" && (
           <>
+            {callbackDraft === null ? (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => setCallbackDraft(callbackSuggestion(task.due_at))}
+                style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
+                title="Neuen Rückruf-Zeitpunkt setzen, ohne die Seite zu verlassen"
+              >
+                <CalendarClock size={12} /> Rückruf verschieben
+              </button>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap", width: "100%" }}>
+                <DateTimeField
+                  value={callbackDraft}
+                  onChange={setCallbackDraft}
+                  disabled={isPending}
+                  ariaLabel="Neuer Rückruf-Zeitpunkt"
+                  style={{ flex: 1, minWidth: 180 }}
+                />
+                <button
+                  type="button"
+                  disabled={isPending || !callbackDraft}
+                  onClick={() => runAction(pushPhoneCallback(task.entity_id, callbackDraft), "Rückruf verschoben")}
+                  style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
+                >
+                  <Check size={12} /> Speichern
+                </button>
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => setCallbackDraft(null)}
+                  style={{ ...linkBtnStyle, background: "transparent", borderColor: "transparent", color: "var(--text-muted)" }}
+                >
+                  Abbrechen
+                </button>
+              </div>
+            )}
             {task.list_id && (
               <Link href={`/telefon/${task.list_id}`} style={linkBtnStyle}>
                 <Phone size={12} /> Anrufen
@@ -637,19 +848,46 @@ function TaskCard({ task }: { task: NachfassenTask }) {
           </>
         )}
 
-        {task.source === "setting" && (
-          <Link href={`/setting/${task.entity_id}`} style={linkBtnStyle}>
-            <ClipboardCheck size={12} /> Zum Setting
-          </Link>
+        {/* Setting und Closing tragen ein TAGESDATUM (`follow_up_due`) und
+            bekommen deshalb ein festes Intervall: eine Woche, gerechnet ab
+            HEUTE — bei einer überfälligen Aufgabe läge sie sonst sofort wieder
+            in der Vergangenheit. Der Link daneben bleibt: wer das Gespräch
+            führen will, braucht die Detailseite weiterhin. */}
+        {!doneEntry && task.source === "setting" && (
+          <>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => runAction(pushFollowUpDue("setting", task.entity_id), "Wiedervorlage in 7 Tagen")}
+              style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
+              title="Kontakt erledigt — Wiedervorlage eine Woche weiter"
+            >
+              <CheckCheck size={12} /> Erledigt → +7 Tage
+            </button>
+            <Link href={`/setting/${task.entity_id}${FROM_NACHFASSEN}`} style={linkBtnStyle}>
+              <ClipboardCheck size={12} /> Zum Setting
+            </Link>
+          </>
         )}
 
-        {task.source === "closing" && (
-          <Link href={`/closing/${task.entity_id}`} style={linkBtnStyle}>
-            <Handshake size={12} /> Zum Closing
-          </Link>
+        {!doneEntry && task.source === "closing" && (
+          <>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => runAction(pushFollowUpDue("closing", task.entity_id), "Wiedervorlage in 7 Tagen")}
+              style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
+              title="Kontakt erledigt — Wiedervorlage eine Woche weiter, zur selben Uhrzeit"
+            >
+              <CheckCheck size={12} /> Erledigt → +7 Tage
+            </button>
+            <Link href={`/closing/${task.entity_id}${FROM_NACHFASSEN}`} style={linkBtnStyle}>
+              <Handshake size={12} /> Zum Closing
+            </Link>
+          </>
         )}
 
-        {task.source === "recycling" && task.recycle_origin && (
+        {!doneEntry && task.source === "recycling" && task.recycle_origin && (
           <>
             {task.recycle_origin === "linkedin" && task.list_id && (
               <Link href={`/lists/${task.list_id}`} style={linkBtnStyle}>
@@ -662,12 +900,12 @@ function TaskCard({ task }: { task: NachfassenTask }) {
               </Link>
             )}
             {task.recycle_origin === "setting" && (
-              <Link href={`/setting/${task.entity_id}`} style={linkBtnStyle}>
+              <Link href={`/setting/${task.entity_id}${FROM_NACHFASSEN}`} style={linkBtnStyle}>
                 <ClipboardCheck size={12} /> Zum Setting
               </Link>
             )}
             {task.recycle_origin === "closing" && (
-              <Link href={`/closing/${task.entity_id}`} style={linkBtnStyle}>
+              <Link href={`/closing/${task.entity_id}${FROM_NACHFASSEN}`} style={linkBtnStyle}>
                 <Handshake size={12} /> Zum Closing
               </Link>
             )}
@@ -677,8 +915,10 @@ function TaskCard({ task }: { task: NachfassenTask }) {
               onClick={() =>
                 // Der Grund kommt seit Migration 0033 aus der Ursprungszeile,
                 // nicht mehr vom Client — sonst liesse sich per direktem POST
-                // jede beliebige Wartezeit ausloesen (actions/recycle.ts).
-                runAction(markRecycleContacted(task.recycle_origin!, task.entity_id))
+                // jede beliebige Wartezeit ausloesen (actions/recycle.ts). Die
+                // Hülle drumherum liest nur den Stand VOR dem Klick, damit ein
+                // Fehlgriff nicht einen von zwei erlaubten Versuchen verbrennt.
+                runAction(recycleContactedUndoable(task.recycle_origin!, task.entity_id), "Versuch notiert")
               }
               style={{
                 ...linkBtnStyle,
@@ -691,7 +931,9 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             <button
               type="button"
               disabled={isPending}
-              onClick={() => runAction(markRecycleResponded(task.recycle_origin!, task.entity_id))}
+              onClick={() =>
+                runAction(recycleRespondedUndoable(task.recycle_origin!, task.entity_id), "Als reagiert markiert")
+              }
               style={{
                 ...linkBtnStyle,
                 color: "var(--color-success-text)",
@@ -712,7 +954,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             für etwas, das man je Sitzung einmal liest). Neben den
             Sprung-Knöpfen, weil es dieselbe Frage beantwortet — wo komme ich
             an diesen Lead heran —, nur ohne wegzunavigieren. */}
-        {dossierKind && (
+        {!doneEntry && dossierKind && (
           <button
             type="button"
             onClick={() => setDossierOpen(true)}
@@ -749,7 +991,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
             `reviveBlockedReason()` verweigert danach zusätzlich jede
             Rückholung. Deshalb zusätzlich eine Rückfrage, die genau das
             ausspricht. */}
-        {task.source === "recycling" && task.recycle_origin && (
+        {!doneEntry && task.source === "recycling" && task.recycle_origin && (
           <button
             type="button"
             disabled={isPending}
@@ -771,7 +1013,13 @@ function TaskCard({ task }: { task: NachfassenTask }) {
                 cancelLabel: "Abbrechen",
                 destructive: true,
               });
-              if (ok) runAction(excludeFromRecycle(task.recycle_origin!, task.entity_id));
+              // Bewusst OHNE Rückweg: Die Aktion setzt `recycle_excluded_at`
+              // und nullt die Wiedervorlage — der Dialog hat gerade
+              // ausdrücklich zugesagt, dass sich das hier nicht rückgängig
+              // machen lässt, und `reviveBlockedReason()` verweigert danach
+              // jede Rückholung. Ein Knopf, der dem widerspricht, wäre
+              // schlimmer als keiner.
+              if (ok) runAction(excludeFromRecycle(task.recycle_origin!, task.entity_id), "Endgültig gesperrt");
             }}
             style={{
               ...linkBtnStyle,
@@ -801,7 +1049,7 @@ function TaskCard({ task }: { task: NachfassenTask }) {
 }
 
 /** Kompaktes Karten-Grid: so viele 300px-Karten pro Zeile wie Platz ist. */
-function CardGrid({ tasks }: { tasks: NachfassenTask[] }) {
+function CardGrid({ tasks, done }: { tasks: NachfassenTask[]; done: DoneApi }) {
   return (
     <div
       style={{
@@ -811,7 +1059,7 @@ function CardGrid({ tasks }: { tasks: NachfassenTask[] }) {
       }}
     >
       {tasks.map((t) => (
-        <TaskCard key={`${t.source}-${t.entity_id}`} task={t} />
+        <TaskCard key={taskKey(t)} task={t} done={done} />
       ))}
     </div>
   );
@@ -845,9 +1093,17 @@ const SECTION_META: Record<
  * Closings folgt Wochen NACH dessen „Kein Abschluss"-Kette; ein Verweis
  * zeigte dort auf lauter erledigte Stufen).
  */
-const SECTION_CROSSLINK: Record<string, string | undefined> = {
-  closing: "Stundengenaue Bestätigungs-Erinnerungen zu diesen Kontakten",
-  setting: "No-Show-Kette zu den nicht erschienenen Terminen",
+const SECTION_CROSSLINK: Record<string, { label: string; title: string } | undefined> = {
+  closing: {
+    label: "Stundengenaue Bestätigungs-Erinnerungen zu diesen Kontakten, sofern eine Kaskade besteht",
+    title:
+      "Eine Kaskade entsteht erst, wenn der Termin angelegt oder verschoben wird — für Vorgänge aus der Zeit davor steht dort nichts.",
+  },
+  setting: {
+    label: "No-Show-Kette zu den nicht erschienenen Terminen, sofern eine Kette läuft",
+    title:
+      "Die Kette startet in dem Moment, in dem „nicht erschienen“ als Ergebnis eingetragen wird — für früher eingetragene No-Shows steht dort nichts.",
+  },
 };
 
 /* ── Einklappbare Sektion: Header (Chevron + Kachel + Titel + Badge + Divider + Meta) ── */
@@ -855,12 +1111,15 @@ function CollapsibleSection({
   section,
   collapsed,
   onToggle,
+  done,
 }: {
   section: Section;
   collapsed: boolean;
   onToggle: () => void;
+  done: DoneApi;
 }) {
   const meta = SECTION_META[section.key] ?? SECTION_META["fu-weitere"];
+  const crosslink = SECTION_CROSSLINK[section.key];
   const earliestDue = section.tasks.find((t) => t.due_at)?.due_at ?? null;
   const gridId = `nf-sec-${section.key}`;
 
@@ -942,19 +1201,23 @@ function CollapsibleSection({
              daneben die Unqualifizierten, die dort NICHTS haben — deshalb
              steht der Verweis an der Sektion und nicht auf jeder Karte: die
              RPC liefert den Status nicht mit. */}
-      {!collapsed && SECTION_CROSSLINK[section.key] && (
+      {!collapsed && crosslink && (
         <div style={{ margin: "0 0 0.625rem 1.75rem" }}>
           <Link
             href="/erinnerungen"
+            /* Die Bedingung gehoert an den Link selbst: Wer dort landet und die
+               Seite leer vorfindet, haelt sonst die Erinnerungen fuer kaputt statt
+               den Vorgang fuer alt. */
+            title={crosslink.title}
             style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.6875rem", color: "var(--orange-300)", textDecoration: "none" }}
           >
-            <Clock size={11} /> {SECTION_CROSSLINK[section.key]} → Erinnerungen
+            <Clock size={11} /> {crosslink.label} → Erinnerungen
           </Link>
         </div>
       )}
       {!collapsed && (
         <div id={gridId}>
-          <CardGrid tasks={section.tasks} />
+          <CardGrid tasks={section.tasks} done={done} />
         </div>
       )}
     </section>
@@ -1013,12 +1276,66 @@ export function NachfassenBoard({
 
   const toggleSection = (key: string) => setCollapsedMap((prev) => ({ ...prev, [key]: !prev[key] }));
 
+  /* ── Erledigte Karten mit offenem Rückweg ───────────────────────────
+     Sie liegen HIER und nicht in der Karte: `router.refresh()` läuft sofort
+     nach jeder Aktion (die Zähler in der Seitenleiste sollen stimmen), und
+     danach liefert der Server die erledigte Aufgabe nicht mehr — die Karte
+     würde im selben Moment ausgehängt und mit ihr der Rückweg. Der Merge
+     unten hält sie für die Dauer des Fensters am Leben.
+
+     Die Zählungen in den Pillen und Sektions-Badges beziehen die gedimmten
+     Karten mit ein. Das ist Absicht: Sie stehen sichtbar auf dem Schirm, und
+     eine Zahl, die weniger nennt, als man sieht, ist der schlimmere Fehler. */
+  const router = useRouter();
+  const [doneMap, setDoneMap] = useState<Record<string, DoneEntry>>({});
+  // Fortlaufende Marke je Eintrag. Ohne sie räumte der Timer eines
+  // zurückgenommenen und danach erneut erledigten Vorgangs die ZWEITE
+  // Erledigung vorzeitig weg.
+  const doneToken = useRef(0);
+
+  const doneApi = useMemo<DoneApi>(() => {
+    const drop = (key: string, token?: number) =>
+      setDoneMap((prev) => {
+        if (!prev[key] || (token !== undefined && prev[key].token !== token)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    return {
+      entries: doneMap,
+      mark: (task, undo, label) => {
+        const key = taskKey(task);
+        const token = ++doneToken.current;
+        setDoneMap((prev) => ({ ...prev, [key]: { task, undo, label, token } }));
+        router.refresh();
+        window.setTimeout(() => drop(key, token), UNDO_WINDOW_MS);
+      },
+      restore: (task) => {
+        drop(taskKey(task));
+        router.refresh();
+      },
+    };
+  }, [doneMap, router]);
+
+  /**
+   * Aufgabenliste + die gerade erledigten, die der Server schon nicht mehr
+   * kennt. Ein Eintrag, den der Server WEITERHIN liefert (etwa weil die Aktion
+   * die Fälligkeit nur verschoben hat und der Refresh noch läuft), wird nicht
+   * verdoppelt — der frische Stand gewinnt.
+   */
+  const withDone = useMemo(() => {
+    const entries = Object.values(doneMap);
+    if (entries.length === 0) return tasks;
+    const known = new Set(tasks.map(taskKey));
+    return [...tasks, ...entries.filter((e) => !known.has(taskKey(e.task))).map((e) => e.task)];
+  }, [tasks, doneMap]);
+
   // Der Überfällig-Filter schneidet VOR allem anderen: Danach beschreiben die
   // Zahlen in den Kanal-Pillen dieselbe Menge, die unten steht. Zwei Zählweisen
   // nebeneinander waren genau der Fehler der alten Chip-Reihe.
   const base = useMemo(
-    () => (overdueOnly ? tasks.filter((t) => isOverdue(t.due_at, DUE_GRANULARITY[t.source])) : tasks),
-    [tasks, overdueOnly],
+    () => (overdueOnly ? withDone.filter((t) => isOverdue(t.due_at, DUE_GRANULARITY[t.source])) : withDone),
+    [withDone, overdueOnly],
   );
 
   // Überfällige zuerst, danach aufsteigend nach Fälligkeit
@@ -1040,8 +1357,8 @@ export function NachfassenBoard({
   // Immer über ALLE Aufgaben — die Pille sagt, wie viel es zu holen gäbe, auch
   // wenn gerade nach Kanal gefiltert wird.
   const overdueCount = useMemo(
-    () => tasks.reduce((n, t) => (isOverdue(t.due_at, DUE_GRANULARITY[t.source]) ? n + 1 : n), 0),
-    [tasks],
+    () => withDone.reduce((n, t) => (isOverdue(t.due_at, DUE_GRANULARITY[t.source]) ? n + 1 : n), 0),
+    [withDone],
   );
 
   // Anzahl LinkedIn-Tasks je FU-Stufe (für die Schnellauswahl-Pills)
@@ -1339,6 +1656,7 @@ export function NachfassenBoard({
                 section={section}
                 collapsed={!!collapsedMap[section.key]}
                 onToggle={() => toggleSection(section.key)}
+                done={doneApi}
               />
             </div>
           ))}

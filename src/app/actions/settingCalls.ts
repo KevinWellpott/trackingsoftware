@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
+import { CANCELLED_MOVE_HINT } from "@/lib/terminMeta";
 import type { SettingOutcome, SettingStatus } from "@/lib/types";
 import {
   createNoShowTouch,
@@ -386,6 +387,15 @@ async function mirrorAppointmentToSource(settingId: string, appointmentIso: stri
  * genau darin unterscheidet sich die Action von `rescheduleSetting`.
  *
  * `appointmentAt` ist Berlin-Wandzeit ("2026-07-27T10:00") oder bereits ISO-UTC.
+ *
+ * Ein ABGESAGTER Termin wird hier abgewiesen — wortgleich zu
+ * `postponeAppointment`. Der Riegel stand bis hierher nur dort, und der
+ * Kalender-Zug war der zweite Weg zum selben kaputten Zustand: Die Zeile trüge
+ * danach `cancelled_at` UND ein neues Datum, und `generateSettingCascade`
+ * steigt wegen `cancelled_at` aus — der Termin stünde garantiert ohne
+ * Erinnerung da. Die Oberfläche sperrt den Chip inzwischen ebenfalls
+ * (`moveLockReason`); die Prüfung gehört trotzdem hierher, weil eine Server
+ * Action per direktem POST erreichbar ist.
  */
 export async function moveSettingAppointment(
   settingId: string,
@@ -396,6 +406,15 @@ export async function moveSettingAppointment(
   if (!(await canAccessSettingCall(settingId))) return { error: "Keine Berechtigung." };
 
   const supabase = await createClient();
+  const { data: before } = await supabase
+    .from("setting_calls")
+    .select("cancelled_at")
+    .eq("id", settingId)
+    .maybeSingle();
+  if ((before as { cancelled_at: string | null } | null)?.cancelled_at) {
+    return { error: CANCELLED_MOVE_HINT };
+  }
+
   const { error } = await supabase
     .from("setting_calls")
     .update({ appointment_at: appointmentIso })
@@ -751,10 +770,9 @@ export async function postponeAppointment(
   // Ein abgesagter Termin bekommt hier kein neues Datum: die Zeile stünde
   // danach zugleich als abgesagt und als terminiert da, und die Kaskade räumt
   // für `cancelled_at` jeden Touch ab — der Termin wäre lautlos ohne
-  // Erinnerung. Der Weg zurück führt über einen neuen Termin.
-  if (current.cancelled_at) {
-    return { error: "Der Termin ist abgesagt — bitte einen neuen Termin anlegen statt zu verschieben." };
-  }
+  // Erinnerung. Der Weg zurück führt über einen neuen Termin. Denselben Satz
+  // gibt der Kalender-Riegel aus, deshalb steht er als Konstante daneben.
+  if (current.cancelled_at) return { error: CANCELLED_MOVE_HINT };
 
   const count = (current.reschedule_count ?? 0) + (byLead ? 1 : 0);
   const patch: Record<string, unknown> = { [APPOINTMENT_TIME_COLUMN[entityType]]: appointmentIso };

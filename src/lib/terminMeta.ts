@@ -70,6 +70,18 @@ export const CLOSING_STATUS_META: Record<ClosingCall["status"], Pill> = {
 };
 
 /**
+ * Abgesagt (Migration 0032) — der eine Zustand, der KEINEN Status trägt.
+ *
+ * 0032 hat der Absage bewusst eigene Spalten gegeben statt eines sechsten
+ * `status`-Werts (docs §3): Nur so fällt ein abgesagter Termin über
+ * `show_status is null` aus dem Show-Quoten-Nenner, statt als No-Show zu
+ * zählen. Für die Anzeige heißt das aber: Wer nur `status` liest, hält ihn für
+ * „Offen" — und genau das stand bis hierher in Liste, Popover und Chip-Titel.
+ * Ein eigener Pill statt eines Status-Werts hält die Trennung durch.
+ */
+export const CANCELLED_PILL: Pill = { label: "Abgesagt", ...ERROR };
+
+/**
  * Rahmen-Beschreibung eines Kalender-Chips.
  *
  * `dashed` = es steht ein Ergebnis fest. Ein durchgezogener Rahmen heißt
@@ -116,6 +128,9 @@ function settingOutline(status: SettingCall["status"], show: ShowStatus): EventO
     case "no_show":
       return { tone: "danger", dashed: true, dimmed: false };
     case "unqualifiziert":
+      // Nicht `dimmed`, aus demselben Grund wie bei den terminalen Closings:
+      // Der Status steht in TERMINAL_SETTING_STATUS, der Chip nimmt ihn über
+      // `data-terminal` bereits zurück. Beides zusammen wäre doppelt.
       return { tone: "warning", dashed: true, dimmed: false };
     case "qualifiziert":
     case "closing_gelegt":
@@ -154,19 +169,95 @@ function closingOutline(status: ClosingCall["status"], show: ShowStatus): EventO
   }
 }
 
+/**
+ * Rahmen eines ABGESAGTEN Termins — bewusst kein neues Muster, sondern
+ * dieselben drei Schalter wie überall: Rot heißt „geplatzt", gestrichelt
+ * „daran ändert sich nichts mehr", abgeblendet „aus der Planung raus". Es ist
+ * exakt das Tripel, das ein `dead`-Setting trägt, und das ist die richtige
+ * Aussage: Der Termin findet nicht statt.
+ *
+ * Ob ein Ersatztermin folgt (`cancel_outlook`), steht hier bewusst NICHT im
+ * Chip. Das ist keine Eigenschaft dieses Termins mehr, sondern eine offene
+ * Aufgabe — und die hat mit `/ablage` („Abgesagt, Ersatztermin steht aus")
+ * ihren eigenen Ort samt Navigations-Zähler (docs §5.4). Zwei Rot-Töne für
+ * eine Absage wären eine Unterscheidung, die im Kalender niemand nachschlagen
+ * kann.
+ */
+const CANCELLED: EventOutline = { tone: "danger", dashed: true, dimmed: true };
+
 export function outlineFor(
   kind: "setting" | "closing",
   status: string,
   show: ShowStatus,
+  /** `cancelled_at` gesetzt — schlägt jeden Status, der Termin fällt aus. */
+  cancelled = false,
 ): EventOutline {
+  if (cancelled) return CANCELLED;
   return kind === "setting"
     ? settingOutline(status as SettingCall["status"], show)
     : closingOutline(status as ClosingCall["status"], show);
 }
 
-/** Abgeschlossene Termine: nicht mehr verschiebbar. */
-export const TERMINAL_SETTING_STATUS: readonly SettingCall["status"][] = ["dead"];
+/**
+ * Abgeschlossene Termine: nicht mehr verschiebbar.
+ *
+ * Maßgeblich ist die Frage, die auch `setSettingOutcome` stellt: Beendet das
+ * Ergebnis den Vorgang? `unqualifiziert` tut das ebenso wie `dead` — beide sind
+ * „tote Enden" (docs §1), beide entwerten dort jede Erinnerung des Termins.
+ * Dass hier bis hierher nur `dead` stand, machte ausgerechnet den häufigeren
+ * der beiden Fälle ziehbar: Ein Zug im Kalender legte über
+ * `moveSettingAppointment` → `generateSettingCascade` drei frische
+ * „steht der Termin noch?"-Touches an einen disqualifizierten Lead.
+ *
+ * Bewusst NICHT dabei: `no_show` (der Vorgang geht weiter — ein Ersatztermin
+ * ist der Normalfall), `qualifiziert`/`closing_gelegt` (der Vorgang ist ins
+ * Closing gewandert, das Erstgespräch selbst ist nicht das tote Ende) und beim
+ * Closing `nachfassen` (dasselbe Argument: da muss noch jemand ran).
+ */
+export const TERMINAL_SETTING_STATUS: readonly SettingCall["status"][] = ["unqualifiziert", "dead"];
 export const TERMINAL_CLOSING_STATUS: readonly ClosingCall["status"][] = ["gewonnen", "verloren"];
+
+/**
+ * Der Satz, den ein abgesagter Termin bekommt, wenn ihn jemand verschieben
+ * will — an EINER Stelle, weil ihn drei Riegel aussprechen: der Kalender-Zug,
+ * `postponeAppointment` und `moveSettingAppointment` (beide
+ * src/app/actions/settingCalls.ts). Er steht hier und nicht in der Action, weil
+ * ein `"use server"`-Modul nur async Funktionen exportieren darf — eine
+ * Konstante könnte dort gar nicht mitkommen, und drei Abschriften wären drei
+ * Regeln, die auseinanderlaufen.
+ */
+export const CANCELLED_MOVE_HINT =
+  "Der Termin ist abgesagt — bitte einen neuen Termin anlegen statt zu verschieben.";
+
+/**
+ * Warum dieser Termin nicht verschoben werden darf — `null` heißt: er darf.
+ *
+ * Der RÜCKGABEWERT ist der Punkt, nicht das Boolean dahinter: Ein Riegel, der
+ * einen Zug wortlos abprallen lässt, sieht aus wie ein Fehler der App, und der
+ * Nutzer probiert es dreimal. Der Text für die Absage ist derselbe, den auch
+ * die beiden Server-Riegel zurückgeben (`CANCELLED_MOVE_HINT`).
+ *
+ * Die Absage steht vor dem Status, weil sie ihn nicht anfasst (docs §3): Ein
+ * abgesagtes, aber noch offenes Erstgespräch trägt weiter `status='offen'` —
+ * wer nur den Status prüft, hält es für einen ganz normal anstehenden Termin.
+ */
+export function moveLockReason(
+  kind: "setting" | "closing",
+  status: string,
+  cancelled: boolean,
+): string | null {
+  if (cancelled) return CANCELLED_MOVE_HINT;
+  const terminal =
+    kind === "setting"
+      ? TERMINAL_SETTING_STATUS.includes(status as SettingCall["status"])
+      : TERMINAL_CLOSING_STATUS.includes(status as ClosingCall["status"]);
+  if (!terminal) return null;
+  const label =
+    kind === "setting"
+      ? SETTING_STATUS_META[status as SettingCall["status"]].label
+      : CLOSING_STATUS_META[status as ClosingCall["status"]].label;
+  return `${kind === "setting" ? "Das Erstgespräch" : "Das Closing"} ist mit „${label}“ abgeschlossen — ein neuer Zeitpunkt ändert daran nichts.`;
+}
 
 export const EUR_FMT = new Intl.NumberFormat("de-DE", {
   style: "currency",

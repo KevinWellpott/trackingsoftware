@@ -46,6 +46,15 @@ type Options = {
   onDrop: (event: TerminEvent, target: DragTarget) => void;
   /** Klick ohne Ziehen. */
   onClick: (event: TerminEvent, anchor: DOMRect) => void;
+  /**
+   * Ziehversuch an einem gesperrten Termin (abgesagt oder abgeschlossen).
+   *
+   * Bis hierher passierte an diesen Chips schlicht nichts: Der Zug prallte ab,
+   * ohne eine Zeile Erklärung — und das sieht aus wie ein Fehler der App, nicht
+   * wie eine Regel. Der Grund steht am Event (`lockedReason`) und gehört auf
+   * den Bildschirm.
+   */
+  onBlocked?: (event: TerminEvent) => void;
 };
 
 function snap(min: number): number {
@@ -59,7 +68,7 @@ function dayCellAt(x: number, y: number): string | null {
   return cell?.dataset.day ?? null;
 }
 
-export function useDragReschedule({ geometry, onDrop, onClick }: Options) {
+export function useDragReschedule({ geometry, onDrop, onClick, onBlocked }: Options) {
   const [drag, setDrag] = useState<DragState | null>(null);
   const startRef = useRef<{ x: number; y: number; rect: DOMRect } | null>(null);
   // Ref statt State: pointermove muss synchron wissen, ob die Schwelle fiel.
@@ -67,12 +76,15 @@ export function useDragReschedule({ geometry, onDrop, onClick }: Options) {
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLElement>, event: TerminEvent) => {
-      // Nur linke Maustaste / Touch; terminale Termine sind nicht verschiebbar.
+      // Nur linke Maustaste / Touch. Gesperrte Termine (abgesagt oder
+      // abgeschlossen) bewegen sich nicht — der Zeiger wird trotzdem
+      // eingefangen, sonst verlässt eine schnelle Zugbewegung den Chip, bevor
+      // ein einziges pointermove ankommt, und die Meldung bliebe aus.
       if (e.button !== 0) return;
       const rect = e.currentTarget.getBoundingClientRect();
       startRef.current = { x: e.clientX, y: e.clientY, rect };
       movedRef.current = false;
-      if (!event.terminal) e.currentTarget.setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
       setDrag({ event, target: null, pointer: { x: e.clientX, y: e.clientY }, active: false });
     },
     [],
@@ -81,12 +93,20 @@ export function useDragReschedule({ geometry, onDrop, onClick }: Options) {
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLElement>) => {
       const start = startRef.current;
-      if (!start || !drag || drag.event.terminal || !drag.event.dayISO) return;
+      if (!start || !drag || !drag.event.dayISO) return;
 
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
       if (!movedRef.current && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
       movedRef.current = true;
+
+      // Gesperrt: kein Ziel berechnen, kein Ghost, kein Speichern — aber sagen,
+      // warum. `movedRef` bleibt gesetzt, damit das Loslassen nicht als Klick
+      // durchgeht und zusätzlich das Popover aufreißt.
+      if (drag.event.lockedReason) {
+        onBlocked?.(drag.event);
+        return;
+      }
 
       let target: DragTarget;
       if (geometry.mode === "time") {
@@ -105,7 +125,7 @@ export function useDragReschedule({ geometry, onDrop, onClick }: Options) {
 
       setDrag({ event: drag.event, target, pointer: { x: e.clientX, y: e.clientY }, active: true });
     },
-    [drag, geometry],
+    [drag, geometry, onBlocked],
   );
 
   const onPointerUp = useCallback(
@@ -116,10 +136,14 @@ export function useDragReschedule({ geometry, onDrop, onClick }: Options) {
       setDrag(null);
       if (!current) return;
 
-      if (!movedRef.current || !current.target) {
+      if (!movedRef.current) {
         onClick(current.event, start?.rect ?? e.currentTarget.getBoundingClientRect());
         return;
       }
+      // Gezogen, aber ohne Ziel: der Termin ist gesperrt, die Meldung steht
+      // bereits. Ein Popover obendrauf wäre die zweite Antwort auf dieselbe
+      // Geste.
+      if (!current.target) return;
       const unchanged =
         current.target.dayISO === current.event.dayISO && current.target.startMin === current.event.startMin;
       if (unchanged) return;

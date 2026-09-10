@@ -94,7 +94,12 @@ function offsetLabel(minutes: number): string {
 
 type StepRow =
   | { key: string; kind: "touch"; touch: AppointmentCascadeTouch }
-  | { key: string; kind: "skipped"; label: string; reason: string };
+  // `neverPlanned` trennt zwei Dinge, die sich am Text nicht auseinanderhalten
+  // lassen: „es gab diese Stufe und sie wurde abgeräumt" gegen „es hat sie an
+  // diesem Termin nie gegeben". Die Antwort kommt aus dem Zweig, der den Grund
+  // ermittelt (`skipReason`) — sie am fertigen Satz zu erraten hieße, die
+  // Unterscheidung beim nächsten Umformulieren zu verlieren.
+  | { key: string; kind: "skipped"; label: string; reason: string; neverPlanned: boolean };
 
 type CascadeGroup = { cascadeKind: CascadeKind; rows: StepRow[]; sortKey: string };
 
@@ -178,13 +183,17 @@ function buildGroups(
       // entwertet begründet. Eine, die es nie gab, bleibt beim zeitlichen Grund
       // — sonst behauptete das Panel eine Nachricht, die nie geplant war.
       const superseded = supersededHere?.find((t) => t.step_no === step.step_no) ?? null;
+      // Eine entwertete Zeile beweist, dass es die Stufe gab — sie kann nie ein
+      // Bestandstermin-Fall sein, egal was `everPlanned` sagt.
+      const skip = superseded
+        ? { reason: supersededReason(scheduledKind, view, superseded), neverPlanned: false }
+        : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt, everPlanned);
       rows.push({
         key: `skip-${scheduledKind}-${step.step_no}`,
         kind: "skipped",
         label: TEMPLATE_META[step.template_key]?.label ?? `Stufe ${step.step_no}`,
-        reason: superseded
-          ? supersededReason(scheduledKind, view, superseded)
-          : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt, everPlanned),
+        reason: skip.reason,
+        neverPlanned: skip.neverPlanned,
       });
     }
     groups.push({ cascadeKind: scheduledKind, rows, sortKey: "0" });
@@ -211,6 +220,7 @@ function buildGroups(
         kind: "skipped" as const,
         label: stepLabelOf(t.template_key, t.touch_kind, t.step_no),
         reason: supersededReason(kind, view, t),
+        neverPlanned: false,
       })),
       sortKey: `2:${kind}`,
     });
@@ -221,8 +231,31 @@ function buildGroups(
 }
 
 type TouchEntry = { cascadeKind: CascadeKind; touch: AppointmentCascadeTouch };
-/** Eine Zeile der Historie: erledigt ODER entfallen — beide nur noch als Zeile. */
-type HistoryEntry = { key: string; cascadeKind: CascadeKind; label: string; reason: string; done: boolean };
+
+/**
+ * Der Zustand einer Zeile im Rückblick — DREIWERTIG, nicht zweiwertig.
+ *
+ * Vorher stand hier ein `done: boolean`, und darin steckte der teuerste Fehler
+ * des ersten Tages: Was nie geplant war, fiel damit zwangsläufig in denselben
+ * Topf wie das Entfallene. Für die 223 Termine, die vor der Kaskade angelegt
+ * wurden, schrieb das Panel deshalb „Es steht keine Erinnerung mehr aus. Was
+ * war, steht unten." über eine Liste von Stufen, die es nie gegeben hat — drei
+ * Behauptungen in einem Satz, alle drei falsch.
+ *
+ * `entfallen` und `nie_geplant` sehen im Ergebnis gleich aus (die Nachricht geht
+ * nicht raus) und sind fachlich das Gegenteil voneinander: Entfallen heißt, wir
+ * hatten etwas vor und haben es abgeräumt. Nie geplant heißt, wir hatten hier
+ * nie etwas vor — und dann ist auch die Frage eine andere („was kann ich tun,
+ * damit doch eine entsteht?").
+ */
+type HistoryEntryKind = "done" | "entfallen" | "nie_geplant";
+type HistoryEntry = {
+  key: string;
+  cascadeKind: CascadeKind;
+  label: string;
+  reason: string;
+  kind: HistoryEntryKind;
+};
 
 /**
  * Die Gruppen in zwei Stapel zerlegen: was noch aussteht und was schon
@@ -240,14 +273,20 @@ function splitRows(groups: CascadeGroup[]): { pending: TouchEntry[]; history: Hi
   for (const g of groups) {
     for (const row of g.rows) {
       if (row.kind === "skipped") {
-        history.push({ key: row.key, cascadeKind: g.cascadeKind, label: row.label, reason: row.reason, done: false });
+        history.push({
+          key: row.key,
+          cascadeKind: g.cascadeKind,
+          label: row.label,
+          reason: row.reason,
+          kind: row.neverPlanned ? "nie_geplant" : "entfallen",
+        });
       } else if (row.touch.done_at) {
         history.push({
           key: row.key,
           cascadeKind: g.cascadeKind,
           label: stepLabelOf(row.touch.template_key, row.touch.touch_kind, row.touch.step_no),
           reason: `Erledigt ${whenLabel(row.touch.done_at)}.`,
-          done: true,
+          kind: "done",
         });
       } else {
         pending.push({ cascadeKind: g.cascadeKind, touch: row.touch });
@@ -295,6 +334,14 @@ function supersededReason(kind: CascadeKind, view: AppointmentCascadeView, touch
 }
 
 /**
+ * Was ein übersprungener Plan ist: der Grund im Klartext UND die Antwort auf
+ * die eine Frage, die der Grund nicht mehr hergibt — hat es diese Stufe je
+ * gegeben? Beides zusammen, damit die Zusammenfassung die Unterscheidung nicht
+ * am Satz nachbauen muss.
+ */
+type SkipInfo = { reason: string; neverPlanned: boolean };
+
+/**
  * Warum eine konfigurierte Stufe keine Zeile hat — im Klartext.
  *
  * Vier Fälle, die man auseinanderhalten muss:
@@ -329,21 +376,30 @@ function skipReason(
   nowMs: number,
   cancelledAt: string | null,
   everPlanned: boolean,
-): string {
-  if (cancelledAt) return "Entfällt — der Termin ist abgesagt.";
-  if (!appointmentAt) return "Entfällt — der Termin hat keinen Zeitpunkt.";
-  // „Verschieben" ist bewusst der EINZIGE genannte Weg. Ob auch ein bloßes
-  // Speichern die Kaskade neu erzeugt, hängt am Anlagepfad des Termins — ein
-  // Hinweis, der eine Bedienung verspricht, die es je nach Herkunft gibt oder
-  // nicht, ist schlechter als einer, der nur das Sichere nennt.
+): SkipInfo {
+  if (cancelledAt) return { reason: "Entfällt — der Termin ist abgesagt.", neverPlanned: false };
+  if (!appointmentAt) return { reason: "Entfällt — der Termin hat keinen Zeitpunkt.", neverPlanned: false };
+  // Kurz und ohne Rat: Die Erklärung („stammt aus der Zeit davor") und der Weg
+  // zu einer Kaskade stehen EINMAL in der Zusammenfassung des Panels statt
+  // dreimal untereinander in der Aufklappung — und nur dort ist bekannt, ob der
+  // Termin überhaupt noch bevorsteht. Einem längst geführten Gespräch zum
+  // Verschieben zu raten, brächte nur eine sofort fällige Terminbestätigung für
+  // einen Termin, der schon gelaufen ist.
   if (!everPlanned) {
-    return "Nie geplant — für diesen Termin ist keine einzige Erinnerung angelegt worden. Bei Terminen aus der Zeit vor den Erinnerungen ist das der Normalfall; Termin verschieben legt die Kaskade an.";
+    return { reason: "Nie geplant — diese Stufe hat es an diesem Termin nie gegeben.", neverPlanned: true };
   }
   const due = shiftBerlinMinutes(appointmentAt, -step.offset_minutes);
   if (due && new Date(due).getTime() > nowMs) {
-    return "Nicht geplant — diese Stufe fehlt, obwohl ihre Fälligkeit noch bevorsteht. Termin verschieben erzeugt die Kaskade neu.";
+    return {
+      reason:
+        "Nicht geplant — diese Stufe fehlt, obwohl ihre Fälligkeit noch bevorsteht. Termin verschieben erzeugt die Kaskade neu.",
+      neverPlanned: false,
+    };
   }
-  return `Entfällt — beim Planen lagen weniger als ${offsetLabel(step.offset_minutes)} bis zum Termin.`;
+  return {
+    reason: `Entfällt — beim Planen lagen weniger als ${offsetLabel(step.offset_minutes)} bis zum Termin.`,
+    neverPlanned: false,
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -554,11 +610,11 @@ function TouchRow({
   );
 }
 
-/** Eine erledigte oder entfallene Stufe — eine Zeile plus Begründung. */
+/** Eine erledigte, entfallene oder nie geplante Stufe — eine Zeile plus Begründung. */
 function HistoryRow({ entry, cascadeLabel }: { entry: HistoryEntry; cascadeLabel: string | null }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--sp-4)" }}>
-      {entry.done ? (
+      {entry.kind === "done" ? (
         <Check size={12} style={{ flexShrink: 0, marginTop: 2, color: "var(--success-fg)" }} />
       ) : (
         <MinusCircle size={12} style={{ flexShrink: 0, marginTop: 2, color: "var(--text-disabled)" }} />
@@ -627,6 +683,17 @@ export function CascadePanel({
   );
 
   const { pending, history } = useMemo(() => splitRows(groups), [groups]);
+  // Der Bestandstermin: Es steht nichts aus, und es war auch nie etwas. Genau
+  // diese Lage trifft am ersten Tag nach dem Deploy JEDEN vorhandenen Termin —
+  // für die Kaskade gibt es bewusst keinen Backfill (docs §7).
+  const nieGeplant = history.filter((e) => e.kind === "nie_geplant").length;
+  const nurNieGeplant = history.length > 0 && nieGeplant === history.length;
+  // Ob der Rat „verschieben" überhaupt einer ist: Bei einem Termin, der schon
+  // gelaufen ist, entstünde daraus nur eine sofort fällige Terminbestätigung
+  // für ein Gespräch, das längst geführt wurde.
+  // `Date.parse("")` ist NaN und jeder Vergleich damit `false` — ein Termin ohne
+  // Zeitpunkt steht also nicht bevor, ganz ohne zweite Abfrage.
+  const terminAhead = Date.parse(view?.appointmentAt ?? "") > (nowMs ?? 0);
   // Die Kaskade wird nur benannt, wenn der Termin mehr als eine trägt. Bei
   // einer einzigen wäre der Badge an jeder Zeile dieselbe Auskunft — also keine.
   const multiCascade = new Set(groups.map((g) => g.cascadeKind)).size > 1;
@@ -752,9 +819,24 @@ export function CascadePanel({
               </div>
             )}
 
+            {/* Zwei Lagen, die im Ergebnis gleich aussehen (es geht nichts mehr raus)
+                und fachlich das Gegenteil voneinander sind. Der Satz muss sie trennen,
+                sonst behauptet er beim Bestandstermin eine Vorgeschichte, die es nie
+                gab — und schickt den Leser in eine Aufklappung, in der nichts steht,
+                was je geplant war. Den Weg zurück nennt er nur, wenn er einer ist:
+                „Verschieben" ist der EINZIGE Pfad, der für Erstgespräch und Closing
+                gleichermaßen eine Kaskade neu anlegt (`postponeAppointment` ruft für
+                beide Termin-Arten `generate*Cascade`); ein Speichern des Zeitpunkts
+                gibt es beim Erstgespräch gar nicht. Und bei einem Termin, der schon
+                gelaufen ist, brächte das Verschieben nur eine sofort fällige
+                Bestätigung für ein längst geführtes Gespräch — deshalb `terminAhead`. */}
             {pending.length === 0 && history.length > 0 && (
               <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-muted)", maxWidth: "62ch" }}>
-                Es steht keine Erinnerung mehr aus. Was war, steht unten.
+                {nurNieGeplant
+                  ? terminAhead
+                    ? "Für diesen Termin wurde nie eine Erinnerung geplant — Erinnerungen entstehen beim Anlegen oder Verschieben eines Termins, für ältere entsteht rückwirkend keine. Sobald er einmal verschoben wird, legt die Kaskade ihre Stufen an."
+                    : "Für diesen Termin wurde nie eine Erinnerung geplant — Erinnerungen entstehen beim Anlegen oder Verschieben eines Termins, für ältere entsteht rückwirkend keine. Das Gespräch liegt bereits hinter uns; ein Verschieben brächte jetzt nur eine Bestätigung für einen Termin, der längst gelaufen ist."
+                  : "Es steht keine Erinnerung mehr aus. Was war, steht unten."}
               </p>
             )}
 
@@ -776,7 +858,12 @@ export function CascadePanel({
                   }}
                 >
                   <ChevronRight size={11} className="group-chevron" />
-                  Erledigt &amp; entfallen ({history.length})
+                  {/* Die Beschriftung ist das Versprechen über den Inhalt: Wer
+                      „Erledigt & entfallen" aufklappt und darin lauter Stufen findet,
+                      die es nie gab, hält das Panel für kaputt. */}
+                  {nurNieGeplant
+                    ? `Nie geplant (${history.length})`
+                    : `Erledigt & entfallen (${history.length})`}
                 </summary>
                 <div
                   style={{
@@ -797,11 +884,18 @@ export function CascadePanel({
           </>
         )}
 
-        <p style={{ margin: 0, fontSize: "var(--fs-xs)", color: "var(--text-subtle)", lineHeight: "var(--lh-snug)" }}>
-          <Clock size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />
-          Nichts geht automatisch raus: Text kopieren, über den genannten Kanal schicken, unter
-          &bdquo;Erinnerungen&ldquo; abhaken.
-        </p>
+        {/* Die Anleitung braucht einen EIGENEN Riegel, nicht den der Stufenliste
+            darüber: Sie erklärt, was mit einem Text zu tun ist — unter einem
+            Bestandstermin stand sie über einer Karte, in der nirgends ein Text
+            steht. Ein Arbeitsschritt, den man nicht ausführen kann, liest sich wie
+            ein fehlendes Stück Oberfläche. */}
+        {pending.length > 0 && (
+          <p style={{ margin: 0, fontSize: "var(--fs-xs)", color: "var(--text-subtle)", lineHeight: "var(--lh-snug)" }}>
+            <Clock size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />
+            Nichts geht automatisch raus: Text kopieren, über den genannten Kanal schicken, unter
+            &bdquo;Erinnerungen&ldquo; abhaken.
+          </p>
+        )}
       </div>
     </div>
   );

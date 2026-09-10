@@ -397,6 +397,14 @@ type EntityRow = {
   assigned_user_id: string | null;
   created_by_user_id: string | null;
   cancelled_at: string | null;
+  /**
+   * Der erfasste Ausgang des Gesprächs — bei `status='offen'` bewusst NULL und
+   * gesetzt, sobald ein Ergebnis eingetragen wird (docs §4). Steht hier neben
+   * `cancelled_at`, weil beide dieselbe Frage aus zwei Richtungen beantworten:
+   * die Absage „der Termin findet nicht statt", der Ausgang „er hat bereits
+   * stattgefunden".
+   */
+  show_status: "show" | "no_show" | null;
   channel: TouchChannel | null;
 };
 
@@ -424,9 +432,10 @@ function channelFor(row: ChannelSource | null): TouchChannel | null {
 }
 
 const SETTING_COLUMNS =
-  "appointment_at, assigned_user_id, created_by_user_id, cancelled_at, source_type, wa_phone, wa_consent_at, wa_refused_at";
+  "appointment_at, assigned_user_id, created_by_user_id, cancelled_at, show_status, " +
+  "source_type, wa_phone, wa_consent_at, wa_refused_at";
 const CLOSING_COLUMNS =
-  "call_at, follow_up_due_at, assigned_user_id, created_by_user_id, cancelled_at, setting_call_id";
+  "call_at, follow_up_due_at, assigned_user_id, created_by_user_id, cancelled_at, show_status, setting_call_id";
 
 /** Setting-Zeile inklusive aufgelöstem Kanal — eine Query statt zwei. */
 async function loadSettingEntity(access: AccessContext, settingCallId: string): Promise<EntityRow | null> {
@@ -465,6 +474,7 @@ async function loadClosingEntity(
     assigned_user_id: string | null;
     created_by_user_id: string | null;
     cancelled_at: string | null;
+    show_status: "show" | "no_show" | null;
     setting_call_id: string | null;
   } | null;
   if (!row) return null;
@@ -484,6 +494,7 @@ async function loadClosingEntity(
     assigned_user_id: row.assigned_user_id,
     created_by_user_id: row.created_by_user_id,
     cancelled_at: row.cancelled_at,
+    show_status: row.show_status,
     channel: channelFor(source),
   };
 }
@@ -590,6 +601,37 @@ async function generateScheduled(
     // müssen trotzdem weg — sonst erinnert die App an einen Termin, den beide
     // Seiten abgeräumt haben.
     if (row.cancelled_at || !row.appointment_at) {
+      await supersedeTouches(entityType, entityId, [kind]);
+      return NOTHING;
+    }
+
+    // Ein erfasster Ausgang heißt: dieses Gespräch ist gelaufen. „Steht unser
+    // Termin noch wie geplant?" und „es geht gleich los" ergeben dafür keinen
+    // Sinn mehr — unabhängig davon, ob der Ausgang gut oder schlecht war. Die
+    // Karte in /erinnerungen ist eine Kopier-Werkbank, der Satz ginge real raus.
+    //
+    // Der Riegel steht HIER und nicht in `TERMINAL_SETTING_STATUS`, obwohl es
+    // dort nach der naheliegenderen Stelle aussieht. Zwei Gründe: Die Liste
+    // steuert über `data-terminal` zusätzlich die Abblendung im Wochenraster —
+    // ein qualifiziertes Erstgespräch sähe danach aus wie ein totes —, und sie
+    // sperrt das Verschieben auch dort, wo es legitim ist (ein falsch erfasstes
+    // Datum korrigieren). Genau deshalb bleiben `qualifiziert`/`closing_gelegt`
+    // und beim Closing `nachfassen` bewusst ziehbar: Ihr VORGANG läuft weiter,
+    // nur ihr TERMIN ist vorbei. Diese Unterscheidung trägt kein Status, sondern
+    // `show_status` — bei `offen` bewusst NULL (docs §4).
+    //
+    // Der Ersatztermin nach einem No-Show braucht dafür KEINEN Sonderfall:
+    // `rescheduleSetting` setzt `status='offen'` und `show_status=null` im
+    // selben UPDATE, und gelesen wird hier der Stand DANACH — dort ist der
+    // Ausgang also bereits zurückgenommen. Dasselbe gilt für „Ergebnis
+    // zurücksetzen"; beide Editoren schicken `show_status: null` mit.
+    //
+    // Ausgenommen ist `closing_followup`: Als einzige der drei geplanten
+    // Kaskaden hängt sie nicht am Termin, sondern an `follow_up_due_at` — einem
+    // künftigen Kontakt, der gerade DESHALB vereinbart wurde, weil das Closing
+    // stattgefunden hat. `setClosingOutcome` leitet dort `show_status='show'`
+    // ab, bevor die Kaskade entsteht; ohne die Ausnahme gäbe es sie nie wieder.
+    if (entityType !== "closing_followup" && row.show_status) {
       await supersedeTouches(entityType, entityId, [kind]);
       return NOTHING;
     }

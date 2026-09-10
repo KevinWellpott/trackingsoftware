@@ -1350,9 +1350,15 @@ export function ErinnerungenBoard({
           <div className="empty-state">
             <CheckCircle2 size={24} aria-hidden style={{ color: "var(--success-fg)" }} />
             <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>Nichts offen</div>
+            {/* Der Leerzustand nennt die Bedingung, die WIRKLICH gilt. Vorher stand
+                hier „sobald ein Termin ansteht" — am ersten Tag standen 223 Termine
+                an und es erschien keine einzige Karte: Für die Kaskade gibt es
+                bewusst keinen Backfill (docs §7), Erinnerungen entstehen erst beim
+                Anlegen oder Verschieben eines Termins. Eine Zusage, die die Seite
+                nicht hält, kostet mehr Vertrauen als ein leerer Bildschirm. */}
             <p style={{ maxWidth: 380 }}>
-              Sobald ein Setting-, Closing- oder Nachfass-Termin ansteht — oder eine Kette nach No-Show oder
-              ausgebliebenem Abschluss läuft —, erscheint hier eine Karte je Termin.
+              Erinnerungen entstehen, wenn ein Termin angelegt oder verschoben wird — für ältere Termine
+              entsteht rückwirkend keine. Danach steht hier eine Karte je Termin.
             </p>
           </div>
         </div>

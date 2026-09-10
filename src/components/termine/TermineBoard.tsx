@@ -5,7 +5,7 @@ import { updateClosingCall } from "@/app/actions/closingCalls";
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { slotToIso } from "@/lib/apptTime";
 import { localDateISO } from "@/lib/dates";
-import { buildEvents, type TerminEvent } from "@/lib/termine";
+import { buildEvents, type TerminEvent, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
 import { Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -41,8 +41,10 @@ export function TermineBoard({
   closings,
   members,
 }: {
-  settings: SettingCall[];
-  closings: ClosingCall[];
+  // `WithCancellation`: Die Seite lädt mit `select("*")`, `cancelled_at` ist
+  // also da — nur im geteilten Typ steht es bewusst nicht (siehe lib/termine).
+  settings: WithCancellation<SettingCall>[];
+  closings: WithCancellation<ClosingCall>[];
   /** Nur noch Namensquelle für `assigned_user_id` — kein Filter mehr. */
   members: Member[];
   /**
@@ -179,10 +181,18 @@ export function TermineBoard({
     setPopover({ event, anchor });
   }, []);
 
+  // Der Riegel spricht. Die Meldung landet in derselben Fehlerzeile, in der
+  // auch eine abgelehnte Server-Antwort steht — der Nutzer hat eine Stelle, an
+  // der steht, warum sein letzter Handgriff nichts bewirkt hat.
+  const handleBlocked = useCallback((event: TerminEvent) => {
+    setError(event.lockedReason);
+  }, []);
+
   const { drag, handlers } = useDragReschedule({
     geometry: dragGeometry,
     onDrop: handleDrop,
     onClick: handleClick,
+    onBlocked: handleBlocked,
   });
 
   // Klick auf dieselbe Spalte dreht die Richtung, auf eine andere startet

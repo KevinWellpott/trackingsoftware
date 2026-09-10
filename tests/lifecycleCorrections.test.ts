@@ -40,14 +40,26 @@ const CREATE_CLOSING = slice(SETTING_CALLS, "export async function createClosing
 const UPDATE_SETTING = slice(SETTING_CALLS, "export async function updateSettingCall(", "\n/**");
 
 describe("Ein neues Ergebnis nimmt die Kette des alten zurück", () => {
-  test("E1 · gewonnen/nachfassen entwerten die „kein Abschluss\"-Kette", () => {
+  test("E1 · ein Ergebnis nimmt ALLE Kaskaden des Closings mit", () => {
     // Verloren → zwei Tage später meldet sich der Lead doch → „Gewonnen".
     // Ohne dieses Entwerten steht am nächsten Tag „sollen wir es für den Moment
     // ruhen lassen?" für einen unterschriebenen Deal; bei „Nachfassen" liefen
     // Kein-Close-Kette und Nachfass-Kaskade gleichzeitig.
-    assert.match(CLOSING_OUTCOME, /supersedeTouches\("closing", input\.closingId, \["kein_close"\]\)/);
-    // Und zwar für JEDES andere Ergebnis, nicht nur für eines von beiden.
-    assert.match(CLOSING_OUTCOME, /input\.outcome !== "verloren"/);
+    //
+    // Bis hierher stand hier eine Kaskadenliste — und genau daran ist die Regel
+    // gescheitert: Von den fünf Kaskaden am entity_type 'closing' nannte sie
+    // zwei. 'no_show_closing' blieb stehen (der Lead, der nach einem geplatzten
+    // Closing doch unterschreibt, las am nächsten Tag „ich habe es gestern und
+    // heute nicht erreicht"), und 'closing_kickoff' wurde im ganzen Code nie
+    // entwertet. Jetzt gilt hier dieselbe Regel wie in `setSettingOutcome` und
+    // `cancelAppointment`: ohne Liste. Die Details stehen in terminRiegel.test.ts.
+    assert.match(CLOSING_OUTCOME, /await supersedeTouches\("closing", input\.closingId\);/);
+    assert.doesNotMatch(CLOSING_OUTCOME, /supersedeTouches\("closing", input\.closingId, \[/);
+    // Ausgenommen ist nicht ein Ergebnis, sondern die reine Grund-Korrektur an
+    // einer bereits verlorenen Zeile: Sie ist kein neues Ereignis und darf die
+    // laufende „kein Abschluss"-Kette nicht abräumen, ohne sie neu aufzubauen.
+    assert.match(CLOSING_OUTCOME, /if \(!correctingLoss\) \{\s*await supersedeTouches\("closing", input\.closingId\);/);
+    assert.doesNotMatch(CLOSING_OUTCOME, /input\.outcome !== "verloren"/);
   });
 
   test("E2 · das angelegte Closing entwertet die No-Show-Kette des Erstgesprächs", () => {
