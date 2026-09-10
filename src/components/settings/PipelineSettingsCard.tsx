@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
-import { updatePipelineSettings, type PipelineSettings } from "@/app/actions/reminders";
+import { updatePipelineSettings, type PipelineSettings } from "@/app/actions/pipelineSettings";
 import { Button } from "@/components/ui/Button";
 import {
   FIELD_ERROR,
@@ -51,7 +51,7 @@ type FieldSpec = {
   max: number;
 };
 
-/** Grenzen wörtlich wie SETTINGS_BOUNDS in actions/reminders.ts und die CHECKs in 0032. */
+/** Grenzen wörtlich wie SETTINGS_BOUNDS in actions/pipelineSettings.ts und die CHECKs in 0032. */
 const DAY_MIN = 1;
 const DAY_MAX = 3650;
 

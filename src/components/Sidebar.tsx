@@ -1288,7 +1288,7 @@ export function SidebarContent({
             icon={Clock}
             label="Nachfassen"
             onClick={onClose}
-            title="Tägliche Wiedervorlage: Telefon-Rückrufe, Setting- und Closing-Wiedervorlagen, fällige Recycling-Versuche. LinkedIn-Follow-ups erledigt das Listen-Board."
+            title="Fällige Recycling-Versuche: Leads, die schon einmal aus dem Funnel gefallen sind — verlorene Closings, tote Telefon- und Erstgespräch-Leads, LinkedIn-Kontakte ohne Antwort. Telefon-Rückrufe sowie Setting- und Closing-Wiedervorlagen stehen in der Terminliste, LinkedIn-Follow-ups erledigt das Listen-Board."
             count={navCounts?.nachfassen}
             countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
           />

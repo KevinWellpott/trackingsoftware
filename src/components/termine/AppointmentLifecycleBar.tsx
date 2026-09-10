@@ -15,7 +15,7 @@ import {
   type CancelReasonCode,
   type NoShowResolution,
 } from "@/app/actions/settingCalls";
-import { getPipelineSettings } from "@/app/actions/reminders";
+import { getPipelineSettings } from "@/app/actions/pipelineSettings";
 import {
   CANCEL_OUTLOOK_HINTS,
   CANCEL_OUTLOOK_LABELS,

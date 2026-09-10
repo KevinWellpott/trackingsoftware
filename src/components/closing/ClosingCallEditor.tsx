@@ -11,7 +11,6 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 // Alias: diese Datei hat ein eigenes, privates <Toggle> fuer die Modal-Felder.
 import { Toggle as UiToggle } from "@/components/ui/Toggle";
 import { SettingMirror, type SettingContext } from "@/components/closing/SettingMirror";
-import { CascadePanel } from "@/components/termine/CascadePanel";
 import {
   AppointmentLifecycleBar,
   CancelledBanner,
@@ -286,19 +285,16 @@ export function ClosingCallEditor({
   // durch Migration 0029 pauschal auf "Sonstiges" steht.
   const [lostReasonCode, setLostReasonCode] = useState<ClosingLostReasonCode | null>(call.lost_reason_code);
   const [lostReason, setLostReason] = useState(call.lost_reason ?? "");
-  // Datum+Uhrzeit statt nur Datum (Migration 0031): die Erinnerungs-Kaskade
-  // vor dem Nachfass-Kontakt braucht einen echten Zeitpunkt, gegen den sie
-  // T-3 Tage/T-1 Tag/T-1 Stunde rechnen kann.
+  // Datum+Uhrzeit statt nur Datum: Ein Rückkontakt wird im Gespräch auf eine
+  // Uhrzeit verabredet („Donnerstag nach dem Meeting"), und `follow_up_due_at`
+  // hält genau die fest. Das reine Datum daneben (`follow_up_due`) leitet
+  // `withFollowUpDateSynced` daraus ab — es ist die Körnung, mit der
+  // /nachfassen arbeitet.
   const [followUpDueAt, setFollowUpDueAt] = useState("");
 
   // Setting-Spiegel: an, sobald ein Setting verknüpft ist — genau dafür
   // existiert die Ansicht. Ohne Setting gibt es den Umschalter gar nicht.
   const [settingOpen, setSettingOpen] = useState(Boolean(settingContext));
-
-  // Das Kaskaden-Panel holt seine Daten über eine Server-Action und hängt nicht
-  // an den Props der Seite — router.refresh() erreicht es deshalb nicht.
-  const [cascadeToken, setCascadeToken] = useState(0);
-  const bumpCascade = () => setCascadeToken((t) => t + 1);
 
   useEffect(() => {
     return () => {
@@ -341,9 +337,6 @@ export function ClosingCallEditor({
       setStatus(outcome);
       close();
       flashSaved();
-      // „Verloren" startet die Kein-Close-Kette, „Nachfassen" die Kaskade vor
-      // dem vereinbarten Rückkontakt — beides muss das Panel sofort zeigen.
-      bumpCascade();
       router.refresh();
     });
   }
@@ -366,10 +359,10 @@ export function ClosingCallEditor({
 
   // Warum der Termin hier nicht mehr änderbar ist — dieselbe Regel und
   // derselbe Satz wie im Kalender und in den beiden Server-Riegeln
-  // (`moveLockReason`, src/lib/terminMeta.ts). Ohne sie war das Feld auch bei
-  // „Gewonnen"/„Verloren" bedienbar, und ein Tippfehler darin legte über
-  // `updateClosingCall` → `generateClosingCascade` eine frische
-  // Bestätigungs-Kaskade für ein Gespräch an, dessen Ergebnis längst feststeht.
+  // (`moveLockReason`, src/lib/terminMeta.ts). Ein Gespräch mit feststehendem
+  // Ergebnis hat kein Datum mehr zu verhandeln: Ein Tippfehler im Feld schöbe
+  // es in der Terminliste an einen Tag, an dem nichts stattgefunden hat, und
+  // zöge jede Auswertung mit, die auf `call_at` bucketet.
   // Der Status ist der LOKALE — nach „Als gewonnen markieren" greift der Riegel
   // sofort, nicht erst nach dem nächsten Laden der Seite.
   const terminLocked = moveLockReason("closing", status, Boolean(call.cancelled_at));
@@ -392,8 +385,6 @@ export function ClosingCallEditor({
     const value = showStatus === next ? null : next;
     setShowStatus(value);
     save({ show_status: value });
-    // Ein echter Übergang auf 'no_show' startet serverseitig die No-Show-Kette.
-    bumpCascade();
   }
 
   // Setzt alles zurueck, was das ERGEBNIS beschreibt. Script-Antworten,
@@ -644,9 +635,6 @@ export function ClosingCallEditor({
             // Uhrzeit bestaetigt) — kein Autosave pro Tastendruck.
             if (v === isoToLocalInput(call.call_at)) return;
             save({ call_at: localInputToIso(v) }, { refresh: true });
-            // Ein neuer Termin heißt neue Fälligkeiten — das Panel darf nicht
-            // die alten weiterzeigen.
-            bumpCascade();
           }}
           disabled={Boolean(terminLocked)}
           ariaLabel="Termin"
@@ -875,7 +863,6 @@ export function ClosingCallEditor({
             disabled={isPending}
             onChanged={() => {
               flashSaved();
-              bumpCascade();
               router.refresh();
             }}
           />
@@ -925,13 +912,6 @@ export function ClosingCallEditor({
       {/* ── Zuweisung + Call-Details: beides ganz oben ── */}
       {assignCard}
       {detailsCard}
-
-      {/* ── Erinnerungs-Kaskade dieses Termins ──
-          Steht im Termin-Layout und nicht nur auf /erinnerungen: Wer das
-          Closing öffnet, muss sehen, welche Nachricht als nächste rausgeht und
-          über welchen Kanal. Beim Closing kommt der Kanal vom verknüpften
-          Setting — nur dort steht die persönliche Nummer. */}
-      <CascadePanel entityType="closing" entityId={call.id} reloadToken={cascadeToken} />
 
       {/* ── Umschalter: Setting neben dem Script ── */}
       {settingContext && (

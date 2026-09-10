@@ -11,15 +11,26 @@
 // Wiedervorlage bekommen — wird unten dort geprüft, wo die Regel jetzt steht,
 // nämlich im Text der eingefrorenen Migration.
 //
-// Was in der Bibliothek blieb, ist die Anzeige-Seite: Wie ein Grund heißt und
-// welchen Aufhänger er in der Nachricht erzeugt.
+// Was in der Bibliothek blieb, ist die Beschriftung des Grundes.
+//
+// ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ───────────────
+// HIER STANDEN drei Tests auf `renderRecycleTemplate` — dem Aufhänger, den
+// {anlass} je Grund in die Recycling-Vorlage setzte. Die Funktion ist gefallen,
+// weil ihre beiden Voraussetzungen gefallen sind: Es gibt keine Vorlagen mehr
+// (/nachfassen zeigt Namen und Grund, keinen vorformulierten Satz), und es gibt
+// keine Grund-Staffelung mehr, aus der ein grund-spezifischer Satz seinen Sinn
+// zöge — es gilt EINE Frist für alle.
+//
+// Die Zusicherung, die dabei nicht verloren gehen durfte, steht unten und ist
+// vom Rückbau unberührt: Jeder Code, den `recycle_tasks` liefern kann, hat ein
+// Label. Ohne sie stünde im Badge der rohe Code.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
-import { RECYCLE_REASON_LABELS, renderRecycleTemplate } from "@/lib/recycleCadence";
+import { RECYCLE_REASON_LABELS } from "@/lib/recycleCadence";
 
 // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt auch die
 // Migrationsdateien unter Windows mit CRLF ab; Anker mit `\n` fänden sie sonst
@@ -44,34 +55,6 @@ describe("Recycling-Kadenz (in der Datenbank)", () => {
     // App-Code, hätten wir zwei Fristen für denselben Grund.
     assert.match(MIGRATION_0033, /days_default_closing_lost/);
     assert.match(MIGRATION_0033, /days_ghosting_breakup/);
-  });
-});
-
-describe("renderRecycleTemplate", () => {
-  test("setzt je Grund einen konkreten Aufhänger ein", () => {
-    const out = renderRecycleTemplate("Hi {vorname} von {firma} — {anlass}.", {
-      leadName: "Maria Schulz",
-      company: "Beispiel GmbH",
-      reason: "timing",
-    });
-    assert.equal(out, "Hi Maria von Beispiel GmbH — vielleicht passt der Zeitpunkt inzwischen besser.");
-  });
-
-  test("fällt auf einen neutralen Satz zurück, statt {anlass} stehen zu lassen", () => {
-    // Gründe ohne plausiblen Aufhänger (Vertrauen, Ghosting, dead,
-    // fu_exhausted) und unbekannte Codes dürfen keinen Platzhalter in die
-    // fertige Nachricht durchreichen.
-    for (const reason of ["vertrauen", "ghosting", "dead", "fu_exhausted", "was_auch_immer", null]) {
-      const out = renderRecycleTemplate("{anlass}", { leadName: null, company: null, reason });
-      assert.equal(out, "es gibt vielleicht Neues zu besprechen", String(reason));
-    }
-  });
-
-  test("ohne Namen bleibt die Anrede lesbar", () => {
-    assert.equal(
-      renderRecycleTemplate("Hi {vorname}{firma}!", { leadName: "   ", company: null, reason: "preis" }),
-      "Hi dir!",
-    );
   });
 });
 

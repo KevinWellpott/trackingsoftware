@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
-import { generateSettingCascade } from "@/app/actions/reminders";
 import { SELECTABLE_CHANNELS } from "@/lib/channels";
 import { reviveBlockedReason, type DropoutAppointmentEntity } from "@/lib/dropoutLists";
 
@@ -26,8 +25,8 @@ import { reviveBlockedReason, type DropoutAppointmentEntity } from "@/lib/dropou
 // angelegtes Closing übersprünge genau die Stufe, an der das passiert.
 //
 // Die Datei liegt neben appointments.ts und nicht in dropout.ts: Sie legt einen
-// Termin an, prüft dieselben Kontaktweg-Regeln und startet dieselbe Kaskade —
-// eine Anlagestrecke, kein Ablage-Lesevorgang.
+// Termin an und prüft dieselben Kontaktweg-Regeln — eine Anlagestrecke, kein
+// Ablage-Lesevorgang.
 
 const TABLE_BY_ENTITY: Record<DropoutAppointmentEntity, string> = {
   setting: "setting_calls",
@@ -121,9 +120,8 @@ const CLOSING_COLUMNS =
  *    Anlauf, der mit „Budget ja, Pain 8" vorbelegt startet, behauptet Wissen
  *    von vor Monaten als aktuellen Stand.
  *  · `wa_phone`/`wa_consent_at` — eine dokumentierte Einwilligung ist ein
- *    Nachweis mit Zeitpunkt, keine Eigenschaft, die man kopiert. Ohne sie
- *    fällt die Kaskade des neuen Termins auf den Akquise-Kanal zurück
- *    (`resolveCascadeChannel`), statt eine Einwilligung zu behaupten.
+ *    Nachweis mit Zeitpunkt, keine Eigenschaft, die man kopiert. Der zweite
+ *    Anlauf sammelt sie im Gespräch neu ein, statt eine alte zu behaupten.
  *  · Der Zustand der QUELLE (`contacts.setting_call_id`, `appointment_set`,
  *    `phone_leads.status`) — ein Umbiegen dorthin schriebe die Vergangenheit
  *    um: `contacts.setting_call_id` trägt die Umsatz-je-Liste-Auswertung, und
@@ -288,16 +286,13 @@ export async function reviveDropout(
     return { error: insertError?.message ?? "Neuer Termin konnte nicht angelegt werden." };
   }
 
-  // Die Kaskade des neuen Termins entsteht über den vorhandenen Weg — dieselbe
-  // Funktion, die auch `createManualSetting` und `convertContactToSetting`
-  // aufrufen. Fail-soft: eine ausgefallene Erinnerungs-Planung darf den Termin
-  // nicht zurückrollen.
-  await generateSettingCascade(created.id);
-
+  // Hier stand die Kaskaden-Planung des neuen Termins. Sie ist zusammen mit den
+  // drei anderen Anlagestrecken (actions/appointments.ts) gefallen — die
+  // Rückholung behandelt einen Termin damit weiterhin genauso wie jeder andere
+  // Weg, an dem einer entsteht.
   revalidatePath("/ablage", "page");
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
-  revalidatePath("/erinnerungen", "page");
   revalidatePath("/", "layout");
   return { settingCallId: created.id };
 }

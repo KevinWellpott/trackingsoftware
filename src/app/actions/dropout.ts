@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, type AccessContext } from "@/lib/access";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { berlinDateISO } from "@/lib/apptTime";
-import { getPipelineSettings } from "@/app/actions/reminders";
+import { getPipelineSettings } from "@/app/actions/pipelineSettings";
 import {
   dropoutListMeta,
   isDropoutListKey,

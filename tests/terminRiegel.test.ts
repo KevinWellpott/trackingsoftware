@@ -20,7 +20,6 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
-import { CASCADE_KIND_LABELS, type CascadeKind } from "@/lib/cascadeEngine";
 import { CANCELLED_MOVE_HINT, moveLockReason, TERMINAL_CLOSING_STATUS, TERMINAL_SETTING_STATUS } from "@/lib/terminMeta";
 import { buildEvents, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
@@ -113,72 +112,44 @@ function closingEvent(patch: Partial<WithCancellation<ClosingCall>> = {}) {
  * Befund 1
  * ------------------------------------------------------------------ */
 
-describe("Befund 1 — ein Ergebnis entwertet ALLE Kaskaden des Closings", () => {
+describe("Befund 1 — ein Ergebnis kann keine Kaskade des Closings mehr überleben", () => {
+  // ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ──────────────────
+  // HIER STANDEN fünf Tests um EINEN Befund: Am entity_type 'closing' hingen
+  // fünf Kaskaden, und die Aufzählung in `setClosingOutcome` nannte zwei davon.
+  // 'no_show_closing' blieb stehen (der Lead, der nach einem geplatzten Closing
+  // doch unterschreibt, las am nächsten Tag „ich habe es gestern und heute nicht
+  // erreicht"), 'closing_kickoff' wurde im ganzen Code nie entwertet und stand
+  // nach jedem Ergebnis dauerhaft überfällig. Die Lösung war, die Liste
+  // abzuschaffen — eine Aufzählung, die jemand bei jeder neuen Kaskaden-Art
+  // nachziehen muss, versagt still.
+  //
+  // Der Rückbau geht denselben Schritt zu Ende: Es gibt keine Kaskade mehr, also
+  // auch keine Liste und kein Entwerten. Die Prüfung ist deshalb dieselbe
+  // geblieben, nur radikaler — statt „keine Liste" jetzt „kein Aufruf".
   const outcome = slice(CLOSING_CALLS, "export async function setClosingOutcome(", "\n/**");
 
-  test("entwertet wird ohne Kaskadenliste — wie in setSettingOutcome", () => {
-    // Der Kern des Befunds: Am entity_type 'closing' hängen fünf Kaskaden, die
-    // frühere Aufzählung nannte zwei. Eine Liste, die jemand bei der nächsten
-    // Kaskaden-Art nachziehen muss, ist genau die Bauart, die hier still
-    // versagt hat — deshalb ist die Abwesenheit jeder Liste die Prüfung.
-    assert.match(outcome, /supersedeTouches\("closing", input\.closingId\);/);
-    assert.doesNotMatch(
-      outcome,
-      /supersedeTouches\("closing", input\.closingId, \[/,
-      "setClosingOutcome grenzt wieder nach Kaskaden-Art ein",
-    );
+  test("kein Erzeugen, kein Entwerten, keine Kaskaden-Namen mehr", () => {
+    assert.doesNotMatch(outcome, /supersedeTouches|generateFollowUpCascade|generateKeinCloseChain/);
+    // ── GEÄNDERTER ANKER, und zwar aus dem Rückbau heraus ───────────────────
+    // Die fünf Namen standen bis hierher NICHT als Literal da, sondern kamen
+    // aus `CASCADE_KIND_LABELS` — damit der Test von selbst rot wurde, sobald
+    // jemand eine zehnte Kaskade erfindet. Die Registry ist mit dem
+    // Kaskaden-Rechner gefallen; es gibt nichts mehr, woran er hängen könnte.
+    // Ausgeschrieben beschreibt die Liste jetzt einen abgeschlossenen Zustand
+    // („das waren die fünf") statt eines wachsenden — und die Zusicherung wird
+    // dadurch stärker, nicht schwächer: Wer eine dieser Kaskaden wiederbelebt,
+    // müsste sie zuerst neu erfinden.
+    const amClosing = ["closing_msg", "closing_mail", "closing_kickoff", "no_show_closing", "kein_close"];
+    for (const kind of amClosing) assert.doesNotMatch(CLOSING_CALLS, new RegExp(`"${kind}"`), kind);
   });
 
-  test("das Kriterium ist „neues Ereignis“, nicht der Outcome", () => {
-    // Alle drei Ergebnisse beenden den Termin — auch „Nachfassen": Das
-    // Gespräch hat stattgefunden, der vereinbarte Rückkontakt hängt am eigenen
-    // entity_type. Ausgenommen ist deshalb nicht ein Outcome, sondern die reine
-    // Grund-Korrektur an einer bereits verlorenen Zeile (Muster `wasCancelled`)
-    // — sonst nähme das Entwerten die laufende „kein Abschluss"-Kette mit,
-    // ohne sie neu aufzubauen.
-    assert.match(outcome, /if \(!correctingLoss\) \{\s*await supersedeTouches\("closing", input\.closingId\);/);
+  test("das Kriterium „neues Ereignis, keine Korrektur\" bleibt — es trägt jetzt die Wiedervorlage", () => {
+    // Die Unterscheidung war nie nur für die Kette da: Eine reine Grund-
+    // Korrektur an einer bereits verlorenen Zeile darf auch das Recycling-Datum
+    // nicht neu rechnen (`schedule_recycle()` rechnet `heute + Wartezeit`).
+    // Sie ist deshalb nicht als toter Zwischenwert mitgefallen.
     assert.match(outcome, /const correctingLoss =[\s\S]{0,200}before\?\.status === "verloren"/);
-  });
-
-  test("der Nachfass-Kontakt hängt am eigenen entity_type und wird eigens abgeräumt", () => {
-    // 'closing_followup' ist eine andere entity_type-Zeile; das listenlose
-    // Entwerten oben erreicht sie nicht. Ohne diesen zweiten Aufruf liefen
-    // Kette und Nachfass-Kaskade nebeneinander.
-    const supersede = outcome.indexOf('supersedeTouches("closing_followup", input.closingId)');
-    const regenerate = outcome.indexOf("generateFollowUpCascade(input.closingId)");
-    assert.notEqual(supersede, -1);
-    assert.notEqual(regenerate, -1);
-    assert.ok(regenerate > supersede, "die Nachfass-Kaskade wird vor dem Entwerten aufgebaut");
-  });
-
-  test("Gegenprobe: alle fünf Kaskaden am entity_type 'closing' sind abgedeckt", () => {
-    // Die Liste, die es nicht mehr gibt, hätte diese fünf nennen müssen. Der
-    // Test hängt an der Registry und wird deshalb von selbst wieder rot, sobald
-    // jemand eine sechste Kaskade am Closing einführt und hier doch wieder
-    // aufzählt.
-    const amClosing: CascadeKind[] = [
-      "closing_msg",
-      "closing_mail",
-      "closing_kickoff",
-      "no_show_closing",
-      "kein_close",
-    ];
-    for (const kind of amClosing) assert.ok(CASCADE_KIND_LABELS[kind], `unbekannte Kaskade: ${kind}`);
-    // Keine einzige davon steht noch als Literal in setClosingOutcome — genau
-    // das ist der Unterschied zu vorher.
-    for (const kind of amClosing) assert.doesNotMatch(outcome, new RegExp(`"${kind}"`), kind);
-  });
-
-  test("'closing_kickoff' wird überhaupt irgendwo entwertet", () => {
-    // Die stillere Hälfte des Befunds: Diese Kaskade wurde im ganzen Code nie
-    // abgeräumt — nur `cancelAppointment` und `deleteClosingCall` nahmen sie
-    // über die listenlose Variante mit. Nach jedem Ergebnis stand sie dauerhaft
-    // überfällig und kündigte einen längst gelaufenen Termin an.
-    const listlos = [
-      ...CLOSING_CALLS.matchAll(/supersedeTouches\("closing", [\w.]+\);/g),
-      ...CLOSING_CALLS.matchAll(/deleteTouchesForEntity\("closing", [\w.]+\)/g),
-    ];
-    assert.ok(listlos.length >= 2, "kein listenloses Entwerten am entity_type 'closing'");
+    assert.match(outcome, /const needsRecycleDate = !correctingLoss/);
   });
 });
 
@@ -260,16 +231,20 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
   test("der Riegel steht auch auf dem Server — beide Wege zum selben Zustand", () => {
     // Die Oberfläche allein genügt nicht: Server Actions sind per direktem POST
     // erreichbar. Ohne den Riegel trüge die Zeile `cancelled_at` UND ein neues
-    // Datum, und die Kaskaden-Erzeugung steigt wegen `cancelled_at` aus — ein
-    // Termin garantiert ohne Erinnerung.
+    // Datum und stünde zugleich als abgesagt und als terminiert da — die
+    // Begründung hat der Rückbau ausgetauscht (vorher: der Termin stünde ohne
+    // Erinnerung da), die Regel nicht.
     const move = slice(SETTING_CALLS, "export async function moveSettingAppointment(", "\n/**");
     assert.match(move, /\.select\("cancelled_at"\)/);
     assert.match(move, /return \{ error: CANCELLED_MOVE_HINT \}/);
 
     // Beim Closing gibt es kein `moveClosingAppointment`; der Kalender-Drag
-    // landet in `updateClosingCall`.
+    // landet in `updateClosingCall`. Der Vorher-Lesen-Block dort hat seit dem
+    // Rückbau nur noch diesen einen Zweck — deshalb hängt er am Termin-Feld,
+    // statt daneben auch den alten Show-Status zu holen.
     const update = slice(CLOSING_CALLS, "export async function updateClosingCall(", "\n/**");
-    assert.match(update, /appointmentChanged && before\?\.cancelled_at/);
+    assert.match(update, /const appointmentChanged = "call_at" in patch;/);
+    assert.match(update, /if \(appointmentChanged\) \{[\s\S]*?before\?\.cancelled_at/);
     assert.match(update, /return \{ error: CANCELLED_MOVE_HINT \}/);
 
     // Und `postponeAppointment` benutzt denselben Satz statt einer zweiten
@@ -361,42 +336,31 @@ describe("Befund 2c — das Termin-Feld im Closing-Editor", () => {
  * Befund 3
  * ------------------------------------------------------------------ */
 
-describe("Befund 3 — „Ergebnis zurücksetzen“ lässt den Termin nicht ohne Kaskade", () => {
+describe("Befund 3 — „Ergebnis zurücksetzen“ braucht keinen Regenerator mehr", () => {
+  // ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ──────────────────
+  // HIER STAND der Befund: „Ergebnis zurücksetzen" dreht den Status auf „Offen",
+  // die Bestätigungs-Kaskade war beim Ergebnis aber entwertet worden — und weil
+  // `handleReset` bewusst kein `call_at` mitschickt, hing der Regenerator am
+  // falschen Feld. Das Closing stand danach dauerhaft ohne Erinnerung da, und
+  // das Kaskaden-Panel begründete das mit einem Ereignis, das es nie gab.
+  //
+  // Ohne Kaskade gibt es nichts wiederherzustellen: Das Zurücksetzen ist ein
+  // gewöhnliches UPDATE. Was bleibt, ist die Gegenprobe am Editor — sie hielt
+  // schon damals fest, WORAN der Regenerator nicht hängen durfte, und sie
+  // beschreibt weiterhin, was der Knopf tut.
   const update = slice(CLOSING_CALLS, "export async function updateClosingCall(", "\n/**");
 
-  test("der Regenerator hängt nicht mehr allein an `call_at`", () => {
-    // `handleReset` schickt bewusst kein `call_at` mit (der Termin ist Arbeit,
-    // kein Ergebnis). Der alte Zweig hing ausschließlich daran — das Closing
-    // stand danach wieder auf „Offen", der Termin in der Zukunft, und es gab
-    // keine Erinnerung mehr.
-    assert.match(update, /const resultCleared = "status" in patch && patch\.status === "offen";/);
-    assert.match(update, /if \(appointmentChanged \|\| resultCleared\) \{/);
-    assert.match(update, /generateClosingCascade\(id\)/);
-  });
-
-  test("… aber nur für einen Termin, der noch bevorsteht", () => {
-    // Für einen vergangenen Termin findet `planScheduledCascade` keine Stufe
-    // mehr und legt EINEN sofort fälligen Touch an — beim Verschieben ist genau
-    // der gewollt, hier wäre er eine Terminbestätigung für ein Gespräch, das
-    // längst gelaufen ist. Wortgleich zu `settingAppointmentAhead`.
-    assert.match(update, /if \(appointmentChanged \|\| \(await closingAppointmentAhead\(id\)\)\)/);
-    const helper = slice(CLOSING_CALLS, "async function closingAppointmentAhead(", "\n/**");
-    assert.match(helper, /\.select\("call_at, cancelled_at"\)/);
-    assert.match(helper, /if \(!row\?\.call_at \|\| row\.cancelled_at\) return false;/);
-    assert.match(helper, /Date\.parse\(row\.call_at\) > Date\.now\(\)/);
+  test("das Zurücksetzen erzeugt nichts mehr — und der Helfer dazu ist weg", () => {
+    assert.doesNotMatch(update, /generateClosingCascade|generateFollowUpCascade|createNoShowTouch/);
+    assert.doesNotMatch(CLOSING_CALLS, /closingAppointmentAhead/);
+    assert.doesNotMatch(SETTING_CALLS, /settingAppointmentAhead/);
   });
 
   test("Gegenprobe: `handleReset` schickt weiterhin kein `call_at`", () => {
-    // Wenn dieser Test rot wird, ist der Befund auf dem anderen Weg gelöst
-    // worden — dann darf der Zweig oben verschwinden, aber nicht vorher.
+    // Der Termin ist Arbeit, kein Ergebnis: Ein zurückgesetztes Ergebnis darf
+    // den Zeitpunkt nicht mitnehmen. Das gilt unverändert.
     const reset = slice(CLOSING_EDITOR, "async function handleReset(", "\n  //");
     assert.match(reset, /status: "offen"/);
     assert.doesNotMatch(reset, /call_at/);
-  });
-
-  test("das Setting löst denselben Fall genauso — beide Editoren bleiben gleich", () => {
-    const settingUpdate = slice(SETTING_CALLS, "export async function updateSettingCall(", "\n/**");
-    assert.match(settingUpdate, /const resultCleared = "status" in patch && patch\.status === "offen";/);
-    assert.match(settingUpdate, /await settingAppointmentAhead\(id\)/);
   });
 });

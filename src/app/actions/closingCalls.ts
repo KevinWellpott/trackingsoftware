@@ -5,35 +5,23 @@ import { getAccessContext } from "@/lib/access";
 import { berlinDateISO } from "@/lib/apptTime";
 import { CANCELLED_MOVE_HINT } from "@/lib/terminMeta";
 import { CLOSING_LOST_REASON_CODES, type ClosingLostReasonCode } from "@/lib/types";
-import {
-  createNoShowTouch,
-  deleteTouchesForEntity,
-  generateClosingCascade,
-  generateFollowUpCascade,
-  generateKeinCloseChain,
-  supersedeTouches,
-} from "@/app/actions/reminders";
 import { scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
 
 // Closing-Call bearbeiten. Terminal: gewonnen (→ CRM), verloren, nachfassen.
 //
-// Wie viel `supersedeTouches` dabei mitnimmt, hängt am ANLASS — und zwar in
-// genau zwei Abstufungen:
+// ── Was hier mit dem Rückbau WEGGEFALLEN ist ────────────────────────────────
+// Jede Änderung an dieser Zeile hat früher zusätzlich Erinnerungs-Touches
+// erzeugt und entwertet: die Bestätigungs-Kaskade vor dem Termin, die Kaskade
+// vor dem vereinbarten Nachfass-Kontakt, die No-Show- und die „kein
+// Abschluss"-Kette. Der ganze Überbau ist gefallen — keine Stufen, keine
+// Vorlagen, keine Kanal-Logik. Die Arbeitsliste beantwortet „um wen muss ich
+// mich kümmern?" aus dem Zeilenzustand heraus (src/lib/dranRegel.ts).
 //
-//  · Eine reine ÄNDERUNG am Termin (Kalender-Drag, neues `call_at`) grenzt nach
-//    Kaskaden-Art ein: 'closing_msg' ist die geplante Bestätigungs-Kaskade und
-//    wird gegen den neuen Zeitpunkt neu gerechnet. Alles andere am selben
-//    Closing beschreibt Geschehenes und bleibt stehen.
-//  · Ein ERGEBNIS entwertet dagegen ALLES, was an diesem Termin hängt — ohne
-//    Kaskadenliste, wie `setSettingOutcome` und `cancelAppointment` es tun.
-//    Eine Aufzählung müsste bei jeder neuen Kaskaden-Art nachgezogen werden,
-//    und das Vergessen fiele niemandem auf; genau das war hier passiert (siehe
-//    `setClosingOutcome`).
-//
-// Die eine Ausnahme vom Ergebnis-Fall ist die reine KORREKTUR eines
-// Verlustgrunds: Sie ist kein neues Ereignis, ändert am Schicksal des Termins
-// nichts — und darf deshalb auch keine laufende Kette abräumen.
+// Die Unterscheidung „neues Ereignis oder bloße Korrektur" (`correctingLoss`)
+// bleibt trotzdem stehen: An ihr hängt nicht nur die Kette, sondern auch die
+// Wiedervorlage des Recyclings — und die soll eine drei Wochen später
+// nachgetragene Grund-Korrektur nicht um genau diese drei Wochen verschieben.
 
 export type ClosingCallPatch = {
   call_at?: string | null;
@@ -55,7 +43,12 @@ export type ClosingCallPatch = {
   /** Zählbarer Verlustgrund (Migration 0029) — die Statistik hängt daran. */
   lost_reason_code?: ClosingLostReasonCode | null;
   follow_up_due?: string | null;
-  /** Präziser Nachfass-Zeitpunkt (Migration 0031) — Basis der Erinnerungs-Kaskade. */
+  /**
+   * Präziser Nachfass-Zeitpunkt (Migration 0031). Er war einmal der Anker der
+   * Erinnerungs-Kaskade; nach ihrem Rückbau bleibt er als Uhrzeit neben dem
+   * reinen Datum stehen — `withFollowUpDateSynced` hält beide gleich, und
+   * `nachfassen_tasks` liest weiterhin `follow_up_due`.
+   */
   follow_up_due_at?: string | null;
   /**
    * Wiedervorlage des Recyclings. Gesetzt wird sie ausschließlich von
@@ -124,77 +117,28 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
   if (!(await canAccessClosingCall(id))) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
 
-  // Vorherigen show_status lesen, BEVOR geschrieben wird — nur ein echter
-  // Übergang zu 'no_show' (nicht schon vorher 'no_show') löst den Sofort-
-  // Touch aus. Dasselbe Vorher-Lesen-Muster wie in setClosingOutcome.
+  // Vor dem Schreiben gelesen wird nur noch für EINEN Zweck: den Riegel gegen
+  // ein neues Datum auf einer abgesagten Zeile. Der frühere `show_status`-Teil
+  // hing ausschließlich an der No-Show-Kette und ist mit ihr entfallen.
   const patch = withFollowUpDateSynced(rawPatch);
   const appointmentChanged = "call_at" in patch;
-  const showStatusChanging = "show_status" in patch;
-  let previousShowStatus: "show" | "no_show" | null = null;
-  if (showStatusChanging || appointmentChanged) {
+  if (appointmentChanged) {
     const { data: current } = await supabase
       .from("closing_calls")
-      .select("show_status, cancelled_at")
+      .select("cancelled_at")
       .eq("id", id)
       .maybeSingle();
-    const before = current as { show_status: "show" | "no_show" | null; cancelled_at: string | null } | null;
-    previousShowStatus = before?.show_status ?? null;
+    const before = current as { cancelled_at: string | null } | null;
     // Ein abgesagtes Closing bekommt keinen neuen Termin — wortgleich zu
     // `postponeAppointment` und `moveSettingAppointment`. Ohne den Riegel trüge
-    // die Zeile `cancelled_at` UND ein neues Datum, und `generateClosingCascade`
-    // steigt wegen `cancelled_at` aus: ein Termin garantiert ohne Erinnerung.
+    // die Zeile `cancelled_at` UND ein neues Datum und stünde damit zugleich als
+    // abgesagt und als terminiert da; die Arbeitsliste liest genau dieses Paar.
     // Der Kalender-Drag landet hier, weil es kein `moveClosingAppointment` gibt.
-    if (appointmentChanged && before?.cancelled_at) return { error: CANCELLED_MOVE_HINT };
+    if (before?.cancelled_at) return { error: CANCELLED_MOVE_HINT };
   }
 
   const { error } = await supabase.from("closing_calls").update(withNoShowResolutionCleared(patch)).eq("id", id);
   if (error) return { error: error.message };
-
-  // Zwei Anlässe, EIN Regenerator — Muster `updateSettingCall`:
-  //
-  //  · Termin geändert (Kalender-Drag oder das Feld in den Call-Details).
-  //  · „Ergebnis zurücksetzen" (handleReset im Closing-Editor) dreht den Status
-  //    auf 'offen'. Der Termin steht damit wieder an, seine Bestätigungs-
-  //    Kaskade wurde beim Ergebnis aber entwertet. Ohne diesen Zweig bliebe das
-  //    Closing dauerhaft ohne Erinnerung — und das Kaskaden-Panel begründete
-  //    das mit „eine spätere Änderung am Termin hat diese Stufe abgeräumt",
-  //    einem Ereignis, das es nie gab. `handleReset` schickt bewusst kein
-  //    `call_at` mit (der Termin ist Arbeit, kein Ergebnis), der alte Zweig
-  //    hing aber ausschließlich daran.
-  const resultCleared = "status" in patch && patch.status === "offen";
-  if (appointmentChanged || resultCleared) {
-    // Beim Zurücksetzen zusätzlich die Bedingung „steht noch bevor": Für einen
-    // vergangenen Termin findet `planScheduledCascade` keine passende Stufe
-    // mehr und legt EINEN sofort fälligen Touch an. Beim Verschieben ist genau
-    // der gewollt (kurzfristiger Termin), hier wäre er eine Terminbestätigung
-    // für ein Gespräch, das längst gelaufen ist.
-    if (appointmentChanged || (await closingAppointmentAhead(id))) {
-      await generateClosingCascade(id);
-    }
-  }
-  // Nachfass-Zeitpunkt geändert (unabhängig vom Ergebnis-Dialog, z. B. beim
-  // Nachpflegen eines bestehenden Nachfassen-Closings).
-  if ("follow_up_due_at" in patch) {
-    await supersedeTouches("closing_followup", id);
-    if (patch.follow_up_due_at) await generateFollowUpCascade(id);
-  }
-  // Der No-Show-Toggle im Closing-Editor läuft über genau diesen Pfad
-  // (handleShowStatus → save({ show_status })), nicht über setClosingOutcome
-  // — closing_calls kennt kein eigenes No-Show-Outcome, nur den Schalter.
-  if (showStatusChanging && patch.show_status === "no_show" && previousShowStatus !== "no_show") {
-    await createNoShowTouch("closing", id);
-  } else if (showStatusChanging && patch.show_status !== "no_show" && previousShowStatus === "no_show") {
-    // Der Weg ZURÜCK muss die Kette abräumen, die der Weg HIN angelegt hat.
-    // Sonst liegt in /erinnerungen weiter der Text „wir waren gerade verabredet
-    // — ist etwas dazwischengekommen?" für einen Lead, der erschienen ist; die
-    // Karte ist eine Kopier-Werkbank, der Satz ginge real raus.
-    await supersedeTouches("closing", id, ["no_show_closing"]);
-  }
-  // Zurückgesetztes Ergebnis heißt zusätzlich: Der Verlust ist zurückgenommen —
-  // die „kein Abschluss"-Kette beschreibt ein Ereignis, das es nicht mehr gibt.
-  if (resultCleared) {
-    await supersedeTouches("closing", id, ["kein_close"]);
-  }
 
   revalidatePath(`/closing/${id}`, "page");
   revalidatePath("/termine", "page");
@@ -202,28 +146,6 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
   return {};
-}
-
-/**
- * Steht der Closing-Termin noch bevor?
- *
- * Wortgleiches Gegenstück zu `settingAppointmentAhead` (settingCalls.ts) — nur
- * heißt die Zeitspalte hier `call_at`. Die Frage stellt sich ausschließlich beim
- * zurückgenommenen Ergebnis: Ein abgesagtes oder längst vergangenes Gespräch
- * bekommt keine Bestätigungs-Kaskade mehr, sonst entstünde ein sofort fälliger
- * Touch für einen Termin, der schon stattgefunden hat. Gelesen wird NACH dem
- * UPDATE — im selben Aufruf kann der Termin mitgeändert worden sein.
- */
-async function closingAppointmentAhead(id: string): Promise<boolean> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("closing_calls")
-    .select("call_at, cancelled_at")
-    .eq("id", id)
-    .maybeSingle();
-  const row = data as { call_at: string | null; cancelled_at: string | null } | null;
-  if (!row?.call_at || row.cancelled_at) return false;
-  return Date.parse(row.call_at) > Date.now();
 }
 
 /**
@@ -258,10 +180,9 @@ export async function setClosingOutcome(input: {
   lostReasonCode?: ClosingLostReasonCode | null;
   followUpDue?: string | null;
   /**
-   * Präziser Nachfass-Zeitpunkt (ISO, Migration 0031) — Basis der
-   * Erinnerungs-Kaskade für den vereinbarten Nachfass-Kontakt. Wird
-   * mitgegeben, überschreibt er `followUpDue` (das reine Datum leitet sich
-   * daraus ab, siehe `withFollowUpDateSynced`).
+   * Präziser Nachfass-Zeitpunkt (ISO, Migration 0031) für den vereinbarten
+   * Nachfass-Kontakt. Wird er mitgegeben, überschreibt er `followUpDue` (das
+   * reine Datum leitet sich daraus ab, siehe `withFollowUpDateSynced`).
    */
   followUpDueAt?: string | null;
 }): Promise<{ error?: string }> {
@@ -372,51 +293,6 @@ export async function setClosingOutcome(input: {
     .eq("id", input.closingId);
   if (error) return { error: error.message };
 
-  // Ein Ergebnis entscheidet das Schicksal des Closing-Termins — und damit ist
-  // JEDE Erinnerung an diesem Termin obsolet, nicht nur eine bestimmte.
-  //
-  // Das Kriterium ist bewusst nicht der Outcome: Alle drei beenden den Termin.
-  // Auch „Nachfassen" tut das — das Gespräch hat stattgefunden, an seine Stelle
-  // tritt der vereinbarte Nachfass-Kontakt, und der hängt am eigenen
-  // entity_type 'closing_followup' und bleibt von dieser Zeile unberührt.
-  // Maßgeblich ist stattdessen, ob dieser Aufruf überhaupt ein neues EREIGNIS
-  // ist (Muster `wasCancelled` in `cancelAppointment`): Eine reine Korrektur des
-  // Verlustgrunds an einer bereits verlorenen Zeile ändert am Schicksal des
-  // Termins nichts und darf deshalb auch keine laufende „kein Abschluss"-Kette
-  // abräumen — deren zweite Stufe gehört zu genau diesem Verlust.
-  //
-  // Ohne Kaskadenliste, wie in `setSettingOutcome` und `cancelAppointment`. Am
-  // entity_type 'closing' hängen die Bestätigungs-Kaskade, ihre (noch
-  // abgeschaltete) Mail-Spur, die Kickoff-Nachricht nach der Qualifizierung und
-  // die beiden Ereignis-Ketten (No-Show, kein Abschluss). Die frühere
-  // Aufzählung nannte von diesen fünf genau zwei — und beide Auslassungen sind
-  // real teuer:
-  //
-  //  · 'no_show_closing': Closing geplatzt, am nächsten Tag unterschreibt der
-  //    Lead doch. Die Ergebnis-Knöpfe sind unabhängig vom Show-Status bedienbar,
-  //    `show_status` bleibt auf 'no_show' (die Ableitung oben schreibt nur, wenn
-  //    vorher NICHTS erfasst war) — Stufe 2 der Kette wird fällig und sagt
-  //    „ich habe es gestern und heute nicht erreicht" zu einem Kunden, der
-  //    gerade unterschrieben hat.
-  //  · 'closing_kickoff': wurde im ganzen Code nie entwertet und stand nach
-  //    jedem Ergebnis dauerhaft überfällig — eine Ankündigung für einen längst
-  //    gelaufenen Termin. Der häufigere der beiden Fälle.
-  //
-  // Genau deshalb steht hier keine Liste mehr: Eine Aufzählung müsste bei jeder
-  // neuen Kaskaden-Art nachgezogen werden, und das Vergessen fiele niemandem
-  // auf — es ginge lautlos eine Nachricht zu viel raus. Die Karte in
-  // /erinnerungen ist eine Kopier-Werkbank, der Satz ginge real raus.
-  if (!correctingLoss) {
-    await supersedeTouches("closing", input.closingId);
-  }
-  // Der vereinbarte Nachfass-Kontakt hängt am eigenen entity_type und muss
-  // deshalb eigens abgeräumt werden. Bei „Nachfassen" wird er anschließend
-  // gegen den neuen Zeitpunkt neu aufgebaut, bei gewonnen/verloren gibt es
-  // keinen mehr.
-  await supersedeTouches("closing_followup", input.closingId);
-  if (input.outcome === "nachfassen") {
-    await generateFollowUpCascade(input.closingId);
-  }
   // Verloren ist kein Ende — der Lead bekommt ein Recycling-Datum, dessen
   // Wartezeit vom Verlustgrund abhängt. 'falsche_zielgruppe' und 'kein_fit'
   // bekommen dort bewusst keins: der eine Lead hätte nie in den Funnel gehört,
@@ -435,17 +311,6 @@ export async function setClosingOutcome(input: {
   if (input.outcome === "verloren") {
     const needsRecycleDate = !correctingLoss || (!neverRecycled && !before?.next_recycle_at);
     if (needsRecycleDate) await scheduleRecycle("closing", input.closingId);
-    // „Kein Abschluss" ist kein Schweigen: erst die Zusammenfassung, dann —
-    // falls keine Antwort kommt — das Nachhaken. Anker ist das EREIGNIS, also
-    // dieser Moment, nicht der (womöglich Tage zurückliegende) Termin. Fail-soft
-    // wie alle Kaskaden-Aufrufe: eine ausgefallene Kette darf ein eingetragenes
-    // Ergebnis nicht zurückrollen.
-    //
-    // Nur beim Übergang: `apply_reminder_touches` entwertet die offenen Stufen
-    // dieser Kaskade und legt sie neu an — bei einer Grund-Korrektur stünden
-    // damit drei Wochen später die längst erledigten Stufen wieder unerledigt
-    // da, und die „Erinnerungs-Disziplin" in /analyse zählte sie erneut.
-    if (!correctingLoss) await generateKeinCloseChain(input.closingId);
   }
 
   revalidatePath(`/closing/${input.closingId}`, "page");
@@ -477,9 +342,6 @@ export async function deleteClosingCall(id: string): Promise<{ error?: string }>
 
   const { error } = await supabase.from("closing_calls").delete().eq("id", id);
   if (error) return { error: error.message };
-
-  await deleteTouchesForEntity("closing", id);
-  await deleteTouchesForEntity("closing_followup", id);
 
   if (settingId) {
     await supabase

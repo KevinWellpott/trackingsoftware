@@ -17,7 +17,6 @@ import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { DateTimeField } from "@/components/ui/DateTimeField";
-import { CascadePanel } from "@/components/termine/CascadePanel";
 import {
   AppointmentLifecycleBar,
   CancelledBanner,
@@ -27,7 +26,6 @@ import { DisqualifyReasonFields } from "@/components/termine/lifecycleUi";
 import { DISQUALIFY_REASON_LABELS, type SettingLifecycle } from "@/components/termine/lifecycleMeta";
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { channelLabel } from "@/lib/channels";
-import { resolveCascadeChannel } from "@/lib/reminderCascade";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { LEGACY_SETTING_BLOCKS, SETTING_BLOCKS, SETTING_GOLD_BLOCKS } from "@/lib/scripts";
 import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
@@ -220,18 +218,6 @@ export function SettingCallEditor({
   const [showStatus, setShowStatus] = useState<"show" | "no_show" | null>(call.show_status);
   const [followUpDue, setFollowUpDue] = useState<string | null>(call.follow_up_due);
   const [recordingLink, setRecordingLink] = useState(call.recording_link ?? "");
-  const [waPhone, setWaPhone] = useState(call.wa_phone ?? "");
-  // „Will keine Nummer rausgeben" (E10) — eine dokumentierte Ausnahme, kein
-  // leeres Feld. Nur so ist sie von einer Erfassungslücke zu unterscheiden.
-  //
-  // Ein Häkchen für die EINWILLIGUNG gibt es nicht mehr: Wer seine persönliche
-  // Nummer im Gespräch für genau diesen Zweck herausgibt, hat eingewilligt —
-  // ein zweites Feld daneben fragte dasselbe noch einmal und blieb in der
-  // Praxis leer. `wa_consent_at` wird deshalb aus der Nummer abgeleitet
-  // (`saveWaContact`), nicht mehr erfragt; ohne den Stempel fiele
-  // `resolveFollowUpChannel` still auf den Akquise-Kanal zurück und die
-  // WhatsApp-Spur wäre lautlos abgeschaltet.
-  const [waRefused, setWaRefused] = useState(Boolean(call.wa_refused_at));
   const [notes, setNotes] = useState(call.notes ?? "");
   const [closingDone, setClosingDone] = useState(call.status === "closing_gelegt");
   // Id des angelegten Closings (nach createClosingFromSetting bekannt; bei
@@ -259,12 +245,6 @@ export function SettingCallEditor({
   );
   const [disqualifyText, setDisqualifyText] = useState(call.disqualify_reason ?? "");
   const [disqualifyOnlyOpen, setDisqualifyOnlyOpen] = useState(false);
-
-  // Das Kaskaden-Panel lädt seine Daten selbst; nach jedem Eingriff in den
-  // Termin muss es das erneut tun. router.refresh() erreicht es nicht — es
-  // hängt an einer Server-Action, nicht an den Props der Seite.
-  const [cascadeToken, setCascadeToken] = useState(0);
-  const bumpCascade = () => setCascadeToken((t) => t + 1);
 
   useEffect(() => {
     return () => {
@@ -344,7 +324,6 @@ export function SettingCallEditor({
       setFollowUpDue(due);
       setError(null);
       flashSaved();
-      bumpCascade();
       router.refresh();
     });
   }
@@ -401,7 +380,6 @@ export function SettingCallEditor({
       setFollowUpModal(null);
       setError(null);
       flashSaved();
-      bumpCascade();
       router.refresh();
     });
   }
@@ -447,7 +425,6 @@ export function SettingCallEditor({
       setRescheduleOpen(false);
       setError(null);
       flashSaved();
-      bumpCascade();
       router.refresh();
     });
   }
@@ -458,85 +435,22 @@ export function SettingCallEditor({
   }
 
   /**
-   * Kontaktweg für die Closing-Erinnerungen (Entscheidung E10).
+   * Legt das Closing an — nur aus dem Modal heraus, also immer mit Termin.
    *
-   * Ohne Nummer und ohne dokumentierte Verweigerung hätte das Closing keinen
-   * verlässlichen Kanal: `resolveFollowUpChannel` fiele auf den Akquise-Kanal
-   * zurück, und bei Ads/Social/Sonstige gibt es gar keinen — die Erinnerungen
-   * vor dem Abschlussgespräch stünden dann ohne Weg da.
-   *
-   * Zwei Zustände, nicht mehr drei: Nummer da ODER Verweigerung dokumentiert.
-   * Die Einwilligung ist kein eigener Zustand mehr — sie wird beim Speichern
-   * aus der Nummer abgeleitet (`saveWaContact`), also ist „Nummer da" und
-   * „WhatsApp auflösbar" ab jetzt dasselbe. Ein Gate, das zusätzlich auf ein
-   * Feld prüfte, das es in der Oberfläche nicht mehr gibt, wäre eine Sperre
-   * ohne Ausweg.
+   * Die persönliche WhatsApp-Nummer wurde hier bis zum Rückbau als PFLICHT
+   * abgefragt (Entscheidung E10), und der Grund dafür war ausschließlich der
+   * Kanal der Closing-Erinnerungen: ohne Nummer fielen sie auf den
+   * Akquise-Kanal zurück, und den gibt es bei Ads/Social/Sonstige gar nicht.
+   * Es gibt keine Erinnerungen mehr, also auch keinen Kanal zu klären — eine
+   * Pflichtangabe, deren einziger Verbraucher weg ist, hält nur noch auf.
    */
-  const waPhoneGiven = !waRefused && waPhone.trim().length > 0;
-  const fallbackChannel = resolveCascadeChannel(call.source_type);
-  const waReady = waRefused || waPhoneGiven;
-
-  /** Was fehlt — im Modal und als Titel des gesperrten Knopfes derselbe Satz. */
-  const waBlockedHint =
-    "Ohne persönliche Nummer kein Closing — bitte eintragen oder „Will keine Nummer rausgeben“ wählen.";
-
-  /**
-   * Nummer bzw. Verweigerung speichern. Die beiden CHECKs aus 0032 sind hier
-   * der Grund für das gemeinsame Patch: `wa_refused_at` darf nur OHNE Nummer
-   * stehen, `wa_consent_at` nur MIT einer — einzeln geschrieben weist Postgres
-   * die Zeile ab, und der Nutzer sähe eine Constraint-Meldung.
-   *
-   * Die Einwilligung hängt seit dem Wegfall des Häkchens an genau EINER
-   * Bedingung: Es gibt eine Nummer. Damit sind beide CHECKs strukturell
-   * erfüllt — mit Nummer steht `wa_consent_at` und `wa_refused_at` ist NULL,
-   * ohne Nummer ist `wa_consent_at` NULL. Wird eine Nummer wieder gelöscht,
-   * geht der Stempel deshalb mit; ein stehen gebliebener Beleg ohne Nummer
-   * wäre nicht nur verboten, er behauptete auch etwas über einen Menschen,
-   * dessen Nummer wir gar nicht mehr haben.
-   */
-  function saveWaContact(next: { phone: string; refused: boolean }) {
-    if (next.refused) {
-      setWaPhone("");
-      save({ wa_phone: null, wa_consent_at: null, wa_refused_at: new Date().toISOString() });
-      return;
-    }
-    const phone = next.phone.trim() || null;
-    save({
-      wa_phone: phone,
-      wa_consent_at: phone ? new Date().toISOString() : null,
-      wa_refused_at: null,
-    });
-  }
-
-  /** Legt das Closing an — nur aus dem Modal heraus, also immer mit Termin. */
   function handleCreateClosing() {
     const iso = berlinInputToIso(closingAt);
     if (!iso) {
       setModalError("Bitte einen Termin für das Closing angeben.");
       return;
     }
-    if (!waReady) {
-      setModalError(waBlockedHint);
-      return;
-    }
     startTransition(async () => {
-      // Erst der Kontaktweg, dann das Closing: `generateClosingCascade` löst den
-      // Kanal beim Anlegen auf und liest dafür genau diese Felder am Setting.
-      const contact = await updateSettingCall(
-        call.id,
-        waRefused
-          ? { wa_phone: null, wa_consent_at: null, wa_refused_at: new Date().toISOString() }
-          : {
-              wa_phone: waPhone.trim() || null,
-              // Dieselbe Ableitung wie in `saveWaContact`: Nummer da = Beleg da.
-              wa_consent_at: waPhone.trim() ? new Date().toISOString() : null,
-              wa_refused_at: null,
-            },
-      );
-      if (contact?.error) {
-        setModalError(contact.error);
-        return;
-      }
       const res = await createClosingFromSetting(call.id, iso);
       if (res?.error) {
         setModalError(res.error);
@@ -551,7 +465,6 @@ export function SettingCallEditor({
       setFollowUpDue(null);
       if (res.closingId) setClosingId(res.closingId);
       flashSaved();
-      bumpCascade();
       router.refresh();
     });
   }
@@ -737,7 +650,6 @@ export function SettingCallEditor({
             disabled={isPending}
             onChanged={() => {
               flashSaved();
-              bumpCascade();
               router.refresh();
             }}
             onErsatztermin={() => {
@@ -808,10 +720,11 @@ export function SettingCallEditor({
             </div>
           </div>
           {/* Ein Ersatztermin ist KEIN Verschieben (Entscheidung E9): er zählt
-              nicht aufs Kontingent, setzt den Call auf „Offen" zurück und
-              startet die Kaskade komplett neu. Deshalb bleibt er auf seinem
-              eigenen Weg (`rescheduleSetting`) und steht hier, wo der No-Show
-              steht — nicht in der allgemeinen Aktionsleiste. */}
+              nicht aufs Verschiebe-Kontingent und setzt den Call auf „Offen"
+              zurück — ein neuer Anlauf, keine Verlegung desselben. Deshalb
+              bleibt er auf seinem eigenen Weg (`rescheduleSetting`) und steht
+              hier, wo der No-Show steht — nicht in der allgemeinen
+              Aktionsleiste. */}
           <button
             type="button"
             className="btn-secondary"
@@ -928,80 +841,6 @@ export function SettingCallEditor({
           )}
         </div>
       </div>
-
-      {/* ── WhatsApp-Kontakt ──
-          Wird HIER eingesammelt (nicht am Lead), weil zu diesem Zeitpunkt
-          zum ersten Mal echtes Vertrauen besteht — Grundlage der Erinnerungen
-          vor Closing und Nachfass-Kontakt (Migration 0032).
-
-          Zwei Felder, nicht drei: die Nummer und die dokumentierte Verweigerung
-          „will keine Nummer rausgeben" (Entscheidung E10). Ohne diese zweite
-          Angabe wäre eine Verweigerung von einer Erfassungslücke nicht zu
-          unterscheiden — und genau das entscheidet, ob die Erinnerungen auf den
-          Akquise-Kanal zurückfallen dürfen oder ob schlicht jemand vergessen
-          hat zu fragen.
-
-          Das frühere Häkchen „Einwilligung erhalten" ist weg. Der Beleg
-          (`wa_consent_at`, UWG-Pflicht auch im B2B) bleibt und wird beim
-          Speichern aus der Nummer abgeleitet: Wer sie im Gespräch für genau
-          diesen Zweck herausgibt, willigt damit ein. */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.75rem",
-          flexWrap: "wrap",
-          background: "var(--surface-100)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "0.875rem 1.125rem",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
-          <MessageSquareQuote size={14} style={{ color: "var(--text-subtle)" }} />
-          <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}>WhatsApp</span>
-        </div>
-        <input
-          type="tel"
-          value={waPhone}
-          disabled={waRefused}
-          onChange={(e) => setWaPhone(e.target.value)}
-          onBlur={() => {
-            if (waPhone.trim() === (call.wa_phone ?? "")) return;
-            saveWaContact({ phone: waPhone, refused: false });
-          }}
-          placeholder={waRefused ? "Keine Nummer — bewusst so erfasst" : "Persönliche Nummer des Entscheiders"}
-          style={{ ...fieldInput, flex: "1 1 220px", width: "auto", opacity: waRefused ? 0.5 : 1 }}
-        />
-        <label
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            fontSize: "0.75rem",
-            color: waRefused ? "var(--color-warning-text)" : "var(--text-muted)",
-            cursor: "pointer",
-            flexShrink: 0,
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={waRefused}
-            onChange={(e) => {
-              setWaRefused(e.target.checked);
-              saveWaContact({ phone: waPhone, refused: e.target.checked });
-            }}
-          />
-          Will keine Nummer rausgeben
-        </label>
-      </div>
-
-      {/* ── Erinnerungs-Kaskade dieses Termins ──
-          Steht bewusst im Termin-Layout und nicht nur auf /erinnerungen: Wer
-          das Setting öffnet, muss sehen, welche Nachricht als nächste rausgeht
-          und über welchen Kanal. */}
-      <CascadePanel entityType="setting" entityId={call.id} reloadToken={cascadeToken} />
 
       {/* ── Kontext aus der Quelle ──
           Die frühere blaue Karte ist weg (Vorgabe: „Antwort aus LinkedIn auch
@@ -1314,52 +1153,6 @@ export function SettingCallEditor({
             <DateTimeField value={closingAt} onChange={setClosingAt} ariaLabel="Closing-Termin" />
           </div>
 
-          {/* ── Kontaktweg (Entscheidung E10) ──
-              Pflicht mit begründeter Ausnahme: Die Erinnerungen vor dem
-              Abschlussgespräch brauchen einen Weg zum Entscheider. Ohne Nummer
-              fallen sie auf den Akquise-Kanal zurück — den gibt es aber nur bei
-              LinkedIn und Telefon; bei Ads, Social Media und Sonstige stünde der
-              Termin ganz ohne Erinnerung da. Deshalb hier abfragen, wo der
-              Übergang stattfindet, und nicht irgendwann später. */}
-          <div>
-            <span style={fieldLabel}>Persönliche Nummer des Entscheiders *</span>
-            <input
-              type="tel"
-              value={waPhone}
-              disabled={waRefused}
-              onChange={(e) => setWaPhone(e.target.value)}
-              placeholder={waRefused ? "Keine Nummer — bewusst so erfasst" : "z. B. +49 170 1234567"}
-              style={{ ...fieldInput, opacity: waRefused ? 0.5 : 1 }}
-            />
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                marginTop: "0.5rem",
-                fontSize: "0.75rem",
-                color: waRefused ? "var(--color-warning-text)" : "var(--text-muted)",
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={waRefused}
-                onChange={(e) => setWaRefused(e.target.checked)}
-              />
-              Will keine Nummer rausgeben
-            </label>
-            <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", lineHeight: 1.45, color: "var(--text-subtle)" }}>
-              {waRefused
-                ? fallbackChannel
-                  ? `Festgehalten als bewusste Ausnahme — die Erinnerungen laufen dann über ${channelLabel(call.source_type, "den Akquise-Kanal")}.`
-                  : "Festgehalten als bewusste Ausnahme. Für diese Quelle gibt es keinen Akquise-Kanal, auf den die Erinnerungen zurückfallen könnten — der Kanal ist dann bei jeder Erinnerung frei zu wählen."
-                : waPhoneGiven
-                  ? "Die Erinnerungen laufen über WhatsApp an diese Nummer."
-                  : "Ohne Nummer bleibt nur die Ausnahme daneben — bitte eintragen oder ankreuzen."}
-            </p>
-          </div>
-
           {modalError && (
             <div
               style={{
@@ -1379,13 +1172,12 @@ export function SettingCallEditor({
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
-              disabled={isPending || !closingAt || !waReady}
+              disabled={isPending || !closingAt}
               onClick={handleCreateClosing}
-              title={waReady ? undefined : waBlockedHint}
               style={{
                 ...modalButton("primary"),
-                opacity: isPending || !closingAt || !waReady ? 0.6 : 1,
-                cursor: isPending || !closingAt || !waReady ? "default" : "pointer",
+                opacity: isPending || !closingAt ? 0.6 : 1,
+                cursor: isPending || !closingAt ? "default" : "pointer",
               }}
             >
               Closing anlegen
@@ -1399,13 +1191,13 @@ export function SettingCallEditor({
 
       {/* ── Modal: Ersatztermin ──
           Nicht dasselbe wie „Verschieben": Hier beginnt ein neuer Anlauf — der
-          Call geht zurück auf „Offen", die Kaskade startet komplett neu (E9),
-          und das Verschiebe-Kontingent des Leads bleibt unberührt. */}
+          Call geht zurück auf „Offen" (E9), und das Verschiebe-Kontingent des
+          Leads bleibt unberührt. */}
       <Modal
         open={rescheduleOpen}
         onClose={() => setRescheduleOpen(false)}
         title="Ersatztermin eintragen"
-        subtitle="Neuer Anlauf: Der Call geht zurück auf „Offen“ und bekommt wieder alle Erinnerungen. Ein vorheriger No-Show bleibt in der Auswertung erhalten."
+        subtitle="Neuer Anlauf: Der Call geht zurück auf „Offen“ und zählt nicht aufs Verschiebe-Kontingent. Ein vorheriger No-Show bleibt in der Auswertung erhalten."
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           <div>

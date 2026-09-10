@@ -39,7 +39,6 @@ function slice(source: string, from: string, to: string): string {
 }
 
 const TERMINE = read("src/app/(dashboard)/termine/page.tsx");
-const BOARD = read("src/components/erinnerungen/ErinnerungenBoard.tsx");
 const ASSIGNEES = read("src/app/actions/assignees.ts");
 
 /* ------------------------------------------------------------------ *
@@ -69,68 +68,23 @@ describe("A · Die Chip-Legende steht auf der Seite, nicht nur in der Datei", ()
 });
 
 /* ------------------------------------------------------------------ *
- * B — Die Begründung der „Niemand"-Sperre kommt beim Nutzer an
+ * B — Was hier stand, hing am Erinnerungs-Board
  * ------------------------------------------------------------------ */
 
-/** Ein Regex-Literal aus dem Quelltext ziehen und wirklich benutzen. */
-function regexAus(source: string, name: string): RegExp {
-  const treffer = source.match(new RegExp(`const ${name} =\\s*(/.*/[a-z]*);`));
-  assert.ok(treffer, `Regex-Literal ${name} nicht gefunden`);
-  const literal = treffer[1];
-  const ende = literal.lastIndexOf("/");
-  return new RegExp(literal.slice(1, ende), literal.slice(ende + 1));
-}
-
-/** Die Meldung der Sperre — aus den drei aneinandergehängten Literalen. */
-function niemandMeldung(): string {
-  const block = slice(ASSIGNEES, '"\u201eNiemand', "};");
-  const teile = [...block.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
-  assert.ok(teile.length >= 1, "Die Meldung der „Niemand\"-Sperre steht nicht mehr in assignees.ts.");
-  return teile.join("");
-}
-
-describe("B · Die Sperre gegen „Niemand\" erklärt sich, statt zum Wiederholen zu raten", () => {
-  const meldung = niemandMeldung();
-  const zitatPrefix = regexAus(BOARD, "ZITAT_PREFIX");
-  const technical = regexAus(BOARD, "technical");
-
-  test("die Meldung beginnt mit einem Zitat — genau daran scheiterte sie", () => {
-    // Die Gegenprobe in einer Zeile: Ohne das Abstreifen führender
-    // Anführungszeichen fällt dieser Satz durch die Klartext-Prüfung, und der
-    // Nutzer liest „bitte noch einmal versuchen" — den einen Rat, der hier
-    // garantiert nicht hilft, weil die Zuweisung gar nicht gelingen kann.
-    assert.doesNotMatch(meldung, /^[A-ZÄÖÜ]/);
-    assert.match(meldung, zitatPrefix);
-  });
-
-  test("mit den echten Regeln der Fehleranzeige gilt sie als Klartext", () => {
-    const ohneZitat = meldung.replace(zitatPrefix, "");
-    assert.match(ohneZitat, /^[A-ZÄÖÜ]/, "Großbuchstabe vorn");
-    assert.match(meldung, /[.!?]$/, "Satzzeichen hinten");
-    assert.doesNotMatch(meldung, technical, "kein Datenbank-Vokabular");
-  });
-
-  test("und die Anzeige wendet das Abstreifen auch wirklich an", () => {
-    // Sonst stimmt oben die Rechnung und unten die Karte trotzdem nicht.
-    const mapper = slice(BOARD, "function friendlyError(", "const ghostBtn");
-    assert.match(mapper, /\/\^\[A-ZÄÖÜ\]\/\.test\(text\.replace\(ZITAT_PREFIX, ""\)\)/);
-  });
-
-  test("der Ausweg steht im Satz, nicht nur im Tooltip", () => {
-    // Eine Fehlermeldung ohne nächsten Schritt ist eine Sackgasse: Es gibt
-    // keinen zweiten Versuch, der hier zum Ziel führt.
-    assert.match(meldung, /Person auswählen/);
-  });
-
-  test("Gegenprobe: eine rohe PostgREST-Meldung fällt weiterhin durch", () => {
-    // Die Lockerung darf das eigentliche Ziel nicht aufweichen — englischer
-    // Datenbank-Text gehört in den `title`, nicht auf die Karte.
-    const roh = 'new row violates row-level security policy for table "reminder_touches"';
-    const klartext =
-      /^[A-ZÄÖÜ]/.test(roh.replace(zitatPrefix, "")) && /[.!?]$/.test(roh) && !technical.test(roh);
-    assert.equal(klartext, false);
-  });
-});
+// ── GEÄNDERTER GEGENSTAND, und zwar aus dem Rückbau heraus ─────────────────
+// HIER STAND ein Block über die MELDUNG der „Niemand"-Sperre: Sie beginnt mit
+// einem Zitat, und die Klartext-Heuristik des Erinnerungs-Boards (`ZITAT_PREFIX`,
+// `technical`, `friendlyError`) verschluckte sie deshalb — der Nutzer las
+// „bitte noch einmal versuchen", den einen Rat, der hier garantiert nicht hilft.
+//
+// Die Heuristik ist mit dem Board gelöscht; es gibt keine Anzeige mehr, die
+// diesen Satz nach ihren Regeln beurteilt. (Das Nachfassen-Board hat eine
+// eigene Fehleranzeige, aber nach einer Positivliste statt nach Merkmalen —
+// dieselbe Falle kann dort nicht entstehen.) Der Befund bleibt trotzdem
+// lehrreich: Eine Meldung wurde nicht falsch, weil sie falsch war, sondern weil
+// eine zweite Stelle sie nach Merkmalen beurteilte.
+//
+// Die SPERRE selbst ist davon unberührt und steht unverändert im Block darunter.
 
 /* ------------------------------------------------------------------ *
  * C — Die Sperre selbst bleibt bestehen

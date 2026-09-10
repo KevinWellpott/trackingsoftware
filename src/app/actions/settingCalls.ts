@@ -5,31 +5,29 @@ import { getAccessContext } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
 import { CANCELLED_MOVE_HINT } from "@/lib/terminMeta";
 import type { SettingOutcome, SettingStatus } from "@/lib/types";
-import {
-  createNoShowTouch,
-  deleteTouchesForEntity,
-  generateClosingCascade,
-  generateClosingKickoff,
-  generateSettingCascade,
-  getPipelineSettings,
-  supersedeTouches,
-} from "@/app/actions/reminders";
+import { getPipelineSettings } from "@/app/actions/pipelineSettings";
 import { clearRecycle, excludeFromRecycle, scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
 
 // Setting-Call bearbeiten (Script-Antworten + strukturierte Felder + Status)
 // und bei Qualifikation einen Closing-Call erzeugen.
 //
-// `supersedeTouches` wird jetzt nach KASKADEN-ART eingegrenzt, nicht mehr nach
-// Touch-Typ: 'setting_msg' ist die geplante Bestätigungs-Kaskade vor dem
-// Termin. Die No-Show-Kette bleibt dabei bewusst stehen — sie beschreibt ein
-// Ereignis, keine Vorankündigung.
+// ── Was hier mit dem Rückbau WEGGEFALLEN ist ────────────────────────────────
+// Jede Statusänderung dieser Datei hat früher zusätzlich Erinnerungs-Touches
+// erzeugt und entwertet — eine Bestätigungs-Kaskade vor dem Termin, eine
+// No-Show-Kette danach, eine Kickoff-Nachricht nach der Qualifizierung. Der
+// ganze Überbau ist gefallen: keine Stufen, keine Vorlagen, keine Kanal-Logik.
+// Was von der Frage „um wen muss ich mich kümmern?" bleibt, beantwortet die
+// Terminliste aus dem Zeilenzustand heraus (src/lib/dranRegel.ts).
 //
-// Sie geht überall dort mit, wo der Termin nichts mehr von ihr hat: beim
-// Übergang ins Closing (der Lead war da) und bei jedem Ergebnis, das den
-// Vorgang beendet — „Unqualifiziert" ebenso wie „Dead". Ein Lead, für den ein
-// Abschlussgespräch steht oder den jemand als tot markiert hat, darf nicht am
-// nächsten Tag gefragt werden, ob ein neuer Termin passt.
+// Die Aufrufe waren durchweg fail-soft und ihr Ergebnis las niemand synchron —
+// das Herausschneiden ändert deshalb an keinem gespeicherten Zustand etwas. Die
+// Tabelle `reminder_touches` bleibt stehen (Muster `call_assignees`), sie hat
+// von hier aus nur keinen Schreiber mehr.
+//
+// GEBLIEBEN ist alles, was den Lead selbst betrifft: das Recycling-Datum
+// (`scheduleRecycle`), die Folgen des Disqualifizierungsgrundes und die
+// Verschiebe-Warnung aus `pipeline_settings`.
 
 export type SettingCallPatch = {
   call_at?: string | null;
@@ -79,88 +77,22 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
   if (!(await canAccessSettingCall(id))) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
 
-  // Vorherigen show_status lesen, BEVOR geschrieben wird — dasselbe Muster wie
-  // in `updateClosingCall`. Der Anwesenheits-Schalter im Setting-Editor ist
-  // bewusst ein Toggle ohne Dialog und laeuft ueber genau diesen Pfad
-  // (`handleMarkShow` → `save({ show_status: 'show', … })`).
-  const showStatusChanging = "show_status" in patch;
-  let previousShowStatus: "show" | "no_show" | null = null;
-  if (showStatusChanging) {
-    const { data: current } = await supabase
-      .from("setting_calls")
-      .select("show_status")
-      .eq("id", id)
-      .maybeSingle();
-    previousShowStatus = (current as { show_status: "show" | "no_show" | null } | null)?.show_status ?? null;
-  }
-
   // Zwei Normalisierungen, die kein Aufrufer vergessen können darf: der
   // No-Show-Ausgang folgt dem Show-Status, die WhatsApp-Einwilligung der
   // Nummer. Beide halten je einen CHECK aus 0032 ein.
+  //
+  // Der frühere Vorher-Lesen-Block darüber ist mit dem Rückbau entfallen: Er
+  // ermittelte den alten `show_status` einzig, um beim Weg zurück auf
+  // „erschienen" die No-Show-Kette zu entwerten. Ohne Kette gibt es nichts mehr
+  // zu entwerten — und eine zusätzliche Abfrage vor jedem Speichern erst recht
+  // nicht.
   const normalized = withWaConsentDerived(withNoShowResolutionCleared(patch));
   const { error } = await supabase.from("setting_calls").update(normalized).eq("id", id);
   if (error) return { error: error.message };
 
-  // Der Weg ZURUECK muss die Kette abraeumen, die `setSettingOutcome('no_show')`
-  // angelegt hat. Ohne das steht in /erinnerungen weiter „wir waren gerade
-  // verabredet — ist etwas dazwischengekommen?" fuer einen Lead, der erschienen
-  // ist; die Karte ist eine Kopier-Werkbank, der Satz ginge real raus.
-  // Symmetrisch zu `setNoShowResolution('antwort'|'ersatztermin')`, das dieselbe
-  // Kaskaden-Art entwertet.
-  if (showStatusChanging && patch.show_status !== "no_show" && previousShowStatus === "no_show") {
-    await supersedeTouches("setting", id, ["no_show_setting"]);
-  }
-
-  // Zwei Anlaesse, EIN Regenerator — zwei nebeneinander liefen beim naechsten
-  // Umbau auseinander:
-  //
-  //  · Termin geaendert. Derselbe Block wie in `updateClosingCall` fuer
-  //    `call_at`. Ohne ihn erinnerte die App weiter an die alte Uhrzeit; die
-  //    Kaskade folgte dem Termin nur, wenn er ueber den Kalender
-  //    (`moveSettingAppointment`) oder ueber `postponeAppointment` bewegt wurde.
-  //  · „Ergebnis zuruecksetzen" dreht den Status auf 'offen'. Der Termin steht
-  //    damit wieder an, seine Bestaetigungs-Kaskade wurde beim Ergebnis aber
-  //    entwertet. Fuer ein manuell angelegtes Setting gibt es sonst gar keinen
-  //    Weg zurueck: Das Kaskaden-Panel verweist auf „Termin speichern oder
-  //    verschieben" — und genau das passiert hier.
-  const appointmentChanged = "appointment_at" in patch;
-  const resultCleared = "status" in patch && patch.status === "offen";
-  if (appointmentChanged || resultCleared) {
-    // Beim Zuruecksetzen zusaetzlich die Bedingung „steht noch bevor": Fuer
-    // einen vergangenen Termin findet `planScheduledCascade` keine passende
-    // Stufe mehr und legt EINEN sofort faelligen Touch an. Beim Verschieben ist
-    // genau der gewollt (kurzfristiger Termin), hier waere er eine
-    // Terminbestaetigung fuer ein Gespraech, das laengst gelaufen ist.
-    if (appointmentChanged || (await settingAppointmentAhead(id))) {
-      await generateSettingCascade(id);
-    }
-  }
-
   revalidatePath(`/setting/${id}`, "page");
   revalidatePath("/termine", "page");
-  revalidatePath("/erinnerungen", "page");
   return {};
-}
-
-/**
- * Steht der Termin noch bevor?
- *
- * Die Frage stellt sich nur beim zurueckgenommenen Ergebnis: Ein abgesagter
- * oder laengst vergangener Termin bekommt keine Bestaetigungs-Kaskade mehr,
- * sonst entstuende ein sofort faelliger Touch fuer ein Gespraech, das schon
- * stattgefunden hat. Gelesen wird NACH dem UPDATE — im selben Aufruf kann der
- * Termin mitgeaendert worden sein.
- */
-async function settingAppointmentAhead(id: string): Promise<boolean> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("setting_calls")
-    .select("appointment_at, cancelled_at")
-    .eq("id", id)
-    .maybeSingle();
-  const row = data as { appointment_at: string | null; cancelled_at: string | null } | null;
-  if (!row?.appointment_at || row.cancelled_at) return false;
-  return Date.parse(row.appointment_at) > Date.now();
 }
 
 /**
@@ -254,30 +186,6 @@ export async function setSettingOutcome(input: {
     .eq("id", input.settingId);
   if (error) return { error: error.message };
 
-  // Ein Ergebnis entscheidet das Schicksal des Termins. WIE viel dabei
-  // entwertet wird, hängt daran, ob der Vorgang weitergeht oder endet.
-  if (input.outcome === "no_show") {
-    // Der Vorgang GEHT WEITER: Die Bestätigungs-Kaskade ist erledigt, an ihre
-    // Stelle tritt die No-Show-Kette — sofort fällig, kein geplanter Offset.
-    // Nur hier wird deshalb eingegrenzt.
-    await supersedeTouches("setting", input.settingId, ["setting_msg"]);
-    await createNoShowTouch("setting", input.settingId);
-  } else {
-    // 'unqualifiziert' und 'dead' BEENDEN ihn — und damit ist jede Erinnerung
-    // an diesem Termin obsolet, nicht nur eine bestimmte. Das Kriterium ist
-    // bewusst nicht mehr „`show_status` springt auf 'show'": Bei 'dead' bleibt
-    // der Show-Status unangetastet, der No-Show ist also technisch weiter wahr
-    // — nur nützt das dem Lead nichts, der am nächsten Tag „Passt ein neuer
-    // Termin bei dir?" liest, obwohl ihn jemand als tot markiert hat. Die
-    // Karte ist eine Kopier-Werkbank, der Satz ginge real raus.
-    //
-    // Ohne Kaskadenliste wie in `cancelAppointment`: Am entity_type 'setting'
-    // hängen die Bestätigungs-Kaskade, ihre (noch abgeschaltete) Mail-Spur und
-    // die No-Show-Kette. Eine Aufzählung müsste bei jeder neuen Kaskaden-Art
-    // nachgezogen werden, und das Vergessen fiele niemandem auf — es ginge
-    // lautlos eine Nachricht zu viel raus.
-    await supersedeTouches("setting", input.settingId);
-  }
   // 'dead' UND 'unqualifiziert' sind tote Enden (§ Konzept-Diskussion) — beide
   // bekommen ein Recycling-Datum statt endgültig zu verschwinden. Ohne
   // Grund-Argument: Grund und Status liest `schedule_recycle()` selbst aus der
@@ -353,11 +261,6 @@ export async function rescheduleSetting(
 
   await mirrorAppointmentToSource(settingId, appointmentIso);
 
-  // Neuterminierung ist ein frischer Anlauf: ALLE Touch-Arten weg (auch ein
-  // offener No-Show-Touch), danach die Kaskade gegen den neuen Zeitpunkt neu.
-  await supersedeTouches("setting", settingId);
-  await generateSettingCascade(settingId);
-
   revalidatePath(`/setting/${settingId}`, "page");
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
@@ -395,11 +298,13 @@ async function mirrorAppointmentToSource(settingId: string, appointmentIso: stri
  * Ein ABGESAGTER Termin wird hier abgewiesen — wortgleich zu
  * `postponeAppointment`. Der Riegel stand bis hierher nur dort, und der
  * Kalender-Zug war der zweite Weg zum selben kaputten Zustand: Die Zeile trüge
- * danach `cancelled_at` UND ein neues Datum, und `generateSettingCascade`
- * steigt wegen `cancelled_at` aus — der Termin stünde garantiert ohne
- * Erinnerung da. Die Oberfläche sperrt den Chip inzwischen ebenfalls
- * (`moveLockReason`); die Prüfung gehört trotzdem hierher, weil eine Server
- * Action per direktem POST erreichbar ist.
+ * danach `cancelled_at` UND ein neues Datum und stünde damit zugleich als
+ * abgesagt und als terminiert da — die Arbeitsliste liest genau dieses Paar
+ * (src/lib/dranRegel.ts) und hielte den Lead für versorgt. Der Weg zurück führt
+ * über „Neuen Termin ansetzen" (actions/followUpStamp.ts), das die Absage
+ * ausdrücklich für überholt erklärt. Die Oberfläche sperrt den Chip inzwischen
+ * ebenfalls (`moveLockReason`); die Prüfung gehört trotzdem hierher, weil eine
+ * Server Action per direktem POST erreichbar ist.
  */
 export async function moveSettingAppointment(
   settingId: string,
@@ -426,11 +331,6 @@ export async function moveSettingAppointment(
   if (error) return { error: error.message };
 
   await mirrorAppointmentToSource(settingId, appointmentIso);
-
-  // Reiner Zeit-Umzug: nur die geplante Kaskade folgt, ein evtl. offener
-  // No-Show-Touch (den es hier praktisch nie gibt, da Status unangetastet
-  // bleibt) wird nicht angefasst.
-  await generateSettingCascade(settingId);
 
   revalidatePath(`/setting/${settingId}`, "page");
   revalidatePath("/termine", "page");
@@ -490,15 +390,6 @@ export async function createClosingFromSetting(
       .update(closingAt ? { ...qualifiedPatch, closing_at: closingAt } : qualifiedPatch)
       .eq("id", settingId);
 
-    // Das Setting ist qualifiziert — seine eigene Kaskade ist damit erledigt;
-    // das Closing bekommt (spätestens jetzt, ggf. mit neu gefülltem Termin)
-    // seine eigene. Die No-Show-Kette geht mit: `qualifiedPatch` schreibt
-    // `show_status='show'`, der Lead war also da — „Passt ein neuer Termin bei
-    // dir?" an jemanden, mit dem ein Closing terminiert ist, ist der peinlichste
-    // Satz, den die Kopier-Werkbank ausgeben kann.
-    await supersedeTouches("setting", settingId, ["setting_msg", "no_show_setting"]);
-    await generateClosingCascade(existing.id);
-
     revalidatePath("/termine", "page");
     revalidatePath("/nachfassen", "page");
     return { closingId: existing.id };
@@ -550,16 +441,6 @@ export async function createClosingFromSetting(
     .update({ ...qualifiedPatch, closing_at: closingAt })
     .eq("id", settingId);
 
-  // Dieselbe Aufräumung wie im Zweig oben — beide Wege setzen `show_status`
-  // auf 'show' und nehmen einen früheren No-Show damit zurück.
-  await supersedeTouches("setting", settingId, ["setting_msg", "no_show_setting"]);
-  await generateClosingCascade(closing.id);
-  // Die Nachricht direkt nach der Qualifizierung — Anker ist das ANLEGEN des
-  // Closings, nicht sein Termin. Bewusst nur in diesem Zweig: der Zweig oben
-  // loest auch ein laengst bestehendes Closing auf („Zum Closing →"), und dort
-  // wuerde jeder Klick die Kette mit neuen Faelligkeiten neu aufsetzen.
-  await generateClosingKickoff(closing.id);
-
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
@@ -604,8 +485,6 @@ export async function deleteSettingCall(id: string): Promise<{ error?: string }>
 
   const { error } = await supabase.from("setting_calls").delete().eq("id", id);
   if (error) return { error: error.message };
-
-  await deleteTouchesForEntity("setting", id);
 
   revalidatePath("/termine", "page");
   revalidatePath("/nachfassen", "page");
@@ -703,11 +582,12 @@ function withNoShowResolutionCleared<T extends { show_status?: "show" | "no_show
  *
  * Wer seine persönliche Nummer im Erstgespräch für genau diesen Zweck
  * herausgibt, hat eingewilligt; das frühere zweite Feld daneben fragte
- * dasselbe noch einmal und blieb in der Praxis leer. Genau das war teuer:
- * `resolveFollowUpChannel` (src/lib/reminderCascade.ts) liefert WhatsApp nur
- * mit Nummer UND `wa_consent_at` — eine Nummer ohne Stempel schaltete die
- * ganze WhatsApp-Spur lautlos ab und ließ die Erinnerungen auf den
- * Akquise-Kanal fallen, den es bei Ads/Social/Sonstige gar nicht gibt.
+ * dasselbe noch einmal und blieb in der Praxis leer. Teuer war das zuerst an
+ * der Kaskade (eine Nummer ohne Stempel schaltete die WhatsApp-Spur lautlos
+ * ab); nach deren Rückbau bleibt der Grund, der ohnehin der wichtigere war:
+ * Der Stempel ist der NACHWEIS der Einwilligung — ohne ihn steht eine Nummer
+ * in der Zeile, für die niemand belegen kann, dass man sie benutzen darf
+ * (UWG, auch B2B).
  *
  * Die Ableitung sitzt HIER und nicht nur im Editor, weil eine Server Action
  * per direktem POST erreichbar ist und weil beide CHECKs aus 0032 damit
@@ -749,7 +629,6 @@ async function canAccessAppointment(entityType: AppointmentEntity, id: string): 
 function revalidateAppointment(entityType: AppointmentEntity, id: string): void {
   revalidatePath(`/${entityType}/${id}`, "page");
   revalidatePath("/termine", "page");
-  revalidatePath("/erinnerungen", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
 }
@@ -803,10 +682,10 @@ export async function postponeAppointment(
   const current = data as { reschedule_count: number | null; cancelled_at: string | null } | null;
   if (!current) return { error: "Termin nicht gefunden." };
   // Ein abgesagter Termin bekommt hier kein neues Datum: die Zeile stünde
-  // danach zugleich als abgesagt und als terminiert da, und die Kaskade räumt
-  // für `cancelled_at` jeden Touch ab — der Termin wäre lautlos ohne
-  // Erinnerung. Der Weg zurück führt über einen neuen Termin. Denselben Satz
-  // gibt der Kalender-Riegel aus, deshalb steht er als Konstante daneben.
+  // danach zugleich als abgesagt und als terminiert da — genau das Paar, aus
+  // dem die Arbeitsliste ablesen muss, ob der Lead versorgt ist. Der Weg zurück
+  // führt über „Neuen Termin ansetzen". Denselben Satz gibt der Kalender-Riegel
+  // aus, deshalb steht er als Konstante daneben.
   if (current.cancelled_at) return { error: CANCELLED_MOVE_HINT };
 
   const count = (current.reschedule_count ?? 0) + (byLead ? 1 : 0);
@@ -819,11 +698,10 @@ export async function postponeAppointment(
   const { error } = await supabase.from(table).update(patch).eq("id", id);
   if (error) return { error: error.message };
 
+  // Nur das Erstgespräch hat einen Ursprungs-Datensatz, an dem der Zeitpunkt
+  // nachzuziehen ist; ein Closing hängt an keiner Liste.
   if (entityType === "setting") {
     await mirrorAppointmentToSource(id, appointmentIso);
-    await generateSettingCascade(id);
-  } else {
-    await generateClosingCascade(id);
   }
   revalidateAppointment(entityType, id);
 
@@ -905,12 +783,6 @@ export async function cancelAppointment(
     })
     .eq("id", id);
   if (error) return { error: error.message };
-
-  // Abgesagt heißt: es gibt nichts mehr zu bestätigen. Ohne dieses Entwerten
-  // erinnert die App an einen Termin, den beide Seiten abgeräumt haben.
-  // Gemeint ist der TERMIN — ein am selben Closing vereinbarter Nachfass-Kontakt
-  // (`closing_followup`) hängt an `follow_up_due_at` und bleibt bewusst stehen.
-  await supersedeTouches(entityType, id);
 
   // „Ohne Aussicht" ist ein totes Ende wie 'dead' — also eine Wiedervorlage
   // statt eines stillen Verschwindens. Fail-soft wie jeder Kaskaden- und
@@ -1024,14 +896,7 @@ export async function setNoShowResolution(
   const { error } = await supabase.from(table).update({ no_show_resolution: resolution }).eq("id", id);
   if (error) return { error: error.message };
 
-  // Antwort und Ersatztermin beenden die No-Show-Kette — die zweite Stufe fragt
-  // „keine Antwort?" und wäre nach einer Antwort eine peinliche Dopplung.
-  // 'ohne_antwort' lässt sie stehen: dort IST das Ausbleiben das Ergebnis.
-  if (resolution !== "ohne_antwort") {
-    await supersedeTouches(entityType, id, [entityType === "closing" ? "no_show_closing" : "no_show_setting"]);
-  }
-
-  // Bleibt die Antwort aus, ist die Kette zu Ende — und das Konzept sagt an
+  // Bleibt die Antwort aus, ist der Vorgang zu Ende — und das Konzept sagt an
   // dieser Stelle "ABLAUF GEHT ERNEUT VON VORNE LOS". Genau das ist das
   // Recycling: der Lead kommt nach der konfigurierten Wartezeit zurueck,
   // statt in der Ablage liegen zu bleiben. Ohne diesen Aufruf fragt

@@ -1344,14 +1344,10 @@ tr:focus-within .row-actions,
   border-radius: var(--r-sm);
 }
 
-/* Gruppen-Kopf innerhalb einer Liste (<details>/<summary>).
-   Bewusst leichter als .collapse-summary: das ist ein Karten-Rezept mit
-   Hover-Flaeche und Trennlinie und wuerde eine Zwischenueberschrift zur
-   eigenen Karte aufblasen. */
-.group-summary { list-style: none; cursor: pointer; }
-.group-summary::-webkit-details-marker { display: none; }
-.group-chevron { transition: transform var(--transition-fast); flex-shrink: 0; }
-details[open] > .group-summary > .group-chevron { transform: rotate(90deg); }
+/* Hier stand der Gruppen-Kopf einer Liste (.group-summary/.group-chevron).
+   Seine einzigen beiden Verwender waren das Erinnerungs-Board und das
+   Kaskaden-Panel — beide sind mit dem Rueckbau gefallen, damit stand das
+   Rezept ohne Element da. */
 
 /* ─── 6.11 Listen & Boards ─────────────────────────────────── */
 .lbv2-row { transition: background var(--transition-fast); }

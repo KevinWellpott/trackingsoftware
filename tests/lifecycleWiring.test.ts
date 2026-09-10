@@ -81,7 +81,6 @@ const SETTING_CALLS = read("src/app/actions/settingCalls.ts");
 const RECYCLE = read("src/app/actions/recycle.ts");
 const REVIVE = read("src/app/actions/revive.ts");
 const ASSIGNEES = read("src/app/actions/assignees.ts");
-const REMINDERS = read("src/app/actions/reminders.ts");
 const CLOSING_CALLS = read("src/app/actions/closingCalls.ts");
 const MIGRATION_0033 = read("supabase/migrations/20260404000033_lead_recycling.sql");
 const MIGRATION_0037 = read("supabase/migrations/20260404000037_rpc_zugriffspruefung.sql");
@@ -164,25 +163,20 @@ describe("Rückholen: der Rollback nimmt genau das zurück, was der Claim gesetz
 });
 
 describe("Erinnerungen folgen der zuständigen Person, nicht dem Anmeldekonto", () => {
-  test("in fremder Organisation gibt es keinen Ersteller-Fallback", () => {
-    // Ein Plattform-Admin ist in einer Kundenorganisation kein Mitglied. Fiele
-    // die Kaskade dort auf `created_by_user_id` zurück, entstünden aktive
-    // Erinnerungen, die in KEINEM „Meine Erinnerungen" auftauchen und die
-    // Invariante aus 0036 verletzen.
-    // Endanker ist der NAME der nächsten Funktion, nicht die schließende
-    // Klammer des Helfers: Ein Anker aus `}` und Zeilenumbrüchen beschreibt
-    // keine Aussage und wandert bei jeder Umformatierung. Dass der Ausschnitt
-    // dabei den Kommentarkopf von `applyPlan` mitnimmt, ist unschädlich — die
-    // Zählung unten pinnt den Fallback ohnehin dateiweit auf genau eine Stelle.
-    const helper = slice(REMINDERS, "function assigneeFor(", "async function applyPlan(");
-    assert.match(helper, /access\.is_foreign_org\) return row\.assigned_user_id/);
-    // Und beide Kaskaden-Rümpfe nutzen ihn, statt den Fallback zu wiederholen.
-    assert.equal(REMINDERS.split("assigneeFor(access, row)").length - 1, 2);
-    // Genau EINE Fallback-Stelle in der Datei — und die steht im Helfer, hinter
-    // der Prüfung auf die fremde Organisation.
-    assert.equal(REMINDERS.split("assigned_user_id ?? row.created_by_user_id").length - 1, 1);
-    assert.match(helper, /assigned_user_id \?\? row\.created_by_user_id/);
-  });
+  // ── GEÄNDERTER UMFANG, und zwar aus dem Rückbau heraus ────────────────────
+  // HIER STAND daneben: „in fremder Organisation gibt es keinen
+  // Ersteller-Fallback" — der Helfer `assigneeFor` in actions/reminders.ts, der
+  // beim Erzeugen einer Kaskade verhinderte, dass ein Plattform-Admin in einer
+  // Kundenorganisation Erinnerungen auf sein eigenes Konto legt. Die Datei ist
+  // gelöscht; es entsteht keine Kaskade mehr, deren Zuweisung falsch ausfallen
+  // könnte.
+  //
+  // Der Test darunter bleibt und ist der wichtigere von beiden: Er hängt an
+  // `setAssignee` — dem einzigen Schreibpfad, der `reminder_touches` noch
+  // anfasst. Die Tabelle bleibt mit ihren Bestandszeilen stehen (Muster
+  // `call_assignees`), und der Guard `reminder_touches_ws_guard` aus 0032
+  // entwertet weiterhin lautlos, wenn eine Zuweisung über eine Org-Grenze
+  // zeigt.
 
   test("„Niemand\" zieht die offenen Erinnerungen zum Ersteller, statt sie zurückzulassen", () => {
     // Der Termin fällt danach über `personOf()` auf den Ersteller zurück. Blieben
@@ -202,28 +196,38 @@ describe("Erinnerungen folgen der zuständigen Person, nicht dem Anmeldekonto", 
   });
 });
 
-describe("Korrigierte Ergebnisse entwerten ihre Ereignis-Kette", () => {
-  test("zurück auf „erschienen\" räumt die No-Show-Kette ab (Erstgespräch)", () => {
-    // Der Weg HIN legt sie an (`setSettingOutcome('no_show')` →
-    // createNoShowTouch). Ohne den Weg ZURÜCK liegt in /erinnerungen weiter
-    // „wir waren gerade verabredet — ist etwas dazwischengekommen?" für einen
-    // Lead, der erschienen ist; die Karte ist eine Kopier-Werkbank.
-    const body = slice(
-      SETTING_CALLS,
-      "export async function updateSettingCall(",
-      "async function settingAppointmentAhead(",
-    );
-    assert.match(body, /previousShowStatus === "no_show"/);
-    assert.match(body, /supersedeTouches\("setting", id, \["no_show_setting"\]\)/);
+describe("Korrigierte Ergebnisse können keine Kette mehr stehen lassen", () => {
+  // ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ──────────────────
+  // HIER STAND: „zurück auf ‚erschienen' räumt die No-Show-Kette ab" und das
+  // Pendant fürs Closing. Beide pinnten je einen `supersedeTouches(…, [kaskade])`
+  // mit Kaskaden-Filter — die Regel „ein korrigiertes Ergebnis entwertet genau
+  // seine eigene Kette, aber auch keine fremde".
+  //
+  // Der BEFUND dahinter war echt und teuer: Ein geplatztes Closing, bei dem der
+  // Lead am nächsten Tag doch unterschreibt, behielt seine No-Show-Kette. Deren
+  // zweite Stufe wurde fällig und sagte „ich habe es gestern und heute nicht
+  // erreicht" zu jemandem, der gerade unterschrieben hat — die Karte war eine
+  // Kopier-Werkbank, der Satz wäre real rausgegangen. Genauso das Erstgespräch:
+  // Der Anwesenheits-Schalter ist ein Toggle ohne Dialog, und der Weg zurück
+  // ließ die Kette des Wegs hin einfach stehen.
+  //
+  // Mit dem Rückbau ist die Kette selbst gefallen — und damit die ganze
+  // Fehlerklasse. Die Zusicherung wird dadurch nicht schwächer, sondern
+  // stärker: Es gibt keinen Aufruf mehr, den ein künftiger Weg zurück vergessen
+  // könnte. Genau das prüfen die beiden Tests jetzt, statt eine Verdrahtung
+  // festzuhalten, die es nicht mehr gibt.
+  const TOUCH_AUFRUFE =
+    /supersedeTouches|deleteTouchesForEntity|createNoShowTouch|generateSettingCascade|generateClosingCascade|generateFollowUpCascade|generateClosingKickoff|generateKeinCloseChain/;
+
+  test("das Erstgespräch erzeugt und entwertet keine Touches mehr", () => {
+    assert.doesNotMatch(SETTING_CALLS, TOUCH_AUFRUFE);
+    // Gegenprobe, damit das nicht als „hier passiert nichts mehr" durchgeht:
+    // Was am LEAD hängt, ist geblieben — die Wiedervorlage des Recyclings.
+    assert.match(SETTING_CALLS, /scheduleRecycle\("setting"/);
   });
 
-  test("dasselbe beim Closing — plus die „kein Abschluss\"-Kette beim Zurücksetzen", () => {
-    const body = slice(
-      CLOSING_CALLS,
-      "export async function updateClosingCall(",
-      "async function closingAppointmentAhead(",
-    );
-    assert.match(body, /supersedeTouches\("closing", id, \["no_show_closing"\]\)/);
-    assert.match(body, /supersedeTouches\("closing", id, \["kein_close"\]\)/);
+  test("dasselbe beim Closing", () => {
+    assert.doesNotMatch(CLOSING_CALLS, TOUCH_AUFRUFE);
+    assert.match(CLOSING_CALLS, /scheduleRecycle\("closing"/);
   });
 });

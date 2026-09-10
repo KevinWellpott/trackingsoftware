@@ -15,11 +15,11 @@
 // behauptet die Navigation eine Dringlichkeit, die die Seite daneben nicht
 // kennt.
 //
-// DIESELBE FALLE, ZWEITER FALL: Der Sofort-Touch der Erinnerungs-Kaskade trägt
-// als Fälligkeit den Zeitpunkt seiner ENTSTEHUNG. Nach jeder wertbasierten
-// Regel ist er eine Minute später überfällig — versäumt hat dabei niemand
-// etwas, der Termin steht ja noch bevor. Für ihn ist deshalb nicht der Wert die
-// Frist, sondern der Termin (`DueSpec`).
+// HIER STAND EIN ZWEITER FALL: der Sofort-Touch der Erinnerungs-Kaskade, dessen
+// Fälligkeit sein eigener Entstehungszeitpunkt war und der deshalb gegen den
+// TERMIN statt gegen sich selbst gemessen werden musste (`DueSpec`,
+// `reminderDueSpec`). Die Kaskade ist mit dem Rückbau gefallen; damit gibt es
+// keine Fälligkeit mehr, die nicht aus ihrem eigenen Wert zu beantworten wäre.
 
 import { berlinDateISO } from "@/lib/apptTime";
 
@@ -30,40 +30,6 @@ import { berlinDateISO } from "@/lib/apptTime";
  * (Telefon-Rückruf).
  */
 export type DueGranularity = "day" | "moment";
-
-/**
- * Woran sich entscheidet, ob eine Fälligkeit schon VERSÄUMT ist.
- *
- * Die beiden Körnungen oben beantworten das aus dem Wert selbst. Für den
- * Sofort-Touch der Erinnerungs-Kaskade (`touch_kind='sofort'`, docs §4) geht
- * das nicht: Seine Fälligkeit IST der Zeitpunkt seiner Entstehung
- * (`planScheduledCascade`) — eine Minute später hielte ihn jede wertbasierte
- * Regel für überfällig, obwohl niemand etwas versäumt hat. Er entsteht ja
- * gerade deshalb, weil der Termin so kurzfristig gebucht wurde, dass keine
- * geplante Stufe mehr davor lag.
- *
- * Maßgeblich ist deshalb der TERMIN: Bis dahin ist eine Bestätigung sinnvoll
- * und nichts versäumt, danach ist sie sinnlos. Der Touch trägt sein
- * `appointment_at` ohnehin mit — die Regel braucht dafür keine zweite Quelle.
- */
-export type DueSpec = DueGranularity | { granularity: "sofort"; appointmentAt: string | null | undefined };
-
-/**
- * Die Frist EINER Erinnerung (`reminder_touches`). Steht hier und nicht im
- * Board, weil die Seitenleiste dieselbe Antwort geben muss: Ein Badge, das eine
- * Dringlichkeit behauptet, die die Seite darunter nicht kennt, ist schlimmer
- * als gar kein Badge (docs §5.4).
- *
- * Alles außer `sofort` trägt eine echte Uhrzeit — die Kaskade rechnet genau
- * darauf („eine Stunde vorher").
- */
-export function reminderDueSpec(touch: {
-  touch_kind?: string | null;
-  appointment_at?: string | null;
-}): DueSpec {
-  if (touch.touch_kind !== "sofort") return "moment";
-  return { granularity: "sofort", appointmentAt: touch.appointment_at ?? null };
-}
 
 /**
  * Bezugspunkt für einen Stapel Vergleiche. Ohne ihn ermittelt jede Prüfung
@@ -96,21 +62,14 @@ export function dueDayOf(value: string): string {
 
 /**
  * Überfällig heißt: der Zeitpunkt ist vorbei. Bei Tages-Körnung erst am
- * Folgetag, bei Uhrzeit-Körnung in der Minute danach — und beim Sofort-Touch
- * erst, wenn sein TERMIN vorbei ist (siehe `DueSpec`).
+ * Folgetag, bei Uhrzeit-Körnung in der Minute danach.
  */
 export function isOverdue(
   value: string | null | undefined,
-  spec: DueSpec,
+  spec: DueGranularity,
   ref?: DueRef,
 ): boolean {
   if (!value) return false;
-  if (typeof spec !== "string") {
-    // Der Sofort-Touch misst gegen den Termin statt gegen sich selbst. Ohne
-    // Termin bleibt er ruhig: eine Dringlichkeit, für die es keinen Endpunkt
-    // gibt, wird hier nicht behauptet.
-    return isOverdue(spec.appointmentAt, "moment", ref);
-  }
   if (spec === "day") {
     const today = ref?.todayIso ?? berlinDateISO(new Date().toISOString());
     const day = dueDayOf(value);

@@ -16,7 +16,7 @@ import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
 import { RenameUserButton } from "@/components/settings/RenameUserButton";
 import { DataScopeSelect } from "@/components/settings/DataScopeSelect";
 import { RoleSelect } from "@/components/settings/RoleSelect";
-import { getPipelineSettings } from "@/app/actions/reminders";
+import { getPipelineSettings } from "@/app/actions/pipelineSettings";
 import { PipelineSettingsCard } from "@/components/settings/PipelineSettingsCard";
 import {
   FEEDBACK_ERR,

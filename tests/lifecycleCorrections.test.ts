@@ -41,56 +41,56 @@ const SETTING_OUTCOME = slice(SETTING_CALLS, "export async function setSettingOu
 const CREATE_CLOSING = slice(SETTING_CALLS, "export async function createClosingFromSetting(", "\n/**");
 const UPDATE_SETTING = slice(SETTING_CALLS, "export async function updateSettingCall(", "\n/**");
 
-describe("Ein neues Ergebnis nimmt die Kette des alten zurück", () => {
-  test("E1 · ein Ergebnis nimmt ALLE Kaskaden des Closings mit", () => {
-    // Verloren → zwei Tage später meldet sich der Lead doch → „Gewonnen".
-    // Ohne dieses Entwerten steht am nächsten Tag „sollen wir es für den Moment
-    // ruhen lassen?" für einen unterschriebenen Deal; bei „Nachfassen" liefen
-    // Kein-Close-Kette und Nachfass-Kaskade gleichzeitig.
-    //
-    // Bis hierher stand hier eine Kaskadenliste — und genau daran ist die Regel
-    // gescheitert: Von den fünf Kaskaden am entity_type 'closing' nannte sie
-    // zwei. 'no_show_closing' blieb stehen (der Lead, der nach einem geplatzten
-    // Closing doch unterschreibt, las am nächsten Tag „ich habe es gestern und
-    // heute nicht erreicht"), und 'closing_kickoff' wurde im ganzen Code nie
-    // entwertet. Jetzt gilt hier dieselbe Regel wie in `setSettingOutcome` und
-    // `cancelAppointment`: ohne Liste. Die Details stehen in terminRiegel.test.ts.
-    assert.match(CLOSING_OUTCOME, /await supersedeTouches\("closing", input\.closingId\);/);
-    assert.doesNotMatch(CLOSING_OUTCOME, /supersedeTouches\("closing", input\.closingId, \[/);
-    // Ausgenommen ist nicht ein Ergebnis, sondern die reine Grund-Korrektur an
-    // einer bereits verlorenen Zeile: Sie ist kein neues Ereignis und darf die
-    // laufende „kein Abschluss"-Kette nicht abräumen, ohne sie neu aufzubauen.
-    assert.match(CLOSING_OUTCOME, /if \(!correctingLoss\) \{\s*await supersedeTouches\("closing", input\.closingId\);/);
-    assert.doesNotMatch(CLOSING_OUTCOME, /input\.outcome !== "verloren"/);
+describe("Ein neues Ergebnis kann keine Kette des alten mehr erben", () => {
+  // ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ──────────────────
+  // HIER STANDEN drei Tests, die je einen `supersedeTouches`-Aufruf festhielten:
+  // ein Ergebnis am Closing entwertet ALLE seine Kaskaden (E1), das angelegte
+  // Closing nimmt die No-Show-Kette des Erstgesprächs mit (E2), ein beendeter
+  // Vorgang nimmt alles am Erstgespräch mit (E2).
+  //
+  // Die Befunde dahinter waren echt: Ein verlorener Deal, bei dem der Lead zwei
+  // Tage später doch unterschreibt, behielt Ketten, deren Sätze real rausgingen
+  // — „ich habe es gestern und heute nicht erreicht" an einen Kunden, der
+  // gerade unterschrieben hat. Und die frühere Kaskadenliste nannte von fünf
+  // Kaskaden am entity_type 'closing' genau zwei; das Vergessen fiel niemandem
+  // auf, weil nichts kaputtging, das jemand sieht.
+  //
+  // Der Rückbau hat den Gegenstand entfernt, nicht die Sorgfalt: Ohne Kaskaden
+  // gibt es keine Kette, die ein Ergebnis erben könnte. Geprüft wird deshalb
+  // die Abwesenheit — sie ist die stärkere Zusicherung, weil keine Liste mehr
+  // nachgezogen werden muss.
+  const TOUCH_AUFRUFE =
+    /supersedeTouches|deleteTouchesForEntity|createNoShowTouch|generateSettingCascade|generateClosingCascade|generateFollowUpCascade|generateClosingKickoff|generateKeinCloseChain/;
+
+  test("E1 · das Closing-Ergebnis rührt keine Erinnerung mehr an", () => {
+    assert.doesNotMatch(CLOSING_OUTCOME, TOUCH_AUFRUFE);
+    // Was am Ergebnis hängen bleibt, ist die Sache des LEADS: der abgeleitete
+    // Show-Status und die Wiedervorlage.
+    assert.match(CLOSING_OUTCOME, /patch\.show_status = "show";/);
+    assert.match(CLOSING_OUTCOME, /scheduleRecycle\("closing", input\.closingId\)/);
   });
 
-  test("E2 · das angelegte Closing entwertet die No-Show-Kette des Erstgesprächs", () => {
-    // `createClosingFromSetting` schreibt show_status:'show' — der No-Show ist
-    // damit zurückgenommen. Blieb die Kette stehen, ginge „Passt ein neuer
-    // Termin bei dir?" an einen Lead, mit dem ein Closing terminiert ist.
-    // Beide Zweige: das neu angelegte UND das wiederverwendete Closing.
-    assert.equal(
-      CREATE_CLOSING.split('supersedeTouches("setting", settingId, ["setting_msg", "no_show_setting"])').length - 1,
-      2,
-      "nur einer der beiden Zweige räumt die No-Show-Kette ab",
-    );
+  test("E2 · beide Zweige des angelegten Closings nehmen den No-Show zurück", () => {
+    // Von der alten Zusicherung bleibt der fachliche Kern: `show_status:'show'`
+    // gilt in BEIDEN Zweigen — dem neu angelegten und dem wiederverwendeten
+    // Closing. Der Lead war da, und genau das musste die Kette damals erfahren.
+    // Heute liest es die Arbeitsliste aus derselben Zeile.
+    assert.equal(CREATE_CLOSING.split('show_status: "show"').length - 1, 1, "der Patch steht nicht mehr genau einmal");
+    assert.equal(CREATE_CLOSING.split("qualifiedPatch").length - 1, 4, "nicht mehr beide Zweige schreiben denselben Patch");
+    assert.doesNotMatch(CREATE_CLOSING, TOUCH_AUFRUFE);
   });
 
-  test("E2 · ein beendeter Vorgang nimmt ALLE Kaskaden des Erstgesprächs mit", () => {
-    // Das Kriterium ist hier bewusst NICHT „show_status wird zu 'show'" —
-    // 'dead' rührt den Show-Status gar nicht an, und trotzdem braucht ein als
-    // tot markierter Lead keine Terminfindung mehr. Maßgeblich ist, dass der
-    // Vorgang beendet ist: 'unqualifiziert' und 'dead' entwerten deshalb ohne
-    // Kaskadenliste, wie `cancelAppointment` es tut. Am entity_type 'setting'
-    // hängen Bestätigungs-Kaskade, Mail-Spur und No-Show-Kette; keine davon
-    // darf danach noch rausgehen, und eine künftige zehnte auch nicht.
-    assert.match(SETTING_OUTCOME, /await supersedeTouches\("setting", input\.settingId\);/);
-    // Eingegrenzt wird nur dort, wo der Vorgang WEITERGEHT: Beim No-Show löst
-    // die Kette die Bestätigungs-Kaskade ab, statt sie mitzunehmen.
-    assert.match(SETTING_OUTCOME, /input\.outcome === "no_show"[\s\S]*?\["setting_msg"\][\s\S]*?createNoShowTouch/);
-    // Und die alte, engere Fassung ist wirklich weg — sonst stünde die
-    // No-Show-Kette eines toten Leads weiter offen.
-    assert.doesNotMatch(SETTING_OUTCOME, /input\.settingId, \["no_show_setting"\]/);
+  test("E2 · ein beendeter Vorgang hinterlässt am Erstgespräch nichts Offenes", () => {
+    // Das Kriterium war hier nie „show_status wird zu 'show'" — 'dead' rührt den
+    // Show-Status gar nicht an, und trotzdem braucht ein als tot markierter Lead
+    // keine Terminfindung mehr. Maßgeblich ist, dass der Vorgang beendet ist:
+    // Das steht jetzt in der Zeile selbst, statt in einer Liste von Kaskaden,
+    // die jemand hätte nachziehen müssen.
+    assert.doesNotMatch(SETTING_OUTCOME, TOUCH_AUFRUFE);
+    // Beide toten Enden bekommen weiterhin ihre Wiedervorlage — sonst wäre der
+    // Lead nicht beendet, sondern verschwunden.
+    assert.match(SETTING_OUTCOME, /input\.outcome === "dead" \|\| input\.outcome === "unqualifiziert"/);
+    assert.match(SETTING_OUTCOME, /scheduleRecycle\("setting", input\.settingId\)/);
   });
 });
 
@@ -105,10 +105,15 @@ describe("Eine Korrektur ist kein neues Ereignis", () => {
     assert.match(CLOSING_OUTCOME, /const correctingLoss =[\s\S]*?before\?\.status === "verloren"/);
   });
 
-  test("M3 · ein reiner Grund-Wechsel baut die Kette nicht neu auf", () => {
-    // Sonst stünden die bereits erledigten Stufen drei Wochen später wieder
-    // offen da — die Erledigungs-Historie speist die „Erinnerungs-Disziplin".
-    assert.match(CLOSING_OUTCOME, /if \(!correctingLoss\) await generateKeinCloseChain\(/);
+  test("M3 · die Unterscheidung überlebt den Rückbau — nur ihr Verbraucher ist ein anderer", () => {
+    // HIER STAND: „ein reiner Grund-Wechsel baut die Kette nicht neu auf" —
+    // sonst stünden die bereits erledigten Stufen drei Wochen später wieder
+    // offen da. Die Kette ist mit dem Rückbau gefallen, `correctingLoss` nicht:
+    // An ihm hängt weiterhin die WIEDERVORLAGE, und die ist der teurere der
+    // beiden Fälle (nächster Test). Die Gegenprobe hält fest, dass die
+    // Unterscheidung nicht als vermeintlich toter Zwischenwert mitgefallen ist.
+    assert.doesNotMatch(CLOSING_OUTCOME, /generateKeinCloseChain/);
+    assert.match(CLOSING_OUTCOME, /correctingLoss/);
   });
 
   test("M3 · und schiebt die Wiedervorlage nicht um Wochen nach hinten", () => {
@@ -123,59 +128,52 @@ describe("Eine Korrektur ist kein neues Ereignis", () => {
   });
 });
 
-describe("Die Vor-Termin-Kaskade folgt dem Termin und dem zurückgenommenen Ergebnis", () => {
-  test("M2 + Befund 2 · ein Regenerator, zwei Anlässe", () => {
-    // Befund 2: `updateClosingCall` baut die Kaskade bei geändertem `call_at`
-    // neu auf, `updateSettingCall` tat das für `appointment_at` nicht — die
-    // beiden Pfade liefen auseinander.
-    assert.match(UPDATE_SETTING, /"appointment_at" in patch/);
-    // M2: „Ergebnis zurücksetzen" dreht den Status auf 'offen'. Die Kaskade
-    // wurde beim Ergebnis entwertet und käme sonst nie wieder — für ein manuell
-    // angelegtes Setting gibt es den Weg „Termin speichern oder verschieben"
-    // gar nicht.
-    assert.match(UPDATE_SETTING, /patch\.status === "offen"/);
-    // Genau EIN Aufruf: zwei Regeneratoren nebeneinander liefen beim nächsten
-    // Umbau auseinander.
-    assert.equal(
-      UPDATE_SETTING.split("generateSettingCascade(id)").length - 1,
-      1,
-      "die Kaskade wird an mehr als einer Stelle neu erzeugt",
-    );
-  });
-
-  test("M2 · aber nur für einen Termin, der noch bevorsteht", () => {
-    // Für einen vergangenen Termin findet `planScheduledCascade` keine Stufe
-    // mehr und legt EINEN sofort fälligen Touch an — eine Terminbestätigung für
-    // ein Gespräch, das längst gelaufen ist.
-    const helper = slice(SETTING_CALLS, "async function settingAppointmentAhead(", "\n/**");
-    assert.match(helper, /cancelled_at/);
-    assert.match(helper, /Date\.parse\(row\.appointment_at\) > Date\.now\(\)/);
-    assert.match(UPDATE_SETTING, /settingAppointmentAhead\(id\)/);
+describe("Die Vor-Termin-Kaskade ist gefallen — mitsamt ihrem Regenerator", () => {
+  test("M2 + Befund 2 · kein Regenerator mehr, und auch kein halber", () => {
+    // ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ────────────────
+    // HIER STANDEN zwei Tests: „ein Regenerator, zwei Anlässe" (geänderter
+    // Termin ODER zurückgenommenes Ergebnis bauen die Bestätigungs-Kaskade neu
+    // auf) und „aber nur für einen Termin, der noch bevorsteht" (sonst entstünde
+    // EIN sofort fälliger Touch — eine Terminbestätigung für ein Gespräch, das
+    // längst gelaufen ist).
+    //
+    // Beide Regeln beschrieben die Vor-Termin-Kaskade, und die gibt es nicht
+    // mehr: keine Stufen, keine Vorlagen, kein Touch. Damit fällt auch der
+    // Helfer `settingAppointmentAhead`, der einzig ihre Fälligkeit prüfte —
+    // eine zusätzliche Abfrage nach jedem Speichern, die nichts mehr entscheidet.
+    // Übrig bleibt die Zusicherung, die den Rückbau überdauert: Speichern
+    // schreibt, mehr nicht.
+    assert.doesNotMatch(UPDATE_SETTING, /generateSettingCascade/);
+    assert.doesNotMatch(SETTING_CALLS, /settingAppointmentAhead/);
+    // Der Weg zurück auf „Offen" bleibt trotzdem ein normales UPDATE — der
+    // Editor schickt `status: "offen"`, und nichts darf ihn abweisen.
+    assert.match(UPDATE_SETTING, /update\(normalized\)/);
   });
 });
 
 describe("Ein Pflichtfeld prüft, was die Folge-Logik wirklich braucht", () => {
-  test("M1 · das Gate rechnet mit derselben Bedingung wie der Kanal-Auflöser", () => {
-    // `resolveFollowUpChannel` verlangt Nummer UND Einwilligung — daran hat
-    // sich nichts geändert. Was sich geändert hat, ist die Herkunft der
-    // Einwilligung: Sie ist kein eigenes Häkchen mehr, sondern folgt der
-    // Nummer (`saveWaContact` / `withWaConsentDerived`). Damit sind „Nummer
-    // da" und „WhatsApp auflösbar" dasselbe, und das Gate darf genau darauf
-    // prüfen. Die frühere Fassung verlangte hier zusätzlich `waConsent` — ein
-    // Feld, das es in der Oberfläche nicht mehr gibt; die Prüfung wäre eine
-    // Sperre ohne Ausweg.
-    const gate = slice(SETTING_EDITOR, "Kontaktweg für die Closing-Erinnerungen", "function saveWaContact");
-    assert.match(gate, /resolveCascadeChannel\(call\.source_type\)/);
-    assert.match(SETTING_EDITOR, /import \{ resolveCascadeChannel \} from "@\/lib\/reminderCascade"/);
-    // Die dokumentierte Verweigerung bleibt die Ausnahme (Entscheidung E10) —
-    // ohne sie gäbe es für eine Quelle ohne Akquise-Kanal keinen Weg vorwärts.
-    assert.match(gate, /const waReady = waRefused \|\| waPhoneGiven;/);
-    // Die Gegenprobe zum Gate: Eine eingetragene Nummer MUSS den Beleg
-    // mitbringen, sonst ginge sie wieder als erfüllte Pflicht durch, ohne
-    // einen Kanal zu ergeben. Der ausführliche Test dazu (samt Gegenrichtung
-    // auf `resolveFollowUpChannel`) steht in terminDetailKarten.test.ts.
-    assert.match(SETTING_EDITOR, /wa_consent_at: phone \? new Date\(\)\.toISOString\(\) : null/);
+  test("M1 · die Pflicht ist mit ihrem Grund gefallen, der Server-Riegel nicht", () => {
+    // ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ────────────────
+    // HIER STAND: Das Gate vor „Closing anlegen" rechnet mit derselben
+    // Bedingung wie der Kanal-Auflöser — Nummer ODER dokumentierte
+    // Verweigerung, weil `resolveFollowUpChannel` sonst auf den Akquise-Kanal
+    // zurückfiele und es den bei Ads/Social/Sonstige gar nicht gibt.
+    //
+    // Der Auflöser ist gefallen: Ein Kanal wurde nur gebraucht, um zu
+    // entscheiden, WORÜBER eine Erinnerung rausgeht. Damit hat die Pflicht
+    // ihren einzigen Grund verloren — ein Gate ohne Gegenstand ist eine Sperre,
+    // kein Schutz —, und die WhatsApp-Karte ist mit ihr gegangen.
+    //
+    // Was NICHT fällt, ist der Server-Riegel: `withWaConsentDerived` hält die
+    // beiden CHECKs aus 0032 strukturell erfüllt (`wa_consent_at` nur MIT
+    // Nummer). Solange die Spalten stehen, kann ein direkter POST sie treffen,
+    // und dann muss die Ableitung greifen — die Prüfung sitzt bewusst in der
+    // Server Action und nicht im Client, der jetzt gar nichts mehr schickt.
     assert.match(SETTING_CALLS, /function withWaConsentDerived/);
+    assert.match(SETTING_CALLS, /withWaConsentDerived\(withNoShowResolutionCleared\(patch\)\)/);
+    // Und der Editor schickt wirklich nichts mehr: sonst stünde die Pflicht
+    // halb entfernt da — kein Feld, aber weiterhin ein Schreibpfad.
+    assert.doesNotMatch(SETTING_EDITOR, /wa_phone|wa_consent_at|wa_refused_at/);
   });
 });
 

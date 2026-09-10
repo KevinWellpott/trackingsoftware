@@ -33,9 +33,11 @@ import type { RecycleOrigin } from "@/lib/recycleCadence";
 // denselben Besitz zusätzlich selbst, weil eine App-Prüfung nur den Weg durch
 // die App absichert und nicht den direkten POST auf die RPC.
 //
-// Die Konfiguration (Wartezeiten, `max_attempts`) steht seit 0032 zusammen mit
-// der Kaskade in `pipeline_settings`; gelesen und geschrieben wird sie über
-// `getPipelineSettings()` / `updatePipelineSettings()` in actions/reminders.ts.
+// Die Konfiguration (Wartezeiten, `max_attempts`) steht seit 0032 in
+// `pipeline_settings`; gelesen und geschrieben wird sie über
+// `getPipelineSettings()` / `updatePipelineSettings()` in
+// actions/pipelineSettings.ts — bis zum Rückbau stand das Paar in
+// actions/reminders.ts, weil dieselbe Zeile auch die Kaskade versorgte.
 // Hier gibt es bewusst kein zweites Settings-Paar mehr.
 //
 // Das Einplanen bleibt FAIL-SOFT (Muster Erinnerungs-Kaskade): ein

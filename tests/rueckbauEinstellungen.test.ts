@@ -64,10 +64,11 @@ describe("Rückbau: entfernte Dateien", () => {
 
 describe("Rückbau: /settings", () => {
   test("die Seite lädt weder Vorlagen noch Kaskadenstufen", () => {
-    // Zwei Abfragen weniger je Aufruf. Beide Loader leben in
-    // actions/reminders.ts weiter — /nachfassen und die Termin-Kaskade rufen
-    // sie noch —, aber die Einstellungsseite hat für beide keinen Gegenstand
-    // mehr.
+    // Zwei Abfragen weniger je Aufruf. Beide Loader lebten in
+    // actions/reminders.ts weiter, solange Nachfassen und Termin-Kaskade sie
+    // riefen; mit dem Kern ist die ganze Datei gefallen. Die Zusicherung an
+    // /settings bleibt trotzdem stehen — sie beschreibt, was die Seite NICHT
+    // tut, und das gilt unabhängig davon, wo der Loader wohnt.
     assert.doesNotMatch(PAGE, /getTemplateBundles/);
     assert.doesNotMatch(PAGE, /getCascadeSteps/);
     assert.doesNotMatch(PAGE, /MessageTemplatesCard/);
@@ -143,7 +144,12 @@ describe("Rückbau: PipelineSettingsCard", () => {
     // Geprüft wird gegen den Typ `PipelineSettings` statt gegen eine
     // abgeschriebene Liste: Kommt je eine Wartezeit-Spalte dazu, schlägt dieser
     // Test an, statt dass sie still aus der einen Frist herausfällt.
-    const typ = read("src/app/actions/reminders.ts");
+    //
+    // Der Typ ist mit dem Rückbau umgezogen — aus `actions/reminders.ts`, wo er
+    // neben der Kaskade stand, in die eigene `actions/pipelineSettings.ts`.
+    // Dieselbe Zeile `pipeline_settings` versorgt weiterhin BEIDES, was von ihr
+    // übrig ist: das Verschiebe-Kontingent und die Recycling-Frist.
+    const typ = read("src/app/actions/pipelineSettings.ts");
     const block = typ.slice(
       typ.indexOf("export type PipelineSettings = {"),
       typ.indexOf("};", typ.indexOf("export type PipelineSettings = {")),

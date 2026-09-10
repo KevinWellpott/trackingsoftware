@@ -1218,7 +1218,8 @@ export async function LinkedInTab({
               <span>
                 Eine Liste bündelt Pitch-Text und Nachfass-Sequenz — Listen zu vergleichen heißt, Textvarianten zu
                 vergleichen. <B>P · 1 · 2 · 3</B> zeigt, welche Texte die Liste selbst hinterlegt hat; wo nichts
-                steht, greift die Nutzer-Vorlage bzw. der Standardtext.
+                steht, gibt es für diese Stufe keinen Text. Die frühere Rückfallkette auf eine persönliche Vorlage
+                und einen Standardtext ist mit dem Nachfass-Rückbau entfallen.
               </span>
               <span>
                 <B>Termine</B> und <B>Umsatz</B> folgen hier der Pitch-Kohorte, nicht dem Buchungstag: Der Deal
