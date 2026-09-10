@@ -117,12 +117,12 @@ function humanOffset(minutes: number): string {
 }
 
 /* ------------------------------------------------------------------ *
- * Vorlauf: wie viele Stufen ein kurzfristig gebuchter Termin trägt
+ * Der Buchungstag: an ihm geht keine Erinnerung raus
  * ------------------------------------------------------------------ */
 
 /**
- * Vorlauf in BERLINER KALENDERTAGEN. 0 = heute, 1 = morgen, 2 = übermorgen;
- * negativ, wenn der Termin schon vorbei ist. `null` bei unlesbaren Werten.
+ * Abstand zweier Zeitpunkte in BERLINER KALENDERTAGEN. 0 = derselbe Tag,
+ * 1 = morgen, negativ = vorbei. `null` bei unlesbaren Werten.
  *
  * Kalendertage, nicht Stunden — „morgen" ist für einen Menschen ein
  * Kalenderbegriff: Ein Termin morgen um 09:00 (20 Stunden hin) und einer morgen
@@ -136,75 +136,72 @@ function humanOffset(minutes: number): string {
  * Umstellungswochenende eine Stunde daneben — und damit an einem Termin kurz
  * nach Mitternacht einen ganzen Tag.
  */
-export function berlinLeadDays(appointmentAtIso: string, nowIso: string): number | null {
-  const appointmentDay = berlinDateISO(appointmentAtIso);
-  const today = berlinDateISO(nowIso);
-  if (!appointmentDay || !today) return null;
+export function berlinLeadDays(laterIso: string, earlierIso: string): number | null {
+  const laterDay = berlinDateISO(laterIso);
+  const earlierDay = berlinDateISO(earlierIso);
+  if (!laterDay || !earlierDay) return null;
   const asUtcMidnight = (day: string) => {
     const [y, m, d] = day.split("-").map(Number);
     return Date.UTC(y, m - 1, d);
   };
-  return Math.round((asUtcMidnight(appointmentDay) - asUtcMidnight(today)) / 86_400_000);
+  return Math.round((asUtcMidnight(laterDay) - asUtcMidnight(earlierDay)) / 86_400_000);
 }
 
 /**
- * Welche Stufen ein Vorlauf TRÄGT — als Menge ihrer `step_no`.
+ * Die TERMIN-NÄCHSTE Stufe — die mit dem kleinsten Abstand zum Termin.
  *
- * Die Regel des Auftraggebers: Ein Termin morgen bekommt nur die Erinnerung
- * kurz vor dem Termin, einer in zwei Tagen zusätzlich die vom Vortag, und erst
- * ab drei Tagen läuft die ganze Abfolge. Dahinter steht ein einfacher Gedanke:
- * Wer heute bucht, will nicht heute schon eine Nachricht bekommen, die den
- * gerade vereinbarten Termin bestätigt.
- *
- * Formuliert ist das bewusst über die ANZAHL der Stufen und ihre Nähe zum
- * Termin, nicht über die Minutenwerte 4320/1440/60: Die Offsets stehen in
- * `cascade_steps` und sind je Organisation änderbar. Ein Kunde mit vier Stufen
- * oder mit ganz anderen Abständen bekommt damit dieselbe Staffelung — je Tag
- * Vorlauf eine Stufe mehr, gezählt von der TERMIN-NÄCHSTEN rückwärts —, statt
- * einer Regel, die nur für die Auslieferungswerte stimmt.
- *
- * Mindestens EINE Stufe bleibt immer stehen: Ein Termin heute Nachmittag soll
- * die Erinnerung kurz davor noch bekommen. Ob ihr Zeitpunkt überhaupt noch in
- * der Zukunft liegt, entscheidet danach `planScheduledCascade` — diese Funktion
- * beantwortet nur, welche Stufen der Vorlauf zulässt.
+ * Gewählt über den Abstand, nicht über die höchste Stufennummer: Die Reihenfolge
+ * der Stufennummern prüft nur die Oberfläche, ein direkt gesetzter Datensatz
+ * könnte sie verdrehen. Bei geordneter Konfiguration ist beides dieselbe Zeile;
+ * wenn nicht, ist der Abstand die tragende Eigenschaft.
  */
-export function carriedStepNos(steps: CascadeStep[], leadDays: number | null): Set<number> {
-  const all = new Set(steps.map((s) => s.step_no));
-  // Kein lesbarer Vorlauf oder ein Termin, der schon vorbei ist: Hier ist die
-  // Staffelung keine Aussage mehr. Die Stufen fallen dann über ihre Fälligkeit
-  // heraus, mit der Begründung, die dazu passt.
-  if (leadDays == null || leadDays < 0) return all;
-  const carried = Math.max(1, Math.min(steps.length, leadDays));
-  return new Set(
-    [...steps]
-      // Nach NÄHE zum Termin, nicht nach `step_no`: Die Reihenfolge der
-      // Stufennummern prüft nur die Oberfläche, ein direkt gesetzter Datensatz
-      // könnte sie verdrehen — und dann fiele ausgerechnet die letzte Stufe raus.
-      .sort((a, b) => a.offset_minutes - b.offset_minutes)
-      .slice(0, carried)
-      .map((s) => s.step_no),
-  );
-}
-
-/** „heute" / „morgen" / „in 4 Tagen" — für die Begründung im Klartext. */
-function leadLabel(leadDays: number): string {
-  if (leadDays <= 0) return "heute";
-  if (leadDays === 1) return "morgen";
-  return `in ${leadDays} Tagen`;
+export function nearestStep(steps: CascadeStep[]): CascadeStep | null {
+  return [...steps].sort((a, b) => a.offset_minutes - b.offset_minutes)[0] ?? null;
 }
 
 /**
- * Warum eine Stufe am kurzen Vorlauf scheitert — eine Formulierung, die
+ * Entfällt diese Stufe, weil ihre Fälligkeit auf den BUCHUNGSTAG fiele?
+ *
+ * DIE REGEL, in einem Satz: Am Tag, an dem der Termin vereinbart wurde, geht
+ * keine Erinnerung an ihn raus. Wer um 14:00 einen Termin bucht, will nicht um
+ * 18:00 desselben Tages eine Nachricht bekommen, die ihn an etwas erinnert, das
+ * er gerade selbst verabredet hat — eine Erinnerung am Tag der Vereinbarung ist
+ * keine.
+ *
+ * Formuliert ist das bewusst über den KALENDERTAG der Fälligkeit, nicht über
+ * die Minutenwerte 4320/1440/60 und auch nicht über eine Anzahl Stufen je Tag
+ * Vorlauf: Die Offsets stehen in `cascade_steps` und sind je Organisation per
+ * SQL änderbar. Ein Kunde mit vier Stufen oder ganz anderen Abständen bekommt
+ * damit dieselbe Regel, statt einer, die nur für die Auslieferungswerte stimmt.
+ *
+ * DIE EINE AUSNAHME: Die termin-nächste Stufe wird nie so verworfen. Sonst
+ * bekäme ein Termin, der HEUTE stattfindet, gar keine Erinnerung mehr — die
+ * Stufe „1 Stunde vorher" liegt bei ihm zwangsläufig am Buchungstag. Und dort
+ * ist sie richtig: Der Ärger galt verfrühten Bestätigungen für weit entfernte
+ * Termine, nicht der Stunde vor einem Gespräch, das heute läuft. Ob ihr
+ * Zeitpunkt überhaupt noch bevorsteht, entscheidet der Aufrufer.
+ *
+ * `nearestStepNo = null` (keine Stufen) macht die Ausnahme wirkungslos, ein
+ * unlesbares „jetzt" lässt die Stufe stehen: Ohne lesbaren Tag wird hier nichts
+ * behauptet, die Fälligkeit entscheidet dann allein.
+ */
+export function fallsOnBookingDay(
+  stepNo: number,
+  dueAtIso: string,
+  nowIso: string,
+  nearestStepNo: number | null,
+): boolean {
+  if (nearestStepNo != null && stepNo === nearestStepNo) return false;
+  return berlinLeadDays(dueAtIso, nowIso) === 0;
+}
+
+/**
+ * Warum eine Stufe am Buchungstag scheitert — eine Formulierung, die
  * `CascadePanel` mitbenutzt. Zwei Texte für denselben Sachverhalt lesen sich im
  * selben Bildschirm wie zwei verschiedene Sachverhalte.
  */
-export function leadSkipReason(leadDays: number, carriedCount: number): string {
-  const wieviel =
-    carriedCount === 1
-      ? "geht nur die Erinnerung kurz vor dem Termin raus"
-      : `gehen nur die letzten ${carriedCount} Stufen raus`;
-  return `Entfällt — der Termin ist ${leadLabel(leadDays)}; bei so kurzem Vorlauf ${wieviel}.`;
-}
+export const BOOKING_DAY_SKIP_REASON =
+  "Entfällt — ihre Fälligkeit fiele auf den Buchungstag. Am Tag, an dem der Termin vereinbart wurde, ist eine Erinnerung an ihn keine.";
 
 /**
  * Vor-Termin-Kaskade planen.
@@ -214,16 +211,24 @@ export function leadSkipReason(leadDays: number, carriedCount: number): string {
  *  1. Stufen, deren Fälligkeit schon vorbei wäre, entfallen — sie werden
  *     bewusst NICHT gestaucht: drei Nachrichten innerhalb einer Stunde sind
  *     schlimmer als eine ausgelassene Erinnerung.
- *  2. Stufen, die der VORLAUF nicht trägt, entfallen ebenfalls (`carriedStepNos`)
- *     — auch dann, wenn ihre Fälligkeit rein rechnerisch noch bevorsteht. Genau
- *     das war die Beschwerde: Ein heute gebuchter Termin für morgen 18:00 legte
- *     die Stufe „1 Tag vorher" auf HEUTE 18:00, also vier Stunden nach der
- *     Buchung — eine Bestätigungsnachricht für einen Termin, den der Lead gerade
- *     selbst vereinbart hat.
+ *  2. Stufen, deren Fälligkeit auf den BUCHUNGSTAG fiele, entfallen ebenfalls
+ *     (`fallsOnBookingDay`) — auch dann, wenn sie rein rechnerisch noch
+ *     bevorsteht. Genau das war die Beschwerde: Ein heute um 14:00 gebuchter
+ *     Termin für morgen 18:00 legte die Stufe „1 Tag vorher" auf HEUTE 18:00,
+ *     also vier Stunden nach der Buchung — eine Bestätigungsnachricht für einen
+ *     Termin, den der Lead gerade selbst vereinbart hat. Ausgenommen bleibt die
+ *     termin-nächste Stufe, sonst bekäme ein Termin HEUTE gar nichts mehr.
  *
  * Die Reihenfolge trägt: Ist die Fälligkeit ohnehin vorbei, ist der zeitliche
- * Grund der genauere. Der Vorlauf-Grund steht nur da, wo die Stufe sonst
+ * Grund der genauere. Der Buchungstag-Grund steht nur da, wo die Stufe sonst
  * wirklich rausgegangen wäre.
+ *
+ * `nowIso` IST der Buchungstag — für einen neuen Termin der Tag des Anlegens,
+ * beim VERSCHIEBEN der Tag der Verschiebung. Das ist gewollt und keine
+ * Ungenauigkeit: `generateScheduled` (src/app/actions/reminders.ts) plant die
+ * Kaskade nach jeder Terminänderung komplett neu, und wer gerade eben mit dem
+ * Lead einen neuen Zeitpunkt verabredet hat, braucht am selben Tag ebenso wenig
+ * eine Erinnerung daran wie beim ersten Vereinbaren.
  *
  * Passt danach keine einzige Stufe mehr, entsteht ein einzelner sofort fälliger
  * Bestätigungs-Touch, damit ein kurzfristig gebuchter Termin nicht ganz ohne
@@ -243,8 +248,9 @@ export function planScheduledCascade(
   const apptMs = new Date(appointmentAtIso).getTime();
   if (Number.isNaN(apptMs)) return plan;
 
-  const leadDays = berlinLeadDays(appointmentAtIso, nowIso);
-  const carried = carriedStepNos(relevant, leadDays);
+  // Die termin-nächste Stufe einmal ermitteln: Sie ist von der Buchungstag-Regel
+  // ausgenommen und liefert weiter unten den Text des Sofort-Touches.
+  const nearest = nearestStep(relevant);
 
   for (const step of relevant) {
     const due = shiftBerlinMinutes(appointmentAtIso, -step.offset_minutes);
@@ -257,11 +263,11 @@ export function planScheduledCascade(
       });
       continue;
     }
-    if (!carried.has(step.step_no)) {
+    if (fallsOnBookingDay(step.step_no, due, nowIso, nearest?.step_no ?? null)) {
       plan.skipped.push({
         cascade_kind: kind,
         step_no: step.step_no,
-        reason: leadSkipReason(leadDays ?? 0, carried.size),
+        reason: BOOKING_DAY_SKIP_REASON,
       });
       continue;
     }
@@ -283,19 +289,15 @@ export function planScheduledCascade(
   // Seine Fälligkeit ist der Zeitpunkt seiner ENTSTEHUNG — er ist ab jetzt zu
   // tun. Überfällig wird er davon nicht: Das entscheidet `reminderDueSpec`
   // (src/lib/dueState.ts) am Termin, nicht an dieser Zeile.
-  if (plan.touches.length === 0 && apptMs > nowMs) {
+  if (plan.touches.length === 0 && apptMs > nowMs && nearest) {
     // Der Text der TERMIN-NÄCHSTEN Stufe — kurz vor dem Termin gehört der Link
-    // hin, nicht die Frage „steht der Termin noch?". Gewählt über den Abstand
-    // wie in `carriedStepNos`, nicht über die höchste Stufennummer: Beides ist
-    // bei geordneter Konfiguration dieselbe Zeile, und wenn nicht, ist der
-    // Abstand die tragende Eigenschaft.
-    const last = [...relevant].sort((a, b) => a.offset_minutes - b.offset_minutes)[0];
+    // hin, nicht die Frage „steht der Termin noch?".
     plan.touches.push({
       touch_kind: "sofort",
       cascade_kind: kind,
       step_no: 0,
       requires_no_response: false,
-      template_key: last.template_key,
+      template_key: nearest.template_key,
       due_at: new Date(nowMs).toISOString(),
       appointment_at: appointmentAtIso,
     });

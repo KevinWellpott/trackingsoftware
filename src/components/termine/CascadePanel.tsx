@@ -7,10 +7,10 @@ import {
   type AppointmentCascadeView,
 } from "@/app/actions/appointmentCascade";
 import {
-  berlinLeadDays,
-  carriedStepNos,
+  BOOKING_DAY_SKIP_REASON,
   CASCADE_KIND_LABELS,
-  leadSkipReason,
+  fallsOnBookingDay,
+  nearestStep,
   shiftBerlinMinutes,
   type CascadeKind,
   type CascadeStep,
@@ -171,15 +171,13 @@ function buildGroups(
   const scheduledTouches = byKind.get(scheduledKind) ?? [];
   byKind.delete(scheduledKind);
 
-  // Welche Stufen der VORLAUF trägt — dieselbe Rechnung wie beim Planen
-  // (cascadeEngine). Ohne sie behauptete das Panel bei einem Termin morgen, die
-  // Stufe „1 Tag vorher" fehle „obwohl ihre Fälligkeit noch bevorsteht", und
-  // riete zum Verschieben: Ihre Fälligkeit steht rechnerisch tatsächlich noch
-  // bevor — sie liegt nur am Buchungstag, und genau deshalb entsteht sie nicht.
-  const leadDays = view.appointmentAt
-    ? berlinLeadDays(view.appointmentAt, new Date(nowMs).toISOString())
-    : null;
-  const lead = { days: leadDays, carried: carriedStepNos(planned, leadDays) };
+  // Die termin-nächste Stufe — dieselbe Wahl wie beim Planen (cascadeEngine).
+  // Sie ist von der Buchungstag-Regel ausgenommen; ohne diese Angabe behauptete
+  // das Panel bei einem Termin morgen, die Stufe „1 Tag vorher" fehle „obwohl
+  // ihre Fälligkeit noch bevorsteht", und riete zum Verschieben: Ihre
+  // Fälligkeit steht rechnerisch tatsächlich noch bevor — sie liegt nur am
+  // Buchungstag, und genau deshalb entsteht sie nicht.
+  const nearestNo = nearestStep(planned)?.step_no ?? null;
 
   if (planned.length > 0 || scheduledTouches.length > 0) {
     // Wurde die geplante Kaskade entwertet, ist der zeitliche Rückschluss aus
@@ -207,7 +205,7 @@ function buildGroups(
       // Bestandstermin-Fall sein, egal was `everPlanned` sagt.
       const skip = superseded
         ? { reason: supersededReason(scheduledKind, view, superseded), neverPlanned: false }
-        : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt, everPlanned, lead);
+        : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt, everPlanned, nearestNo);
       rows.push({
         key: `skip-${scheduledKind}-${step.step_no}`,
         kind: "skipped",
@@ -370,10 +368,10 @@ type SkipInfo = { reason: string; neverPlanned: boolean };
  *  3. Für diesen Termin hat es NIE eine Kaskade gegeben.
  *  4. Die Stufe passte zeitlich nicht mehr (der Normalfall bei kurzfristigen
  *     Terminen, kein Fehler).
- *  5. Der VORLAUF trägt sie nicht: Ihre Fälligkeit steht zwar noch bevor, läge
- *     aber am Buchungstag — bei einem Termin morgen geht deshalb nur die
- *     Erinnerung kurz davor raus (`carriedStepNos`). Ohne diesen Fall liefe die
- *     Zeile in Fall 4 und riete zum Verschieben, obwohl das nichts ändert.
+ *  5. Ihre Fälligkeit läge am BUCHUNGSTAG: Sie steht zwar noch bevor, fiele aber
+ *     auf den Tag, an dem der Termin vereinbart wurde — und an dem geht keine
+ *     Erinnerung raus (`fallsOnBookingDay`). Ohne diesen Fall liefe die Zeile in
+ *     Fall 4 und riete zum Verschieben, obwohl das nichts ändert.
  *
  * Der Absage-Fall MUSS zuerst kommen: Ein in fünf Tagen abgesagter Termin fiel
  * sonst in den Zukunft-Zweig und riet direkt unter dem Absage-Banner, man solle
@@ -400,7 +398,8 @@ function skipReason(
   nowMs: number,
   cancelledAt: string | null,
   everPlanned: boolean,
-  lead: { days: number | null; carried: Set<number> },
+  /** Die termin-nächste Stufe, ausgenommen von der Buchungstag-Regel. */
+  nearestStepNo: number | null,
 ): SkipInfo {
   if (cancelledAt) return { reason: "Entfällt — der Termin ist abgesagt.", neverPlanned: false };
   if (!appointmentAt) return { reason: "Entfällt — der Termin hat keinen Zeitpunkt.", neverPlanned: false };
@@ -415,16 +414,21 @@ function skipReason(
   }
   const due = shiftBerlinMinutes(appointmentAt, -step.offset_minutes);
   // Reihenfolge wie in `planScheduledCascade`: Ist die Fälligkeit ohnehin
-  // vorbei, ist der zeitliche Grund der genauere; der Vorlauf-Grund steht nur
-  // da, wo die Stufe sonst wirklich rausgegangen wäre.
+  // vorbei, ist der zeitliche Grund der genauere; der Buchungstag-Grund steht
+  // nur da, wo die Stufe sonst wirklich rausgegangen wäre.
   if (!due || new Date(due).getTime() <= nowMs) {
     return {
       reason: `Entfällt — beim Planen lagen weniger als ${offsetLabel(step.offset_minutes)} bis zum Termin.`,
       neverPlanned: false,
     };
   }
-  if (lead.days != null && lead.days >= 0 && !lead.carried.has(step.step_no)) {
-    return { reason: leadSkipReason(lead.days, lead.carried.size), neverPlanned: false };
+  // Gemessen gegen HEUTE, nicht gegen den echten Buchungszeitpunkt — den kennt
+  // das Panel nicht. Das trifft trotzdem: Eine so verworfene Stufe lag auf dem
+  // Buchungstag, ein späterer Blick sieht ihre Fälligkeit deshalb entweder noch
+  // am selben Tag (dieser Zweig) oder längst in der Vergangenheit (der Zweig
+  // darüber). Einen dritten Fall gibt es nicht.
+  if (fallsOnBookingDay(step.step_no, due, new Date(nowMs).toISOString(), nearestStepNo)) {
+    return { reason: BOOKING_DAY_SKIP_REASON, neverPlanned: false };
   }
   return {
     reason:

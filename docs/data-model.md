@@ -65,7 +65,9 @@ Vor jedem Setting-/Closing-Termin UND vor einem vereinbarten Nachfass-Kontakt (C
 im Status nachfassen):
   Erinnerungs-Kaskade  cascade_steps (Konfiguration) ──▶ reminder_touches (Fälligkeiten)
   Auslieferungs-Stufen: 3 Tage / 1 Tag / 1 Stunde vor dem Termin, je Kaskade eigene
-  Stufen und Texte. Passt keine Stufe mehr, entsteht EIN sofort fälliger Touch.
+  Stufen und Texte. Eine Stufe entsteht nur, wenn ihre Fälligkeit noch bevorsteht
+  UND nicht auf den Buchungstag fällt (Ausnahme: die termin-nächste Stufe, s. u.).
+  Passt danach keine Stufe mehr, entsteht EIN sofort fälliger Touch.
 Nach einem Ereignis statt vor einem Termin — dieselbe Tabelle, touch_kind='chain':
   No-Show (2 Stufen) · Kickoff nach der Qualifizierung (1) · kein Abschluss (2).
   Die jeweils zweite Stufe trägt requires_no_response und entfällt bei Antwort.
@@ -178,14 +180,67 @@ Begriffe:
 - **Termin-Art** (`setting_calls.meeting_kind`) = `link` **oder** `telefon`. Die dritte Option „Ohne" gibt es nicht mehr: Bei `telefon` ist die Rufnummer (`setting_calls.phone`) Pflicht, bei `link` der Meet-Link — ein Termin ohne beides ist einer, den niemand übernehmen kann. Bestandszeilen mit `meeting_kind is null` bleiben gültig.
 - **Kanal / Quelle** = `setting_calls.source_type`. Schlüssel, Labels, Farben und die Frage, ob ein Kanal ein eigenes Akquise-Volumen hat, stehen an genau **einer** Stelle: der Kanal-Registry `src/lib/channels.ts` (§4). Nur LinkedIn (`contacts`) und Telefon (`phone_leads`) haben eine Stufe **vor** dem Termin; Ads, Social Media und Sonstige beginnen erst beim Termin und zeigen dort „—" statt 0.
 - **Nachfassen** = zentrale Wiedervorlage (`/nachfassen`), gespeist aus RPC `nachfassen_tasks` (4 Zweige, davon **3 angezeigt** — der LinkedIn-Zweig wird app-seitig verworfen, siehe §5) **plus** RPC `recycle_tasks` (Recycling, 4 weitere Quellen, alle angezeigt) — beide werden app-seitig in `getNachfassenTasks()` (`src/app/actions/nachfassen.ts`) zu einer Union gemischt, nicht in SQL: eine geänderte `RETURNS TABLE`-Signatur einer bestehenden Funktion bräuchte `DROP FUNCTION` statt `CREATE OR REPLACE` (§5). Über die Anzeige legt sich zusätzlich der **Altlasten-Schnitt** (`src/lib/staleTasks.ts`, §5.5).
-- **Erinnerung / Touch** = eine Zeile in `reminder_touches` (Migration 0032): ein fälliger Kontakt vor einem Setting-/Closing-Termin, vor einem vereinbarten Nachfass-Kontakt oder nach einem Ereignis. Seite `/erinnerungen` ("Meine Erinnerungen"), stundengenau gruppiert (Überfällig/Nächste Stunde/Heute/Diese Woche); der Blick nach vorn endet nach `pipeline_settings.reminder_horizon_days` (Default 7) — ohne obere Grenze stünde ein Touch in fünf Wochen unter „Diese Woche". Rein manuell — kein Auto-Versand, die App liefert nur den fertigen Text zum Kopieren, ein Erledigt-Häkchen und ein `outcome`.
-- **Kaskade** = die konfigurierte Abfolge von Stufen, aus der Touches entstehen. Neun benannte Kaskaden je Organisation (`cascade_steps.cascade_kind`, §4), nicht mehr EIN Offset-Tripel für alles: Setting und Closing tragen eigene Abstände, die Mail-Spur eigene Stufen, jede Stufe ist abschaltbar. Gerechnet wird ausschließlich in `src/lib/cascadeEngine.ts` — und zwar in **Berliner Wandzeit**: „1 Tag vorher" heißt dieselbe Uhrzeit einen Tag früher, über eine Zeitumstellung hinweg läge eine Millisekunden-Rechnung eine Stunde daneben.
+- **Erinnerung / Touch** = eine Zeile in `reminder_touches` (Migration 0032): ein fälliger Kontakt vor einem Setting-/Closing-Termin, vor einem vereinbarten Nachfass-Kontakt oder nach einem Ereignis. Seite `/erinnerungen` ("Meine Erinnerungen"), stundengenau gruppiert — **sechs** Körbe: Überfällig · **Jetzt fällig** · In der nächsten Stunde · Heute · Diese Woche · Später (`bucketOf` in `ErinnerungenBoard.tsx`, Begründung des zweiten Korbs unten); der Blick nach vorn endet nach `pipeline_settings.reminder_horizon_days` (Default 7) — ohne obere Grenze stünde ein Touch in fünf Wochen unter „Diese Woche". Rein manuell — kein Auto-Versand, die App liefert nur den fertigen Text zum Kopieren, ein Erledigt-Häkchen und ein `outcome`.
+- **Kaskade** = die konfigurierte Abfolge von Stufen, aus der Touches entstehen. Neun benannte Kaskaden je Organisation (`cascade_steps.cascade_kind`, §4), nicht mehr EIN Offset-Tripel für alles: Setting und Closing tragen eigene Abstände, die Mail-Spur eigene Stufen, jede Stufe ist abschaltbar. Gerechnet wird ausschließlich in `src/lib/cascadeEngine.ts` — und zwar in **Berliner Wandzeit**: „1 Tag vorher" heißt dieselbe Uhrzeit einen Tag früher, über eine Zeitumstellung hinweg läge eine Millisekunden-Rechnung eine Stunde daneben. Welche Stufen ein konkreter Termin überhaupt bekommt, entscheidet zusätzlich die **Buchungstag-Regel** (unten): Am Tag, an dem der Termin vereinbart wurde, geht keine Erinnerung an ihn raus.
 - **Vorlage** = ein Nachrichtentext aus dem gemeinsamen Katalog (`template_catalog`, 31 Schlüssel) mit einer Vorrangkette: **Liste > persönlich > Organisation > Auslieferungstext** (`resolveTemplate()` in `src/lib/messageTemplates.ts`). Die Auslieferungstexte stehen bewusst **nur in TypeScript** (`TEMPLATE_DEFAULTS`), nicht in der DB — eine geseedete Textkopie je Organisation friert den Text ein und erreicht Bestandskunden nicht mehr. Eine Zeile in `message_templates` entsteht erst, wenn jemand einen Text ändert.
 - **Recycling** = Wiedervorlage für terminal negative Leads (Migration 0033) — die „toten Enden" der Pipeline, an denen ein Lead sonst spurlos verschwindet: `closing_calls.status='verloren'`, `phone_leads.status='dead'`, `setting_calls.status='dead'` oder `unqualifiziert`, ein Erstgespräch mit `cancel_outlook='ohne_aussicht'` bzw. `no_show_resolution='ohne_antwort'`, `contacts` nach FU3 ohne Antwort. Wartezeit bis zum nächsten Versuch (`next_recycle_at`) hängt vom Grund ab (`pipeline_settings`, org-weit editierbar), gedeckelt über `max_attempts`. Gerechnet wird **serverseitig** in `schedule_recycle()` — der Grund kommt aus der Ursprungszeile, nicht vom Client (§5). Vier Codes bekommen bewusst nie ein Recycling-Datum: `lost_reason_code` in `falsche_zielgruppe`/`kein_fit`, `disqualify_reason_code` in `falsche_zielgruppe`/`keine_zusammenarbeit`.
 - **Ablage** = `/ablage`, sechs abgeleitete Listen ausgeschiedener Vorgänge (RPC `dropout_lists`, §5): Abgesagt ohne Aussicht · Abgesagt, Ersatztermin steht aus · Disqualifiziert · Kein Close · No-Show ohne Antwort · **Sperrliste**. Die Sperrliste ist die **einzige Ansicht der App, die die Datensicht bewusst ignoriert** und immer org-weit liefert: Ein Kontaktverbot, das nur sein Besitzer sieht, ist keines — die nächste Person spräche den Lead sonst neu an. Sie ist außerdem die einzige der sechs, die alle vier Recycling-Tabellen abdeckt; die anderen fünf beschreiben Ereignisse, die es nur an einem Termin gibt.
 - **Lead-Dossier** = `/lead/[kind]/[id]` (`src/lib/leadDossier.ts`, §5.3) — die Akte EINES Leads über alle vier Ursprungstabellen hinweg: Verlauf, Kontaktwege, Steckbrief, Notizen. Kein Zähl-, sondern ein Nachschlagewerk; es kommt in keiner Auswertung vor. Entscheidend ist die **Zwei-Stufen-Lösung der Lead-Identität**: belegt vs. vermutet (§5.3) — Vermutetes zählt nirgends mit.
 - **Navigations-Zähler** = die drei Badges in der Seitenleiste (`src/lib/navCounts.ts`, §5.4) an `/erinnerungen`, `/nachfassen` und `/ablage`. `null` heißt „nicht ermittelbar", **nicht** „null Aufgaben" — bei einem Fehler verschwindet das Badge, statt eine beruhigende 0 zu behaupten.
 - **Kontaktfrequenz-Warnung** = der amberfarbene Hinweis „Zuletzt kontaktiert vor …" auf den Karten in `/nachfassen` und `/erinnerungen` (`src/lib/contactGap.ts`, `CONTACT_GAP_WARN_DAYS = 3`, Entscheidung K3). **Ein Hinweis, kein Riegel** — die Zahl steht bewusst als Code-Konstante da und nicht als `pipeline_settings`-Spalte, weil sie nichts blockiert und deshalb auch nichts zu konfigurieren gibt. Die Termin-Kaskade ist ausgenommen: drei Kontakte in drei Tagen sind dort das Verfahren, keine Belästigung.
+
+**Die Buchungstag-Regel: am Tag der Vereinbarung geht keine Erinnerung raus.**
+`planScheduledCascade()` (`src/lib/cascadeEngine.ts`) plant eine Stufe nur, wenn **beides**
+gilt: ihre Fälligkeit steht noch bevor **und** sie fällt nicht auf den Buchungstag (Berliner
+Kalendertag). Der Grund ist einer, kein technischer: *Eine Erinnerung am Tag der Vereinbarung
+ist keine.* Wer um 14:00 einen Termin für morgen 18:00 bucht, bekam nach der reinen
+Zukunfts-Prüfung um 18:00 desselben Tages die Stufe „1 Tag vorher" — eine Bestätigung für
+etwas, das der Lead vier Stunden zuvor selbst verabredet hat. Genau das war die Beschwerde,
+die den Umbau ausgelöst hat.
+
+**Die eine Ausnahme: die termin-nächste Stufe** wird immer geplant, solange ihre Fälligkeit
+bevorsteht — auch am Buchungstag. Ohne sie bekäme ein Termin, der **heute** stattfindet, gar
+keine Erinnerung mehr: „1 Stunde vorher" liegt bei ihm zwangsläufig am Buchungstag. Und dort
+ist sie richtig; der Ärger galt verfrühten Bestätigungen für weit entfernte Termine, nicht der
+Stunde vor einem Gespräch, das heute läuft. „Termin-nächste" heißt: kleinster
+`offset_minutes`, **nicht** höchste `step_no` — die Reihenfolge der Stufennummern prüft nur
+die Oberfläche, ein per SQL gesetzter Datensatz kann sie verdrehen.
+
+Für die **Auslieferungswerte** (3 Tage / 1 Tag / 1 Stunde) ergibt die Regel diese Staffelung.
+Sie ist ein **Beispiel, nicht die Regel** — die Offsets stehen in `cascade_steps` und sind je
+Organisation per SQL änderbar; eine Kaskade mit vier Stufen oder ganz anderen Abständen folgt
+derselben Regel und bekommt eine andere Tabelle:
+
+| Termin | Stufen |
+|---|---|
+| heute | „1 Stunde vorher", solange sie bevorsteht |
+| morgen | „1 Stunde vorher" |
+| in 2 Tagen | „1 Tag" + „1 Stunde" |
+| in 3 Tagen | „1 Tag" + „1 Stunde" — die 3-Tages-Stufe fiele auf den Buchungstag |
+| in 4+ Tagen | alle drei |
+
+Zwei Punkte, die man beim Nachrechnen kennen muss:
+
+- **Der Buchungstag ist der Tag der PLANUNG, nicht der Tag der Ersterfassung.** `nowIso` in
+  `planScheduledCascade` ist schlicht „jetzt"; `generateScheduled` (`src/app/actions/reminders.ts`)
+  plant die Kaskade nach **jeder** Terminänderung komplett neu, beim Verschieben gilt also der
+  Tag der Verschiebung. Das ist gewollt: Wer gerade eben mit dem Lead einen neuen Zeitpunkt
+  verabredet hat, braucht am selben Tag ebenso wenig eine Erinnerung daran wie beim ersten Mal.
+- **Die Reihenfolge der beiden Riegel trägt.** Ist die Fälligkeit ohnehin verstrichen, gilt der
+  zeitliche Grund („der Termin liegt in weniger als 1 Tag"); der Buchungstag-Grund steht nur da,
+  wo die Stufe sonst wirklich rausgegangen wäre. Beide Sätze zeigt das Kaskaden-Panel am Termin
+  im Klartext (`skipReason` in `CascadePanel.tsx`, Text aus `BOOKING_DAY_SKIP_REASON`) — eine
+  Stufe, die wortlos verschwindet, ist von einem Fehler nicht zu unterscheiden.
+
+**Warum es auf `/erinnerungen` den Korb „Jetzt fällig" gibt** (zwischen „Überfällig" und „In
+der nächsten Stunde"): Passt keine geplante Stufe mehr, entsteht der **Sofort-Touch**, und
+dessen Fälligkeit IST der Zeitpunkt seiner Entstehung. Nach der Uhr ist er damit von der
+ersten Minute an vorbei — versäumt hat aber niemand etwas, der Termin steht ja noch bevor.
+„Überfällig" wäre für ihn ein Vorwurf; „In der nächsten Stunde" wäre eine Behauptung über den
+Termin, die bei abgeschalteter Stundenstufe schlicht falsch sein kann. Er ist genau das, was
+der eigene Korb sagt: jetzt zu tun. Der Korb ist reine Sortierung — ob der Touch **überfällig**
+ist, entscheidet weiterhin `src/lib/dueState.ts` (§6, dritte Fälligkeits-Variante), und zwar
+vor der Korb-Zuteilung: Sonst schluckte „Jetzt fällig" auch die echten Versäumnisse.
 
 ## 2. Workspace- & Sichtbarkeitsmodell
 
@@ -1067,8 +1122,9 @@ erklärt durch diese beiden Schritte: **LinkedIn-Zweig verworfen** (§5) und
 - Die Analyse-Tabs **und** die Vergleichsseite bucketen über den **Berlin-Kalendertag** (`berlinDateISO`, `src/lib/analyse.ts`); die frühere UTC-Slice-Inkonsistenz an der Tagesgrenze ist damit weg. `rpc_appointments_booked` macht dasselbe in SQL (`(created_at at time zone 'Europe/Berlin')::date`) — sonst rutschte ein abends gebuchter Termin in den Vortag. Auch die Kachel „Termine gelegt" im LinkedIn-Tab rechnet über `berlinDateISO(created_at)`.
 - **Zeitraumfilter auf `timestamptz` brauchen einen Tagespuffer.** PostgREST kann nicht in Berlin-Zeit schneiden, deshalb das Muster aus `loadCallAttempts` (`src/lib/phoneAttemptsData.ts`): in SQL grob mit einem Tag Luft nach beiden Seiten filtern (`gte from-1`, `lt to+2`), danach in JS exakt über `berlinDateISO` nachfiltern. Ohne den Puffer fehlten Randanrufe, ohne den Nachfilter lägen sie im falschen Tag — und der Rest des Tabs bucketet bereits nach Berlin.
 - **`nachfassen_tasks.due_at` ist ein `timestamptz`, trägt aber überwiegend TAGE.** Die RPC presst fünf Quellen in eine Spalte, und vier davon sind in Wahrheit `date`-Werte, die sie nur castet. Ein `date` wird dabei zu Mitternacht UTC — in Berlin also **02:00 desselben Tages**. Wer die Spalte nach ihrem Datentyp liest, hält jedes Follow-up ab zwei Uhr morgens für überfällig; und weil die RPC ohnehin nur Fälliges liefert, wäre schlicht **alles** überfällig. Eine Dringlichkeit, die immer gilt, ist keine. Maßgeblich ist deshalb die **Körnung der Quelle**, nicht die Schreibweise des Werts: Nur der Telefon-Rückruf (`callback_at`) trägt eine verabredete Uhrzeit (`moment`), LinkedIn-Follow-up, Setting-/Closing-Wiedervorlage und Recycling haben den ganzen Tag Zeit (`day`) und werden erst am **Folgetag** überfällig. Die Regel steht an genau einer Stelle — `isOverdue(value, granularity, ref)` in `src/lib/dueState.ts` —, gelesen von der Seite *und* vom Navigations-Zähler (§5.4). Für SQL heißt das: `due_at` nie roh gegen `now()` halten, sondern gegen `(now() at time zone 'Europe/Berlin')::date`, außer beim Telefon-Zweig.
+- **Die dritte Fälligkeits-Variante: der Sofort-Touch misst gegen seinen TERMIN, nicht gegen sich selbst.** Neben den beiden Körnungen oben (`day`/`moment`) kennt `src/lib/dueState.ts` einen dritten Fall — `reminder_touches` mit `touch_kind='sofort'` (§4). Seine `due_at` ist der Zeitpunkt seiner **Entstehung**: Er entsteht ja gerade deshalb, weil der Termin so kurzfristig gebucht wurde, dass keine geplante Stufe mehr davor lag. Jede wertbasierte Regel hielte ihn eine Minute später für überfällig, obwohl niemand etwas versäumt hat. Maßgeblich ist deshalb der **Termin**: Bis dahin ist eine Bestätigung sinnvoll und nichts versäumt, danach ist sie sinnlos. Technisch trägt das der Typ `DueSpec` (`{ granularity: 'sofort', appointmentAt }` statt eines blanken Körnungs-Worts), gebaut von `reminderDueSpec(touch)`; ohne `appointment_at` bleibt der Touch ruhig, statt eine Dringlichkeit ohne Endpunkt zu behaupten. Gelesen wird die Regel an **drei** Stellen, die sonst auseinanderliefen: dem Board `/erinnerungen`, dem Navigations-Zähler in der Seitenleiste (§5.4) und dem Kaskaden-Panel am Termin selbst (`CascadePanel.tsx`) — dieselbe Karte darf nicht in der Seitenleiste mahnen und auf dem Termin ruhig aussehen. Für SQL heißt das: `reminder_touches.due_at` bei `touch_kind='sofort'` nie roh gegen `now()` halten, sondern `appointment_at < now()` prüfen.
 - **Kontaktfrequenz: der Auslöser ist ein rollendes 72-Stunden-Fenster, die Beschriftung ein Kalendertag.** `CONTACT_GAP_WARN_DAYS = 3` entscheidet als reine Millisekunden-Differenz (`now − last < 3 · 86 400 000`), ob die Warnung erscheint; `contactAgeDays()` / `lastContactLabel()` (`src/lib/contactGap.ts`) rechnen für den Text dagegen in **Berliner Kalendertagen** — „gestern 23:00" ist gestern, auch wenn es zwei Stunden her ist. Beide Zahlen sind absichtlich verschieden gemeint (Schwelle vs. Sprechweise); sie sind nur dann inkonsistent, wenn man sie füreinander hält.
-- **Kaskaden-Offsets rechnen in Berliner WANDZEIT, nicht in Millisekunden** (`shiftBerlinMinutes()`, `src/lib/cascadeEngine.ts`). „1 Tag vorher" heißt für einen Menschen dieselbe Uhrzeit einen Tag früher; auf dem UTC-Zeitstempel gerechnet läge die Fälligkeit am Umstellungswochenende eine Stunde daneben. Der Weg ist immer: ISO → Berliner Wandzeit → Kalenderarithmetik auf den Ziffern → `berlinInputToIso()` zurück nach UTC. Dieselbe Zone benutzt `schedule_recycle()` in SQL für „heute" (`(now() at time zone 'Europe/Berlin')::date`).
+- **Kaskaden-Offsets rechnen in Berliner WANDZEIT, nicht in Millisekunden** (`shiftBerlinMinutes()`, `src/lib/cascadeEngine.ts`). „1 Tag vorher" heißt für einen Menschen dieselbe Uhrzeit einen Tag früher; auf dem UTC-Zeitstempel gerechnet läge die Fälligkeit am Umstellungswochenende eine Stunde daneben. Der Weg ist immer: ISO → Berliner Wandzeit → Kalenderarithmetik auf den Ziffern → `berlinInputToIso()` zurück nach UTC. Dieselbe Zone benutzt `schedule_recycle()` in SQL für „heute" (`(now() at time zone 'Europe/Berlin')::date`). **Die Buchungstag-Regel (§1) rechnet aus demselben Grund in Kalendertagen** (`berlinLeadDays()`, Differenz zweier Berliner Kalendertage als UTC-Mitternacht): Am Umstellungswochenende ist ein Tag 23 bzw. 25 Stunden lang — „24 Stunden entfernt" und „am nächsten Kalendertag" sind dort zwei verschiedene Aussagen, und nur die zweite meint der Mensch, der den Termin gebucht hat.
 - **Empfehlung für SQL:** `(spalte at time zone 'Europe/Berlin')::date` für die Tageszuordnung von `timestamptz`-Spalten. ISO-Wochen (Montag-basiert) mit `date_trunc('week', …)`.
 
 **`Europe/Berlin` ist eine Produktgrenze, keine Einstellung.** Es gibt bewusst **keine
