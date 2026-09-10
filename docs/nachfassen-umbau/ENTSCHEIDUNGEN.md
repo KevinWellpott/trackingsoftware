@@ -105,3 +105,37 @@ Supportfall beschränkt — die Policy sagt etwas anderes. Künftig: **nur `auth
 (`user_id is null`) bleibt für alle Mitglieder lesbar — sie ist der gemeinsame Standard.
 Schreibrechte ändern sich nicht. Anlass: Die Software geht an Kunden; ein persönlicher Text ist
 persönlich. 0031 ist eingefroren, die Policy wird in 0041 ersetzt.
+
+## Nachtrag 2026-09-10 — Mail-Spur: Resend, mit Rückfall aufs Kopieren
+
+Ergänzt Phase 2 (M21). Weiterhin **ohne Priorität** — erst nach der Kernfunktionalität.
+
+**E-M1 · Versand über Resend, aber nur zentral für TitanPitching.**
+Kundenorganisationen und externe Mandanten bringen ihren **eigenen Key** mit. Begründung:
+Ein gemeinsamer Absender hieße, dass TitanPitching für Zustellbarkeit und Rechtslage fremder
+Kundenmails einsteht — und ein einziger Spam-Report träfe die Domain aller anderen. Der Key
+gehört damit auf die **Organisations-Ebene** (neben `pipeline_settings`), nicht in eine
+Umgebungsvariable; sonst wäre er wieder zentral. Dass damit ein Fremdschlüssel eines Kunden in
+unserer Datenbank liegt, ist eine bewusste Folge und beim Bau eigens zu behandeln.
+
+**E-M2 · Ohne Key: Mail-Stufen als Kopier-Karte, nicht ausgeblendet.**
+Eine Organisation ohne Resend-Key bekommt dieselbe Karte wie bei den Nachrichten-Stufen —
+fertiger Text zum Kopieren, Erledigt-Häkchen, `outcome`. Das ist konsequent: Die gesamte
+Kaskade ist eine Kopier-Werkbank (§1 im Datenmodell), der Automatikversand ist der Zusatz,
+nicht die Grundlage. Ausblenden hätte die Stufe aus der Kaskade genommen und damit den
+Nachfass-Rhythmus je nach Konfiguration verschieden lang gemacht.
+
+**E-M3 · Absender ist immer eine feste Adresse — eine je Organisation.**
+Nicht die persönliche Adresse des Verkäufers. Gelesen als **eine feste Adresse je
+Organisation**, konfiguriert neben dem Key: Eine global feste Adresse ist für eine
+Kundenorganisation mit eigenem Key und eigener Domain gar nicht möglich.
+**Der Platzhalter `{absender}` bleibt davon unberührt** — er steht in der Signatur und nennt
+weiter die zuständige Person. Der Verkäufer steht also unter der Mail, sie kommt nur nicht von
+seiner Adresse.
+
+**Offen, sobald M21 beginnt — die Empfängeradresse.** Sie existiert heute für einen der drei
+Ursprünge: `phone_leads.email` (aus dem CSV-Import). `contacts` (LinkedIn) hat keine, ein
+manuell angelegter Termin auch nicht, und weder `setting_calls` noch `closing_calls` tragen ein
+E-Mail-Feld. Ohne Empfänger ist die Mail-Spur für LinkedIn- und Direkt-Termine nicht
+lauffähig — zu klären ist, ob die Adresse im Erstgespräch eingesammelt wird (wie `wa_phone`,
+§3) oder ob die Spur für diese Ursprünge auf E-M2 zurückfällt.
