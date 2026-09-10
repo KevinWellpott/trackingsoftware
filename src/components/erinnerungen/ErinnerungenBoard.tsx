@@ -910,7 +910,13 @@ function TerminCard({
           }}
         >
           <StageBadge stage={meta.stage}>{meta.label}</StageBadge>
-          <Badge tone={card.channel ? "info" : "warning"}>
+          {/* Der Kanal ist eine Kategorie und läuft deshalb neutral — genau wie
+              das Stufen-Badge daneben und wie die Karten auf /nachfassen. Der
+              blaue `info`-Ton stand hier als einzige Farbe für etwas, das als
+              Wort und Symbol im selben Badge steht.
+              „Kanal frei wählen" bleibt dagegen amber: Das ist keine Kategorie,
+              sondern eine offene Stelle — dort fehlt eine Entscheidung. */}
+          <Badge tone={card.channel ? "neutral" : "warning"}>
             {card.channel ? (
               <>
                 {CHANNEL_META[card.channel].icon} {CHANNEL_META[card.channel].label}

@@ -58,7 +58,11 @@ describe("1 · Ein Fehlklick ist kein Endzustand mehr", () => {
     // und ein Fehlgriff setzte `answered = true` samt `next_follow_up_at =
     // null` — der Kontakt war DAUERHAFT aus dem Follow-up-Fluss.
     assert.doesNotMatch(BOARD, /setHidden/, "Kein stilles Wegblenden mehr.");
-    assert.match(BOARD, /<Undo2 size=\{12\} \/> Rückgängig/);
+    // Seit dem Knopf-Stapel ist es ein `Button` mit `icon`-Prop statt einer
+    // Pille mit Inline-Stil — die Zusage bleibt dieselbe: Nach dem Erledigen
+    // steht auf der gedimmten Karte ein Rückweg.
+    assert.match(BOARD, /icon=\{<Undo2 size=\{14\} \/>\}/);
+    assert.match(BOARD, /^\s*Rückgängig$/m);
   });
 
   test("der Knopf erscheint nur, wenn die Aktion einen Rückweg mitgeliefert hat", () => {
@@ -169,7 +173,8 @@ describe("1 · Ein Fehlklick ist kein Endzustand mehr", () => {
 describe("2 · Telefon, Setting und Closing lassen sich ohne Seitenwechsel erledigen", () => {
   test("Setting und Closing bekommen ein festes Wochen-Intervall", () => {
     // Beide tragen ein TAGESDATUM (`follow_up_due`, DUE_GRANULARITY: day).
-    assert.equal(countOf(BOARD, "<CheckCheck size={12} /> Erledigt → +7 Tage"), 2);
+    assert.equal(countOf(BOARD, "Erledigt → +7 Tage"), 2);
+    assert.equal(countOf(BOARD, "icon={<CheckCheck size={14} />}"), 2);
     assert.match(BOARD, /runAction\(pushFollowUpDue\("setting", task\.entity_id\)/);
     assert.match(BOARD, /runAction\(pushFollowUpDue\("closing", task\.entity_id\)/);
     assert.match(ACTION, /const FOLLOW_UP_PUSH_DAYS = 7;/);
@@ -196,7 +201,10 @@ describe("2 · Telefon, Setting und Closing lassen sich ohne Seitenwechsel erled
     // DEM LEAD VERABREDETEN Uhrzeit (DUE_GRANULARITY: moment, docs §1). Ein
     // „+7 Tage" wäre dort fachlich falsch, eine selbst gesetzte Uhrzeit keine
     // Angabe, sondern eine Behauptung.
-    const telefon = slice(BOARD, '{!doneEntry && task.source === "telefon" && (', '{!doneEntry && task.source === "setting"');
+    // Der Anker umfasst seit dem Knopf-Stapel zwei Zeilen: Die Bedingung des
+    // Telefon-Zweigs trägt jetzt den Zustandswechsel „zugeklappt/aufgeklappt"
+    // (Vorschlags-Knopf ⇄ Feld + Speichern) und ist deshalb umbrochen.
+    const telefon = slice(BOARD, '{!doneEntry &&\n          task.source === "telefon" &&', '{!doneEntry && task.source === "setting"');
     assert.doesNotMatch(telefon, /pushFollowUpDue/);
     assert.match(telefon, /<DateTimeField/);
     assert.match(telefon, /runAction\(pushPhoneCallback\(task\.entity_id, callbackDraft\)/);
@@ -216,10 +224,14 @@ describe("2 · Telefon, Setting und Closing lassen sich ohne Seitenwechsel erled
     assert.doesNotMatch(callback, /logCallAttempt|first_call_at|status:/);
   });
 
-  test("die Links bleiben daneben stehen — das Gespräch braucht die Detailseite", () => {
-    assert.match(BOARD, /<ClipboardCheck size=\{12\} \/> Zum Setting/);
-    assert.match(BOARD, /<Handshake size=\{12\} \/> Zum Closing/);
-    assert.match(BOARD, /<Phone size=\{12\} \/> Anrufen/);
+  test("die Links bleiben erhalten — das Gespräch braucht die Detailseite", () => {
+    // Sie stehen nicht mehr NEBEN dem Hauptknopf, sondern in der Wege-Zeile
+    // darunter (`jumps`); erhalten bleiben müssen sie trotzdem — das
+    // Qualifizierungs- bzw. Abschlussgespräch führt man auf der Detailseite,
+    // nicht auf der Karte.
+    assert.match(BOARD, /<ClipboardCheck size=\{13\} \/> Zum Setting/);
+    assert.match(BOARD, /<Handshake size=\{13\} \/> Zum Closing/);
+    assert.match(BOARD, /<Phone size=\{13\} \/> Anrufen/);
   });
 
   test("jede neue Action fährt dieselbe Zugriffsprüfung wie ihre Nachbarn", () => {
@@ -249,10 +261,22 @@ describe("2 · Telefon, Setting und Closing lassen sich ohne Seitenwechsel erled
 
 describe("3 · Aus /nachfassen führt der Zurück-Pfeil nach /nachfassen", () => {
   test("die Karten geben ihre Herkunft mit", () => {
-    // Vier Sprungziele: Setting und Closing je einmal aus der eigenen Sektion
-    // und einmal aus dem Recycling.
+    // Weiterhin vier Sprungziele — Setting und Closing je einmal aus der
+    // eigenen Sektion und einmal aus dem Recycling —, aber nur noch ZWEI
+    // Stellen im Quelltext: Seit die Wege in `jumps` gesammelt werden, gibt es
+    // `settingJump`/`closingJump` genau einmal und beide Zweige greifen
+    // darauf zu. Vier Kopien derselben Adresse waren vier Gelegenheiten, die
+    // Herkunft an einer davon zu vergessen.
     assert.match(BOARD, /const FROM_NACHFASSEN = "\?from=nachfassen";/);
-    assert.equal(countOf(BOARD, "${FROM_NACHFASSEN}`"), 4);
+    assert.equal(countOf(BOARD, "${FROM_NACHFASSEN}`"), 2);
+    for (const zweig of [
+      'task.source === "setting") jumps.push(settingJump)',
+      'task.source === "closing") jumps.push(closingJump)',
+      'task.recycle_origin === "setting") jumps.push(settingJump)',
+      'task.recycle_origin === "closing") jumps.push(closingJump)',
+    ]) {
+      assert.ok(BOARD.includes(zweig), `Sprungziel fehlt: ${zweig}`);
+    }
   });
 
   test("beide Detailseiten lesen den Parameter und fallen sonst auf den Kalender zurück", () => {
@@ -321,7 +345,11 @@ describe("4 · Der Anlass steht auf der Karte", () => {
     // wäre eine Lücke, die wie ein fehlender Wert aussieht.
     assert.match(BOARD, /task\.setting_status === "unqualifiziert" && task\.setting_disqualify_reason/);
     // Und der Badge ist derselbe Baustein wie beim Recycling: beide
-    // beantworten „warum liegt diese Karte hier?".
-    assert.equal(countOf(BOARD, "<span style={reasonBadgeStyle}>"), 2);
+    // beantworten „warum liegt diese Karte hier?". Der eigene `reasonBadgeStyle`
+    // ist dabei entfallen — er war eine dritte Badge-Optik neben `Badge` und
+    // `StageBadge`; jetzt laufen Kanal, Anlass und Grund über denselben
+    // neutralen Ton der gemeinsamen Komponente.
+    assert.doesNotMatch(BOARD, /reasonBadgeStyle/, "Keine eigene Badge-Optik mehr im Board.");
+    assert.equal(countOf(BOARD, '<Badge tone="neutral">'), 3, "Kanal + Recycling-Grund + Setting-Anlass.");
   });
 });

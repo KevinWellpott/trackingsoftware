@@ -29,7 +29,8 @@ import { addDaysISO, localDateISO } from "@/lib/dates";
 import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
-import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import {
@@ -95,46 +96,29 @@ type Props = {
 
 type ChannelFilter = "alle" | NachfassenTask["source"];
 
-// Kanalfarben kommen aus der Pipeline-Palette (DESIGN.md §3.6) und nicht aus
-// den Semantik-Tokens: ein Kanal ist eine Kategorie, kein Status. Sie
-// erscheinen ausschliesslich als Dot/Icon + Tint, nie als Flaechenfarbe.
-const CHANNEL_META: Record<
-  NachfassenTask["source"],
-  { label: string; icon: React.ReactNode; color: string; bg: string; border: string }
-> = {
-  telefon: {
-    label: "Telefon",
-    icon: <Phone size={11} />,
-    color: "var(--stage-telefon)",
-    bg: "rgb(78 128 214 / 0.10)",
-    border: "rgb(78 128 214 / 0.28)",
-  },
-  setting: {
-    label: "Setting",
-    icon: <ClipboardCheck size={11} />,
-    color: "var(--stage-setting)",
-    bg: "rgb(139 92 246 / 0.10)",
-    border: "rgb(139 92 246 / 0.28)",
-  },
-  closing: {
-    label: "Closing",
-    icon: <Handshake size={11} />,
-    color: "var(--stage-closing)",
-    bg: "rgb(63 163 111 / 0.10)",
-    border: "rgb(63 163 111 / 0.28)",
-  },
-  // Recycling ist kein Kanal wie die anderen drei — es sammelt terminal
-  // negative Leads aus ALLEN vier Ursprungstabellen, LinkedIn eingeschlossen
-  // (§ Konzept-Diskussion, Migration 0033). Eigene, bewusst neutrale Farbe
-  // statt einer Kanalfarbe, damit die Karte nicht wie ein weiterer
-  // Akquise-Kanal aussieht.
-  recycling: {
-    label: "Recycling",
-    icon: <RefreshCw size={11} />,
-    color: "var(--text-muted)",
-    bg: "var(--surface-3)",
-    border: "var(--border-default)",
-  },
+/* ── Kanal: Wort + Symbol, KEINE Kanalfarbe ────────────────────────────
+   Bis hierher trug jedes Kanal-Badge seine Identitaetsfarbe aus DESIGN.md
+   §3.6 — Violett fuer Setting, Gruen fuer Closing, Blau fuer Telefon. Auf
+   einer einzelnen Karte liest sich das als Zuordnung; auf dreissig Karten
+   untereinander stehen alle vier gleichzeitig auf dem Schirm, und die Seite
+   ist bunt, ohne dass die Farbe irgendetwas sagt, was nicht danebensteht:
+   Der Kanal ist als WORT und als Symbol im selben Badge.
+
+   Genau davor warnt das Badge-Budget der Vorlage („hoechstens EIN farbiges
+   Element pro Zeile"). Das eine gehoert hier der DRINGLICHKEIT — dem
+   Ueberfaellig-Hinweis und dem Kontaktfrequenz-Warnton. Kategorien
+   (Kanal, Anlass, Grund, Versuchszaehler) laufen neutral ueber den
+   vorhandenen `Badge`-Ton `neutral`.
+
+   Recycling ist ohnehin kein Kanal wie die anderen drei — es sammelt
+   terminal negative Leads aus ALLEN vier Ursprungstabellen (Migration
+   0033). Vorher war es das einzige neutrale Badge der Karte; jetzt sind es
+   alle, und der Unterschied traegt das Wort. */
+const CHANNEL_META: Record<NachfassenTask["source"], { label: string; icon: React.ReactNode }> = {
+  telefon: { label: "Telefon", icon: <Phone size={12} /> },
+  setting: { label: "Setting", icon: <ClipboardCheck size={12} /> },
+  closing: { label: "Closing", icon: <Handshake size={12} /> },
+  recycling: { label: "Recycling", icon: <RefreshCw size={12} /> },
 };
 
 const FILTERS: { value: ChannelFilter; label: string }[] = [
@@ -234,95 +218,79 @@ function dossierTargetOf(task: NachfassenTask): DossierEntityKind | null {
   return null;
 }
 
-/* ── Die vier Gewichte der Knopfreihe ──────────────────────────────────
-   Vorher trug fast alles DIESELBE Pille: „Nochmal versucht" (schreibt in die
-   Datenbank und verbrennt einen von zwei erlaubten Versuchen) sah aus wie „Zur
-   Liste" (öffnet eine Seite), und „Endgültig raus" (sperrt den Lead für immer)
-   unterschied sich davon nur durch eine graue Schriftfarbe. Auf einer Karte mit
-   fünf gleich aussehenden Pillen gibt es keine Hierarchie — man liest jede
-   einzeln, dreißigmal am Vormittag.
+/* ── Der Knopf-Stapel: drei Ebenen statt einer umbrechenden Reihe ───────
+   Bis hierher lagen bis zu fünf Knöpfe in EINER Reihe mit `flexWrap`. Auf
+   einer 300 Pixel breiten Karte brach sie ohnehin um — und WO sie umbrach,
+   entschied die Länge der Beschriftungen. Dieselbe Karte sah auf jedem
+   Bildschirm anders aus, keine zwei Knöpfe fluchteten, und ein Ziel von 28
+   Pixeln Höhe und wechselnder Breite trifft man auf dem Touchgerät schlecht.
 
-   Die vier Stufen sind die Varianten aus components/ui/Button.tsx (DESIGN.md
-   §3.8), nur als Inline-Stil, weil die Karte ihre eigene 28-px-Zeile fährt:
+   Jetzt stehen sie untereinander, jeder über die volle Kartenbreite. Die
+   Hierarchie der letzten Runde bleibt vollständig erhalten — sie wird nur
+   nicht mehr über Farbe und Nachbarschaft getragen, sondern über die
+   Anordnung:
 
-     primaryBtnStyle → GENAU EINER je Karte: der erwartete nächste Schritt.
-     linkBtnStyle    → sekundäre Aktion, die ebenfalls schreibt (getönt).
-     navBtnStyle     → führt woandershin oder schlägt nach; schreibt NICHTS.
-     dangerBtnStyle  → der eine unwiderrufliche Knopf.
+     1. AKTIONEN — vollbreit, gestapelt. GENAU EIN Primär-Knopf je Karte
+        (Button `primary`), höchstens eine schreibende Zweitaktion daneben.
+     2. Hairline, dann die WEGE — Ghost-Pillen in EINER Zeile. Sie schreiben
+        nichts, sie führen nur woandershin; als weitere vollbreite Knöpfe
+        stünden sie gleichrangig neben den Aktionen und machten den Stapel
+        doppelt so hoch.
+     3. Hairline, dann „ENDGÜLTIG RAUS" allein, rechts, in Inhaltsbreite.
 
-   Damit ist auf einen Blick unterscheidbar, was etwas TUT und was nur FÜHRT —
-   und der gefährlichste Knopf sieht als einziger gefährlich aus.            */
-const linkBtnStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--sp-3)",
-  height: 28,
+   Zur dritten Ebene gehört die eigentliche Frage dieser Runde: Ein
+   vollbreiter Knopf im selben Stapel läse sich als gleichrangige Aktion —
+   und diese ist unwiderruflich (es gibt kein Entsperren in der Oberfläche).
+   Abgesetzt wird deshalb über POSITION (ganz unten, allein), TRENNLINIE,
+   BREITE (Inhalt statt voll) und AUSRICHTUNG (rechts). Farblich bleibt es
+   bei der Danger-Hairline, die der Knopf schon trug — eine neue Farbe
+   braucht es dafür nicht.
+
+   Die Knöpfe selbst sind die Varianten aus components/ui/Button.tsx; Radius,
+   Hover, Press und der Touch-Bump auf 44 px kommen aus `.ui-btn`
+   (globals.css §6.4). Vorher lagen dieselben vier Gewichte als Inline-Stil
+   daneben, weil die Karte ihre eigene 28-px-Zeile fuhr — die gibt es nicht
+   mehr, also gibt es auch die Kopien nicht mehr.                          */
+const actionStackStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "stretch",
+  gap: "var(--sp-4)",
+  marginTop: "auto",
+};
+
+/* Wege: die Ghost-Behandlung an einem <Link>/<a>/<button>. `.ui-btn` liefert
+   Form, Press und den Touch-Bump; die Ghost-Füllung (also: keine) steht als
+   Inline-Stil daneben, weil `data-variant` an Next' <Link> kein zulässiges
+   Attribut ist und drei verschiedene Hover-Zustände in EINER Zeile schlimmer
+   wären als gar keiner. */
+const jumpStyle: React.CSSProperties = {
+  minHeight: 28,
   padding: "0 var(--sp-5)",
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--border-default)",
-  background: "var(--surface-1)",
-  color: "var(--text-secondary)",
+  background: "transparent",
+  border: "1px solid transparent",
+  color: "var(--text-muted)",
   fontSize: "var(--fs-sm)",
   fontWeight: 500,
   textDecoration: "none",
-  cursor: "pointer",
-  transition: "background var(--transition-fast), border-color var(--transition-fast)",
 };
 
-/* Navigieren und Nachschlagen: dieselbe Pille ohne Fläche und ohne Rand —
-   genau die Ghost-Behandlung, die „Rückgängig" und „Abbrechen" auf dieser
-   Karte schon tragen. Sie treten damit hinter die Aktionen zurück, statt mit
-   ihnen um dieselbe Aufmerksamkeit zu konkurrieren. */
-const navBtnStyle: React.CSSProperties = {
-  ...linkBtnStyle,
-  background: "transparent",
-  borderColor: "transparent",
-  color: "var(--text-muted)",
-};
-
-/* „Endgültig raus": die Danger-Variante (transparent + roter Rand). Kein
-   gefüllter roter Knopf — das wäre der auffälligste Knopf der Karte, und der
-   gehört dem erwarteten Schritt, nicht dem, den man fast nie will. Sichtbar
-   ANDERS muss er trotzdem sein: Es gibt kein Entsperren in der Oberfläche. */
-const dangerBtnStyle: React.CSSProperties = {
-  ...linkBtnStyle,
-  background: "transparent",
-  borderColor: "rgb(214 90 82 / 0.40)",
-  color: "var(--danger-fg)",
-};
-
-/* Der eine CTA einer Karte — GENAU EINER je Quelle, das ist die Regel:
-   Telefon „Rückruf verschieben", Setting/Closing „Erledigt → +7 Tage",
-   Recycling „Nochmal versucht". Er steht einmal hier statt viermal inline;
-   vier Kopien derselben Pille laufen sonst auseinander. */
-const primaryBtnStyle: React.CSSProperties = {
-  display: "inline-flex",
+/** Die Wege-Zeile — durch eine Hairline von den Aktionen darüber getrennt. */
+const jumpRowStyle: React.CSSProperties = {
+  display: "flex",
   alignItems: "center",
-  gap: "0.3rem",
-  padding: "0.3rem 0.625rem",
-  borderRadius: "var(--r-full)",
-  border: "none",
-  background: "var(--grad-cta)",
-  color: "var(--text-on-accent)",
-  boxShadow: "var(--shadow-btn-primary)",
-  fontSize: "0.6875rem",
-  fontWeight: 600,
-  cursor: "pointer",
-  transition: "all 0.1s",
+  flexWrap: "wrap",
+  gap: "var(--sp-3)",
+  paddingTop: "var(--sp-4)",
+  borderTop: "1px solid var(--border-subtle)",
 };
 
-/* Grund-/Anlass-Badge in der Kopfzeile. Recycling und Erstgespräch benutzen
-   bewusst DENSELBEN Baustein: Beide beantworten dieselbe Frage („warum liegt
-   diese Karte hier?"), und zwei verschiedene Optiken dafür wären eine
-   Unterscheidung ohne Unterschied. */
-const reasonBadgeStyle: React.CSSProperties = {
-  fontSize: "0.625rem",
-  fontWeight: 600,
-  color: "var(--text-muted)",
-  background: "var(--surface-150)",
-  border: "1px solid var(--border)",
-  borderRadius: 99,
-  padding: "0.1rem 0.4rem",
+/** Die letzte Ebene: eine zweite Hairline, dann der eine unwiderrufliche Knopf. */
+const dangerRowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  paddingTop: "var(--sp-4)",
+  borderTop: "1px solid var(--border-subtle)",
 };
 
 /* ── Erledigt, aber noch zurücknehmbar ────────────────────────────────
@@ -487,6 +455,108 @@ function TaskCard({ task, done }: { task: NachfassenTask; done: DoneApi }) {
     });
   };
 
+  /* ── Die Wege dieser Karte, an EINER Stelle gesammelt ─────────────────
+     Vorher lagen sie verstreut in den vier Quellen-Zweigen, jeder mit seiner
+     eigenen Reihenfolge — mal vor dem Hauptknopf, mal dahinter, und beim
+     Recycling in vier Varianten. Sie beantworten aber alle dieselbe Frage
+     („wo komme ich an diesen Lead heran?"), schreiben NICHTS und gehören
+     deshalb zusammen in eine leise Zeile unter die Aktionen. Gesammelt wird
+     hier, weil die Zeile sonst viermal im JSX stünde. */
+  const settingJump = (
+    <Link
+      key="setting"
+      href={`/setting/${task.entity_id}${FROM_NACHFASSEN}`}
+      className="ui-btn"
+      style={jumpStyle}
+      title="Erstgespräch öffnen — Qualifizierung, Notizen, Ergebnis"
+    >
+      <ClipboardCheck size={13} /> Zum Setting
+    </Link>
+  );
+  const closingJump = (
+    <Link
+      key="closing"
+      href={`/closing/${task.entity_id}${FROM_NACHFASSEN}`}
+      className="ui-btn"
+      style={jumpStyle}
+      title="Abschlussgespräch öffnen — Deal, Einwand, Ergebnis"
+    >
+      <Handshake size={13} /> Zum Closing
+    </Link>
+  );
+  const phoneListJump = task.list_id ? (
+    <Link
+      key="telefonliste"
+      href={`/telefon/${task.list_id}`}
+      className="ui-btn"
+      style={jumpStyle}
+      title="Telefonliste im Call-Modus öffnen"
+    >
+      <Phone size={13} /> Anrufen
+    </Link>
+  ) : null;
+
+  const jumps: React.ReactNode[] = [];
+  if (task.source === "telefon") {
+    if (phoneListJump) jumps.push(phoneListJump);
+    if (task.phone) {
+      /* Die Rufnummer war einmal die einzige orange GEFÜLLTE Pille der Karte
+         und damit auffälliger als der Hauptknopf daneben. Sie bleibt
+         anklickbar (tel:) und behält die Akzentfarbe als SCHRIFT — ein Link,
+         kein zweiter CTA. */
+      jumps.push(
+        <a
+          key="tel"
+          href={`tel:${task.phone.replace(/[^\d+]/g, "")}`}
+          className="ui-btn"
+          style={{ ...jumpStyle, color: "var(--orange-300)" }}
+          title="Nummer direkt wählen"
+        >
+          {task.phone}
+        </a>,
+      );
+    }
+  }
+  if (task.source === "setting") jumps.push(settingJump);
+  if (task.source === "closing") jumps.push(closingJump);
+  if (task.source === "recycling") {
+    if (task.recycle_origin === "linkedin" && task.list_id) {
+      jumps.push(
+        <Link
+          key="pitchliste"
+          href={`/lists/${task.list_id}`}
+          className="ui-btn"
+          style={jumpStyle}
+          title="Pitch-Liste dieses Kontakts öffnen"
+        >
+          Zur Liste <ArrowUpRight size={13} />
+        </Link>,
+      );
+    }
+    if (task.recycle_origin === "telefon" && phoneListJump) jumps.push(phoneListJump);
+    if (task.recycle_origin === "setting") jumps.push(settingJump);
+    if (task.recycle_origin === "closing") jumps.push(closingJump);
+  }
+  /* Gesprächsvorbereitung, deshalb VOR dem Anruf und ohne die Arbeitsliste zu
+     verlassen: Das Dossier öffnet als Overlay und lädt erst beim Öffnen (acht
+     Abfragen je Karte im Voraus wären der Preis für etwas, das man je Sitzung
+     einmal liest). Es steht in der Wege-Zeile, weil es dieselbe Frage
+     beantwortet wie die Sprung-Links — nur ohne wegzunavigieren. */
+  if (dossierKind) {
+    jumps.push(
+      <button
+        key="dossier"
+        type="button"
+        onClick={() => setDossierOpen(true)}
+        className="ui-btn"
+        style={jumpStyle}
+        title="Alles zu diesem Lead — Verlauf, Kontaktwege, Notizen"
+      >
+        <FileText size={13} /> Details
+      </button>,
+    );
+  }
+
   return (
     <div
       style={{
@@ -541,34 +611,23 @@ function TaskCard({ task, done }: { task: NachfassenTask; done: DoneApi }) {
             Name stehen — oder gar nichts, wenn die Quelle keinen mitliefert.
             Auf der halben Kartenmenge derselbe Name, den die Kopfzeile ohnehin
             trägt, auf der anderen Hälfte eine Lücke. */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.25rem",
-              fontSize: "0.625rem",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              color: meta.color,
-              background: meta.bg,
-              border: `1px solid ${meta.border}`,
-              borderRadius: 99,
-              padding: "0.1rem 0.4rem",
-            }}
-          >
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {/* Alle Badges der Karte laufen über denselben neutralen Ton — Kanal,
+              Anlass, Grund und Versuchszähler sind Kategorien, keine Zustände.
+              Unterschieden werden sie durch Wort und Symbol, nicht durch Farbe;
+              farbig bleibt auf der Karte nur, was drängt. */}
+          <Badge tone="neutral">
             {meta.icon} {meta.label}
-          </span>
+          </Badge>
           {/* Grund + Versuchszähler — nur bei Recycling: der Kanal-Badge sagt
               hier nur "Recycling", nicht mehr WARUM der Lead hier gelandet ist. */}
           {task.source === "recycling" && (
-            <span style={reasonBadgeStyle}>
+            <Badge tone="neutral">
               {dropoutReasonLabel(task.recycle_reason ?? null)}
               {typeof task.recycle_attempt === "number" && task.recycle_attempt > 0
                 ? ` · Versuch ${task.recycle_attempt + 1}`
                 : ""}
-            </span>
+            </Badge>
           )}
           {/* Anlass — nur beim Erstgespräch. Die Sektion vereint `no_show` und
               `unqualifiziert`: zwei völlig verschiedene Anlässe mit derselben
@@ -578,12 +637,12 @@ function TaskCard({ task, done }: { task: NachfassenTask; done: DoneApi }) {
               hängt ab, ob der Text „passt es zeitlich jetzt besser?" oder
               „hat sich beim Budget etwas getan?" heißt. */}
           {task.source === "setting" && task.setting_status && (
-            <span style={reasonBadgeStyle}>
+            <Badge tone="neutral">
               {SETTING_STATUS_LABEL[task.setting_status]}
               {task.setting_status === "unqualifiziert" && task.setting_disqualify_reason
                 ? ` · ${dropoutReasonLabel(task.setting_disqualify_reason)}`
                 : ""}
-            </span>
+            </Badge>
           )}
         </div>
       </div>
@@ -738,46 +797,46 @@ function TaskCard({ task, done }: { task: NachfassenTask; done: DoneApi }) {
         </button>
       </div>
 
-      {/* ── Aktionen je Kanal — oder, direkt nach dem Erledigen, der Rückweg ──
-          Beides in DERSELBEN Reihe und als Entweder-oder: Eine erledigte
-          Aufgabe soll nicht ein zweites Mal erledigt werden können, und die
-          Fehlermeldung darunter gibt es weiterhin nur EINMAL (sie gehört zu
-          beiden Zuständen — auch ein Rückgängig kann scheitern).
+      {/* ── Aktionen, Wege, und ganz zuletzt der unwiderrufliche Knopf ──────
+          EIN Stapel statt einer umbrechenden Reihe (Begründung oben bei
+          `actionStackStyle`), und weiterhin ein Entweder-oder zum Rückweg:
+          Eine erledigte Aufgabe soll nicht ein zweites Mal erledigt werden
+          können, und die Fehlermeldung gibt es nach wie vor nur EINMAL — sie
+          gehört zu beiden Zuständen, auch ein Rückgängig kann scheitern.
           Kein Rückgängig-Knopf, wenn die Aktion keinen Rückweg mitgeliefert
           hat („Endgültig raus" ist genau dieser Fall und hat es im
           Bestätigungsdialog angekündigt) — lieber gar keiner als einer, der
           einen Zustand rät. */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap", marginTop: "auto" }}>
+      <div style={actionStackStyle}>
         {doneEntry && (
           <>
             <span
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "0.3rem",
-                fontSize: "0.6875rem",
+                gap: "var(--sp-3)",
+                fontSize: "var(--fs-sm)",
                 fontWeight: 600,
                 color: "var(--success-fg)",
               }}
             >
-              <Check size={12} style={{ flexShrink: 0 }} /> {doneEntry.label}
+              <Check size={13} style={{ flexShrink: 0 }} /> {doneEntry.label}
             </span>
+            {/* Auf der gedimmten Karte ist der Rückweg die einzige verbliebene
+                Handlung — deshalb steht er als vollbreiter Knopf da und nicht
+                als Ghost-Text am Rand. Ein Primär-Knopf ist er trotzdem nicht:
+                Zurücknehmen ist die Ausnahme, nicht der erwartete Schritt. */}
             {doneEntry.undo && (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                fullWidth
                 disabled={isPending}
                 onClick={undoNow}
+                icon={<Undo2 size={14} />}
                 title="Diese Aktion zurücknehmen — die Aufgabe steht danach wieder hier"
-                style={{
-                  ...linkBtnStyle,
-                  background: "transparent",
-                  borderColor: "transparent",
-                  color: "var(--text-muted)",
-                  cursor: isPending ? "default" : "pointer",
-                }}
               >
-                <Undo2 size={12} /> Rückgängig
-              </button>
+                Rückgängig
+              </Button>
             )}
           </>
         )}
@@ -787,127 +846,95 @@ function TaskCard({ task, done }: { task: NachfassenTask; done: DoneApi }) {
             einer MIT DEM LEAD VERABREDETEN Uhrzeit (DUE_GRANULARITY: moment).
             Ein festes Intervall wäre dort fachlich falsch, eine automatisch
             gesetzte Uhrzeit eine Behauptung — deshalb ein Feld mit Vorschlag
-            (morgen, gleiche Uhrzeit) statt eines stillen Sprungs. */}
-        {!doneEntry && task.source === "telefon" && (
-          <>
-            {callbackDraft === null ? (
-              <button
-                type="button"
+            (morgen, gleiche Uhrzeit) statt eines stillen Sprungs.
+            Zugeklappt und aufgeklappt ist es DERSELBE eine Hauptknopf, nur in
+            zwei Zuständen — die Regel „genau ein Primär je Karte" bleibt. */}
+        {!doneEntry &&
+          task.source === "telefon" &&
+          (callbackDraft === null ? (
+            <Button
+              variant="primary"
+              fullWidth
+              disabled={isPending}
+              onClick={() => setCallbackDraft(callbackSuggestion(task.due_at))}
+              icon={<CalendarClock size={14} />}
+              title="Neuen Rückruf-Zeitpunkt setzen, ohne die Seite zu verlassen"
+            >
+              Rückruf verschieben
+            </Button>
+          ) : (
+            <>
+              <DateTimeField
+                value={callbackDraft}
+                onChange={setCallbackDraft}
                 disabled={isPending}
-                onClick={() => setCallbackDraft(callbackSuggestion(task.due_at))}
-                style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
-                title="Neuen Rückruf-Zeitpunkt setzen, ohne die Seite zu verlassen"
+                ariaLabel="Neuer Rückruf-Zeitpunkt"
+              />
+              <Button
+                variant="primary"
+                fullWidth
+                disabled={isPending || !callbackDraft}
+                onClick={() => runAction(pushPhoneCallback(task.entity_id, callbackDraft), "Rückruf verschoben")}
+                icon={<Check size={14} />}
+                title="Neuen Zeitpunkt speichern — die Karte steht dann erst wieder dort"
               >
-                <CalendarClock size={12} /> Rückruf verschieben
-              </button>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap", width: "100%" }}>
-                <DateTimeField
-                  value={callbackDraft}
-                  onChange={setCallbackDraft}
-                  disabled={isPending}
-                  ariaLabel="Neuer Rückruf-Zeitpunkt"
-                  style={{ flex: 1, minWidth: 180 }}
-                />
-                <button
-                  type="button"
-                  disabled={isPending || !callbackDraft}
-                  onClick={() => runAction(pushPhoneCallback(task.entity_id, callbackDraft), "Rückruf verschoben")}
-                  style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
-                  title="Neuen Zeitpunkt speichern — die Karte steht dann erst wieder dort"
-                >
-                  <Check size={12} /> Speichern
-                </button>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => setCallbackDraft(null)}
-                  style={navBtnStyle}
-                  title="Zeitpunkt unverändert lassen"
-                >
-                  Abbrechen
-                </button>
-              </div>
-            )}
-            {/* Ab hier: Wege, keine Aktionen — deshalb ohne Fläche. */}
-            {task.list_id && (
-              <Link href={`/telefon/${task.list_id}`} style={navBtnStyle} title="Telefonliste im Call-Modus öffnen">
-                <Phone size={12} /> Anrufen
-              </Link>
-            )}
-            {task.phone && (
-              /* Die Rufnummer war die einzige orange GEFÜLLTE Pille der Karte
-                 und damit auffälliger als der eigentliche Hauptknopf daneben.
-                 Sie bleibt anklickbar (tel:) und behält die Akzentfarbe als
-                 SCHRIFT — ein Link, kein zweiter CTA. */
-              <a
-                href={`tel:${task.phone.replace(/[^\d+]/g, "")}`}
-                style={{ ...navBtnStyle, color: "var(--orange-300)" }}
-                title="Nummer direkt wählen"
+                Speichern
+              </Button>
+              <Button
+                variant="ghost"
+                fullWidth
+                disabled={isPending}
+                onClick={() => setCallbackDraft(null)}
+                title="Zeitpunkt unverändert lassen"
               >
-                {task.phone}
-              </a>
-            )}
-          </>
-        )}
+                Abbrechen
+              </Button>
+            </>
+          ))}
 
         {/* Setting und Closing tragen ein TAGESDATUM (`follow_up_due`) und
             bekommen deshalb ein festes Intervall: eine Woche, gerechnet ab
             HEUTE — bei einer überfälligen Aufgabe läge sie sonst sofort wieder
-            in der Vergangenheit. Der Weg daneben bleibt: wer das Gespräch
-            führen will, braucht die Detailseite weiterhin. */}
+            in der Vergangenheit. Der Weg zur Detailseite steht darunter in der
+            Wege-Zeile: wer das Gespräch führen will, braucht sie weiterhin. */}
         {!doneEntry && task.source === "setting" && (
-          <>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => runAction(pushFollowUpDue("setting", task.entity_id), "Wiedervorlage in 7 Tagen")}
-              style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
-              title="Kontakt erledigt — Wiedervorlage eine Woche weiter"
-            >
-              <CheckCheck size={12} /> Erledigt → +7 Tage
-            </button>
-            <Link
-              href={`/setting/${task.entity_id}${FROM_NACHFASSEN}`}
-              style={navBtnStyle}
-              title="Erstgespräch öffnen — Qualifizierung, Notizen, Ergebnis"
-            >
-              <ClipboardCheck size={12} /> Zum Setting
-            </Link>
-          </>
+          <Button
+            variant="primary"
+            fullWidth
+            disabled={isPending}
+            onClick={() => runAction(pushFollowUpDue("setting", task.entity_id), "Wiedervorlage in 7 Tagen")}
+            icon={<CheckCheck size={14} />}
+            title="Kontakt erledigt — Wiedervorlage eine Woche weiter"
+          >
+            Erledigt → +7 Tage
+          </Button>
         )}
 
         {!doneEntry && task.source === "closing" && (
-          <>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => runAction(pushFollowUpDue("closing", task.entity_id), "Wiedervorlage in 7 Tagen")}
-              style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
-              title="Kontakt erledigt — Wiedervorlage eine Woche weiter, zur selben Uhrzeit"
-            >
-              <CheckCheck size={12} /> Erledigt → +7 Tage
-            </button>
-            <Link
-              href={`/closing/${task.entity_id}${FROM_NACHFASSEN}`}
-              style={navBtnStyle}
-              title="Abschlussgespräch öffnen — Deal, Einwand, Ergebnis"
-            >
-              <Handshake size={12} /> Zum Closing
-            </Link>
-          </>
+          <Button
+            variant="primary"
+            fullWidth
+            disabled={isPending}
+            onClick={() => runAction(pushFollowUpDue("closing", task.entity_id), "Wiedervorlage in 7 Tagen")}
+            icon={<CheckCheck size={14} />}
+            title="Kontakt erledigt — Wiedervorlage eine Woche weiter, zur selben Uhrzeit"
+          >
+            Erledigt → +7 Tage
+          </Button>
         )}
 
-        {/* Recycling: erst die beiden Aktionen, dann der Weg. Vorher stand der
-            Sprung-Link VOR ihnen und sah genauso aus — vier gleiche Pillen ohne
-            erkennbaren Hauptknopf. „Nochmal versucht" ist hier der erwartete
-            Schritt (Text kopieren, rausschicken, notieren) und trägt deshalb
-            als einziges den CTA; „Reagiert" ist die Ausnahme und bleibt die
-            getönte Zweitaktion. */}
+        {/* Recycling: die beiden schreibenden Aktionen, gestapelt.
+            „Nochmal versucht" ist der erwartete Schritt (Text kopieren,
+            rausschicken, notieren) und trägt deshalb als einziges den CTA;
+            „Reagiert" ist die Ausnahme und bleibt darunter — als
+            Danger-Pendant eine reine Hairline in der Erfolgsfarbe, nicht als
+            gefüllte grüne Fläche: zwei gefüllte Knöpfe übereinander hätten
+            keinen Hauptknopf mehr. */}
         {!doneEntry && task.source === "recycling" && task.recycle_origin && (
           <>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              fullWidth
               disabled={isPending}
               onClick={() =>
                 // Der Grund kommt seit Migration 0033 aus der Ursprungszeile,
@@ -917,141 +944,97 @@ function TaskCard({ task, done }: { task: NachfassenTask; done: DoneApi }) {
                 // Fehlgriff nicht einen von zwei erlaubten Versuchen verbrennt.
                 runAction(recycleContactedUndoable(task.recycle_origin!, task.entity_id), "Versuch notiert")
               }
-              style={{ ...primaryBtnStyle, cursor: isPending ? "default" : "pointer" }}
+              icon={<RefreshCw size={14} />}
               title="Kontaktiert, noch kein Ergebnis — nächster Versuch nach der eingestellten Wartezeit"
             >
-              <RefreshCw size={12} /> Nochmal versucht
-            </button>
-            <button
-              type="button"
+              Nochmal versucht
+            </Button>
+            <Button
+              variant="success"
+              fullWidth
               disabled={isPending}
               onClick={() =>
                 runAction(recycleRespondedUndoable(task.recycle_origin!, task.entity_id), "Als reagiert markiert")
               }
-              style={{
-                ...linkBtnStyle,
-                color: "var(--color-success-text)",
-                background: "var(--color-success-bg)",
-                borderColor: "var(--color-success-border)",
-                cursor: isPending ? "default" : "pointer",
-              }}
+              icon={<Check size={14} />}
               title="Lead ist wieder im Spiel — Recycling stoppen"
             >
-              <Check size={12} /> Reagiert
-            </button>
-            {task.recycle_origin === "linkedin" && task.list_id && (
-              <Link href={`/lists/${task.list_id}`} style={navBtnStyle} title="Pitch-Liste dieses Kontakts öffnen">
-                Zur Liste <ArrowUpRight size={12} />
-              </Link>
-            )}
-            {task.recycle_origin === "telefon" && task.list_id && (
-              <Link href={`/telefon/${task.list_id}`} style={navBtnStyle} title="Telefonliste im Call-Modus öffnen">
-                <Phone size={12} /> Anrufen
-              </Link>
-            )}
-            {task.recycle_origin === "setting" && (
-              <Link
-                href={`/setting/${task.entity_id}${FROM_NACHFASSEN}`}
-                style={navBtnStyle}
-                title="Erstgespräch öffnen — Qualifizierung, Notizen, Ergebnis"
-              >
-                <ClipboardCheck size={12} /> Zum Setting
-              </Link>
-            )}
-            {task.recycle_origin === "closing" && (
-              <Link
-                href={`/closing/${task.entity_id}${FROM_NACHFASSEN}`}
-                style={navBtnStyle}
-                title="Abschlussgespräch öffnen — Deal, Einwand, Ergebnis"
-              >
-                <Handshake size={12} /> Zum Closing
-              </Link>
-            )}
+              Reagiert
+            </Button>
           </>
-        )}
-
-        {/* Gesprächsvorbereitung, deshalb VOR dem Anruf und ohne die
-            Arbeitsliste zu verlassen: das Dossier öffnet als Overlay und lädt
-            erst beim Öffnen (acht Abfragen je Karte im Voraus wären der Preis
-            für etwas, das man je Sitzung einmal liest). Neben den
-            Sprung-Knöpfen, weil es dieselbe Frage beantwortet — wo komme ich
-            an diesen Lead heran —, nur ohne wegzunavigieren. */}
-        {!doneEntry && dossierKind && (
-          <button
-            type="button"
-            onClick={() => setDossierOpen(true)}
-            style={navBtnStyle}
-            title="Alles zu diesem Lead — Verlauf, Kontaktwege, Notizen"
-          >
-            <FileText size={12} /> Details
-          </button>
         )}
 
         {/* Rohmeldung nur im `title`: Ein durchgereichtes
             „new row violates row-level security policy" sagt dem Vertrieb
             nichts, das er tun könnte.
-            Der Span steht VOR „Endgültig raus", nicht dahinter: Dessen
-            `marginLeft: auto` schluckt den freien Platz links davon — ein
-            Element danach nähme ihm die rechte Kante und schöbe den
-            Sperr-Knopf ausgerechnet in dem Moment nach links, in dem gerade
-            ein Fehler erschienen ist, also unter den Zeiger, der eben noch
-            auf „Nochmal versucht" lag. */}
+            Der Platz ist bewusst DIREKT unter den Aktionen und damit vor der
+            Wege-Zeile: Gescheitert ist einer der Knöpfe darüber, nicht ein
+            Sprung-Link — und vor „Endgültig raus" muss er ohnehin stehen, weil
+            dieser Knopf sonst in dem Moment nach unten rutscht, in dem gerade
+            ein Fehler erschienen ist. */}
         {error && (
           <span
             title={friendlyError(error) === error ? undefined : error}
-            style={{ fontSize: "0.6875rem", fontWeight: 600, color: "var(--color-error-text)" }}
+            style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--color-error-text)" }}
           >
             {friendlyError(error)}
           </span>
         )}
 
-        {/* ── „Endgültig raus" ──────────────────────────────────────────
-            Steht bewusst am ENDE der Knopfreihe, rechts abgesetzt UND als
-            einziger in der Danger-Variante — nicht mehr als dritte von drei
-            gleich aussehenden Pillen direkt neben „Reagiert": Ein Fehlgriff auf
-            28 Pixel Höhe kostete den Lead für immer — die Oberfläche kennt kein
-            Entsperren, und `reviveBlockedReason()` verweigert danach zusätzlich
-            jede Rückholung. Drei Dinge tragen das zusammen: die Position, die
-            Optik und die Rückfrage, die es ausspricht. */}
+        {/* ── Ebene 2: die Wege ────────────────────────────────────────
+            Hairline statt eigener Fläche — Struktur kommt in diesem System aus
+            1px-Linien, nicht aus Kästen. Sie stehen in EINER Zeile und nicht
+            im Stapel: Vollbreite Knöpfe würden behaupten, sie seien
+            Arbeitsschritte; sie führen aber nur woandershin. */}
+        {!doneEntry && jumps.length > 0 && <div style={jumpRowStyle}>{jumps}</div>}
+
+        {/* ── Ebene 3: „Endgültig raus" ────────────────────────────────
+            Vier Dinge setzen ihn ab, keins davon ist eine neue Farbe: Er steht
+            ganz unten und ALLEIN, hinter einer zweiten Hairline, in
+            Inhaltsbreite statt über die volle Karte, und rechtsbündig — die
+            gestapelten Aktionen darüber beginnen alle an der linken Kante.
+            Dazu die Danger-Hairline, die er schon trug, und die Rückfrage, die
+            er ausspricht: Ein Fehlgriff kostete den Lead für immer, die
+            Oberfläche kennt kein Entsperren, und `reviveBlockedReason()`
+            verweigert danach zusätzlich jede Rückholung. */}
         {!doneEntry && task.source === "recycling" && task.recycle_origin && (
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={async () => {
-              const ok = await confirm({
-                title: "Endgültig sperren?",
-                message: (
-                  <>
-                    <strong>{task.lead_name ?? "Dieser Lead"}</strong>
-                    {task.company ? ` (${task.company})` : ""} kommt damit auf die Sperrliste: keine Wiedervorlage
-                    mehr, und auch kein Zurückholen in den Funnel.
-                    <br />
-                    <br />
-                    <strong>Das lässt sich hier nicht rückgängig machen.</strong> Nur wählen, wenn der Lead
-                    ausdrücklich nicht mehr kontaktiert werden will.
-                  </>
-                ),
-                confirmLabel: "Endgültig sperren",
-                cancelLabel: "Abbrechen",
-                destructive: true,
-              });
-              // Bewusst OHNE Rückweg: Die Aktion setzt `recycle_excluded_at`
-              // und nullt die Wiedervorlage — der Dialog hat gerade
-              // ausdrücklich zugesagt, dass sich das hier nicht rückgängig
-              // machen lässt, und `reviveBlockedReason()` verweigert danach
-              // jede Rückholung. Ein Knopf, der dem widerspricht, wäre
-              // schlimmer als keiner.
-              if (ok) runAction(excludeFromRecycle(task.recycle_origin!, task.entity_id), "Endgültig gesperrt");
-            }}
-            style={{
-              ...dangerBtnStyle,
-              marginLeft: "auto",
-              cursor: isPending ? "default" : "pointer",
-            }}
-            title="Dauerhaft sperren — kein weiterer Kontaktversuch, nicht rückgängig zu machen"
-          >
-            <UserX size={12} /> Endgültig raus
-          </button>
+          <div style={dangerRowStyle}>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={isPending}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Endgültig sperren?",
+                  message: (
+                    <>
+                      <strong>{task.lead_name ?? "Dieser Lead"}</strong>
+                      {task.company ? ` (${task.company})` : ""} kommt damit auf die Sperrliste: keine Wiedervorlage
+                      mehr, und auch kein Zurückholen in den Funnel.
+                      <br />
+                      <br />
+                      <strong>Das lässt sich hier nicht rückgängig machen.</strong> Nur wählen, wenn der Lead
+                      ausdrücklich nicht mehr kontaktiert werden will.
+                    </>
+                  ),
+                  confirmLabel: "Endgültig sperren",
+                  cancelLabel: "Abbrechen",
+                  destructive: true,
+                });
+                // Bewusst OHNE Rückweg: Die Aktion setzt `recycle_excluded_at`
+                // und nullt die Wiedervorlage — der Dialog hat gerade
+                // ausdrücklich zugesagt, dass sich das hier nicht rückgängig
+                // machen lässt, und `reviveBlockedReason()` verweigert danach
+                // jede Rückholung. Ein Knopf, der dem widerspricht, wäre
+                // schlimmer als keiner.
+                if (ok) runAction(excludeFromRecycle(task.recycle_origin!, task.entity_id), "Endgültig gesperrt");
+              }}
+              icon={<UserX size={13} />}
+              title="Dauerhaft sperren — kein weiterer Kontaktversuch, nicht rückgängig zu machen"
+            >
+              Endgültig raus
+            </Button>
+          </div>
         )}
       </div>
 
@@ -1089,17 +1072,18 @@ function CardGrid({ tasks, done }: { tasks: NachfassenTask[]; done: DoneApi }) {
 type Section = { key: string; label: string; tasks: NachfassenTask[] };
 
 /* ── Optik je Sektion ──────────────────────────────────────────────────
-   Die Icon-Kachel traegt die KANAL-Farbe (Identitaet), der Badge-Ton die
-   DRINGLICHKEIT. Vorher war beides Orange — vier Sektionen im Akzent haben
-   das Budget der ganzen Seite aufgebraucht.                               */
-const SECTION_META: Record<
-  string,
-  { icon: React.ReactNode; bg: string; color: string; tone: BadgeTone }
-> = {
-  telefon: { icon: <Phone size={12} />, bg: "rgb(78 128 214 / 0.10)", color: "var(--stage-telefon)", tone: "info" },
-  setting: { icon: <ClipboardCheck size={12} />, bg: "rgb(139 92 246 / 0.10)", color: "var(--stage-setting)", tone: "neutral" },
-  closing: { icon: <Handshake size={12} />, bg: "var(--success-bg)", color: "var(--success-fg)", tone: "success" },
-  recycling: { icon: <RefreshCw size={12} />, bg: "var(--surface-3)", color: "var(--text-muted)", tone: "neutral" },
+   Die Icon-Kachel trug zuletzt die KANAL-Farbe und der Zaehler-Badge die
+   DRINGLICHKEIT — vier Sektionskoepfe untereinander in Blau, Violett, Gruen
+   und Grau, direkt ueber Karten, die dieselben vier Farben noch einmal
+   trugen. Beides ist jetzt neutral: Der Sektionstitel steht als Wort daneben,
+   das Symbol unterscheidet die Sektionen ohnehin, und der Zaehler ist eine
+   Menge und kein Zustand. Farbe bleibt auf dieser Seite der Dringlichkeit
+   vorbehalten (Ueberfaellig-Pille, Ueberfaellig-Kante, Kontaktfrequenz).   */
+const SECTION_META: Record<string, { icon: React.ReactNode } | undefined> = {
+  telefon: { icon: <Phone size={12} /> },
+  setting: { icon: <ClipboardCheck size={12} /> },
+  closing: { icon: <Handshake size={12} /> },
+  recycling: { icon: <RefreshCw size={12} /> },
 };
 
 /**
@@ -1135,7 +1119,7 @@ function CollapsibleSection({
   onToggle: () => void;
   done: DoneApi;
 }) {
-  const meta = SECTION_META[section.key] ?? SECTION_META["fu-weitere"];
+  const meta = SECTION_META[section.key];
   const crosslink = SECTION_CROSSLINK[section.key];
   const earliestDue = section.tasks.find((t) => t.due_at)?.due_at ?? null;
   const gridId = `nf-sec-${section.key}`;
@@ -1180,16 +1164,16 @@ function CollapsibleSection({
             height: 20,
             flexShrink: 0,
             borderRadius: "var(--radius-xs)",
-            background: meta.bg,
-            color: meta.color,
+            background: "var(--surface-3)",
+            color: "var(--text-muted)",
           }}
         >
-          {meta.icon}
+          {meta?.icon}
         </span>
         <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
           {section.label}
         </span>
-        <Badge tone={meta.tone} style={{ fontSize: "0.6875rem", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+        <Badge tone="neutral" style={{ fontSize: "0.6875rem", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
           {section.tasks.length}
         </Badge>
         <span aria-hidden style={{ flex: 1, height: 1, background: "var(--border)" }} />
@@ -1447,9 +1431,16 @@ export function NachfassenBoard({
           diesen Pillen. Geblieben ist die untere Reihe, weil sie außer der
           Zahl auch etwas TUT.                                             */}
       <div style={{ display: "flex", gap: "var(--sp-3)", flexWrap: "wrap", marginBottom: "var(--sp-5)" }}>
+        {/* Die aktive Pille trug bis hierher die KANAL-Farbe: „Setting" wurde
+            violett, „Closing" grün, „Telefon" blau. Der Kanal steht aber als
+            Wort auf der Pille, und eine Auswahl ist ein UI-Zustand — dafür
+            kennt das System genau eine Behandlung, und die ist der
+            Orange-Tint (`--accent-muted` + 1px Akzent-Rand). Damit gilt für
+            alle fünf Pillen dieselbe Regel statt zweier, und die Filterreihe
+            trägt keine vier Fremdfarben mehr über einer Kartenliste, die
+            gerade neutral geworden ist. */}
         {visibleFilters.map((f) => {
           const active = filter === f.value;
-          const meta = f.value !== "alle" ? CHANNEL_META[f.value] : null;
           return (
             <button
               key={f.value}
@@ -1467,9 +1458,9 @@ export function NachfassenBoard({
                 height: 28,
                 padding: "0 var(--sp-4) 0 var(--sp-5)",
                 borderRadius: "var(--r-full)",
-                border: `1px solid ${active ? (meta?.border ?? "var(--border-accent)") : "var(--border-default)"}`,
-                background: active ? (meta?.bg ?? "var(--accent-muted)") : "var(--surface-1)",
-                color: active ? (meta?.color ?? "var(--orange-300)") : "var(--text-muted)",
+                border: `1px solid ${active ? "var(--border-accent)" : "var(--border-default)"}`,
+                background: active ? "var(--accent-muted)" : "var(--surface-1)",
+                color: active ? "var(--orange-300)" : "var(--text-muted)",
                 fontSize: "var(--fs-sm)",
                 fontWeight: 500,
                 fontFamily: "inherit",

@@ -74,7 +74,7 @@ export function Badge({
   );
 }
 
-/** Kanal-/Pipeline-Farben (DESIGN.md §3.6). Erscheinen nur als Dot + Tint. */
+/** Kanal-/Pipeline-Farben (DESIGN.md §3.6). Erscheinen nur als Dot, nie als Flaeche. */
 export type StageKey = "telefon" | "linkedin" | "setting" | "closing" | "nachfassen" | "heute";
 
 export const STAGE_COLOR: Record<StageKey, string> = {
@@ -86,16 +86,13 @@ export const STAGE_COLOR: Record<StageKey, string> = {
   heute: "var(--stage-heute)",
 };
 
-const STAGE_TINT: Record<StageKey, string> = {
-  telefon: "rgb(78 128 214 / 0.10)",
-  linkedin: "rgb(13 148 136 / 0.10)",
-  setting: "rgb(139 92 246 / 0.10)",
-  closing: "rgb(63 163 111 / 0.10)",
-  nachfassen: "rgb(209 162 79 / 0.10)",
-  heute: "rgb(249 115 22 / 0.10)",
-};
-
-/** 8px-Kanal-Dot — die kleinste Kanal-Kennung (COMPONENTS.md §4.3). */
+/**
+ * 8px-Kanal-Dot — die kleinste Kanal-Kennung (COMPONENTS.md §4.3).
+ *
+ * Bleibt als Baustein fuer die Flaechen, auf denen die Kanalfarbe die EINZIGE
+ * Unterscheidung ist (Legenden, Diagramme). Auf den Arbeitsboards traegt sie
+ * nichts bei — siehe `StageBadge`.
+ */
 export function StageDot({ stage, size = 8, title }: { stage: StageKey; size?: number; title?: string }) {
   return (
     <span
@@ -113,7 +110,24 @@ export function StageDot({ stage, size = 8, title }: { stage: StageKey; size?: n
   );
 }
 
-/** Stage-Badge: Dot + Label, nie Vollflaeche in Stagefarbe (COMPONENTS.md §4.1). */
+/**
+ * Stage-Badge: benennt die Stufe — NEUTRAL, nicht in der Kanalfarbe.
+ *
+ * WARUM OHNE FARBE: Das Badge traegt die Stufe als WORT („Setting", „Closing",
+ * „Telefon-Lead"). Die Kanalfarbe wiederholt daneben nur, was schon dasteht —
+ * und auf dreissig Arbeitskarten untereinander (/nachfassen, /erinnerungen,
+ * /ablage, Lead-Dossier) stehen dann Violett, Gruen, Blau und Teal
+ * gleichzeitig auf dem Schirm. Das ist genau der Fall, den das Badge-Budget
+ * aus DESIGN.md §3.6 ausschliesst: „Hoechstens EIN farbiges Element pro
+ * Zeile" — und das eine gehoert der Dringlichkeit (ueberfaellig), nicht der
+ * Kategorie.
+ *
+ * Die Palette bleibt unangetastet, wo die Farbe die einzige Unterscheidung
+ * ist: Kalender-Chips (`lib/terminMeta.ts`) und die Diagramme des
+ * Analyse-Bereichs (Viz-/Owner-Palette). `stage` bleibt in der Signatur —
+ * die Aufrufer aendern sich dadurch nicht, und die Stufe steht als
+ * `data-stage` weiterhin im Markup.
+ */
 export function StageBadge({
   stage,
   children,
@@ -129,14 +143,9 @@ export function StageBadge({
     <span
       title={title}
       className="badge"
-      style={{
-        backgroundColor: STAGE_TINT[stage],
-        color: "var(--text-secondary)",
-        boxShadow: "var(--shadow-badge)",
-        ...style,
-      }}
+      data-stage={stage}
+      style={{ ...TONE_STYLES.neutral, ...style }}
     >
-      <StageDot stage={stage} size={6} />
       {children}
     </span>
   );
