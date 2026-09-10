@@ -59,3 +59,49 @@ entsteht dagegen ein Halbzustand; genau das ist bei 0031 passiert.
 **Die Datenbank ist dem ausgelieferten Code voraus.** Der Branch ist nicht gemergt, `main` kennt
 weder `/ablage` noch den Vorlagen-Editor. Das ist der geplante Verifikationszustand und
 gefahrlos, weil die ausgelieferte App keine der neuen Tabellen liest.
+
+## Nachtrag 2026-09-10 — Vier Lebenszyklus-Fragen beantwortet
+
+Vor dem Produktivstart gestellt und von Simon entschieden. Alle vier sind **Verhaltensregeln,
+keine Fehler** — die Software tut heute in jedem der vier Fälle etwas Definiertes, nur eben
+nicht das Gewünschte. Keine blockiert den Deploy; die Umsetzung braucht eine neue Migration
+(0041) und folgt nach dem Start.
+
+**E-N1 · Recycling-Deckel erreicht → eigene Ablage-Liste.**
+Heute wird `next_recycle_at` genullt, sobald `recycle_attempt_count >= max_attempts`; der Lead
+steht danach in keiner einzigen Liste — auch nicht auf der Sperrliste. Er verschwindet, ohne
+dass jemand das entschieden hat. Künftig trägt `dropout_lists()` eine **siebte Ansicht
+„Recycling ausgeschöpft"**: sichtbar und nachschlagbar, aber ohne Aufgabe und ohne
+Navigations-Zähler. Bewusst NICHT die Sperrliste — die ist ein Kontaktverbot, nicht ein
+„hat nicht geklappt"; zwei Bedeutungen in einer Liste wären derselbe Fehler wie ein sechster
+`status`-Wert für Absagen (§3 im Datenmodell).
+
+**E-N2 · Sperre aufheben darf jeder, der die Zeile sieht.**
+`recycle_excluded_at` wird heute an einer Stelle gesetzt und nirgends genullt — auch dann nicht,
+wenn die Sperre automatisch aus `disqualify_reason_code='keine_zusammenarbeit'` entstand und der
+Grund später korrigiert wird. Künftig gibt es „Sperre aufheben", ohne Rechtestufe.
+**Der Zielkonflikt ist benannt und bewusst in Kauf genommen:** Die Sperre aus
+`keine_zusammenarbeit` ist im Datenmodell als „kein weiteres Kontaktieren!" beschrieben, also
+eine Zusage an den Lead und nicht bloß eine interne Notiz. Ein Recht, das jeder hat, entwertet
+sie als verbindlich. Abgewogen gegen den Umstand, dass ein Fehlklick auf einer 28 Pixel hohen
+Pille den Lead sonst für immer kostet — und dass die Sperre keine dokumentierte
+Widerspruchserklärung ist, sondern eine Arbeitsnotiz. Zwei Sicherungen, die nichts blockieren:
+eine Rückfrage, die den ursprünglichen Sperrgrund im Klartext nennt, und ein Protokolleintrag
+(wer, wann). Wird die Sperre je zum echten Werbewiderspruch nach § 7 UWG, ist diese Entscheidung
+neu zu treffen.
+
+**E-N3 · Antwort im Recycling lässt die Karte stehen.**
+Heute setzt „Reagiert" nur `recycle_responded_at`; `recycle_tasks` blendet die Zeile danach aus,
+und sonst passiert nichts — kein Termin, keine Aufgabe, kein Statuswechsel. Künftig wechselt die
+Karte auf **„Reagiert — Termin vereinbaren"** und verschwindet erst, wenn jemand gehandelt hat.
+Begründung: Eine Antwort ist der wertvollste Moment im ganzen Recycling. Sie darf nicht der
+Moment sein, in dem die Karte verschwindet.
+
+**E-N4 · Persönliche Vorlagen sieht nur ihr Besitzer.**
+`message_templates_select` (0031) lässt heute jedes Mitglied mit `data_scope='workspace'` die
+persönlichen Texte der Kollegen lesen; der Kommentar in der Migration behauptet, das sei auf den
+Supportfall beschränkt — die Policy sagt etwas anderes. Künftig: **nur `auth.uid()`**, plus
+`is_platform_admin()` für den Supportfall, der damit dort liegt, wo er hingehört. Die Org-Ebene
+(`user_id is null`) bleibt für alle Mitglieder lesbar — sie ist der gemeinsame Standard.
+Schreibrechte ändern sich nicht. Anlass: Die Software geht an Kunden; ein persönlicher Text ist
+persönlich. 0031 ist eingefroren, die Policy wird in 0041 ersetzt.
