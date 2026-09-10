@@ -52,6 +52,15 @@ const CLOSING_EDITOR = read("src/components/closing/ClosingCallEditor.tsx");
 
 const NAMES = new Map([["u1", "kevin"]]);
 
+/**
+ * Ein FESTES „heute". `buildEvents` verlangt es seit dem Rückbau als Argument,
+ * weil der abgeleitete Zustand daran hängt (Termin in der Zukunft = „Verlegt").
+ * Vorher holte sich niemand ein Datum, und diese Testdatei war stillschweigend
+ * zeitabhängig: Ihre Termin-Fixture liegt auf dem 20.09.2026 und wäre ab dem
+ * 21.09.2026 in eine andere Erwartung gekippt.
+ */
+const HEUTE = "2026-09-15";
+
 /** Nur die Felder, die `fromSetting`/`fromClosing` wirklich anfassen. */
 function setting(patch: Partial<WithCancellation<SettingCall>> = {}): WithCancellation<SettingCall> {
   return {
@@ -89,13 +98,13 @@ function closing(patch: Partial<WithCancellation<ClosingCall>> = {}): WithCancel
 }
 
 function settingEvent(patch: Partial<WithCancellation<SettingCall>> = {}) {
-  const { events } = buildEvents([setting(patch)], [], NAMES);
+  const { events } = buildEvents([setting(patch)], [], NAMES, HEUTE);
   assert.equal(events.length, 1, "Termin ist aus dem Kalender verschwunden");
   return events[0];
 }
 
 function closingEvent(patch: Partial<WithCancellation<ClosingCall>> = {}) {
-  const { events } = buildEvents([], [closing(patch)], NAMES);
+  const { events } = buildEvents([], [closing(patch)], NAMES, HEUTE);
   assert.equal(events.length, 1, "Termin ist aus dem Kalender verschwunden");
   return events[0];
 }
@@ -181,7 +190,7 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
   test("ein abgesagter Termin bleibt SICHTBAR", () => {
     // Ausgeblendet wird im Kalender nichts (docs §1) — das war die Falle des
     // alten „Versteckt"-Schalters. Es geht ums Verschieben, nicht ums Anzeigen.
-    const { events, ohneTermin } = buildEvents([setting({ cancelled_at: "2026-09-10T09:00:00.000Z" })], [], NAMES);
+    const { events, ohneTermin } = buildEvents([setting({ cancelled_at: "2026-09-10T09:00:00.000Z" })], [], NAMES, HEUTE);
     assert.equal(events.length, 1);
     assert.equal(ohneTermin.length, 0);
   });
@@ -195,13 +204,47 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
     assert.equal(e.cancelled, true);
   });
 
-  test("Pill und Chip-Titel behaupten nicht mehr „Offen“", () => {
-    // Die Absage lässt `status` und `show_status` bewusst unangetastet
-    // (docs §3) — ohne eigenen Pill stand über einem abgeräumten Termin
-    // „Offen", in Liste, Popover und Chip-Titel gleichermaßen.
-    assert.equal(settingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" }).statusPill.label, "Abgesagt");
-    assert.equal(closingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" }).statusPill.label, "Abgesagt");
-    assert.equal(settingEvent().statusPill.label, "Offen");
+  test("Pill und Chip-Titel behaupten nicht, der Termin stünde noch", () => {
+    // ── GEÄNDERTE ERWARTUNG, und zwar aus dem Rückbau heraus ───────────────
+    // Die Zusicherung ist dieselbe geblieben: Über einem abgeräumten Termin
+    // darf nicht stehen, dass er stattfindet. Nur ihre BESCHRIFTUNG hat sich
+    // umgedreht, weil das Wort „Offen" jetzt das Gegenteil bedeutet.
+    //
+    // Vorher hieß „Offen" der gespeicherte `status='offen'` — „Termin steht,
+    // Ergebnis fehlt"; über einer Absage war das falsch, und ein eigener Pill
+    // „Abgesagt" hielt die Trennung. Seit dem Rückbau ist der Zustand
+    // ABGELEITET, und „Offen" heißt „es steht KEIN Termin, der Mensch liegt in
+    // der Luft" (src/lib/dranRegel.ts). Für eine Absage ist das exakt die
+    // richtige Aussage — und die nützliche dazu: Die Zeile bleibt damit in der
+    // Arbeitsmenge, statt als eigener Endzustand aus der Liste zu fallen. Ein
+    // elfter Pill „Abgesagt" wäre jetzt der Fehler; der Auftraggeber will genau
+    // einen Status je Zeile, und „Abgesagt" ist keiner seiner acht.
+    assert.equal(settingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" }).statusPill.label, "Offen");
+    assert.equal(closingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" }).statusPill.label, "Offen");
+
+    // Die Gegenprobe, die es vorher gar nicht geben konnte: Derselbe Termin
+    // OHNE Absage steht in der Zukunft und ist damit versorgt.
+    assert.equal(settingEvent().statusPill.label, "Verlegt");
+    assert.equal(settingEvent().dran, false);
+    // … und die Absage kippt ihn in die Arbeitsmenge zurück.
+    assert.equal(settingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" }).dran, true);
+  });
+
+  test("„die Absage ist überholt“ steht in `revived_at`, nicht im Datum", () => {
+    // Der teure Denkfehler, den diese Prüfung festnagelt: Man sagt ab, BEVOR
+    // der Termin ist — `appointment_at` ist also immer jünger als
+    // `cancelled_at`, und ein Vergleich der beiden Zeitstempel wäre stets
+    // „Termin gewinnt". Aus den zwei Spalten allein ist „abgesagt, altes Datum
+    // steht noch drin" von „abgesagt, danach neu terminiert" NICHT zu
+    // unterscheiden; deshalb entscheidet das dritte Feld.
+    const abgesagt = settingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" });
+    const zurueckgeholt = settingEvent({
+      cancelled_at: "2026-09-10T09:00:00.000Z",
+      revived_at: "2026-09-11T09:00:00.000Z",
+    });
+    assert.equal(abgesagt.zustand, "offen");
+    assert.equal(zurueckgeholt.zustand, "verlegt");
+    assert.equal(zurueckgeholt.dran, false);
   });
 
   test("… und er ist nicht mehr ziehbar, mit Begründung", () => {
@@ -245,7 +288,7 @@ describe("Befund 2b — terminale Status sind vollständig", () => {
     for (const status of ["unqualifiziert", "dead"] as const) {
       const e = settingEvent({ status });
       assert.ok(e.lockedReason, `${status} ist weiter ziehbar`);
-      assert.match(e.lockedReason!, /Das Erstgespräch ist mit /);
+      assert.match(e.lockedReason!, /Das Erstgespräch steht auf /);
     }
   });
 
@@ -268,13 +311,20 @@ describe("Befund 2b — terminale Status sind vollständig", () => {
   });
 
   test("die Begründung nennt das Ergebnis beim Namen", () => {
+    // GEÄNDERTE BESCHRIFTUNG, gleiche Zusicherung: Der Riegel muss das
+    // Ergebnis benennen, statt wortlos abzuprallen. Die Namen kommen seit dem
+    // Rückbau aus derselben Quelle wie der Pill in der Arbeitsliste — sonst
+    // nennt der Riegel ein Ergebnis „Unqualifiziert", während die Zeile daneben
+    // „Nicht qualifiziert" trägt. Der Satz ist dafür umformuliert („steht auf"
+    // statt „ist mit … abgeschlossen"): „Das Closing ist mit ‚Close‘
+    // abgeschlossen" wäre in der neuen Sprache ein Stolperer.
     assert.equal(
       moveLockReason("setting", "unqualifiziert", false),
-      "Das Erstgespräch ist mit „Unqualifiziert“ abgeschlossen — ein neuer Zeitpunkt ändert daran nichts.",
+      "Das Erstgespräch steht auf „Nicht qualifiziert“ — ein neuer Zeitpunkt ändert daran nichts.",
     );
     assert.equal(
       moveLockReason("closing", "gewonnen", false),
-      "Das Closing ist mit „Gewonnen“ abgeschlossen — ein neuer Zeitpunkt ändert daran nichts.",
+      "Das Closing steht auf „Close“ — ein neuer Zeitpunkt ändert daran nichts.",
     );
     // Die Absage schlägt den Status: Sie fasst ihn gar nicht an, ein abgesagtes
     // offenes Erstgespräch stünde sonst als ziehbar da.

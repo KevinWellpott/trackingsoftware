@@ -1,6 +1,7 @@
 // Geteilte Darstellungs-Metadaten für den Termin-Funnel (Setting + Closing).
 // Kalender, Listenansicht und Popover nutzen dieselbe Quelle.
 
+import { TERMIN_ZUSTAND_LABEL, type TerminZustand } from "@/lib/dranRegel";
 import type { ClosingCall, SettingCall } from "@/lib/types";
 
 /**
@@ -48,38 +49,45 @@ const WARNING: Omit<Pill, "label"> = {
   border: "rgb(209 162 79 / 0.28)",
 };
 
-export const SETTING_STATUS_META: Record<SettingCall["status"], Pill> = {
-  offen: { label: "Offen", ...NEUTRAL },
-  no_show: { label: "No-Show", ...ERROR },
-  // Grün, nicht Blau: „Qualifiziert" und „Closing gelegt" heißen auf der
-  // Setting-Stufe dasselbe wie Grün überall sonst — eine Stufe weiter. Der
-  // Auftraggeber hat für „Closing gelegt" ausdrücklich Grün verlangt; ein
-  // blauer Pill neben einem grünen Rahmen wäre genau der Widerspruch, den die
-  // gemeinsame Meta-Datei abschaffen soll.
-  qualifiziert: { label: "Qualifiziert", ...SUCCESS },
-  closing_gelegt: { label: "Closing gelegt", ...SUCCESS },
-  unqualifiziert: { label: "Unqualifiziert", ...WARNING },
-  dead: { label: "Dead", ...ERROR },
-};
-
-export const CLOSING_STATUS_META: Record<ClosingCall["status"], Pill> = {
-  offen: { label: "Offen", ...NEUTRAL },
-  gewonnen: { label: "Gewonnen", ...SUCCESS },
-  verloren: { label: "Verloren", ...ERROR },
-  nachfassen: { label: "Nachfassen", ...WARNING },
-};
-
 /**
- * Abgesagt (Migration 0032) — der eine Zustand, der KEINEN Status trägt.
+ * Der Pill EINES abgeleiteten Zustands (`TerminZustand`, src/lib/dranRegel.ts).
  *
- * 0032 hat der Absage bewusst eigene Spalten gegeben statt eines sechsten
- * `status`-Werts (docs §3): Nur so fällt ein abgesagter Termin über
- * `show_status is null` aus dem Show-Quoten-Nenner, statt als No-Show zu
- * zählen. Für die Anzeige heißt das aber: Wer nur `status` liest, hält ihn für
- * „Offen" — und genau das stand bis hierher in Liste, Popover und Chip-Titel.
- * Ein eigener Pill statt eines Status-Werts hält die Trennung durch.
+ * ── Was hier weggefallen ist und warum ────────────────────────────────────
+ * Bis zum Rückbau standen an dieser Stelle zwei Tabellen ROHER Status-Werte
+ * (`SETTING_STATUS_META`, `CLOSING_STATUS_META`) plus ein Sonder-Pill für die
+ * Absage. Zusammen waren das elf Beschriftungen für einen Bereich, in dem der
+ * Auftraggeber genau eine Aussage je Zeile sehen will — und zwei davon logen:
+ * „Offen" stand über einem Termin, der längst abgesagt war, und über einem, der
+ * nächste Woche stattfindet.
+ *
+ * Jetzt kommt die Beschriftung aus der Ableitung (dort steht auch, warum
+ * „Offen" das Gegenteil des gespeicherten `status='offen'` bedeutet), und diese
+ * Datei tut, wofür es sie gibt: Sie ordnet ihr eine Farbe zu. Die Semantik der
+ * Farben ist unverändert — Grün weitergekommen/gewonnen, Rot geplatzt/verloren,
+ * Gold da muss jemand ran, Neutral steht noch an.
+ *
+ * `offen`, `no_show` und `show` sind die Arbeitsmenge und tragen deshalb Gold:
+ * Es sind genau die drei, bei denen jemand in der Luft liegt.
  */
-export const CANCELLED_PILL: Pill = { label: "Abgesagt", ...ERROR };
+const ZUSTAND_TONE: Record<TerminZustand, Omit<Pill, "label">> = {
+  // Versorgt — ein Termin steht. Neutral heißt in diesem Bereich unverändert
+  // „steht noch an", und nichts anderes ist gemeint.
+  verlegt: NEUTRAL,
+  offen: WARNING,
+  no_show: WARNING,
+  show: WARNING,
+  // Weiter, nicht fertig: Die Arbeit hängt ab hier an der Closing-Zeile.
+  qualifiziert: SUCCESS,
+  closing_gelegt: SUCCESS,
+  nicht_qualifiziert: ERROR,
+  tot: ERROR,
+  close: SUCCESS,
+  kein_close: ERROR,
+};
+
+export function zustandPill(zustand: TerminZustand): Pill {
+  return { label: TERMIN_ZUSTAND_LABEL[zustand], ...ZUSTAND_TONE[zustand] };
+}
 
 /**
  * Rahmen-Beschreibung eines Kalender-Chips.
@@ -218,6 +226,23 @@ export const TERMINAL_SETTING_STATUS: readonly SettingCall["status"][] = ["unqua
 export const TERMINAL_CLOSING_STATUS: readonly ClosingCall["status"][] = ["gewonnen", "verloren"];
 
 /**
+ * Rohwert → abgeleiteter Zustand, aber NUR für die vier terminalen Status.
+ *
+ * Bewusst keine vollständige Abbildung: Für alles andere reicht der Status gar
+ * nicht aus, um den Zustand zu bestimmen — dort entscheiden Termin, Absage und
+ * `show_status` mit (`terminZustand()` in src/lib/dranRegel.ts). Eine
+ * vollständige Tabelle hier wäre eine zweite, ärmere Ableitung neben der
+ * richtigen, und sie stünde ausgerechnet in der Datei, aus der die Farben
+ * kommen.
+ */
+const TERMINALER_ZUSTAND: Record<string, TerminZustand> = {
+  unqualifiziert: "nicht_qualifiziert",
+  dead: "tot",
+  gewonnen: "close",
+  verloren: "kein_close",
+};
+
+/**
  * Der Satz, den ein abgesagter Termin bekommt, wenn ihn jemand verschieben
  * will — an EINER Stelle, weil ihn drei Riegel aussprechen: der Kalender-Zug,
  * `postponeAppointment` und `moveSettingAppointment` (beide
@@ -252,11 +277,11 @@ export function moveLockReason(
       ? TERMINAL_SETTING_STATUS.includes(status as SettingCall["status"])
       : TERMINAL_CLOSING_STATUS.includes(status as ClosingCall["status"]);
   if (!terminal) return null;
-  const label =
-    kind === "setting"
-      ? SETTING_STATUS_META[status as SettingCall["status"]].label
-      : CLOSING_STATUS_META[status as ClosingCall["status"]].label;
-  return `${kind === "setting" ? "Das Erstgespräch" : "Das Closing"} ist mit „${label}“ abgeschlossen — ein neuer Zeitpunkt ändert daran nichts.`;
+  // Die Beschriftung kommt aus derselben Quelle wie der Pill in der Liste —
+  // sonst nennt der Riegel ein Ergebnis beim alten Namen („Unqualifiziert"),
+  // während die Zeile daneben den neuen trägt („Nicht qualifiziert").
+  const label = TERMIN_ZUSTAND_LABEL[TERMINALER_ZUSTAND[status] ?? "tot"];
+  return `${kind === "setting" ? "Das Erstgespräch" : "Das Closing"} steht auf „${label}“ — ein neuer Zeitpunkt ändert daran nichts.`;
 }
 
 export const EUR_FMT = new Intl.NumberFormat("de-DE", {

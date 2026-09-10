@@ -16,6 +16,7 @@ import { Select, type SelectOption } from "@/components/ui/Select";
 import type { ListContact } from "@/lib/types";
 import { CATEGORY_CONFIG, SELECTABLE_CATEGORIES, categoryStyle, type AnswerCategory, type SelectableCategory } from "@/lib/categories";
 import { isoToBerlinInput } from "@/lib/apptTime";
+import { DRAN_TONE, istKontaktDran } from "@/lib/dranRegel";
 import { addDaysISO, localDateISO } from "@/lib/dates";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Ban, Calendar, CheckCircle, ExternalLink, Search, Trash2, Undo2 } from "lucide-react";
@@ -94,18 +95,11 @@ function isHotLead(c: ListContact): boolean {
   return c.answer_category === "Positiv" && c.appointment_set !== true;
 }
 
-// Fälliges Follow-up — identische Bedingung wie die Kachel "Offene Follow-ups"
-// und der nachfassen_tasks-RPC, damit sich die Zahlen nie widersprechen.
-function isDueFollowUp(c: ListContact, today: string): boolean {
-  return (
-    c.next_follow_up_at != null &&
-    c.next_follow_up_at <= today &&
-    c.answered !== true &&
-    c.appointment_set !== true &&
-    c.follow_up_number !== 3 &&
-    c.blocked_at == null
-  );
-}
+// Fälliges Follow-up — die Regel steht seit dem Rückbau in src/lib/dranRegel.ts
+// und wird von der Termin-Arbeitsliste MITBENUTZT. Zwei Formulierungen von „du
+// bist dran" waren genau der Fehler, den diese Auslagerung behebt; hier bleibt
+// nur der Aufruf, damit die Liste selbst sich für den Nutzer nicht ändert.
+const isDueFollowUp = istKontaktDran;
 
 /**
  * Welche FU-Stufe als Nächstes ansteht (1–3), sonst null.
@@ -202,7 +196,11 @@ const FU_BG: Record<number, string> = {
  * Text lesbar.
  */
 function fuTone(value: 1 | 2 | 3 | null, due: boolean): { bg: string; fg: string; border: string } {
-  if (due) return { bg: "var(--warning-bg)", fg: "var(--warning-fg)", border: "var(--warning)" };
+  // DRAN_TONE statt dreier Literale: Dieselbe Farbe leuchtet in der
+  // Termin-Arbeitsliste, und sie bedeutet dort dasselbe. Der
+  // Wiedererkennungswert dieser Liste ist der Grund, warum sie das Vorbild
+  // geworden ist — ein zweites, leicht anderes Gold hätte ihn zerlegt.
+  if (due) return { ...DRAN_TONE };
   if (value) return { bg: FU_BG[value], fg: FU_COLORS[value], border: FU_COLORS[value] };
   return { bg: "transparent", fg: "var(--text-subtle)", border: "var(--border)" };
 }
@@ -1080,18 +1078,20 @@ const MobileContactCard = memo(function MobileContactCard({
               alignItems: "center",
               justifyContent: "center",
               cursor: blocked ? "default" : "pointer",
-              // Gleiche Regel wie am Desktop-Chip: faellig schlaegt Stufe.
-              color: fuDue ? "var(--warning-fg)" : vals.follow_up_number ? FU_COLORS[vals.follow_up_number] : "var(--text-subtle)",
+              // Gleiche Regel wie am Desktop-Chip: faellig schlaegt Stufe —
+              // und dieselbe Farbquelle, damit „du bist dran" auf Mobil,
+              // Desktop und in der Termin-Arbeitsliste dasselbe Gold ist.
+              color: fuDue ? DRAN_TONE.fg : vals.follow_up_number ? FU_COLORS[vals.follow_up_number] : "var(--text-subtle)",
               fontWeight: fuDue || vals.follow_up_number ? 800 : 400,
-              background: fuDue ? "var(--warning-bg)" : vals.follow_up_number ? FU_BG[vals.follow_up_number] : "var(--surface-50)",
-              borderColor: fuDue ? "var(--warning)" : undefined,
+              background: fuDue ? DRAN_TONE.bg : vals.follow_up_number ? FU_BG[vals.follow_up_number] : "var(--surface-50)",
+              borderColor: fuDue ? DRAN_TONE.border : undefined,
               opacity: blocked ? 0.5 : 1,
             }}
             title={blocked ? "Blockiert — keine Follow-ups" : "Tippen: nächstes Follow-up erledigt"}
           >
             {vals.follow_up_number ? `FU${vals.follow_up_number}` : "FU starten"}
             {fuDue && (
-              <span style={{ marginLeft: 6, fontSize: "0.75rem", fontWeight: 600, color: "var(--warning-fg)" }}>
+              <span style={{ marginLeft: 6, fontSize: "0.75rem", fontWeight: 600, color: DRAN_TONE.fg }}>
                 · fällig
               </span>
             )}

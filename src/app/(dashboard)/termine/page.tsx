@@ -1,23 +1,34 @@
 import type { ReactNode } from "react";
 import { TermineBoard } from "@/components/termine/TermineBoard";
-import { getAccessContext, listDataViewUsers } from "@/lib/access";
+import { getAccessContext, listDataViewUsers, matchesOwnScope } from "@/lib/access";
+import { ownerUserIdOfList } from "@/lib/personResolution";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
+import type { RueckrufAufgabe } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 
-// Termine: Setting- und Closing-Calls in einem Kalender (Monat / Woche / Tag)
-// plus versteckter Listenansicht. Beide Tabellen werden komplett geladen und
-// clientseitig gefiltert — Navigation und Ansichtswechsel bleiben dadurch ohne
-// Server-Roundtrip. (Für größere Datenmengen existieren die Range-Indizes
-// idx_setting_calls_ws_appt / idx_closing_calls_ws_call_at.)
+// Die Arbeitsfläche: Setting- und Closing-Calls als Arbeitsliste (Vorgabe),
+// als Kalender (Monat / Woche / Tag) und daneben die fälligen Telefon-Rückrufe.
+// Alle drei Mengen werden komplett geladen und clientseitig gefiltert —
+// Navigation und Ansichtswechsel bleiben dadurch ohne Server-Roundtrip. (Für
+// größere Datenmengen existieren die Range-Indizes idx_setting_calls_ws_appt /
+// idx_closing_calls_ws_call_at.)
 //
 // Die Personen-Zuordnung kommt seit Migration 0028 als `assigned_user_id` mit
 // dem normalen Select mit. Vorher liefen dafür zwei zusätzliche Volldurchläufe
 // über `call_assignees` (polymorph, ohne Fremdschlüssel → nicht einbettbar),
 // deren Ergebnis im Speicher gruppiert wurde. Den Namen liefert die ohnehin
 // geladene Mitgliederliste.
+//
+// ⚠ DIE BEIDEN TERMIN-ABFRAGEN LADEN MIT `select("*")`, UND DAS MUSS SO BLEIBEN.
+// Die Arbeitsliste liest `follow_up_last_contacted_at`/`_by_user_id` aus
+// Migration 0041 — geschrieben, aber noch nicht überall eingespielt. Eine
+// namentlich selektierte fehlende Spalte lässt PostgREST die GANZE Abfrage
+// abweisen; die Seite wäre leer statt unvollständig (dieselbe Falle wie bei
+// 0029 und 0032, docs §7). Mit `*` kommen die Felder einfach nicht mit,
+// `undefined` heißt „noch nie nachgefasst", und alles andere funktioniert.
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +43,96 @@ export const dynamic = "force-dynamic";
  */
 function personScope(userId: string): string {
   return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId})`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Telefon-Rückrufe
+ * ------------------------------------------------------------------ */
+
+type LeadRow = {
+  id: string;
+  company: string | null;
+  decider_name: string | null;
+  phone: string | null;
+  callback_at: string | null;
+  list_id: string | null;
+};
+
+type ListRow = {
+  id: string;
+  name: string | null;
+  owner_name: string | null;
+  created_by_user_id: string | null;
+};
+
+/**
+ * Fällige Rückrufe für den dritten Reiter — bewusst HIER geladen und nicht über
+ * `actions/nachfassen.ts`: Die Frage ist dieselbe, aber die Zuständigkeit für
+ * diese Seite liegt hier, und ein zweiter Aufrufer einer Board-Action wäre eine
+ * Kopplung zwischen zwei Bereichen, die sonst nichts miteinander zu tun haben.
+ *
+ * Zwei einfache Abfragen statt eines eingebetteten Selects: `phone_leads` trägt
+ * den Owner nicht, der steht an der LISTE (`list_owned_by_user()`, docs §2).
+ * Der Join in JS kostet nichts (Telefonlisten sind eine Handvoll Zeilen) und
+ * erspart der Seite eine PostgREST-Einbettung, deren Rückgabeform sich je nach
+ * Version zwischen Objekt und Array unterscheidet.
+ *
+ * Der Personenfilter läuft über `matchesOwnScope` — dieselbe Regel wie der
+ * PostgREST-Filter `buildOwnScope`, nur in JS. `owner_name` hat Vorrang vor dem
+ * Ersteller: Eine Liste, die ein Admin FÜR ein Mitglied angelegt hat, gehört
+ * dem Mitglied.
+ */
+async function ladeRueckrufe(
+  workspaceId: string,
+  access: Awaited<ReturnType<typeof getAccessContext>>,
+  usernameToUserId: Map<string, string>,
+): Promise<RueckrufAufgabe[]> {
+  const supabase = await createClient();
+  const [leads, lists] = await Promise.all([
+    fetchAllRows<LeadRow>((from, to) =>
+      supabase
+        .from("phone_leads")
+        .select("id, company, decider_name, phone, callback_at, list_id")
+        .eq("workspace_id", workspaceId)
+        .eq("status", "rueckruf")
+        .not("callback_at", "is", null)
+        .order("callback_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows<ListRow>((from, to) =>
+      supabase
+        .from("phone_lists")
+        .select("id, name, owner_name, created_by_user_id")
+        .eq("workspace_id", workspaceId)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  ]);
+
+  const byId = new Map(lists.map((l) => [l.id, l]));
+  const aufgaben: RueckrufAufgabe[] = [];
+  for (const lead of leads) {
+    if (!lead.callback_at) continue;
+    const list = lead.list_id ? byId.get(lead.list_id) : undefined;
+    // Ein Lead ohne auffindbare Liste hat keinen Owner und damit keinen Platz
+    // in einer persönlichen Liste — er fällt weg, statt allen zu erscheinen.
+    if (!list) continue;
+    if (access && !matchesOwnScope(access, list)) continue;
+    const ownerUserId = ownerUserIdOfList(list, usernameToUserId);
+    aufgaben.push({
+      id: lead.id,
+      company: lead.company,
+      decider: lead.decider_name,
+      phone: lead.phone,
+      callbackAt: lead.callback_at,
+      listId: list.id,
+      listName: list.name,
+      ownerUserId,
+      ownerName: list.owner_name,
+    });
+  }
+  return aufgaben;
 }
 
 /* ------------------------------------------------------------------ *
@@ -129,9 +230,13 @@ function ChipLegende() {
 
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
         <strong style={{ color: "var(--text-primary)" }}>Farbe = Ausgang</strong>
+        {/* „ohne Ergebnis" statt „offen": Der Rahmen des Chips beschreibt, ob
+            ein Ergebnis feststeht — „Offen" heißt in der Arbeitsliste daneben
+            inzwischen etwas anderes (es steht kein Termin). Ein Wort, das auf
+            derselben Seite zweierlei bedeutet, erklärt nichts mehr. */}
         <span>
           Grün weitergekommen oder gewonnen · Rot geplatzt oder verloren · Gold da muss jemand ran · Grau noch
-          offen.
+          ohne Ergebnis.
         </span>
       </div>
 
@@ -171,8 +276,11 @@ export default async function TerminePage() {
     listDataViewUsers(access.workspace_id).catch(() => []),
   ]);
 
-  const offen =
-    settings.filter((c) => c.status === "offen").length + closings.filter((c) => c.status === "offen").length;
+  const usernameToUserId = new Map(members.map((m) => [m.username, m.user_id]));
+  // `available`-Rückfall wie bei `loadCallAttempts` (docs §5.1): Eine
+  // gescheiterte Abfrage darf nicht wie „keine Rückrufe" aussehen — und schon
+  // gar nicht die ganze Seite mitnehmen, deren Hauptaufgabe woanders liegt.
+  const rueckrufe = await ladeRueckrufe(access.workspace_id, access, usernameToUserId).catch(() => null);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
@@ -182,7 +290,7 @@ export default async function TerminePage() {
           beantwortet dagegen eine Frage zum Inhalt darunter — dieselbe Stelle
           wie auf /ablage. */}
       <PageHeader
-        eyebrow="Kalender"
+        eyebrow="Arbeitsfläche"
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
             Termine
@@ -191,10 +299,15 @@ export default async function TerminePage() {
             </InfoPopover>
           </span>
         }
-        meta="Setting &amp; Closing in einem Kalender · Setting 30 min · Closing 60 min"
+        meta="Wer liegt in der Luft, wer ist versorgt · Setting 30 min · Closing 60 min"
         actions={
+          // Bewusst NUR die Gesamtzahl. Die frühere Kachel zählte zusätzlich
+          // „offen" über `status='offen'` — und genau dieser Wert heißt in der
+          // neuen Sprache das Gegenteil (er bedeutet „Termin steht, Ergebnis
+          // fehlt", docs §4). Eine Zahl, die dem Reiter darunter widerspricht,
+          // ist schlimmer als keine; was zu tun ist, sagt die Liste selbst.
           <span className="badge badge-gray tnum">
-            {(settings.length + closings.length).toLocaleString("de-DE")} Termine · {offen.toLocaleString("de-DE")} offen
+            {(settings.length + closings.length).toLocaleString("de-DE")} Termine
           </span>
         }
       />
@@ -203,7 +316,14 @@ export default async function TerminePage() {
         settings={settings}
         closings={closings}
         members={members.map((m) => ({ user_id: m.user_id, username: m.username }))}
-        canFilterPersons={!access.effective_user_id}
+        rueckrufe={rueckrufe ?? []}
+        rueckrufeVerfuegbar={rueckrufe != null}
+        // „Eine Liste pro Person": Vorgabe ist die persönliche Sicht. Bei
+        // aktiver Datensicht ist das der Kollege, dessen Liste man abarbeitet
+        // (`effective_user_id`), sonst das eigene Konto — dieselbe Regel wie bei
+        // den Navigations-Zählern (docs §5.4).
+        scopeUserId={access.effective_user_id ?? access.user.id}
+        canSeeAll={!access.effective_user_id}
       />
     </div>
   );

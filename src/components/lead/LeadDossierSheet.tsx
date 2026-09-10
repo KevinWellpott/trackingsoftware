@@ -6,10 +6,9 @@ import { getLeadDossier, type LeadDossierResult } from "@/app/actions/leadDossie
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierEmpty, LeadDossierPanel } from "@/components/lead/LeadDossierPanel";
 
-// Das Dossier als Overlay über einem Board. Damit lässt es sich später aus
-// /nachfassen und /erinnerungen mit zwei Zeilen öffnen (ein Zustand, ein
-// <LeadDossierSheet …/>), ohne dass die Seiten dafür serverseitig etwas
-// nachladen müssen.
+// Das Dossier als Overlay über einem Board. Damit lässt es sich aus /nachfassen
+// und /ablage mit zwei Zeilen öffnen (ein Zustand, ein <LeadDossierSheet …/>),
+// ohne dass die Seiten dafür serverseitig etwas nachladen müssen.
 //
 // Geladen wird ERST beim Öffnen: Eine Karte, die ihr Dossier im Voraus
 // mitbrächte, verteuerte jedes Board um acht Abfragen JE KARTE — gelesen wird

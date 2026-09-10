@@ -1,32 +1,59 @@
-// Ablage: die sechs „gesonderten Listen" aus dem Konzept — reine Bibliothek
-// (kein "use server"/"use client"), Muster recycleCadence.ts.
+// Ablage: was aus dem Funnel gefallen ist — reine Bibliothek (kein
+// "use server"/"use client"), Muster recycleCadence.ts.
 //
-// Die Ausarbeitung nennt an vier Stellen eine „gesonderte Liste"; der
-// Auftraggeber hat daraus EINEN Bereich gemacht, der jede Liste in einer
-// eigenen Ansicht zeigt (ENTSCHEIDUNGEN.md #7). Die Zugehörigkeit steht in
-// keiner Tabelle, sondern wird in `dropout_lists()` (Migration 0033) aus dem
-// Zeilenzustand abgeleitet — eine Ablage-Tabelle wäre eine zweite Wahrheit
-// neben `status` und `cancelled_at` und liefe beim ersten Statuswechsel
-// auseinander.
+// Die Zugehörigkeit steht in keiner Tabelle, sondern wird in `dropout_lists()`
+// (Migration 0033) aus dem Zeilenzustand abgeleitet — eine Ablage-Tabelle wäre
+// eine zweite Wahrheit neben `status` und `cancelled_at` und liefe beim ersten
+// Statuswechsel auseinander.
+//
+// ── Rückbau: aus sechs Reitern werden zwei ───────────────────────────────────
+// Die sechs Reiter der RPC hatten ihren Sinn, solange der Grund eine FOLGE
+// hatte: Er bestimmte die Recycling-Wartezeit und die Kaskade. Beides ist
+// gefallen — eine Frist für alle, keine Kaskade. Damit unterscheiden vier der
+// sechs Listen nur noch die Art des Endes, und die steht ohnehin auf jeder
+// Karte. Vier Reiter für „ist raus" sind genau die Sorte Aufteilung, gegen die
+// sich dieser Rückbau richtet.
+//
+// Was bleibt, sind die beiden Ansichten, die etwas ANDERES sind als der Rest:
+//   · Ausgeschieden — alles, was aus dem Funnel gefallen ist, in EINER Liste.
+//   · Gesperrt      — das Kontaktverbot. Org-weit sichtbar, deckt als einzige
+//                     alle vier Ursprungstabellen ab.
+//
+// Und eine Liste ist GANZ weg: „Abgesagt, Ersatztermin steht aus" beschreibt
+// keinen Endzustand, sondern einen Lead ohne nächsten Termin — also genau den,
+// der in der Hauptliste steht und täglich genervt wird. Ein Archivreiter für
+// offene Arbeit war schon vorher die Ausnahme (er war der einzige mit einem
+// Zähler); jetzt ist er eine zweite, stille Arbeitsliste neben der einen
+// richtigen.
 //
 // Diese Datei hält nur das, was Seite, Board und Server-Action GEMEINSAM
-// brauchen: die Liste der Listen, die Beschriftung der Gründe und die eine
-// Regel, wann ein Recycling überhaupt vorgezogen werden darf.
+// brauchen: die beiden Ansichten samt ihrer Quellen, die Beschriftung der
+// Gründe und die eine Regel, wann ein Recycling überhaupt vorgezogen werden darf.
 
 import { RECYCLE_REASON_LABELS } from "@/lib/recycleCadence";
 import { CLOSING_LOST_REASON_LABELS } from "@/lib/types";
 
-/** Die sechs Werte, die `dropout_lists(p_list)` akzeptiert. */
-export type DropoutListKey =
+/**
+ * Die Werte, die die App an `dropout_lists(p_list)` schickt.
+ *
+ * Die RPC ist eingefroren (Migration 0033) und kennt einen sechsten Wert,
+ * `ersatztermin_offen`. Er steht hier bewusst NICHT: Die App fragt ihn nicht
+ * mehr ab, seit der Zustand „abgesagt, kein Ersatz" in die Hauptliste gehört.
+ * Ein Schlüssel, den niemand sendet, gehört nicht in einen Typ, der beschreibt,
+ * was gesendet wird.
+ */
+export type DropoutSourceList =
   | "abgesagt"
-  | "ersatztermin_offen"
   | "disqualifiziert"
   | "kein_close"
   | "no_show_ohne_antwort"
   | "gesperrt";
 
+/** Die beiden Ansichten der Ablage — `?liste=`. */
+export type DropoutListKey = "ausgeschieden" | "gesperrt";
+
 /**
- * Die beiden Termin-Tabellen. Fünf der sechs Listen kennen nur sie: Absage,
+ * Die beiden Termin-Tabellen. Alles außer der Sperrliste kennt nur sie: Absage,
  * Disqualifizierung, Verlust und No-Show sind Ereignisse, die es ausschließlich
  * an einem Termin gibt.
  */
@@ -62,66 +89,37 @@ export type DropoutListMeta = {
    */
   orgWide?: true;
   /**
-   * true = in dieser Liste steht eine Handlung offen; sie ist die einzige, die
-   * einen Navigations-Zähler bekommt. Genau EINE der sechs trägt das Flag:
-   * Ein Aktenschrank mahnt nicht, ein ausstehender Ersatztermin schon. Die
-   * Umschaltleiste hebt ihre Zahl deshalb hervor — sonst sähe man den sechs
-   * Reitern nicht an, welcher Arbeit enthält und welcher nur Archiv ist.
+   * Woraus die Ansicht entsteht — ein Aufruf von `dropout_lists()` je Eintrag,
+   * die Ergebnisse werden entdoppelt zusammengelegt.
+   *
+   * DIE REIHENFOLGE IST DIE VORRANGKETTE beim Entdoppeln, und sie ist nicht
+   * beliebig: Derselbe Termin kann in mehreren Quellen stehen (ein
+   * disqualifiziertes Erstgespräch, das später abgesagt wurde, steht in beiden).
+   * Vorn steht deshalb, was den aussagekräftigsten Grund mitbringt —
+   * `disqualify_reason_code` und `lost_reason_code` vor dem Absagegrund, und
+   * ganz hinten der No-Show, für den die RPC gar keinen Grund liefert.
+   *
+   * Nebeneffekt, auf den `listFeedsRecycling` baut: Damit gewinnt immer die
+   * Quelle, deren Status-Zweig auch wirklich ein Recycling speist — ein
+   * verlorenes Closing kommt über `kein_close` herein und nicht über die
+   * Absage, die beim Closing keinen Zweig hat.
    */
-  openAction?: true;
+  sources: readonly DropoutSourceList[];
 };
 
 /**
- * Reihenfolge = Weg durch den Funnel: erst die abgesagten Termine, dann die
- * beiden Stellen, an denen ein Gespräch stattfand und nichts wurde, dann der
- * No-Show — und ganz am Ende die Sperrliste, die keine Stufe ist, sondern ein
- * Verbot.
+ * Zwei Ansichten: erst der Aktenschrank, dann das Verbot. Die Sperrliste steht
+ * hinten, weil sie keine Stufe des Funnels ist, sondern eine Anweisung.
  */
 export const DROPOUT_LISTS: readonly DropoutListMeta[] = [
   {
-    key: "abgesagt",
-    // „Abgesagt" allein wäre die halbe Wahrheit: Die Liste enthält NUR die
-    // Absagen ohne Aussicht auf einen neuen Termin, die übrigen stehen im
-    // Reiter daneben. Wer alle Absagen sucht und hier landet, hält die Hälfte
-    // für alles — deshalb steht der Unterschied schon im Reiter.
-    tab: "Abgesagt — endgültig",
-    title: "Abgesagt ohne Aussicht",
-    meta: "Termin abgesagt, ein neuer ist nicht in Sicht.",
+    key: "ausgeschieden",
+    tab: "Ausgeschieden",
+    title: "Ausgeschieden",
+    meta: "Aus dem Funnel gefallen — abgesagt, disqualifiziert, verloren oder ohne Antwort.",
     derivation:
-      "Termine mit gesetztem Absagegrund, deren Aussicht auf „ohne Aussicht“ steht. Ein abgesagter Termin behält seinen Status — die Absage steht in eigenen Feldern, damit er aus dem Nenner der Show-Quote fällt, statt sie zu verfälschen.",
-  },
-  {
-    key: "ersatztermin_offen",
-    tab: "Ersatztermin offen",
-    title: "Abgesagt, Ersatztermin steht aus",
-    meta: "Abgesagt mit Aussicht auf einen neuen Termin — der aber noch nicht steht.",
-    derivation:
-      "Absagen mit Aussicht „neuer Termin“, bei denen noch kein Ersatz eingetragen ist. Sobald der Ersatztermin steht, verschwindet der Vorgang hier und die Erinnerungen starten neu.",
-    openAction: true,
-  },
-  {
-    key: "disqualifiziert",
-    tab: "Disqualifiziert",
-    title: "Disqualifiziert",
-    meta: "Setting geführt, der Lead passt nicht — oder ist ganz abgesprungen.",
-    derivation:
-      "Settings, die als „Unqualifiziert“ oder „Dead“ abgeschlossen wurden. Der Grund steht als Code (Statistik) neben dem Freitext (Gedächtnis) — nur über den Code lässt sich zählen, woran es lag.",
-  },
-  {
-    key: "kein_close",
-    tab: "Kein Close",
-    title: "Kein Close",
-    meta: "Abschlussgespräch geführt, Deal verloren.",
-    derivation:
-      "Closings im Status „verloren“. Derselbe Verlustgrund-Code bestimmt die Recycling-Wartezeit — „Timing“ lohnt nach Wochen erneut, „Vertrauen“ erst nach Monaten, „Falsche Zielgruppe“ und „Kein Fit“ nie.",
-  },
-  {
-    key: "no_show_ohne_antwort",
-    tab: "No-Show",
-    title: "No-Show ohne Antwort",
-    meta: "Nicht erschienen — und auf keinen der Nachfass-Kontakte reagiert.",
-    derivation:
-      "Termine mit No-Show, deren Ausgang als „ohne Antwort“ festgehalten wurde. Wer geantwortet oder einen Ersatztermin bekommen hat, steht bewusst nicht hier: das sind die beiden anderen Ausgänge, die ein No-Show haben kann.",
+      "Vier Endzustände in einer Liste: Termine, die ohne Aussicht abgesagt wurden, Erstgespräche mit dem Ergebnis „Unqualifiziert“ oder „Dead“, verlorene Abschlussgespräche und No-Shows, auf die nie eine Antwort kam. Was davon zutrifft, steht als Kennzeichen auf jeder Karte — der Grund daneben. Getrennte Reiter dafür gab es, solange der Grund die Wartezeit bis zum nächsten Versuch bestimmte; heute gilt eine Frist für alle.",
+    sources: ["disqualifiziert", "kein_close", "abgesagt", "no_show_ohne_antwort"],
   },
   {
     key: "gesperrt",
@@ -131,23 +129,64 @@ export const DROPOUT_LISTS: readonly DropoutListMeta[] = [
     derivation:
       "Vorgänge mit dauerhaftem Kontaktverbot über alle vier Ursprünge — Setting, Closing, LinkedIn-Kontakt und Telefon-Lead. Diese Liste ignoriert als einzige die eingestellte Datensicht: ein Kontaktverbot, das nur sein Besitzer sieht, ist keines.",
     orgWide: true,
+    sources: ["gesperrt"],
   },
 ];
 
 const LIST_BY_KEY = new Map<string, DropoutListMeta>(DROPOUT_LISTS.map((l) => [l.key, l]));
 
+/**
+ * Die alten Reiter-Adressen. Bis zum Rückbau war jede der sechs RPC-Listen eine
+ * eigene Ansicht mit eigener URL — die stehen in Lesezeichen und in geteilten
+ * Links. Sie führen deshalb weiter auf die Ansicht, in der ihr Inhalt jetzt
+ * liegt, statt stumm auf der ersten zu landen (Muster: die abgeklemmten
+ * Altrouten, die weiterleiten, statt zu verschwinden).
+ *
+ * `ersatztermin_offen` ist der eine Fall ohne Nachfolger in der Ablage: Sein
+ * Inhalt ist in die Hauptliste gewandert, nicht ins Archiv. Er fällt auf die
+ * erste Ansicht zurück — dort steht wenigstens etwas, statt einer Fehlerseite.
+ */
+const LEGACY_VIEW = new Map<string, DropoutListKey>([
+  ["abgesagt", "ausgeschieden"],
+  ["disqualifiziert", "ausgeschieden"],
+  ["kein_close", "ausgeschieden"],
+  ["no_show_ohne_antwort", "ausgeschieden"],
+]);
+
 export function isDropoutListKey(value: unknown): value is DropoutListKey {
   return typeof value === "string" && LIST_BY_KEY.has(value);
 }
 
-/** Unbekannter oder fehlender Parameter fällt auf die erste Liste zurück. */
+/** Unbekannter oder fehlender Parameter fällt auf die erste Ansicht zurück. */
 export function parseDropoutList(value: unknown): DropoutListKey {
-  return isDropoutListKey(value) ? value : DROPOUT_LISTS[0].key;
+  if (isDropoutListKey(value)) return value;
+  if (typeof value === "string") {
+    const legacy = LEGACY_VIEW.get(value);
+    if (legacy) return legacy;
+  }
+  return DROPOUT_LISTS[0].key;
 }
 
 export function dropoutListMeta(key: DropoutListKey): DropoutListMeta {
   return LIST_BY_KEY.get(key) ?? DROPOUT_LISTS[0];
 }
+
+/**
+ * Was auf der Karte steht, statt eines Reiters: Woher die Zeile kommt.
+ *
+ * In der zusammengelegten Ansicht ist das die einzige Stelle, an der die vier
+ * Endzustände noch auseinandergehalten werden — vorher trug das der Reitername.
+ * Ohne diesen Chip stünde ein No-Show ohne Antwort nur mit „Ohne Grund" da (die
+ * RPC liefert für ihn gar keinen Grund-Code), und niemand wüsste, warum der
+ * Vorgang überhaupt in der Ablage liegt.
+ */
+export const DROPOUT_SOURCE_LABELS: Record<DropoutSourceList, string> = {
+  abgesagt: "Abgesagt",
+  disqualifiziert: "Disqualifiziert",
+  kein_close: "Kein Close",
+  no_show_ohne_antwort: "No-Show ohne Antwort",
+  gesperrt: "Gesperrt",
+};
 
 /* ------------------------------------------------------------------ *
  * Gründe
@@ -185,9 +224,9 @@ const DISQUALIFY_REASON_LABELS: Record<string, string> = {
  * fällt die Wiedervorlage in `recycle_tasks` auf den festverdrahteten Ersatzwert
  * „dead" zurück und die Karte behauptet einen Grund, der nicht stimmt.
  *
- * Die Codes tragen bewusst die Namen der Ablage-Listen: Der Nutzer hat sie als
- * Reiter schon gelesen, und was in einer Liste liegt, heißt in der Wiedervorlage
- * genauso.
+ * Die Codes tragen bewusst dieselben Wörter wie die Kennzeichen auf den
+ * Ablage-Karten (`DROPOUT_SOURCE_LABELS`): Der Nutzer hat sie dort schon
+ * gelesen, und was in der Ablage liegt, heißt in der Wiedervorlage genauso.
  */
 const ABLAGE_REASON_LABELS: Record<string, string> = {
   abgesagt: "Abgesagt",
@@ -265,7 +304,7 @@ const NEVER_RECYCLE: Record<DropoutEntity, readonly string[]> = {
 };
 
 /**
- * Speist diese Liste überhaupt einen Zweig von `recycle_tasks`?
+ * Speist eine Zeile aus DIESER Quelle überhaupt einen Zweig von `recycle_tasks`?
  *
  * `recycle_tasks` prüft je Zweig den STATUS, nicht die Ablage-Zugehörigkeit:
  * Erstgespräche kommen über „dead/unqualifiziert", „No-Show ohne Antwort" oder
@@ -273,15 +312,20 @@ const NEVER_RECYCLE: Record<DropoutEntity, readonly string[]> = {
  * Ein vorgezogenes Datum auf einer Zeile daneben wäre unsichtbar — die Aufgabe
  * tauchte in „Nachfassen" nie auf, und niemand wüsste, warum.
  *
+ * Gefragt wird nach der QUELLE der Zeile, nicht nach der Ansicht: Seit die vier
+ * Endzustände in einer Liste stehen, ist die Antwort innerhalb einer Ansicht
+ * nicht mehr einheitlich — ein abgesagtes Closing und ein verlorenes liegen
+ * nebeneinander, und nur das verlorene speist einen Zweig.
+ *
  * Die beiden Lead-Ursprünge stehen nur in der Sperrliste, und die speist
  * ohnehin nichts — für sie ist die Antwort immer `false`.
  */
-export function listFeedsRecycling(list: DropoutListKey, entity: DropoutEntity): boolean {
-  if (list === "gesperrt" || list === "ersatztermin_offen") return false;
+export function listFeedsRecycling(source: DropoutSourceList, entity: DropoutEntity): boolean {
+  if (source === "gesperrt") return false;
   if (entity === "linkedin" || entity === "telefon") return false;
   return entity === "closing"
-    ? list === "kein_close"
-    : list === "abgesagt" || list === "disqualifiziert" || list === "no_show_ohne_antwort";
+    ? source === "kein_close"
+    : source === "abgesagt" || source === "disqualifiziert" || source === "no_show_ohne_antwort";
 }
 
 /**
@@ -378,17 +422,17 @@ export function reviveBlockedReason(gate: ReviveGate): string | null {
 }
 
 /**
- * Lässt sich in dieser Liste ÜBERHAUPT ein neuer Termin ansetzen?
+ * Lässt sich in dieser Ansicht ÜBERHAUPT etwas anstoßen — ein neuer Termin oder
+ * eine vorgezogene Wiedervorlage?
  *
- * Gegenstück zu `listFeedsRecycling` und aus demselben Grund da: Gilt die
- * Absage für JEDE Zeile der Ansicht, steht sie einmal am Fuß des Boards statt
- * auf zwanzig Karten. Genau so liegt es in der Sperrliste — `dropout_lists()`
- * liefert dort ausschließlich Zeilen mit gesetztem Kontaktverbot, und ein neuer
- * Termin widerspräche der Sperre. In den übrigen fünf Listen hängt es dagegen
- * an der einzelnen Zeile (bereits angesetzt, oder gar kein Termin), und dann
- * gehört der Satz auf die betroffene Karte.
+ * Die Frage ist deshalb eine einzige, weil sie in der Sperrliste EINE Antwort
+ * hat: `dropout_lists('gesperrt')` liefert ausschließlich Zeilen mit gesetztem
+ * Kontaktverbot, und das schlägt beide Aktionen zugleich. Gilt ein Grund für
+ * jede Zeile der Ansicht, steht er einmal am Fuß des Boards statt auf zwanzig
+ * Karten; in „Ausgeschieden" hängt er dagegen an der einzelnen Zeile und gehört
+ * auf die betroffene Karte.
  *
- * Dieselbe Antwort entscheidet, ob der Fußtext den Knopf überhaupt erklärt:
+ * Dieselbe Antwort entscheidet, ob der Fußtext die Aktionen überhaupt erklärt:
  * Eine Erläuterung zu einer Aktion, die auf keiner Karte angeboten wird, ist
  * schlimmer als keine — sie lässt den Nutzer nach einem Knopf suchen.
  */

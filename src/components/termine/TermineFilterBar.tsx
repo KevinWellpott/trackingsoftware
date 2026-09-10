@@ -2,26 +2,32 @@
 
 import { Segmented } from "@/components/ui/Segmented";
 import { Input } from "@/components/ui/Input";
-import { CalendarDays, ChevronLeft, ChevronRight, List, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { TerminView, TerminZeit } from "./viewState";
+import type { TerminTab, TerminView, TermineWer, TerminZeit } from "./viewState";
 
 // Kopfleiste des Termine-Bereichs — EINE Zeile.
 //
-// Die frühere zweite Zeile (Typ · Person · Versteckte) ist ersatzlos weg:
-//  · Setting/Closing steht als Füllfarbe im Chip selbst,
-//  · die Person als Owner-Avatar im Chip,
-//  · und „Versteckte" war kein Filter, sondern eine Falle — Unqualifizierte
-//    und tote Termine verschwanden dort lautlos. Sie haben jetzt eine eigene
-//    Farbe und bleiben sichtbar (siehe lib/terminMeta.ts).
+// ── Die Umkehrung des Rückbaus ────────────────────────────────────────────
+// Bis hierher war der Kalender die Seite und die Arbeitsliste ein
+// unbeschrifteter Umschalt-Knopf ganz rechts außen. Jetzt stehen die drei
+// Ansichten als gleichrangige Reiter nebeneinander — Liste zuerst —, und die
+// Monat/Woche/Tag-Auswahl ist das, was sie immer war: eine Frage INNERHALB des
+// Kalenders. Sie erscheint nur, wenn der Kalender offen ist.
 //
-// Übrig bleibt, was die Ansicht wirklich steuert: Zeitraum, Suche, Darstellung.
-// Der Platzgewinn kommt direkt dem Kalender zugute — genau das war die
-// Vorgabe („oben eig fast alles raus").
+// Der Personenschalter daneben ist die zweite Vorgabe des Auftraggebers: „Eine
+// Liste pro Person." Er zeigt sich nur, wenn es etwas zu schalten gibt — bei
+// aktiver Datensicht hat der Server die Menge längst zugeschnitten.
 
 export type Member = { user_id: string; username: string };
 
-const VIEW_OPTIONS = [
+const TAB_OPTIONS = [
+  { value: "liste", label: "Liste" },
+  { value: "kalender", label: "Kalender" },
+  { value: "rueckruf", label: "Rückrufe" },
+] as const;
+
+const KALENDER_OPTIONS = [
   { value: "monat", label: "Monat" },
   { value: "woche", label: "Woche" },
   { value: "tag", label: "Tag" },
@@ -30,8 +36,13 @@ const VIEW_OPTIONS = [
 // Zeitfenster der Arbeitsliste. In den Kalenderansichten setzt der Zeitraum
 // bereits die Grenze — dort steht an dieser Stelle die Datums-Navigation.
 const ZEIT_OPTIONS = [
-  { value: "anstehend", label: "Anstehend" },
-  { value: "vergangen", label: "Vergangen" },
+  { value: "zu_tun", label: "Zu tun" },
+  { value: "verlegt", label: "Verlegt" },
+  { value: "alle", label: "Alle" },
+] as const;
+
+const WER_OPTIONS = [
+  { value: "mein", label: "Meine" },
   { value: "alle", label: "Alle" },
 ] as const;
 
@@ -50,26 +61,37 @@ const navBtn: React.CSSProperties = {
 
 export function TermineFilterBar({
   view,
+  tab,
   periodLabel,
   search,
   zeit,
+  wer,
+  canSeeAll,
   onSearch,
   onZeit,
+  onWer,
+  onTab,
   onView,
   onStep,
   onToday,
 }: {
   view: TerminView;
+  tab: TerminTab;
   periodLabel: string;
   search: string;
   zeit: TerminZeit;
+  wer: TermineWer;
+  /** Owner mit Team-Sicht: nur er darf über die eigene Liste hinaussehen. */
+  canSeeAll: boolean;
   onSearch: (q: string) => void;
   onZeit: (z: TerminZeit) => void;
+  onWer: (w: TermineWer) => void;
+  onTab: (t: TerminTab) => void;
   onView: (v: TerminView) => void;
   onStep: (dir: -1 | 1) => void;
   onToday: () => void;
 }) {
-  const isList = view === "liste";
+  const isKalender = tab === "kalender";
 
   // Eingabe lokal puffern und verzoegert in die URL schreiben. setParam macht
   // ein router.replace — pro Tastendruck waere das ein Server-Roundtrip.
@@ -106,16 +128,10 @@ export function TermineFilterBar({
         flexWrap: "wrap",
       }}
     >
-      {/* Links: Datums-Navigation (Kalender) bzw. Zeitfenster (Liste).
-          Dieselbe Stelle, dieselbe Aufgabe — „welcher Ausschnitt?". */}
-      {isList ? (
-        <Segmented
-          options={ZEIT_OPTIONS}
-          value={zeit}
-          onChange={(z) => onZeit(z)}
-          ariaLabel="Zeitfenster"
-        />
-      ) : (
+      {/* Links: was den Ausschnitt steuert. Im Kalender die Datums-Navigation,
+          in der Liste das Zeitfenster, bei den Rückrufen nichts — dort ist die
+          Fälligkeit der Ausschnitt. */}
+      {isKalender ? (
         <>
           <button type="button" onClick={() => onStep(-1)} aria-label="Zurück" style={navBtn}>
             <ChevronLeft size={15} />
@@ -137,8 +153,16 @@ export function TermineFilterBar({
           >
             Heute
           </button>
+          <Segmented
+            options={KALENDER_OPTIONS}
+            value={view === "monat" || view === "tag" ? view : "woche"}
+            onChange={(v) => onView(v)}
+            ariaLabel="Kalender-Ansicht"
+          />
         </>
-      )}
+      ) : tab === "liste" ? (
+        <Segmented options={ZEIT_OPTIONS} value={zeit} onChange={(z) => onZeit(z)} ariaLabel="Zeitfenster" />
+      ) : null}
 
       <span
         style={{
@@ -177,26 +201,10 @@ export function TermineFilterBar({
             style={{ minHeight: "var(--h-control)", padding: "0.35rem 0.75rem 0.35rem 2rem", fontSize: "var(--fs-sm)" }}
           />
         </div>
-        <Segmented
-          options={VIEW_OPTIONS}
-          value={isList ? "woche" : view}
-          onChange={(v) => onView(v)}
-          ariaLabel="Kalender-Ansicht"
-        />
-        <button
-          type="button"
-          onClick={() => onView(isList ? "woche" : "liste")}
-          title={isList ? "Zurück zum Kalender" : "Arbeitsliste"}
-          aria-pressed={isList}
-          style={{
-            ...navBtn,
-            borderColor: isList ? "var(--border-strong)" : "var(--border-default)",
-            background: isList ? "var(--surface-3)" : "var(--surface-2)",
-            color: isList ? "var(--text-primary)" : "var(--text-muted)",
-          }}
-        >
-          {isList ? <CalendarDays size={15} /> : <List size={15} />}
-        </button>
+        {canSeeAll && (
+          <Segmented options={WER_OPTIONS} value={wer} onChange={(w) => onWer(w)} ariaLabel="Wessen Termine" />
+        )}
+        <Segmented options={TAB_OPTIONS} value={tab} onChange={(t) => onTab(t)} ariaLabel="Ansicht" />
       </div>
     </div>
   );

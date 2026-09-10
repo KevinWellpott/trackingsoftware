@@ -33,12 +33,19 @@
 // erreichten Stand (`follow_up_number`, `status`). Solche Ereignisse tragen
 // `estimated: true` und werden nach `updated_at` einsortiert; die Karte sagt
 // das dazu, statt einen erfundenen Zeitpunkt als Tatsache zu zeigen.
+//
+// FUENF QUELLEN, NICHT MEHR SECHS. Die Erinnerungs-Kaskade ist mit dem Rueckbau
+// gefallen; `reminder_touches` fuellt keine Oberflaeche mehr, und eine
+// Zeitleiste, die daraus liest, zeigte zuerst dauerhaft dasselbe und dann
+// dauerhaft nichts. An ihre Stelle tritt der Nachfass-Stempel der Terminliste
+// (`follow_up_last_contacted_at`, Migration 0041) — dasselbe Ereignis in der
+// neuen, flachen Form: „hier wurde genervt, und zwar an diesem Tag". Ohne ihn
+// verlöre ausgerechnet „zuletzt kontaktiert" den haeufigsten Kontakt ueberhaupt.
 
 import { berlinDateISO } from "@/lib/apptTime";
-import { CASCADE_KIND_LABELS, type CascadeKind } from "@/lib/cascadeEngine";
 // Tagesabstand und Beschriftung liegen in contactGap.ts: Dieselbe Zahl steht
-// auch auf den Karten von /nachfassen und /erinnerungen — sie muss dort
-// wortgleich heissen, sonst liest sie sich wie drei verschiedene Zahlen.
+// auch auf den Karten von /nachfassen — sie muss dort wortgleich heissen, sonst
+// liest sie sich wie zwei verschiedene Zahlen.
 import { dayDiff, lastContactLabel } from "@/lib/contactGap";
 import { channelLabel } from "@/lib/channels";
 // Deckt alle vier Grund-Familien ab. Wichtig fuer `recycle_reason_code`: bei
@@ -46,7 +53,6 @@ import { channelLabel } from "@/lib/channels";
 // Recycling-Map nicht kennt — er stuende sonst hier roh und in der Ablage
 // ausgeschrieben.
 import { dropoutReasonLabel } from "@/lib/dropoutLists";
-import { isTemplateKey, TEMPLATE_META } from "@/lib/messageTemplates";
 import {
   ALL_SETTING_BLOCKS,
   CLOSING_BLOCKS,
@@ -230,6 +236,11 @@ export type DossierSetting = RecycleFields & {
   objections_handled: string | null;
   objections_open: string | null;
   follow_up_due: string | null;
+  /** Nachfass-Stempel der Terminliste (Migration 0041) — s. Kopf der Datei. */
+  follow_up_last_contacted_at: string | null;
+  follow_up_last_contacted_by_user_id: string | null;
+  /** Aufgeloest in der Server-Action; null = niemand oder Konto gelöscht. */
+  follow_up_last_contacted_username: string | null;
   no_show_count: number | null;
   no_show_resolution: string | null;
   cancelled_at: string | null;
@@ -266,6 +277,11 @@ export type DossierClosing = RecycleFields & {
   lost_reason: string | null;
   follow_up_due: string | null;
   follow_up_due_at: string | null;
+  /** Nachfass-Stempel der Terminliste (Migration 0041) — s. Kopf der Datei. */
+  follow_up_last_contacted_at: string | null;
+  follow_up_last_contacted_by_user_id: string | null;
+  /** Aufgeloest in der Server-Action; null = niemand oder Konto gelöscht. */
+  follow_up_last_contacted_username: string | null;
   script_answers: Record<string, string> | null;
   notes: string | null;
   objections_handled: string | null;
@@ -284,22 +300,6 @@ export type DossierClosing = RecycleFields & {
   updated_at: string;
 };
 
-export type DossierTouch = {
-  id: string;
-  entity_type: string;
-  entity_id: string;
-  cascade_kind: string;
-  touch_kind: string;
-  step_no: number;
-  template_key: string;
-  channel: string | null;
-  due_at: string;
-  outcome: string | null;
-  done_at: string | null;
-  done_note: string | null;
-  superseded_at: string | null;
-};
-
 export type DossierInput = {
   anchor: DossierAnchor;
   contacts: DossierContact[];
@@ -307,7 +307,6 @@ export type DossierInput = {
   settings: DossierSetting[];
   closings: DossierClosing[];
   attempts: DossierAttempt[];
-  touches: DossierTouch[];
   /** „Jetzt" als ISO — kommt vom Server, nie aus der Browser-Zone (docs §6). */
   now: string;
 };
@@ -316,7 +315,7 @@ export type DossierInput = {
  * Ergebnis
  * ------------------------------------------------------------------ */
 
-export type DossierEventSource = "linkedin" | "telefon" | "setting" | "closing" | "erinnerung" | "recycling";
+export type DossierEventSource = "linkedin" | "telefon" | "setting" | "closing" | "recycling";
 
 export type DossierEventTone = "neutral" | "success" | "warning" | "danger" | "info";
 
@@ -702,14 +701,6 @@ const NO_SHOW_RESOLUTION_LABELS: Record<string, string> = {
   ersatztermin: "Ersatztermin vereinbart",
 };
 
-const TOUCH_OUTCOME_LABELS: Record<string, string> = {
-  antwort: "Antwort erhalten",
-  keine_antwort: "Keine Antwort",
-  bestaetigt: "Bestätigt",
-  abgesagt: "Abgesagt",
-  verschoben: "Verschoben",
-};
-
 const SCRIPT_LABELS = new Map<string, string>(
   [...ALL_SETTING_BLOCKS, ...LEGACY_SETTING_BLOCKS, ...CLOSING_BLOCKS, ...LEGACY_CLOSING_BLOCKS].map((b) => [
     b.key,
@@ -796,9 +787,6 @@ export function buildDossier(input: DossierInput): LeadDossier {
   const attempts = input.attempts
     .filter((a) => core.leadIds.has(a.lead_id))
     .sort((a, b) => a.called_at.localeCompare(b.called_at));
-  const touches = input.touches.filter(
-    (t) => core.settingIds.has(t.entity_id) || core.closingIds.has(t.entity_id),
-  );
 
   const found =
     contacts.length > 0 || leads.length > 0 || settings.length > 0 || closings.length > 0;
@@ -1029,7 +1017,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
       id: `setting:${s.id}:revived`,
       source: "setting",
       title: "Ersatztermin eingetragen",
-      detail: "Die Erinnerungen starten damit neu.",
+      detail: "Der Vorgang läuft ab hier über den neuen Termin weiter.",
       tone: "success",
       at: s.revived_at,
     });
@@ -1041,6 +1029,8 @@ export function buildDossier(input: DossierInput): LeadDossier {
       at: s.follow_up_due,
       tone: "info",
     });
+
+    addFollowUpStamp(b, "setting", `setting:${s.id}`, s);
 
     note(`setting:${s.id}:notes`, "Notiz zum Setting", s.notes, "setting");
     note(`setting:${s.id}:ziel`, "Soll / Ziel", s.soll_ziel, "setting");
@@ -1115,6 +1105,8 @@ export function buildDossier(input: DossierInput): LeadDossier {
       tone: "info",
     });
 
+    addFollowUpStamp(b, "closing", `closing:${c.id}`, c);
+
     b.add({
       id: `closing:${c.id}:contract`,
       source: "closing",
@@ -1139,40 +1131,6 @@ export function buildDossier(input: DossierInput): LeadDossier {
       note(`closing:${c.id}:script:${key}`, SCRIPT_LABELS.get(key) ?? key, value, "closing");
     }
     addRecycleEvents(b, "closing", `closing:${c.id}`, c, warnings);
-  }
-
-  /* ── Erinnerungen ──────────────────────────────────────────── */
-  for (const t of touches) {
-    // Entwertete Touches (superseded) sind Planungsreste einer verschobenen
-    // Kaskade — sie sagen nichts ueber den Lead und stehen deshalb nicht in
-    // seiner Akte. Erledigte bleiben, auch wenn sie spaeter entwertet wurden.
-    if (t.superseded_at && !t.done_at) continue;
-    const stepLabel = isTemplateKey(t.template_key)
-      ? TEMPLATE_META[t.template_key].label
-      : `Stufe ${t.step_no}`;
-    const kindLabel = CASCADE_KIND_LABELS[t.cascade_kind as CascadeKind] ?? t.cascade_kind;
-
-    if (t.done_at) {
-      b.add({
-        id: `touch:${t.id}:done`,
-        source: "erinnerung",
-        title: `Erinnerung gesendet: ${stepLabel}`,
-        detail: joinDetails([kindLabel, t.channel, lookup(TOUCH_OUTCOME_LABELS, t.outcome), t.done_note]),
-        tone: t.outcome === "antwort" ? "success" : "neutral",
-        at: t.done_at,
-        contactedLead: true,
-      });
-      continue;
-    }
-
-    b.add({
-      id: `touch:${t.id}:due`,
-      source: "erinnerung",
-      title: `Erinnerung fällig: ${stepLabel}`,
-      detail: joinDetails([kindLabel, t.channel]),
-      tone: "info",
-      at: t.due_at,
-    });
   }
 
   /* ── Sortierung ────────────────────────────────────────────── */
@@ -1364,6 +1322,49 @@ export function buildDossier(input: DossierInput): LeadDossier {
     notes,
     warnings: [...new Set(warnings)],
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Nachfass-Stempel der Terminliste (Migration 0041)
+ * ------------------------------------------------------------------ */
+
+/** Die zwei Stempel-Spalten plus den in der Action aufgeloesten Namen. */
+type FollowUpStamp = {
+  follow_up_last_contacted_at: string | null;
+  follow_up_last_contacted_username: string | null;
+};
+
+/**
+ * „Abgehakt" aus der Terminliste — der Nachfolger der erledigten Erinnerung.
+ *
+ * Es ist der HAEUFIGSTE Kontakt im neuen Ablauf: Wer offen ist, wird jeden Tag
+ * genervt, und jeder dieser Kontakte stempelt hier. Deshalb `contactedLead:
+ * true` — ohne das zeigte „zuletzt kontaktiert" bei einem taeglich bearbeiteten
+ * Lead das Datum seines letzten Termins, also ein Datum von vor Wochen.
+ *
+ * NUR DER LETZTE. Die Spalte haelt einen Zeitpunkt, keine Historie: Wer dreimal
+ * nachgefasst hat, hinterlaesst eine Zeile, nicht drei. Das ist bewusst so —
+ * ein Ereignis-Log je Nachfass-Klick waere genau der Ueberbau, der gerade
+ * abgeraeumt wurde. Die Zeitleiste sagt es deshalb dazu, statt einen einzelnen
+ * Eintrag wie den vollstaendigen Verlauf aussehen zu lassen.
+ */
+function addFollowUpStamp(
+  b: EventBuilder,
+  source: DossierEventSource,
+  prefix: string,
+  row: FollowUpStamp,
+): void {
+  b.add({
+    id: `${prefix}:followed_up`,
+    source,
+    title: "Nachgefasst",
+    detail: joinDetails([
+      row.follow_up_last_contacted_username,
+      "Zuletzt in der Terminliste abgehakt — frühere Nachfass-Kontakte hält die App nicht fest.",
+    ]),
+    at: row.follow_up_last_contacted_at,
+    contactedLead: true,
+  });
 }
 
 /* ------------------------------------------------------------------ *

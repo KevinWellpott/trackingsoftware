@@ -198,54 +198,30 @@ describe("B · Der Leerzustand von /erinnerungen sagt, warum nichts dasteht", ()
 });
 
 /* ------------------------------------------------------------------ *
- * C — /nachfassen: der Verweis behauptet keine Kaskade
+ * C — /nachfassen verweist nicht mehr auf die Kaskade
  * ------------------------------------------------------------------ */
 
-describe("C · Der Verweis nach /erinnerungen benennt eine Bedingung, keinen Bestand", () => {
-  const verweis = slice(NACHFASSEN, "const SECTION_CROSSLINK", "/* ── Einklappbare Sektion");
+describe("C · Kein Verweis mehr nach /erinnerungen", () => {
+  // HIER STAND: „Der Verweis nach /erinnerungen benennt eine Bedingung, keinen
+  // Bestand" — vier Zusicherungen an `SECTION_CROSSLINK`, den beiden Links von
+  // /nachfassen nach /erinnerungen und ihrer Bedingung im Info-Popover.
+  //
+  // Der Rückbau hat den Gegenstand entfernt, nicht die Sorgfalt: /erinnerungen
+  // ist eine Weiterleitung, die stundengenaue Kaskade hat keine Oberfläche
+  // mehr, und die beiden Sektionen, die den Verweis trugen (Setting- und
+  // Closing-Wiedervorlage), stehen nicht mehr auf /nachfassen. Ein Verweis auf
+  // eine Kette, die niemand mehr erzeugt, wäre genau die Behauptung ohne
+  // Bestand, gegen die dieser Block einmal geschrieben wurde — die Zusicherung
+  // dreht sich deshalb um.
 
-  test("beide Verweise sind an eine Bedingung geknüpft", () => {
-    // Vorher stand dort als Tatsache, was am Montag in null Fällen zutraf.
-    //
-    // Seit dem Aufräumen der Erklärtexte trägt der LINK nur noch den kurzen
-    // Namen des Ziels; die Bedingung steht vollständig im `info`-Text hinter
-    // dem Icon. Geprüft wird deshalb nicht mehr das Wort „sofern" am Label,
-    // sondern dass es die Bedingung überhaupt noch gibt — und dass sie den
-    // Möglichkeitsfall benennt statt einen Bestand zu behaupten.
-    for (const [sektion, anker] of [
-      ["closing", "closing:"],
-      ["setting", "setting:"],
-    ] as const) {
-      const eintrag = slice(verweis, anker, "},");
-      assert.match(eintrag, /info:/, `Der Verweis der Sektion ${sektion} erklärt nicht, wann es dort etwas gibt.`);
-      assert.match(
-        eintrag,
-        /können|kann/,
-        `Der Verweis der Sektion ${sektion} behauptet weiterhin einen Bestand statt einer Möglichkeit.`,
-      );
-    }
+  test("weder Tabelle noch Link sind übrig geblieben", () => {
+    assert.doesNotMatch(NACHFASSEN, /SECTION_CROSSLINK/);
+    assert.doesNotMatch(NACHFASSEN, /href="\/erinnerungen"/);
   });
 
-  test("die Erklärung nennt den Grund, aus dem es dort leer sein kann", () => {
-    assert.match(verweis, /verschoben|geändert|angelegt|eingetragen/, "Wann eine Kaskade entsteht, muss dastehen.");
-  });
-
-  test("Gegenprobe: verlinkt bleiben genau die zwei Sektionen mit echter Überschneidung", () => {
-    // docs/data-model.md §1: LinkedIn-Follow-up, Telefon-Rückruf und Recycling
-    // erzeugen gar keine Kaskade — ein Verweis dort zeigte auf lauter
-    // erledigte oder nie existierende Stufen.
-    for (const fremd of ["fu-1", "fu-2", "fu-3", "telefon", "recycling"]) {
-      assert.doesNotMatch(verweis, new RegExp(`"${fremd}"|\\b${fremd.replace("-", "\\-")}:`), `${fremd} darf keinen Verweis tragen.`);
-    }
-  });
-
-  test("und der Verweis wird auch wirklich mit Erklärung gerendert", () => {
-    // Sonst steht die Begründung nur im Modul und nie auf dem Bildschirm.
-    // Erreichbar ist sie jetzt über das Info-Icon statt über einen `title` —
-    // ein Tooltip gibt es auf dem Touchgerät gar nicht, und das Board wird
-    // auch am Telefon benutzt.
-    const render = slice(NACHFASSEN, "SECTION_CROSSLINK[section.key]", "<CardGrid");
-    assert.match(render, /<InfoPopover/, "Die Erklärung muss neben dem Link stehen.");
-    assert.match(render, /\{crosslink\.info\}/, "… und der Text muss auch wirklich hineingereicht werden.");
+  test("Gegenprobe: die Route ist wirklich eine Weiterleitung", () => {
+    // Sonst wäre die Entfernung ein Verlust statt einer Bereinigung — dann
+    // gäbe es die Seite noch, nur ohne Weg dorthin.
+    assert.match(read("src/app/(dashboard)/erinnerungen/page.tsx"), /redirect\("\/termine"\)/);
   });
 });

@@ -37,16 +37,16 @@ import {
 } from "@/lib/leadDossier";
 
 // Das Lead-Dossier als Panel: eine Karte, die genauso in einer eigenen Route
-// wie in einem Seiten-Panel von /nachfassen oder /erinnerungen steht. Sie holt
-// nichts nach — alles kommt als Prop, damit sie in beiden Rahmen ohne
-// zweiten Datenweg funktioniert.
+// wie in einem Seiten-Panel von /nachfassen oder /ablage steht. Sie holt nichts
+// nach — alles kommt als Prop, damit sie in beiden Rahmen ohne zweiten Datenweg
+// funktioniert.
 //
 // Die Reihenfolge ist die eines Anrufs, nicht die der Datenbank: Wer spreche
 // ich an → wann hatte ich zuletzt Kontakt → worüber erreiche ich ihn → was
 // weiß ich über ihn → was ist offen → was war.
 //
-// Ember Glass: Karten, Abstände und Token wörtlich wie in
-// ErinnerungenBoard/AblageBoard; Orange trägt nie Status (DESIGN.md §3.5).
+// Ember Glass: Karten, Abstände und Token wörtlich wie im AblageBoard; Orange
+// trägt nie Status (DESIGN.md §3.5).
 
 /* ------------------------------------------------------------------ *
  * Beschriftungen & kleine Bausteine
@@ -57,7 +57,6 @@ const SOURCE_META: Record<DossierEventSource, { label: string; stage: StageKey |
   telefon: { label: "Telefon", stage: "telefon" },
   setting: { label: "Setting", stage: "setting" },
   closing: { label: "Closing", stage: "closing" },
-  erinnerung: { label: "Erinnerung", stage: "nachfassen" },
   recycling: { label: "Recycling", stage: null },
 };
 
@@ -398,7 +397,7 @@ export function LeadDossierPanel({ dossier }: { dossier: LeadDossier }) {
           {(lastContact.caveats.length > 0 || lastContact.estimated) && (
             <InfoPopover label="Wie sicher ist diese Zahl?" width={360}>
               Gezählt wird über <strong>alle</strong> Quellen zusammen: Pitches, Anwahlen, geführte Termine,
-              abgehakte Erinnerungen und Recycling-Versuche.{" "}
+              abgehaktes Nachfassen aus der Terminliste und Recycling-Versuche.{" "}
               {lastContact.estimated
                 ? "Der jüngste Kontakt trägt keinen erfassten Zeitpunkt und ist nur eingeordnet — deshalb das ≈."
                 : ""}
@@ -528,8 +527,8 @@ export function LeadDossierPanel({ dossier }: { dossier: LeadDossier }) {
           <InfoPopover label="Was die Zeitleiste zeigt — und was nicht" width={400}>
             Neuestes zuerst. Ein <strong>≈</strong> heißt: Der Zeitpunkt ist nicht erfasst und nur eingeordnet — die
             App speichert für LinkedIn-Follow-ups und für Gesprächsausgänge nur den erreichten Stand, kein Ereignis.
-            Entwertete Erinnerungen (Planungsreste eines verschobenen Termins) stehen bewusst nicht hier, erledigte
-            schon.
+            Vom Nachfassen aus der Terminliste steht aus demselben Grund nur der <strong>letzte</strong> Kontakt hier:
+            Die Liste hält fest, wann zuletzt genervt wurde, nicht wie oft.
           </InfoPopover>
         </div>
         {dossier.events.length === 0 ? (

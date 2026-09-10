@@ -223,29 +223,35 @@ describe("Navigations-Zähler", () => {
  * ------------------------------------------------------------------ */
 
 describe("Tooltips", () => {
-  test("Nachfassen nennt die Quellen, die dort wirklich stehen", () => {
+  test("Nachfassen nennt die Quelle, die dort wirklich steht", () => {
     // Der LinkedIn-Zweig ist aus /nachfassen entfernt; der Tooltip war danach
     // die letzte Stelle der Oberfläche, die ihn noch behauptete. Ein Tooltip,
     // der eine Quelle verspricht, die auf der Seite fehlt, ist schlimmer als
     // gar keiner — man sucht dann dort, wo nichts ist.
     const arbeit = block("arbeit");
     assert.doesNotMatch(arbeit, /Tägliche Wiedervorlage: LinkedIn-Follow-ups/);
-    for (const quelle of ["Telefon-Rückrufe", "Setting- und Closing-Wiedervorlagen", "Recycling-Versuche"]) {
-      assert.ok(arbeit.includes(quelle), `Der Nachfassen-Tooltip nennt „${quelle}" nicht`);
-    }
+    assert.ok(arbeit.includes("Recycling-Versuche"), "Der Nachfassen-Tooltip nennt die Recycling-Versuche nicht");
     // Das LinkedIn-RECYCLING ist geblieben — nur die Follow-ups sind weg. Der
     // Tooltip muss beides sagen, sonst liest er sich wie „LinkedIn kommt hier
     // gar nicht mehr vor".
     assert.ok(arbeit.includes("LinkedIn-Follow-ups erledigt das Listen-Board"));
+
+    // WAS HIER NICHT MEHR STEHT, und warum: „Telefon-Rückrufe" und „Setting-
+    // und Closing-Wiedervorlagen" waren bis zum Rückbau Pflichtbestandteile
+    // dieses Tooltips. Beide Quellen sind aus /nachfassen in die Terminliste
+    // gewandert; sie hier weiter einzufordern hieße, den Tooltip auf eine
+    // Aussage festzunageln, die inzwischen falsch ist — genau der Fehler, den
+    // die erste Zeile dieses Tests verhindern soll. Der Tooltip-TEXT selbst
+    // wird zentral nachgezogen (Sidebar.tsx gehört keiner Spur dieser Welle).
   });
 
   test("die Quellenliste des Tooltips deckt sich mit dem Typ der Seite", () => {
-    // Die eine Stelle, an der steht, was /nachfassen zeigt. Kommt hier ein
-    // fünfter Wert dazu oder fällt einer weg, muss der Tooltip mitwandern.
-    assert.match(
-      NACHFASSEN_ACTION,
-      /export type NachfassenSource = "telefon" \| "closing" \| "setting" \| "recycling";/,
-    );
+    // Die eine Stelle, an der steht, was /nachfassen zeigt. Aus vier Quellen
+    // ist eine geworden — und damit aus der `source`-Union der URSPRUNG des
+    // Leads: dieselbe Zeile beantwortet jetzt, aus welcher der vier
+    // Ursprungstabellen er stammt.
+    assert.doesNotMatch(NACHFASSEN_ACTION, /export type NachfassenSource/);
+    assert.match(NACHFASSEN_ACTION, /export type RecycleTask = \{\n {2}origin: RecycleOrigin;/);
   });
 
   test("es gibt keine Erinnerungs-Zeile mehr, die eine Kaskade verspricht", () => {

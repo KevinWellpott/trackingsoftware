@@ -4,13 +4,16 @@ import { BackLink } from "@/components/ui/BackLink";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 import { PageHeader } from "@/components/ui/PageHeader";
 
-// Nachfassen: Union-Tasklist aller fälligen Aufgaben aus VIER Quellen —
-// Telefon-Rückruf, Erstgespräch- und Closing-Wiedervorlage sowie Recycling —
-// mit vorbereitetem Kopier-Text, kein Auto-Versand.
+// Recycling: die Wiedervorlage für Leads, die schon einmal aus dem Funnel
+// gefallen sind — verlorene Closings, tote Telefon- und Erstgespräch-Leads,
+// LinkedIn-Kontakte nach FU3 ohne Antwort.
 //
-// LinkedIn-Follow-ups stehen hier nicht mehr; sie werden in der Ansicht
-// „Nachfassen" der jeweiligen Pitch-Liste erledigt, wo auch die FU-Sequenz der
-// Liste gepflegt wird (Begründung in actions/nachfassen.ts).
+// Die Seite hieß einmal „Nachfassen" und trug vier Quellen. Drei davon sind
+// Zeilen, die „in der Luft liegen", und stehen jetzt in der Terminliste; hier
+// blieb die eine, die dort nicht hingehört (Begründung in
+// actions/nachfassen.ts). Die ROUTE behält ihren Namen — Lesezeichen und der
+// Rückweg der Detailseiten (`?from=nachfassen`) hängen daran —, der TITEL sagt,
+// was die Seite heute ist.
 
 export default async function NachfassenPage({
   searchParams,
@@ -18,14 +21,12 @@ export default async function NachfassenPage({
   searchParams: Promise<{ alle?: string }>;
 }) {
   const sp = await searchParams;
-  // `?alle=1` hat genau einen Zweck: die Altlasten mitladen. Vorher hing daran
-  // zusätzlich der Pitch-Schnitt der LinkedIn-Leads — der ist mit der Quelle
-  // entfallen, der Schalter bleibt, weil es weiterhin etwas auszupacken gibt.
+  // `?alle=1` hat genau einen Zweck: die Altlasten mitladen — Versuche, deren
+  // Fälligkeit über ein Vierteljahr zurückliegt (lib/staleTasks.ts).
   const showingAll = sp.alle === "1";
-  // Bewusst als Ganzes durchgereicht statt Feld für Feld: Das Ergebnis trägt
-  // neben den Aufgaben zwei Verfügbarkeits-Flaggen und die Altlast-Zähler, und
-  // ein hier vergessenes Feld wäre auf dieser Seite besonders teuer — eine
-  // nicht durchgereichte Flagge sähe im Board exakt wie „nichts zu tun" aus.
+  // Bewusst als Ganzes durchgereicht statt Feld für Feld: Neben den Aufgaben
+  // trägt das Ergebnis die Verfügbarkeits-Flagge und den Altlast-Zähler, und
+  // eine hier vergessene Flagge sähe im Board exakt wie „nichts zu tun" aus.
   const result = await getNachfassenTasks({ includeOlder: showingAll });
 
   return (
@@ -33,22 +34,19 @@ export default async function NachfassenPage({
       <BackLink href="/" label="Dashboard" />
 
       {/* Die Beschreibung der Seite steht hinter dem Info-Icon, nicht als Absatz
-          darunter: Wer dieses Board jeden Morgen abarbeitet, liest sie zum
-          hundertsten Mal — die Filterreihe darunter sagt ihm ohnehin sofort,
-          was heute fällig ist. Nachschlagbar bleibt sie an Ort und Stelle.
-          Das `info`-Element trägt bewusst keinen Handler: Die Seite ist eine
-          Server Component, `preventDefault`/`stopPropagation` sitzen im
+          darunter. Das `info`-Element trägt bewusst keinen Handler: Die Seite
+          ist eine Server Component, `preventDefault`/`stopPropagation` sitzen im
           Client-Teil `InfoPopover` (docs §5.1). */}
       <PageHeader
         eyebrow="Wiedervorlage"
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
-            Nachfassen
-            <InfoPopover label="Nachfassen: was hier steht" width={380}>
-              Was ist heute fällig? Telefon-Rückrufe, Wiedervorlagen aus Setting und Closing sowie fällige
-              Recycling-Versuche — jeweils mit fertigem Text zum Kopieren, kein Auto-Versand.
-              LinkedIn-Follow-ups stehen nicht hier, sondern in der Ansicht &bdquo;Nachfassen&ldquo; der jeweiligen
-              Pitch-Liste, wo auch die Follow-up-Texte gepflegt werden.
+            Recycling
+            <InfoPopover label="Recycling: was hier steht" width={380}>
+              Welcher tote Lead ist wieder einen Versuch wert? Verlorene Closings, tote Telefon- und
+              Erstgespräch-Leads und LinkedIn-Kontakte ohne Antwort — jeder mit dem Grund, aus dem er damals
+              herausgefallen ist. Die Wartezeit bis zum nächsten Anlauf steht in den Einstellungen. Was heute
+              ansteht und was in der Luft liegt, steht dagegen in der Terminliste.
             </InfoPopover>
           </span>
         }

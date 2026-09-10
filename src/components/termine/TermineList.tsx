@@ -1,28 +1,38 @@
 "use client";
 
-import { channelColor, channelLabel } from "@/lib/channels";
+import { markFollowUpContacted, markTerminDead, setNeuerTermin } from "@/app/actions/followUpStamp";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { formatTerminParts } from "@/lib/apptTime";
+import { dayDiff, lastContactLabel } from "@/lib/contactGap";
+import { DRAN_TONE, istInArbeitsmenge } from "@/lib/dranRegel";
+import { dueDayOf } from "@/lib/dueState";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { TerminEvent } from "@/lib/termine";
 import { EUR_FMT } from "@/lib/terminMeta";
 import { ArrowDown, ArrowUp, CalendarClock, CalendarX2, Phone, Video } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { kindLabel } from "./EventChip";
+import { TerminAktionen } from "./TerminAktionen";
 import type { SortDir, TerminSort, TerminZeit } from "./viewState";
 
-// Die Arbeitsliste — vorher eine zweite, größere Ausgabe des Kalenders.
+// DIE ARBEITSFLÄCHE. „Eine Liste pro Person. Darauf stehen die Namen, die
+// genervt werden müssen. Fertig."
 //
-// Sie war als Kartenstapel eine reine Dublette: dieselben Chips, nur breiter,
-// chronologisch gruppiert. Alles, was sie zeigte, zeigt der Kalender besser.
-// Der eine Grund, sie NICHT zu löschen: Termine ohne gesetzten Zeitpunkt haben
-// im Raster keinen Platz und tauchen ausschließlich hier auf — ohne die Liste
-// wären sie unerreichbar.
+// Vorbild ist die LinkedIn-Liste, und zwar in genau dem Punkt, der sie
+// funktionieren lässt: EIN Feld leuchtet Gold, und Gold heißt ausnahmslos „du
+// bist dran". Hier ist es die Termin-Spalte — die Spalte, die die eine Frage
+// beantwortet, auf die es ankommt: steht ein Termin (dann ist er versorgt) oder
+// keiner (dann liegt er in der Luft). Die Regel dafür steht nicht hier, sondern
+// in src/lib/dranRegel.ts, gemeinsam mit der der LinkedIn-Liste — zwei
+// Definitionen von „du bist dran" waren der Fehler, den dieser Umbau behebt.
 //
-// Also wird sie das, was der Kalender nicht kann: eine dichte, sortierbare
-// Tabelle über ALLE Termine, mit den vier Spalten, nach denen man wirklich
-// sucht — Person, Quelle, Status, Ergebnis. Eine Zeile pro Termin statt einer
-// Karte; auf einen Bildschirm passen damit rund fünfmal so viele.
+// Was die Liste NICHT mehr tut: nur lesen. Jede Zeile trägt die drei Handgriffe
+// aus dem Zielbild (genervt · neuer Termin · tot), alle ohne Seitenwechsel.
+//
+// Und was sie nicht mehr zeigt: die Quellen-Spalte. Woher ein Lead kam, ändert
+// nichts daran, ob er heute genervt werden muss.
 
 /** Zeilen ohne Zeitpunkt sortieren immer nach oben — sie sind unerledigt. */
 const NO_DATE_KEY = "0000-00-00";
@@ -32,15 +42,13 @@ type Column = {
   label: string;
   /** Spaltenbreite; leer = flexibel. */
   width?: number;
-  align?: "left" | "right";
 };
 
 const COLUMNS: readonly Column[] = [
-  { key: "zeit", label: "Termin", width: 148 },
+  { key: "zeit", label: "Termin", width: 176 },
   { key: "lead", label: "Lead / Firma" },
   { key: "person", label: "Person", width: 132 },
-  { key: "quelle", label: "Quelle", width: 132 },
-  { key: "status", label: "Status", width: 138 },
+  { key: "status", label: "Status", width: 132 },
 ];
 
 /** Sortierschlüssel je Spalte — immer ein String, damit localeCompare reicht. */
@@ -52,8 +60,6 @@ function sortKey(e: TerminEvent, sort: TerminSort): string {
       // Ohne Zuweisung ans Ende, egal in welche Richtung sortiert wird —
       // „niemand zuständig" ist kein Name, sondern eine Lücke.
       return e.assignee?.username.toLowerCase() ?? "￿";
-    case "quelle":
-      return channelLabel(e.sourceType, e.kind === "closing" ? "—" : "Sonstige").toLowerCase();
     case "status":
       return e.statusPill.label.toLowerCase();
     default:
@@ -69,6 +75,7 @@ export function TermineList({
   sort,
   dir,
   onSort,
+  onError,
 }: {
   events: TerminEvent[];
   ohneTermin: TerminEvent[];
@@ -77,20 +84,25 @@ export function TermineList({
   sort: TerminSort;
   dir: SortDir;
   onSort: (col: TerminSort) => void;
+  /** Fehler landen in der EINEN Fehlerzeile des Boards, nicht in der Zeile. */
+  onError: (message: string | null) => void;
 }) {
-  const rows = useMemo(() => {
-    // „Erledigt" heißt: das Ergebnis ist eingetragen. Nur ein noch OFFENER
-    // Termin in der Vergangenheit ist wirklich liegen geblieben.
-    const isPast = (e: TerminEvent) => e.dayISO != null && e.dayISO < today;
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  /** Welche Zeile schreibt gerade? Nur sie sperrt ihre Knöpfe. */
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
-    // Termine ohne Zeitpunkt sind per Definition unerledigt und gehören in
-    // jedes Fenster außer „Vergangen" — sonst hätten sie gar keinen Ort.
+  const rows = useMemo(() => {
+    // Termine ohne Zeitpunkt sind per Definition in der Arbeitsmenge und gehören
+    // deshalb in denselben Topf — ohne die Liste hätten sie gar keinen Ort.
+    const all = [...events, ...ohneTermin];
     const pool =
-      zeit === "vergangen"
-        ? events.filter((e) => isPast(e) && e.status !== "offen")
-        : zeit === "anstehend"
-          ? [...events.filter((e) => !isPast(e) || e.status === "offen"), ...ohneTermin]
-          : [...events, ...ohneTermin];
+      zeit === "zu_tun"
+        ? all.filter((e) => istInArbeitsmenge(e.zustand))
+        : zeit === "verlegt"
+          ? all.filter((e) => e.zustand === "verlegt")
+          : all;
 
     const factor = dir === "asc" ? 1 : -1;
     return [...pool].sort((a, b) => {
@@ -99,9 +111,60 @@ export function TermineList({
       // jedem Re-Render, weil Array.sort nicht garantiert stabil gefüllt wird.
       return cmp !== 0 ? cmp * factor : sortKey(a, "zeit").localeCompare(sortKey(b, "zeit"));
     });
-  }, [events, ohneTermin, today, zeit, sort, dir]);
+  }, [events, ohneTermin, zeit, sort, dir]);
 
-  if (rows.length === 0) return <EmptyState />;
+  /**
+   * Ein Handgriff, eine Server-Antwort, ein Neuladen.
+   *
+   * Bewusst OHNE optimistische Anzeige: Anders als beim Verschieben im Kalender
+   * hängen an diesen drei Aktionen Folgen, die der Server bestimmt (Zustand,
+   * Recycling-Datum, Zuständigkeit) — eine vorweggenommene Zeile müsste sie
+   * erraten und läge bei jeder abgewiesenen Antwort falsch.
+   */
+  const run = useCallback(
+    (event: TerminEvent, aktion: () => Promise<{ error?: string }>) => {
+      onError(null);
+      setBusyId(event.id);
+      startTransition(async () => {
+        const res = await aktion();
+        setBusyId(null);
+        if (res?.error) {
+          onError(res.error);
+          return;
+        }
+        router.refresh();
+      });
+    },
+    [onError, router],
+  );
+
+  const onGenervt = useCallback(
+    (e: TerminEvent) => run(e, () => markFollowUpContacted(e.kind, e.refId)),
+    [run],
+  );
+
+  const onNeuerTermin = useCallback(
+    (e: TerminEvent, berlinInput: string) => run(e, () => setNeuerTermin(e.kind, e.refId, berlinInput)),
+    [run],
+  );
+
+  const onTot = useCallback(
+    async (e: TerminEvent) => {
+      // Der eine Handgriff, der die Zeile beendet — deshalb als einziger mit
+      // Rückfrage. „Genervt" ist folgenlos, ein neuer Termin ist korrigierbar.
+      const ok = await confirm({
+        title: e.kind === "setting" ? "Lead als tot markieren?" : "Als „Kein Close“ abschließen?",
+        message: `„${e.title}“ verschwindet damit aus der Liste. Rückgängig geht das nur auf der Detailseite.`,
+        confirmLabel: e.kind === "setting" ? "Als tot markieren" : "Kein Close",
+        destructive: true,
+      });
+      if (!ok) return;
+      run(e, () => markTerminDead(e.kind, e.refId));
+    },
+    [confirm, run],
+  );
+
+  if (rows.length === 0) return <EmptyState zeit={zeit} />;
 
   return (
     <div
@@ -113,6 +176,7 @@ export function TermineList({
         background: "var(--surface-100)",
       }}
     >
+      {dialog}
       <table className="data-table">
         <thead>
           <tr>
@@ -144,14 +208,23 @@ export function TermineList({
                 </th>
               );
             })}
-            {/* Ergebnis ist eine Mischspalte (Umsatz, Wiedervorlage, Kontaktweg)
-                und deshalb bewusst nicht sortierbar. */}
-            <th style={{ width: 190 }}>Ergebnis</th>
+            {/* Kontakt ist eine Mischspalte (Umsatz, Meet-Link, Rufnummer) und
+                Aktion trägt Knöpfe — beide sind bewusst nicht sortierbar. */}
+            <th style={{ width: 150 }}>Kontakt</th>
+            <th style={{ width: 268 }}>Aktion</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((e) => (
-            <Row key={e.id} event={e} today={today} />
+            <Row
+              key={e.id}
+              event={e}
+              today={today}
+              pending={pending && busyId === e.id}
+              onGenervt={() => onGenervt(e)}
+              onNeuerTermin={(input) => onNeuerTermin(e, input)}
+              onTot={() => void onTot(e)}
+            />
           ))}
         </tbody>
       </table>
@@ -159,44 +232,89 @@ export function TermineList({
   );
 }
 
-function Row({ event, today }: { event: TerminEvent; today: string }) {
+function Row({
+  event,
+  today,
+  pending,
+  onGenervt,
+  onNeuerTermin,
+  onTot,
+}: {
+  event: TerminEvent;
+  today: string;
+  pending: boolean;
+  onGenervt: () => void;
+  onNeuerTermin: (berlinInput: string) => void;
+  onTot: () => void;
+}) {
   const termin = formatTerminParts(event.at);
-  const overdue = event.dayISO != null && event.dayISO < today && event.status === "offen";
-  const source = event.kind === "setting" ? channelLabel(event.sourceType) : null;
+  const imFluss = istInArbeitsmenge(event.zustand);
+  // Gegen `today` gerechnet, nicht gegen ein selbst geholtes „jetzt": Ein
+  // `new Date()` im Render-Körper wäre unrein (react-hooks/purity), und die
+  // Zeile soll dieselbe Tagesgrenze benutzen wie das Gold daneben.
+  // `lastContactLabel` ist wortgleich der Text aus Dossier und Nachfassen —
+  // eine Zahl, die auf drei Seiten anders heißt, liest sich wie drei Zahlen.
+  const genervtVor = event.lastContactedAt ? dayDiff(dueDayOf(event.lastContactedAt), today) : null;
 
   return (
     <tr>
-      {/* ── Termin ── */}
-      <td>
-        {termin ? (
-          <span
-            className="tnum"
-            style={{
-              display: "inline-flex",
-              alignItems: "baseline",
-              gap: "var(--sp-3)",
-              color: overdue ? "var(--warning-fg)" : "var(--text-secondary)",
-            }}
-            title={overdue ? "Liegt in der Vergangenheit und ist noch offen" : undefined}
-          >
-            {overdue && <CalendarClock size={12} style={{ alignSelf: "center", flexShrink: 0 }} />}
-            {termin.date}
-            <span style={{ color: overdue ? "inherit" : "var(--text-primary)", fontWeight: 500 }}>
-              {termin.time}
+      {/* ── Termin — DAS EINE GOLDENE FELD ──
+             Gold heißt ausnahmslos „du bist dran": Der Vorgang liegt in der
+             Arbeitsmenge UND heute war noch niemand an ihm. Ein Klick auf
+             „Genervt" nimmt das Gold für heute weg; morgen ist es wieder da. */}
+      <td
+        style={
+          event.dran
+            ? {
+                background: DRAN_TONE.bg,
+                boxShadow: `inset 2px 0 0 ${DRAN_TONE.border}`,
+              }
+            : undefined
+        }
+      >
+        <span style={{ display: "inline-flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+          {termin ? (
+            <span
+              className="tnum"
+              style={{
+                display: "inline-flex",
+                alignItems: "baseline",
+                gap: "var(--sp-3)",
+                color: event.dran ? DRAN_TONE.fg : "var(--text-secondary)",
+              }}
+            >
+              {event.dran && <CalendarClock size={12} style={{ alignSelf: "center", flexShrink: 0 }} />}
+              {termin.date}
+              <span style={{ color: event.dran ? "inherit" : "var(--text-primary)", fontWeight: 500 }}>
+                {termin.time}
+              </span>
             </span>
-          </span>
-        ) : (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "var(--sp-3)",
-              color: "var(--text-muted)",
-            }}
-          >
-            <CalendarX2 size={12} style={{ flexShrink: 0 }} /> Kein Termin
-          </span>
-        )}
+          ) : (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "var(--sp-3)",
+                color: event.dran ? DRAN_TONE.fg : "var(--text-muted)",
+                fontWeight: event.dran ? 600 : 400,
+              }}
+            >
+              <CalendarX2 size={12} style={{ flexShrink: 0 }} /> Kein Termin
+            </span>
+          )}
+
+          {/* Zweite Zeile nur, solange der Vorgang Arbeit ist. Bei einem
+              abgeschlossenen wäre „noch nie genervt" eine Mahnung ohne Adressat.
+              Der NAME steht dabei: „Hast du den angerufen oder ich?" ist die
+              Frage, für die es die zweite Spalte aus Migration 0041 gibt. */}
+          {imFluss && (
+            <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-muted)" }}>
+              {event.cancelled && "abgesagt · "}
+              {lastContactLabel(genervtVor)}
+              {event.lastContactedBy ? ` · ${event.lastContactedBy}` : ""}
+            </span>
+          )}
+        </span>
       </td>
 
       {/* ── Lead / Firma — mit dem Typ-Marker in der Chip-Fuellfarbe, damit
@@ -262,33 +380,7 @@ function Row({ event, today }: { event: TerminEvent; today: string }) {
         )}
       </td>
 
-      {/* ── Quelle ── */}
-      <td>
-        {source ? (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "var(--sp-3)",
-              fontSize: "var(--fs-sm)",
-              color: "var(--text-secondary)",
-            }}
-            title={event.sourceDetail ? `Quelle: ${event.sourceDetail}` : undefined}
-          >
-            <span
-              aria-hidden
-              className="stage-dot"
-              style={{ background: channelColor(event.sourceType) }}
-            />
-            {source}
-          </span>
-        ) : (
-          // Closings erben die Quelle nicht — sie haben keine eigene Spalte.
-          <span style={{ color: "var(--text-disabled)" }}>—</span>
-        )}
-      </td>
-
-      {/* ── Status ── */}
+      {/* ── Status: der abgeleitete Zustand, genau EINER je Zeile ── */}
       <td>
         <span
           className="badge"
@@ -302,10 +394,10 @@ function Row({ event, today }: { event: TerminEvent; today: string }) {
         </span>
       </td>
 
-      {/* ── Ergebnis: Umsatz, sonst der Kontaktweg für den Termin ── */}
+      {/* ── Kontakt: Umsatz, sonst der Weg zum Lead ── */}
       <td>
         <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-          {event.dealVolume != null && event.status === "gewonnen" && (
+          {event.dealVolume != null && event.zustand === "close" && (
             <span className="tnum" style={{ fontWeight: 500, color: "var(--success-fg)" }}>
               {EUR_FMT.format(event.dealVolume)}
             </span>
@@ -344,6 +436,24 @@ function Row({ event, today }: { event: TerminEvent; today: string }) {
             </span>
           )}
         </span>
+      </td>
+
+      {/* ── Aktion: die drei Handgriffe, ohne Seitenwechsel ──
+             Nur solange der Vorgang Arbeit ist. Eine abgeschlossene Zeile
+             braucht keinen „Genervt"-Knopf; wer sie doch wieder aufmachen will,
+             tut das auf der Detailseite, wo die Folgen erklärt sind. */}
+      <td>
+        {imFluss ? (
+          <TerminAktionen
+            event={event}
+            pending={pending}
+            onGenervt={onGenervt}
+            onNeuerTermin={onNeuerTermin}
+            onTot={onTot}
+          />
+        ) : (
+          <span style={{ color: "var(--text-disabled)" }}>—</span>
+        )}
       </td>
     </tr>
   );
@@ -388,15 +498,18 @@ function OwnerCell({ username }: { username: string }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ zeit }: { zeit: TerminZeit }) {
   return (
     <div className="card dot-grid">
       <div className="empty-state">
         <CalendarClock size={24} aria-hidden />
-        <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>Keine Termine</div>
+        <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>
+          {zeit === "zu_tun" ? "Nichts zu tun" : "Keine Termine"}
+        </div>
         <p style={{ maxWidth: 420 }}>
-          Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder über
-          „Termin buchen“ in der Navigation.
+          {zeit === "zu_tun"
+            ? "Niemand liegt in der Luft: Jeder offene Vorgang hat entweder einen Termin oder ist abgeschlossen."
+            : "Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder über „Termin buchen“ in der Navigation."}
         </p>
       </div>
     </div>

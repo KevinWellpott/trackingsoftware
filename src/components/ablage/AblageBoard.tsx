@@ -28,7 +28,7 @@ import {
   dropoutReasonBadge,
   lineageCounterSummary,
   listAllowsRevive,
-  listFeedsRecycling,
+  DROPOUT_SOURCE_LABELS,
   type DropoutEntity,
   type DropoutListKey,
 } from "@/lib/dropoutLists";
@@ -46,6 +46,13 @@ import { ownerColor } from "@/lib/ownerColor";
 // stellt — wer war das, warum liegt er hier, seit wann, und was passiert als
 // Nächstes. Der Grund steht deshalb doppelt: als Code (zählbar, gleich
 // beschriftet wie überall sonst) UND als Freitext daneben, wenn es einen gibt.
+//
+// Davor steht seit dem Rückbau ein KENNZEICHEN: „Kein Close", „Disqualifiziert",
+// „Abgesagt", „No-Show ohne Antwort". Das trugen bis dahin vier getrennte
+// Reiter; die sind zu einer Ansicht geworden, weil der Unterschied nichts mehr
+// auslöst (eine Recycling-Frist für alle, keine Kaskade). Die Auskunft selbst
+// darf dabei nicht verloren gehen — sie wandert deshalb auf die Karte, wo sie
+// neben dem Grund steht statt über zwanzig Karten hinweg als Überschrift.
 //
 // Drei Aktionen, mehr nicht — und jede nur dort, wo sie auch geht:
 //   · „Jetzt wieder anschreiben" setzt die Wiedervorlage auf heute; der Vorgang
@@ -226,12 +233,17 @@ function Fact({
 function DropoutCard({
   row,
   list,
+  showSource,
   maxAttempts,
   today,
   confirmBlock,
 }: {
   row: DropoutRow;
   list: DropoutListKey;
+  /** true = die Ansicht legt mehrere Quellen zusammen, das Kennzeichen trägt
+      also eine Auskunft. In der Sperrliste sagte es dasselbe wie der rote
+      Badge daneben und bliebe deshalb weg. */
+  showSource: boolean;
   maxAttempts: number;
   /** Berliner Kalendertag, vom Server gereicht — der Browser kann in einer
       anderen Zone stehen und schöbe „fällig" um einen Tag. */
@@ -249,14 +261,13 @@ function DropoutCard({
   const href = meta.href(row);
   const dueNow = Boolean(row.next_recycle_at && row.next_recycle_at <= today);
   const blocked = row.recycle_blocked;
-  // Liegt die Sperre am ZUSTAND dieser Zeile (gesperrt, wiederbelebt, Deckel,
-  // Grund ohne Recycling), gehört sie in die Karte. Kann dagegen die ganze
-  // Liste kein Recycling speisen, stünde derselbe Satz auf jeder Karte — den
-  // trägt dann eine Zeile am Fuß des Boards.
-  const rowCouldFeed = listFeedsRecycling(list, row.entity_type);
-  // Dasselbe für das Ansetzen eines neuen Termins: In der Sperrliste ist jede
-  // Zeile gesperrt, der Grund gilt also für die ganze Ansicht und steht am Fuß.
-  const rowCouldRevive = listAllowsRevive(list);
+  // Trifft ein Sperrgrund JEDE Zeile der Ansicht, steht er einmal am Fuß des
+  // Boards statt zwanzigmal untereinander. Genau so liegt es in der Sperrliste:
+  // Dort ist jede Zeile gesperrt, und das Kontaktverbot schlägt beide Aktionen
+  // zugleich. In „Ausgeschieden" hängt es dagegen an der einzelnen Zeile —
+  // ein verlorenes Closing speist eine Wiedervorlage, ein abgesagtes nicht —,
+  // und dann gehört der Satz auf die betroffene Karte.
+  const listWideBlock = !listAllowsRevive(list);
   const predecessor = row.lineage.predecessor;
   const successor = row.lineage.successor;
   // „3× verschoben · 1× nicht erschienen" — leer, wenn der Vorgänger sauber
@@ -276,8 +287,8 @@ function DropoutCard({
       "Die Liste zu diesem Lead gibt es nicht mehr — deshalb fehlt der Verweis. Der Verlauf steht im Dossier.",
     );
   }
-  if (blocked && rowCouldFeed) hints.push(blocked);
-  if (row.revive_blocked && rowCouldRevive) hints.push(row.revive_blocked);
+  if (blocked && !listWideBlock) hints.push(blocked);
+  if (row.revive_blocked && !listWideBlock) hints.push(row.revive_blocked);
 
   function run(work: () => Promise<{ error?: string } | void>) {
     setError(null);
@@ -371,6 +382,16 @@ function DropoutCard({
       {/* ── Grund: Code (zählbar) und Freitext (Gedächtnis) ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
+          {/* Das Kennzeichen zuerst: WAS passiert ist, dann WARUM. Es trug
+              vorher der Reiter — ohne es stünde ein No-Show ohne Antwort mit
+              „Ohne Grund" da (für ihn liefert die Abfrage gar keinen Code) und
+              wäre von einer Absage ohne erfassten Grund nicht zu
+              unterscheiden. */}
+          {showSource && (
+            <Badge tone="neutral" title="Wie der Vorgang aus dem Funnel gefallen ist">
+              {DROPOUT_SOURCE_LABELS[row.source_list]}
+            </Badge>
+          )}
           <Badge
             tone={row.reason_code ? "neutral" : "warning"}
             title={
@@ -667,14 +688,16 @@ export function AblageBoard({
 }) {
   const meta = dropoutListMeta(list);
   const { confirm, dialog } = useConfirm();
-  // Speist diese Liste überhaupt einen Zweig von `recycle_tasks`? Wenn nicht,
-  // ist „Recycling vorziehen" auf jeder Karte aus demselben Grund aus — der
-  // steht dann einmal hier statt sechsmal untereinander.
-  const listFeeds = listFeedsRecycling(list, "setting") || listFeedsRecycling(list, "closing");
-  // Und dieselbe Frage für den zweiten Knopf: Wo er auf keiner Karte steht,
-  // erklärt der Fuß ihn auch nicht — sonst schickt der Text den Nutzer auf die
-  // Suche nach einem Knopf, den es in dieser Ansicht bewusst nicht gibt.
+  // Gibt es in dieser Ansicht überhaupt Knöpfe? In der Sperrliste nicht — dort
+  // fehlen beide auf jeder Karte, und zwar aus EINEM Grund; der steht deshalb
+  // einmal hier statt zwanzigmal untereinander. Wo es die Knöpfe gibt, erklärt
+  // der Fuß sie; ein Text über eine Aktion, die auf keiner Karte angeboten
+  // wird, schickt den Nutzer auf die Suche nach etwas, das es nicht gibt.
   const listRevives = listAllowsRevive(list);
+  // Legt die Ansicht mehrere Quellen zusammen? Dann trägt das Kennzeichen auf
+  // der Karte eine Auskunft; in der Sperrliste wiederholte es nur den roten
+  // Badge daneben.
+  const showSource = meta.sources.length > 1;
 
   const confirmBlock = (row: DropoutRow) =>
     confirm({
@@ -784,6 +807,7 @@ export function AblageBoard({
               key={`${row.entity_type}:${row.entity_id}`}
               row={row}
               list={list}
+              showSource={showSource}
               maxAttempts={maxAttempts}
               today={today}
               confirmBlock={confirmBlock}
@@ -803,13 +827,12 @@ export function AblageBoard({
             lineHeight: "var(--lh-base)",
           }}
         >
-          {!listFeeds && (
+          {!listRevives && (
             <span>
               {/* In der Sperrliste fehlen BEIDE Knöpfe, und zwar aus einem
                   Grund — dann ist es auch ein Satz. */}
-              {list === "gesperrt"
-                ? "Gesperrte Vorgänge bekommen weder eine Wiedervorlage noch einen neuen Termin — das ist der Zweck der Sperre."
-                : "Hier gibt es kein Recycling: Der nächste Schritt ist der Ersatztermin, nicht eine Wiedervorlage in Wochen."}
+              Gesperrte Vorgänge bekommen weder eine Wiedervorlage noch einen neuen Termin — das ist der Zweck der
+              Sperre.
             </span>
           )}
           {/* Was der Knopf TUT, bleibt stehen — es ist die eine Auskunft, die

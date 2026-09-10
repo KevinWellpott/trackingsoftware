@@ -1,4 +1,4 @@
-// Die Ablage — sechs gesonderte Listen, vier Grund-Familien in EINER Spalte.
+// Die Ablage — zwei Ansichten, vier Grund-Familien in EINER Spalte.
 //
 // Zwei Zusicherungen tragen diese Datei:
 //
@@ -9,12 +9,19 @@
 //    Literale — und gegen die CHECK-Listen der eingefrorenen Migration 0032,
 //    damit ein neuer DB-Code nicht unbeschriftet durchrutscht.
 //
-// 2. `listFeedsRecycling()` beantwortet, welche Liste überhaupt einen Zweig von
+// 2. `listFeedsRecycling()` beantwortet, welche QUELLE überhaupt einen Zweig von
 //    `recycle_tasks` speist. Ein vorgezogenes Recycling-Datum auf einer Zeile,
 //    die kein Zweig abfragt, wäre unsichtbar: Die Aufgabe tauchte in
 //    „Nachfassen" nie auf, und niemand wüsste, warum. Die Wahrheitstabelle
 //    steht hier vollständig, weil ein einzelner falscher Eintrag genau so
 //    aussieht wie ein leerer Arbeitstag.
+//
+// SEIT DEM RÜCKBAU fragt sie nach der Quelle der Zeile statt nach der Ansicht.
+// Der Grund ist derselbe, aus dem aus sechs Reitern zwei geworden sind: Die
+// vier Endzustände liegen jetzt in einer Liste, und dort steht ein verlorenes
+// Closing neben einem abgesagten — die Antwort ist innerhalb einer Ansicht
+// nicht mehr einheitlich. Die Wahrheitstabelle selbst ist davon unberührt, sie
+// beschreibt weiterhin die Status-Zweige von `recycle_tasks`.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -24,6 +31,7 @@ import { describe, test } from "node:test";
 import {
   DROPOUT_LISTS,
   DROPOUT_REASON_LABELS,
+  DROPOUT_SOURCE_LABELS,
   dropoutListMeta,
   dropoutReasonLabel,
   isDropoutListKey,
@@ -31,7 +39,7 @@ import {
   parseDropoutList,
   recycleBlockedReason,
   type DropoutEntity,
-  type DropoutListKey,
+  type DropoutSourceList,
   type RecycleGate,
 } from "@/lib/dropoutLists";
 
@@ -60,27 +68,67 @@ function codesFromCheck(sql: string, constraint: string): string[] {
  * ------------------------------------------------------------------ */
 
 describe("DROPOUT_LISTS", () => {
-  test("sind genau die sechs Werte, die dropout_lists() akzeptiert", () => {
-    // Die RPC wirft bei jedem anderen Wert. Ein Reiter, den die Datenbank nicht
-    // kennt, führte auf eine Seite mit einer Ausnahme statt einer Liste.
-    const erlaubt = /p_list not in \(([\s\S]{0,300}?)\)\s*then/.exec(MIGRATION_0033);
-    assert.ok(erlaubt, "Die Prüfliste von dropout_lists() wurde nicht gefunden");
-    const ausDerDb = [...erlaubt[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
-    assert.equal(ausDerDb.length, 6);
-    assert.deepEqual(DROPOUT_LISTS.map((l) => l.key).sort(), ausDerDb);
+  test("zwei Ansichten: der Aktenschrank, dann das Verbot", () => {
+    // Die Sperrliste ist keine Stufe des Funnels, sondern eine Anweisung — und
+    // steht deshalb hinten.
+    assert.deepEqual(DROPOUT_LISTS.map((l) => l.key), ["ausgeschieden", "gesperrt"]);
   });
 
-  test("stehen in der Reihenfolge des Funnels, die Sperrliste zuletzt", () => {
-    // Reihenfolge = Weg durch den Funnel; die Sperrliste ist keine Stufe,
-    // sondern ein Verbot, und steht deshalb am Ende.
-    assert.deepEqual(DROPOUT_LISTS.map((l) => l.key), [
-      "abgesagt",
-      "ersatztermin_offen",
+  test("jede Quelle, die die App schickt, kennt die eingefrorene RPC", () => {
+    // Die RPC wirft bei jedem anderen Wert. Eine Ansicht, deren Quelle die
+    // Datenbank nicht kennt, führte auf eine Seite mit einer Ausnahme statt
+    // einer Liste.
+    const erlaubt = /p_list not in \(([\s\S]{0,300}?)\)\s*then/.exec(MIGRATION_0033);
+    assert.ok(erlaubt, "Die Prüfliste von dropout_lists() wurde nicht gefunden");
+    const ausDerDb = new Set([...erlaubt[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+    assert.equal(ausDerDb.size, 6);
+    for (const meta of DROPOUT_LISTS) {
+      for (const source of meta.sources) {
+        assert.ok(ausDerDb.has(source), `${meta.key}: ${source} kennt die RPC nicht`);
+      }
+    }
+  });
+
+  test("„ersatztermin_offen“ wird bewusst NICHT mehr abgefragt", () => {
+    // Der sechste RPC-Wert beschreibt keinen Endzustand, sondern einen Lead
+    // ohne nächsten Termin — also genau den, der in der Hauptliste steht und
+    // täglich kontaktiert wird. Ein Archivreiter daneben wäre eine zweite,
+    // stille Arbeitsliste. Die RPC kennt den Wert weiterhin (sie ist
+    // eingefroren, Gegenprobe im Test darüber) — die App sendet ihn nicht.
+    const gesendet = DROPOUT_LISTS.flatMap((l) => [...l.sources]);
+    assert.equal(gesendet.includes("ersatztermin_offen" as DropoutSourceList), false);
+    assert.match(MIGRATION_0033, /'ersatztermin_offen'/);
+  });
+
+  test("die vier Endzustände liegen in EINER Ansicht", () => {
+    // Vier Reiter für „ist raus" trugen, solange der Grund die Wartezeit bis
+    // zum nächsten Versuch bestimmte. Eine Frist für alle heißt: Der
+    // Unterschied löst nichts mehr aus und gehört auf die Karte, nicht in die
+    // Navigation.
+    assert.deepEqual([...dropoutListMeta("ausgeschieden").sources], [
       "disqualifiziert",
       "kein_close",
+      "abgesagt",
       "no_show_ohne_antwort",
-      "gesperrt",
     ]);
+    assert.deepEqual([...dropoutListMeta("gesperrt").sources], ["gesperrt"]);
+  });
+
+  test("die Vorrangkette beim Entdoppeln stellt den aussagekräftigsten Grund nach vorn", () => {
+    // Dieselbe Zeile kann in mehreren Quellen stehen (ein disqualifiziertes
+    // Erstgespräch, das später abgesagt wurde). Vorn muss stehen, was einen
+    // eigenen Grund-Code mitbringt — die RPC liefert für den No-Show gar
+    // keinen, und aus der Absage kommt nur der Absagegrund.
+    const sources = [...dropoutListMeta("ausgeschieden").sources];
+    assert.ok(sources.indexOf("disqualifiziert") < sources.indexOf("abgesagt"));
+    assert.ok(sources.indexOf("kein_close") < sources.indexOf("abgesagt"));
+    assert.equal(sources[sources.length - 1], "no_show_ohne_antwort");
+
+    // Und der Nebeneffekt, auf dem die Karte steht: Wo eine Zeile über mehrere
+    // Quellen erreichbar ist, gewinnt die, deren Zweig auch wirklich ein
+    // Recycling speist. Für ein Closing ist das ausschließlich `kein_close`.
+    const ersteFuerClosing = sources.find((s) => listFeedsRecycling(s, "closing"));
+    assert.equal(ersteFuerClosing, "kein_close");
   });
 
   test("nur die Sperrliste liefert org-weit", () => {
@@ -91,13 +139,14 @@ describe("DROPOUT_LISTS", () => {
     }
   });
 
-  test("jede Liste bringt Reiter, Titel, Kurztext und Herleitung mit", () => {
+  test("jede Ansicht bringt Reiter, Titel, Kurztext, Herleitung und Quellen mit", () => {
     // Die Herleitung steht hinter dem Info-Icon und ist die einzige Stelle, an
-    // der ein Nutzer erfährt, WORAUS die Zeile abgeleitet wurde.
+    // der ein Nutzer erfährt, WORAUS die Zeilen abgeleitet wurden.
     for (const meta of DROPOUT_LISTS) {
       for (const feld of ["tab", "title", "meta", "derivation"] as const) {
         assert.ok(meta[feld].trim().length > 0, `${meta.key}.${feld}`);
       }
+      assert.ok(meta.sources.length > 0, `${meta.key}.sources`);
     }
   });
 
@@ -106,6 +155,20 @@ describe("DROPOUT_LISTS", () => {
       assert.equal(dropoutListMeta(meta.key).key, meta.key);
     }
     assert.equal(dropoutListMeta("gesperrt").title, "Sperrliste");
+  });
+
+  test("jede Quelle trägt ein Kennzeichen für die Karte", () => {
+    // In der zusammengelegten Ansicht ist das die einzige Stelle, an der die
+    // vier Endzustände noch auseinandergehalten werden — vorher trug das der
+    // Reitername. Ein fehlendes Kennzeichen wäre eine leere Stelle auf der
+    // Karte, kein Fehler, und fiele deshalb nicht auf.
+    for (const meta of DROPOUT_LISTS) {
+      for (const source of meta.sources) {
+        assert.ok(DROPOUT_SOURCE_LABELS[source]?.trim().length > 0, source);
+      }
+    }
+    assert.equal(DROPOUT_SOURCE_LABELS.kein_close, "Kein Close");
+    assert.equal(DROPOUT_SOURCE_LABELS.no_show_ohne_antwort, "No-Show ohne Antwort");
   });
 });
 
@@ -117,10 +180,26 @@ describe("parseDropoutList / isDropoutListKey", () => {
     }
   });
 
-  test("alles Unbekannte fällt auf die erste Liste zurück, statt zu werfen", () => {
+  test("die alten Reiter-Adressen führen dorthin, wo ihr Inhalt jetzt liegt", () => {
+    // Sie stehen in Lesezeichen und in geteilten Links. Ohne diese Zuordnung
+    // landete jeder davon stumm auf der ersten Ansicht — bei „gesperrt" wäre
+    // das die falsche.
+    for (const alt of ["abgesagt", "disqualifiziert", "kein_close", "no_show_ohne_antwort"]) {
+      assert.equal(parseDropoutList(alt), "ausgeschieden", alt);
+      // Sie sind KEINE gültigen Ansichts-Schlüssel mehr — sonst schriebe die
+      // Umschaltleiste sie wieder in die URL.
+      assert.equal(isDropoutListKey(alt), false, alt);
+    }
+    assert.equal(parseDropoutList("gesperrt"), "gesperrt");
+  });
+
+  test("alles Unbekannte fällt auf die erste Ansicht zurück, statt zu werfen", () => {
     // Der Wert kommt aus der URL — ein Tippfehler darf keine Fehlerseite geben.
-    for (const murks of ["", "Gesperrt", "kein-close", null, undefined, 42, {}]) {
-      assert.equal(parseDropoutList(murks), "abgesagt", String(murks));
+    // `ersatztermin_offen` steht bewusst dabei: Sein Inhalt ist in die
+    // Hauptliste gewandert, nicht ins Archiv; es gibt hier keine Ansicht, auf
+    // die er ehrlich zeigen könnte.
+    for (const murks of ["", "Gesperrt", "kein-close", "ersatztermin_offen", null, undefined, 42, {}]) {
+      assert.equal(parseDropoutList(murks), "ausgeschieden", String(murks));
       assert.equal(isDropoutListKey(murks), false, String(murks));
     }
   });
@@ -258,15 +337,12 @@ describe("dropoutReasonLabel", () => {
  * ------------------------------------------------------------------ */
 
 describe("listFeedsRecycling", () => {
-  /** Vollständige Wahrheitstabelle: 6 Listen × 4 Ursprünge. */
-  const SOLL: Record<DropoutListKey, Record<DropoutEntity, boolean>> = {
+  /** Vollständige Wahrheitstabelle: 5 Quellen × 4 Ursprünge. */
+  const SOLL: Record<DropoutSourceList, Record<DropoutEntity, boolean>> = {
     // Absage ohne Aussicht: nur am Erstgespräch ein Recycling-Zweig
     // (`cancel_outlook = 'ohne_aussicht'`); beim Closing verlangt der Zweig
     // `status = 'verloren'`, eine Absage erfüllt das nicht.
     abgesagt: { setting: true, closing: false, linkedin: false, telefon: false },
-    // Ersatztermin offen ist eine WARTELISTE, kein totes Ende — dort wäre eine
-    // Wiedervorlage doppelt.
-    ersatztermin_offen: { setting: false, closing: false, linkedin: false, telefon: false },
     disqualifiziert: { setting: true, closing: false, linkedin: false, telefon: false },
     kein_close: { setting: false, closing: true, linkedin: false, telefon: false },
     no_show_ohne_antwort: { setting: true, closing: false, linkedin: false, telefon: false },
@@ -274,23 +350,34 @@ describe("listFeedsRecycling", () => {
     gesperrt: { setting: false, closing: false, linkedin: false, telefon: false },
   };
 
-  test("die Wahrheitstabelle stimmt in allen 24 Feldern", () => {
+  test("die Wahrheitstabelle stimmt in allen 20 Feldern", () => {
     let geprueft = 0;
-    for (const [list, proEntity] of Object.entries(SOLL) as [DropoutListKey, Record<DropoutEntity, boolean>][]) {
+    for (const [source, proEntity] of Object.entries(SOLL) as [DropoutSourceList, Record<DropoutEntity, boolean>][]) {
       for (const [entity, soll] of Object.entries(proEntity) as [DropoutEntity, boolean][]) {
-        assert.equal(listFeedsRecycling(list, entity), soll, `${list} × ${entity}`);
+        assert.equal(listFeedsRecycling(source, entity), soll, `${source} × ${entity}`);
         geprueft++;
       }
     }
-    assert.equal(geprueft, 24);
+    assert.equal(geprueft, 20);
   });
 
-  test("LinkedIn- und Telefon-Leads speisen aus keiner Liste heraus", () => {
+  test("in EINER Ansicht liegen Zeilen mit und ohne Recycling-Zweig nebeneinander", () => {
+    // Genau deshalb fragt die Funktion nach der Quelle und nicht mehr nach der
+    // Ansicht: „Ausgeschieden" trägt beides. Wäre die Antwort weiter je Ansicht,
+    // bekäme entweder ein abgesagtes Closing einen Knopf, der nichts bewirkt,
+    // oder ein verlorenes verlöre den, der wirkt.
+    assert.equal(listFeedsRecycling("kein_close", "closing"), true);
+    assert.equal(listFeedsRecycling("abgesagt", "closing"), false);
+    const sources = [...dropoutListMeta("ausgeschieden").sources];
+    assert.ok(sources.includes("kein_close") && sources.includes("abgesagt"));
+  });
+
+  test("LinkedIn- und Telefon-Leads speisen aus keiner Quelle heraus", () => {
     // Sie erscheinen nur in der Sperrliste, und dort weist `excluded` jede
     // Wiedervorlage ohnehin ab.
-    for (const meta of DROPOUT_LISTS) {
-      assert.equal(listFeedsRecycling(meta.key, "linkedin"), false, meta.key);
-      assert.equal(listFeedsRecycling(meta.key, "telefon"), false, meta.key);
+    for (const source of Object.keys(SOLL) as DropoutSourceList[]) {
+      assert.equal(listFeedsRecycling(source, "linkedin"), false, source);
+      assert.equal(listFeedsRecycling(source, "telefon"), false, source);
     }
   });
 
@@ -436,12 +523,14 @@ describe("recycleBlockedReason", () => {
     );
   });
 
-  test("eine Liste ohne Recycling-Zweig sperrt den Knopf mit eigener Begründung", () => {
+  test("eine Quelle ohne Recycling-Zweig sperrt den Knopf mit eigener Begründung", () => {
     // Der Fall, der ohne diesen Zweig am teuersten wäre: Alles sieht erlaubt
-    // aus, das Datum wird gesetzt — und die Aufgabe erscheint nie.
+    // aus, das Datum wird gesetzt — und die Aufgabe erscheint nie. Er steht
+    // seit der Zusammenlegung MITTEN in der Liste: Das abgesagte Closing hier
+    // liegt in derselben Ansicht wie das verlorene darunter.
     assert.equal(
       recycleBlockedReason(
-        offen({ entity: "closing", inRecycleBranch: listFeedsRecycling("ersatztermin_offen", "closing") }),
+        offen({ entity: "closing", inRecycleBranch: listFeedsRecycling("abgesagt", "closing") }),
       ),
       "Dieser Vorgang speist keinen Zweig von „Nachfassen“ — eine Wiedervorlage bliebe unsichtbar.",
     );

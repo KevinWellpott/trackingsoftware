@@ -281,17 +281,25 @@ describe("Die Sperrliste behauptet nicht, es gebe keinen Grund", () => {
  * ------------------------------------------------------------------ */
 
 describe("Die Umschaltleiste sagt, was sie zeigt", () => {
-  test("„Abgesagt“ heißt „Abgesagt — endgültig“", async () => {
-    const { DROPOUT_LISTS, dropoutListMeta } = await import("@/lib/dropoutLists");
-    assert.equal(dropoutListMeta("abgesagt").tab, "Abgesagt — endgültig");
-    // Genau EINE Liste trägt eine offene Handlung — die mit dem ausstehenden
-    // Ersatztermin. Ein Aktenschrank mahnt nicht.
-    const mitHandlung = DROPOUT_LISTS.filter((l) => l.openAction).map((l) => l.key);
-    assert.deepEqual(mitHandlung, ["ersatztermin_offen"]);
+  test("die Ablage trägt keine Zähler mehr", async () => {
+    // Die eine Zahl, die etwas verlangte, hing an „Ersatztermin steht aus" —
+    // der einzigen Liste mit offener Handlung, und die steht jetzt in der
+    // Hauptliste. Was bleibt, ist Archiv; ein Archiv mahnt nicht.
+    // Zweiter Grund: „Ausgeschieden" legt vier RPC-Aufrufe entdoppelt zusammen.
+    // Die Summe der vier Einzelzähler wäre größer als die Liste darunter — eine
+    // Zahl, die der Liste widerspricht, ist schlimmer als keine.
+    assert.doesNotMatch(NAV, /count/);
+    assert.doesNotMatch(NAV, /count-pill/);
+    const { DROPOUT_LISTS } = await import("@/lib/dropoutLists");
+    for (const l of DROPOUT_LISTS) {
+      assert.equal("openAction" in l, false, `${l.key} trägt noch ein Handlungs-Flag`);
+    }
   });
 
-  test("nur diese eine Zahl wird hervorgehoben", () => {
-    assert.match(NAV, /data-tone=\{l\.openAction && count > 0 \? "accent" : undefined\}/);
+  test("die Zähler-Abfrage ist mit den Zählern gegangen", () => {
+    // Sechs `count: 'exact'`-Aufrufe je Seitenaufruf für Zahlen, die niemand
+    // mehr sieht — genau der Ballast, gegen den dieser Rückbau sich richtet.
+    assert.doesNotMatch(DROPOUT, /loadDropoutCounts/);
   });
 
   test("Doku-Verweise und Spaltennamen stehen nicht auf dem Bildschirm", async () => {
@@ -383,9 +391,17 @@ describe("Wo ein Knopf fehlt, steht warum", () => {
     // damit auf jeder Karte, ohne dass irgendwo stand, warum.
     assert.match(BOARD, /hints\.push\(row\.revive_blocked\)/);
     // Und zwar nur dort, wo er an DIESER Zeile hängt: Gilt er für die ganze
-    // Liste, trägt ihn der Fuß.
-    assert.match(BOARD, /if \(row\.revive_blocked && rowCouldRevive\)/);
-    assert.match(BOARD, /const rowCouldRevive = listAllowsRevive\(list\);/);
+    // Ansicht, trägt ihn der Fuß.
+    assert.match(BOARD, /if \(row\.revive_blocked && !listWideBlock\)/);
+    assert.match(BOARD, /const listWideBlock = !listAllowsRevive\(list\);/);
+  });
+
+  test("in „Ausgeschieden“ steht der Recycling-Grund AUF der Karte", () => {
+    // Vor der Zusammenlegung war die Antwort je Reiter einheitlich und stand
+    // deshalb am Fuß. Jetzt liegt ein abgesagtes Closing (kein Zweig) neben
+    // einem verlorenen (ein Zweig) — ein Fußtext dazu wäre auf der Hälfte der
+    // Karten falsch.
+    assert.match(BOARD, /if \(blocked && !listWideBlock\)/);
   });
 
   test("auch der weggelassene Listen-Verweis bekommt seinen Satz", () => {

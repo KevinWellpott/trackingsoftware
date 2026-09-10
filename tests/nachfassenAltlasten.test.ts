@@ -5,7 +5,18 @@
 // wird, und lässt genau das stehen, wofür die Seite da ist: das frisch
 // Überfällige.
 //
-// Zwei Prüfarten, wie in nachfassenBoard.test.ts begründet:
+// WAS SICH MIT DEM RÜCKBAU GEÄNDERT HAT: Die Seite trägt nur noch EINE Quelle,
+// das Recycling. Aus der Aufschlüsselung je Quelle (`StaleCounts`,
+// `staleParts`, `staleTotal`) ist damit eine Zahl geworden — sie hatte genau
+// einen Aufrufer, und der zeigt drei der vier Quellen nicht mehr. Geprüft wird
+// hier deshalb die Regel selbst und ihre Verdrahtung, nicht mehr die
+// Beschriftung einer Aufzählung, die es nicht gibt.
+//
+// Die Grenzen der drei anderen Quellen stehen weiterhin in der Bibliothek und
+// werden hier weiterhin geprüft: Der Navigations-Zähler (lib/navCounts.ts)
+// liest sie noch, solange er beide Nachfassen-RPCs zählt.
+//
+// Zwei Prüfarten, wie in tests/rueckbauNachfassen.test.ts begründet:
 //  · Die Regel selbst (A/B) ist reine Bibliothek und wird am VERHALTEN geprüft.
 //  · Verdrahtung und Beschriftung (C/D) hängen an einer Server-Action mit
 //    Supabase-Client und an einem React-Client-Component — beide sind im
@@ -16,19 +27,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
-import {
-  STALE_AFTER_DAYS,
-  emptyStaleCounts,
-  isStaleDue,
-  staleParts,
-  staleSourceOf,
-  staleTotal,
-  type StaleSource,
-} from "@/lib/staleTasks";
+import { STALE_AFTER_DAYS, isStaleDue, staleSourceOf, type StaleSource } from "@/lib/staleTasks";
 
 function read(relative: string): string {
-  // Zeilenenden vereinheitlichen — dieselbe Begründung wie in
-  // nachfassenBoard.test.ts (CRLF unter Windows, Anker mit `\n`).
+  // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
+  // unter Windows mit CRLF ab; Anker mit `\n` fänden sie sonst nicht.
   return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 }
 
@@ -66,22 +69,21 @@ describe("A · Der Schnitt trifft den Bestand, nicht die Arbeit", () => {
   });
 
   test("frisch überfällig bleibt ebenfalls stehen — genau dafür gibt es die Seite", () => {
-    // Gestern, vorgestern, letzte Woche: das ist der Zweck eines
-    // Nachfass-Boards. Der Rückruf hat die schärfste Grenze (14 Tage) und
-    // steht deshalb hier stellvertretend mit einer Woche Verzug.
+    // Gestern, vorgestern, letzten Monat: das ist der Zweck einer
+    // Wiedervorlage. Beim Recycling liegt die Grenze bei einem Vierteljahr,
+    // ein Verzug von zehn Wochen ist dort noch Arbeit.
+    assert.equal(isStaleDue("recycling", "2026-07-01", HEUTE), false);
     assert.equal(isStaleDue("telefon", "2026-09-09", HEUTE), false);
-    assert.equal(isStaleDue("telefon", "2026-09-03", HEUTE), false);
     assert.equal(isStaleDue("setting", "2026-08-20", HEUTE), false);
     assert.equal(isStaleDue("closing", "2026-08-20", HEUTE), false);
-    assert.equal(isStaleDue("recycling", "2026-07-01", HEUTE), false);
   });
 
   test("ohne Fälligkeitswert wird nichts ausgeblendet", () => {
-    // Wo die Seite über das Alter nichts weiß, behauptet sie auch nichts —
-    // dieselbe Regel wie beim fehlenden Pitch-Datum (docs §5.4).
-    assert.equal(isStaleDue("telefon", null, HEUTE), false);
-    assert.equal(isStaleDue("telefon", undefined, HEUTE), false);
-    assert.equal(isStaleDue("telefon", "", HEUTE), false);
+    // Wo die Seite über das Alter nichts weiß, behauptet sie auch nichts
+    // (docs §5.4).
+    assert.equal(isStaleDue("recycling", null, HEUTE), false);
+    assert.equal(isStaleDue("recycling", undefined, HEUTE), false);
+    assert.equal(isStaleDue("recycling", "", HEUTE), false);
   });
 });
 
@@ -91,15 +93,15 @@ describe("A · Der Schnitt trifft den Bestand, nicht die Arbeit", () => {
 
 describe("B · Jede Quelle hat ihre eigene Grenze", () => {
   test("der Tag AUF der Grenze zählt noch nicht, der Tag danach schon", () => {
-    // Ein Rückruf, der auf den Tag genau 14 Tage alt ist, ist noch Arbeit —
-    // erst der 15. macht ihn zur Altlast. Ohne diese Prüfung verschöbe eine
+    // Ein Versuch, der auf den Tag genau 90 Tage alt ist, ist noch Arbeit —
+    // erst der 91. macht ihn zur Altlast. Ohne diese Prüfung verschöbe eine
     // spätere „Vereinfachung" von `<` auf `<=` die Grenze lautlos um einen Tag.
+    assert.equal(isStaleDue("recycling", "2026-06-12", HEUTE), false, "90 Tage: noch Arbeit");
+    assert.equal(isStaleDue("recycling", "2026-06-11", HEUTE), true, "91 Tage: Altlast");
     assert.equal(isStaleDue("telefon", "2026-08-27", HEUTE), false, "14 Tage: noch Arbeit");
     assert.equal(isStaleDue("telefon", "2026-08-26", HEUTE), true, "15 Tage: Altlast");
     assert.equal(isStaleDue("setting", "2026-08-11", HEUTE), false, "30 Tage: noch Arbeit");
     assert.equal(isStaleDue("setting", "2026-08-10", HEUTE), true, "31 Tage: Altlast");
-    assert.equal(isStaleDue("recycling", "2026-06-12", HEUTE), false, "90 Tage: noch Arbeit");
-    assert.equal(isStaleDue("recycling", "2026-06-11", HEUTE), true, "91 Tage: Altlast");
   });
 
   test("die Kadenzen bleiben gestaffelt: Rückruf < Wiedervorlage < Recycling", () => {
@@ -117,20 +119,20 @@ describe("B · Jede Quelle hat ihre eigene Grenze", () => {
     }
   });
 
-  test("LinkedIn bekommt KEINE Grenze — die Quelle steht nicht mehr auf der Seite", () => {
-    // Der Wert kommt aus der RPC weiterhin an; verworfen wird er eine Ebene
-    // höher. Eine Grenze für ihn wäre eine Aussage über etwas, das die Seite
-    // gar nicht zeigt — und ein zweiter Ort, an dem LinkedIn wieder auftauchen
-    // könnte.
+  test("LinkedIn bekommt KEINE Grenze — die Quelle steht auf keiner Seite", () => {
+    // Der Wert kommt aus `nachfassen_tasks` weiterhin an; angezeigt wird er
+    // nirgends. Eine Grenze für ihn wäre eine Aussage über etwas, das niemand
+    // sieht — und ein zweiter Ort, an dem er wieder auftauchen könnte.
     assert.equal(staleSourceOf("linkedin"), null);
     assert.equal(staleSourceOf("unbekannt"), null);
-    assert.equal(staleSourceOf("telefon"), "telefon");
+    assert.equal(staleSourceOf("recycling"), "recycling");
   });
 
-  test("die Uhrzeit-Quelle wird auf ihrem Berliner Kalendertag beurteilt", () => {
-    // `callback_at` ist ein echter Zeitstempel. Roh verglichen läge ein
-    // Rückruf vom 26.08. um 23:30 Berliner Zeit auf dem 26.08. UTC-Datum —
-    // dieselbe Falle, gegen die lib/dueState.ts steht.
+  test("ein Zeitstempel wird auf seinem Berliner Kalendertag beurteilt", () => {
+    // `next_recycle_at` ist zwar ein Tagesdatum, `callback_at` aber ein echter
+    // Zeitstempel. Roh verglichen läge ein Wert vom 26.08. um 23:30 Berliner
+    // Zeit auf dem 26.08. UTC-Datum — dieselbe Falle, gegen die
+    // lib/dueState.ts steht.
     assert.equal(isStaleDue("telefon", "2026-08-26T21:30:00.000Z", HEUTE), true);
     assert.equal(isStaleDue("telefon", "2026-08-26T22:30:00.000Z", HEUTE), false, "22:30 UTC = 27.08. in Berlin");
   });
@@ -141,76 +143,60 @@ describe("B · Jede Quelle hat ihre eigene Grenze", () => {
  * ------------------------------------------------------------------ */
 
 describe("C · Ausgeblendetes wird gezählt, nicht verschluckt", () => {
-  test("die Zähler summieren und beschriften sich selbst", () => {
-    const counts = emptyStaleCounts();
-    assert.equal(staleTotal(counts), 0);
-    assert.deepEqual(staleParts(counts), [], "Ohne Treffer keine Aufzählung.");
-
-    counts.telefon = 1;
-    counts.setting = 12;
-    counts.recycling = 40;
-    assert.equal(staleTotal(counts), 53);
-
-    const parts = staleParts(counts);
-    assert.deepEqual(parts, [
-      "1 Rückruf (über 14 Tage überfällig)",
-      "12 Setting-Wiedervorlagen (über 30 Tage überfällig)",
-      "40 Recycling-Versuche (über 90 Tage überfällig)",
-    ]);
-    // Jeder Teil nennt SEINE Grenze: Sie ist je Quelle verschieden, eine
-    // gemeinsame Nennung am Ende läse sich wie eine gemeinsame Zahl.
-    for (const part of parts) assert.match(part, /über \d+ Tage überfällig/);
-  });
-
   test("die Server-Action wendet den Schnitt an und zählt ihn getrennt", () => {
-    assert.match(ACTION, /hiddenStale: StaleCounts/, "Das Ergebnis muss die Zahl tragen.");
-    assert.match(slice(ACTION, "  return {\n    tasks,", "\n}"), /hiddenStale,/);
+    // Aus dem Record je Quelle ist eine Zahl geworden — es gibt nur noch eine
+    // Quelle, und eine Aufzählung mit einem Posten ist keine.
+    assert.match(ACTION, /hiddenStale: number/, "Das Ergebnis muss die Zahl tragen.");
+    assert.match(ACTION, /return \{ tasks, hiddenStale, recyclingAvailable: recycle\.available \};/);
 
     // Der Schnitt hängt am Schalter — sonst wäre `?alle=1` wirkungslos.
-    assert.match(ACTION, /options\?\.includeOlder \? null : staleSourceOf\(r\.source\)/);
-    assert.match(ACTION, /hiddenStale\[staleSource\]\+\+;/);
-    assert.match(ACTION, /hiddenStale\.recycling\+\+;/, "Auch das Recycling wird geschnitten.");
+    assert.match(ACTION, /if \(options\?\.includeOlder\) return true;/);
+    assert.match(ACTION, /if \(!isStaleDue\("recycling", r\.due_at, staleToday\)\) return true;/);
+    assert.match(ACTION, /hiddenStale\+\+;/);
 
     // Gerechnet wird auf dem BERLINER Kalendertag, nicht auf dem des Servers:
     // Auf Vercel läuft der in UTC, und zwischen Mitternacht und 02:00 Berliner
     // Zeit läge `localDateISO()` einen Tag zurück — Badge und Seite fielen
     // dann jede Nacht um die Aufgaben auf der Grenze auseinander.
-    assert.match(ACTION, /const staleToday = berlinDateISO\(new Date\(\)\.toISOString\(\)\) \|\| today;/);
-    assert.match(ACTION, /isStaleDue\(staleSource, r\.due_at, staleToday\)/);
+    assert.match(ACTION, /const staleToday = berlinDateISO\(new Date\(\)\.toISOString\(\)\) \|\| localDateISO\(\);/);
 
-    // Der frühere Pitch-Schnitt ist mit dem LinkedIn-Zweig verschwunden —
-    // samt seiner Zähler. Ein Mechanismus ohne Quelle sieht später aus wie ein
-    // Fehler. (Geprüft am CODE, nicht am Fließtext: Der Kommentar am Ergebnis-
-    // Typ darf und soll weiter erklären, warum es die beiden nicht mehr gibt.)
-    assert.doesNotMatch(ACTION, /let hiddenOlder|hiddenOlder\+\+|let unreadableContacts|unreadableContacts\+\+/);
-    assert.doesNotMatch(slice(ACTION, "  return {\n    tasks,", "\n}"), /hiddenOlder|unreadableContacts/);
+    // Der frühere Pitch-Schnitt und die Zähler je Quelle sind mit ihren
+    // Quellen verschwunden. Ein Mechanismus ohne Quelle sieht später aus wie
+    // ein Fehler. (Geprüft am CODE, nicht am Fließtext: Die Kommentare dürfen
+    // weiter erklären, warum es die beiden nicht mehr gibt.)
+    assert.doesNotMatch(ACTION, /hiddenOlder\+\+|unreadableContacts\+\+|emptyStaleCounts\(\)/);
+  });
+
+  test("der Schnitt greift VOR dem Nachschlag auf die Liste", () => {
+    // Eine Aufgabe, die niemand sieht, braucht auch keinen Listenbezug für
+    // ihren Sprung-Link. Die Reihenfolge ist zusätzlich die Absicherung
+    // dagegen, dass ein späterer Umbau den Filter hinter den teuren Teil
+    // schiebt.
+    const schnitt = ACTION.indexOf("const due = recycle.tasks.filter(");
+    const nachschlag = ACTION.indexOf("const contactIds = [");
+    assert.notEqual(schnitt, -1);
+    assert.notEqual(nachschlag, -1);
+    assert.ok(schnitt < nachschlag, "Erst schneiden, dann nachschlagen.");
   });
 
   test("der Navigations-Zähler fährt DENSELBEN Schnitt", () => {
-    // Das Badge zeigte die Zahl, über die sich der Auftraggeber beschwert hat.
-    // Es zählt jetzt genau das, was die Seite auch zeigt — über dieselben
-    // Funktionen, nicht über eine zweite Kopie der Grenzen.
+    // Das Badge zeigte einmal die Zahl, über die sich der Auftraggeber
+    // beschwert hat. Es schneidet über dieselben Funktionen wie die Seite,
+    // nicht über eine zweite Kopie der Grenzen.
+    //
+    // ACHTUNG, offene Baustelle: Der Zähler liest weiterhin BEIDE
+    // Nachfassen-RPCs, die Seite nur noch `recycle_tasks`. Er zählt damit
+    // gerade mehr, als die Seite zeigt — das wird zentral nachgezogen. Diese
+    // Zusicherung hält nur fest, dass er die Grenzen nicht selbst nachbaut.
     const NAV = read("src/lib/navCounts.ts");
     assert.match(NAV, /import \{ isStaleDue, staleSourceOf \} from "@\/lib\/staleTasks";/);
-    assert.match(NAV, /if \(r\.source === "linkedin"\) continue;/);
-    assert.match(NAV, /if \(stale && isStaleDue\(stale, r\.due_at, today\)\) continue;/);
     assert.match(NAV, /if \(isStaleDue\("recycling", r\.due_at, today\)\) continue;/);
 
-    // Und die exakte Gesamtzahl kommt danach aus der GEFILTERTEN Liste. Der
-    // `count` von PostgREST zählt vor dem Fenster und wüsste von den Schnitten
-    // nichts; wurde das Fenster abgeschnitten, gibt es lieber kein Badge als
-    // eine zu kleine Zahl (docs §5.4: `null` heißt „nicht ermittelbar").
-    assert.match(NAV, /if \(tasks\.count > taskRows\.length \|\| recycle\.count > recycleRows\.length\) return null;/);
+    // Und die exakte Gesamtzahl kommt aus der GEFILTERTEN Liste. Der `count`
+    // von PostgREST zählt vor dem Fenster und wüsste von den Schnitten nichts;
+    // wurde das Fenster abgeschnitten, gibt es lieber kein Badge als eine zu
+    // kleine Zahl (docs §5.4: `null` heißt „nicht ermittelbar").
     assert.match(NAV, /return tally\(rows, rows\.length\);/);
-  });
-
-  test("der Schnitt greift VOR dem Rendern des Textes", () => {
-    // Eine Aufgabe, die niemand sieht, braucht keine aufgelöste Vorlage. Die
-    // Reihenfolge ist zusätzlich die Absicherung dagegen, dass ein späterer
-    // Umbau den `continue` hinter den teuren Teil schiebt.
-    const schleife = slice(ACTION, "for (const r of visible) {", "let list_id: string | null = null;");
-    assert.match(schleife, /continue;/, "Der Altlast-Zweig muss die Zeile überspringen.");
-    assert.doesNotMatch(schleife, /renderResolved/, "Vor dem Schnitt darf keine Vorlage aufgelöst werden.");
   });
 });
 
@@ -219,21 +205,22 @@ describe("C · Ausgeblendetes wird gezählt, nicht verschluckt", () => {
  * ------------------------------------------------------------------ */
 
 describe("D · Nichts verschwindet lautlos", () => {
-  test("das Board nennt die Zahl und bietet denselben Schalter an", () => {
-    assert.match(BOARD, /hiddenStale: StaleCounts/);
+  test("das Board nennt die Zahl, die Grenze und bietet den Schalter an", () => {
+    assert.match(BOARD, /hiddenStale: number/);
     // Die Zahl steht sichtbar da (mit korrektem Numerus) …
-    assert.match(BOARD, /\{staleHidden\}/);
-    assert.match(BOARD, /"lange überfällige Aufgabe" : "lange überfällige Aufgaben"/);
+    assert.match(BOARD, /\{hiddenStale\}/);
+    assert.match(BOARD, /"lange überfälliger Versuch" : "lange überfällige Versuche"/);
     assert.match(BOARD, /ausgeblendet/);
-    // … die Aufschlüsselung erklärt, WELCHE Grenze gegriffen hat …
-    assert.match(BOARD, /staleParts\(hiddenStale\)/);
+    // … die Grenze steht daneben und kommt aus der Bibliothek, nicht als
+    // abgetippte 90 …
+    assert.match(BOARD, /über \{STALE_AFTER_DAYS\.recycling\} Tage überfällig/);
     // … und der Ausweg steht in derselben Zeile.
-    const zeile = slice(BOARD, "{staleHidden}", "</div>");
+    const zeile = slice(BOARD, "{hiddenStale}", "</div>");
     assert.match(zeile, /href="\?alle=1"/);
   });
 
   test("mit ?alle=1 sagt die Seite, dass sie jetzt alles zeigt", () => {
-    const alles = slice(BOARD, "{showingAll ? (", ") : (");
+    const alles = slice(BOARD, "{showingAll ? (", ") : hiddenStale > 0 ? (");
     assert.match(alles, /Altlasten/, "Der Zustand „alles sichtbar\" muss den Bestand benennen.");
     assert.match(alles, /href="\?"/, "…und den Weg zurück.");
   });

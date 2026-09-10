@@ -173,7 +173,6 @@ function input(c: DossierContact): DossierInput {
     settings: [],
     closings: [],
     attempts: [],
-    touches: [],
     now: NOW,
   };
 }

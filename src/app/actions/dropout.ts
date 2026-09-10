@@ -7,7 +7,7 @@ import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { berlinDateISO } from "@/lib/apptTime";
 import { getPipelineSettings } from "@/app/actions/reminders";
 import {
-  DROPOUT_LISTS,
+  dropoutListMeta,
   isDropoutListKey,
   listFeedsRecycling,
   recycleBlockedReason,
@@ -15,11 +15,17 @@ import {
   reviveBlockedReason,
   type DropoutAppointmentEntity,
   type DropoutEntity,
-  type DropoutListKey,
+  type DropoutSourceList,
 } from "@/lib/dropoutLists";
 
-// Der Ablage-Bereich: liest die sechs gesonderten Listen aus `dropout_lists()`
+// Der Ablage-Bereich: liest die ausgeschiedenen Vorgänge aus `dropout_lists()`
 // (Migration 0033) und trägt die beiden Aktionen, die es dort gibt.
+//
+// EINE ANSICHT, MEHRERE AUFRUFE. Die RPC liegt seit dem Einspielen von 0033
+// fest und nimmt genau EINEN Listen-Schlüssel entgegen. „Ausgeschieden" fasst
+// vier davon zusammen — also vier Aufrufe, parallel, und ein Entdoppeln
+// danach. Zusammenlegen in SQL bräuchte Migration 0042; für eine reine
+// Anzeigefrage ist das der falsche Preis.
 //
 // Gelesen wird nur — die Zugehörigkeit zu einer Liste ist abgeleiteter
 // Zeilenzustand und lässt sich hier gar nicht setzen. Geschrieben wird
@@ -142,6 +148,16 @@ export type DropoutLineage = {
 const EMPTY_LINEAGE: DropoutLineage = { predecessor: null, successor: null };
 
 export type DropoutRow = DropoutRowRaw & {
+  /**
+   * Aus welchem Aufruf von `dropout_lists()` die Zeile stammt.
+   *
+   * Trägt zweierlei: das Kennzeichen auf der Karte („Kein Close", „No-Show ohne
+   * Antwort" …) und die Antwort auf `listFeedsRecycling`. Seit die vier
+   * Endzustände in EINER Ansicht liegen, ist beides nicht mehr aus der Ansicht
+   * abzulesen — ein abgesagtes Closing und ein verlorenes stehen nebeneinander,
+   * und nur das verlorene speist eine Wiedervorlage.
+   */
+  source_list: DropoutSourceList;
   /** null = „Jetzt wieder anschreiben" ist möglich, sonst der Satz dagegen. */
   recycle_blocked: string | null;
   /**
@@ -391,7 +407,7 @@ export type DropoutListResult = {
 };
 
 /**
- * Eine der sechs Listen laden.
+ * Eine der beiden Ansichten laden.
  *
  * Die Datensicht kommt aus dem `AccessContext` und wird NICHT vom Aufrufer
  * entgegengenommen: Als Server Action ist die Funktion per direktem POST
@@ -403,6 +419,13 @@ export type DropoutListResult = {
  * keine persönliche Aufgabenliste. Ein Mitglied mit `data_scope='own'` wird von
  * `rpc_effective_user` serverseitig ohnehin auf sich selbst gezwungen. Die
  * Sperrliste hebt den Filter zusätzlich in der RPC auf.
+ *
+ * ENTDOPPELT WIRD ÜBER `<entity_type>:<entity_id>`, und zwar nach der
+ * Reihenfolge in `meta.sources` (Begründung dort). Ohne diesen Schritt stünde
+ * ein disqualifiziertes und später abgesagtes Erstgespräch zweimal in derselben
+ * Ansicht — als zwei Karten für einen Menschen. In den sechs alten Reitern fiel
+ * das nicht auf: Dieselbe Zeile stand in zwei Reitern, aber nie zweimal
+ * nebeneinander.
  */
 export async function loadDropoutList(list: string): Promise<DropoutListResult> {
   const access = await getAccessContext();
@@ -413,20 +436,37 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
   // Der Deckel steht in `pipeline_settings` (0032) und wird hier nur angezeigt;
   // durchgesetzt wird er in `recycle_attempt()` bzw. in der Gate-Prüfung unten.
   const settings = await getPipelineSettings();
+  const sources = dropoutListMeta(list).sources;
 
   try {
-    const raw = await fetchAllRows<DropoutRowRaw>((from, to) =>
-      supabase
-        .rpc("dropout_lists", {
-          p_workspace_id: access.workspace_id,
-          p_list: list,
-          p_effective_user_id: access.effective_user_id,
-        })
-        // Stabile Sortierung ist Pflicht, sonst überlappen sich die Seiten der
-        // Paginierung — die RPC selbst gibt die Union ungeordnet zurück.
-        .order("entity_id", { ascending: true })
-        .range(from, to),
+    const perSource = await Promise.all(
+      sources.map(async (source) => {
+        const rows = await fetchAllRows<DropoutRowRaw>((from, to) =>
+          supabase
+            .rpc("dropout_lists", {
+              p_workspace_id: access.workspace_id,
+              p_list: source,
+              p_effective_user_id: access.effective_user_id,
+            })
+            // Stabile Sortierung ist Pflicht, sonst überlappen sich die Seiten
+            // der Paginierung — die RPC selbst gibt die Union ungeordnet zurück.
+            .order("entity_id", { ascending: true })
+            .range(from, to),
+        );
+        return rows.map((r) => ({ ...r, source_list: source }));
+      }),
     );
+
+    const raw: (DropoutRowRaw & { source_list: DropoutSourceList })[] = [];
+    const seen = new Set<string>();
+    for (const rows of perSource) {
+      for (const r of rows) {
+        const key = `${r.entity_type}:${r.entity_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        raw.push(r);
+      }
+    }
 
     // Die Rückhol-Kette ist eine Anzeigehilfe und darf die Liste nicht
     // aufhalten: sie hängt hinter derselben `available`-Antwort, liefert im
@@ -463,7 +503,7 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
             // Statuswechsel aus der Liste heraus. Die Action prüft es zusätzlich
             // an der Zeile selbst.
             responded: false,
-            // In den Absage-Listen trägt `reason_code` den ABSAGEgrund, nicht den
+            // Aus der Absage-Quelle trägt `reason_code` den ABSAGEgrund, nicht den
             // Verlust- oder Disqualifizierungsgrund — die Sperre „bekommt nie ein
             // Recycling" greift hier also nur, wenn beide Gründe gesetzt sind.
             // Das ist bewusst die optimistische Seite: Die Action liest den
@@ -472,7 +512,10 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
             reasonCode: r.reason_code,
             attemptCount: r.recycle_attempt_count ?? 0,
             maxAttempts: settings.settings.max_attempts,
-            inRecycleBranch: listFeedsRecycling(list, r.entity_type),
+            // Die QUELLE der Zeile, nicht die Ansicht: In „Ausgeschieden" liegen
+            // Zeilen nebeneinander, von denen die einen einen Recycling-Zweig
+            // speisen und die anderen nicht.
+            inRecycleBranch: listFeedsRecycling(r.source_list, r.entity_type),
           }),
         };
       })
@@ -485,47 +528,6 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
     if (!missing) console.error("dropout_lists:", e instanceof Error ? e.message : e);
     return { rows: [], available: !missing, maxAttempts: settings.settings.max_attempts };
   }
-}
-
-/**
- * Zähler je Liste für die Umschaltleiste.
- *
- * Sechs Abfragen mit `count: 'exact'` und `range(0, 0)`: Postgres zählt, die
- * Antwort trägt eine einzige Zeile. Die Alternative wäre, alle sechs Listen
- * vollständig zu laden, nur um `length` zu lesen — bei einem Aktenschrank, der
- * über Monate wächst, sechs volle Durchläufe pro Seitenaufruf.
- *
- * Fail-soft: Fällt eine Zahl aus, bleibt der Reiter ohne Zähler stehen, statt
- * die Seite abzuräumen — die Liste selbst lädt unabhängig davon.
- */
-export async function loadDropoutCounts(): Promise<Partial<Record<DropoutListKey, number>>> {
-  const access = await getAccessContext();
-  if (!access) return {};
-
-  const supabase = await createClient();
-  const entries = await Promise.all(
-    DROPOUT_LISTS.map(async (meta) => {
-      try {
-        const { count, error } = await supabase
-          .rpc(
-            "dropout_lists",
-            {
-              p_workspace_id: access.workspace_id,
-              p_list: meta.key,
-              p_effective_user_id: access.effective_user_id,
-            },
-            { count: "exact" },
-          )
-          .range(0, 0);
-        if (error || count == null) return null;
-        return [meta.key, count] as const;
-      } catch {
-        return null;
-      }
-    }),
-  );
-
-  return Object.fromEntries(entries.filter((e): e is readonly [DropoutListKey, number] => e !== null));
 }
 
 /* ------------------------------------------------------------------ *

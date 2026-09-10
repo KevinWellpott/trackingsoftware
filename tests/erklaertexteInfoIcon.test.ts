@@ -76,14 +76,19 @@ const SEITE_NACHFASSEN = read("src/app/(dashboard)/nachfassen/page.tsx");
 describe("1 · Erklärtexte stehen hinter dem Info-Icon", () => {
   test("der Seitenkopf beschreibt sich nicht mehr selbst", () => {
     // Die Seite trug einen Absatz unter dem Titel, der sagte, was sie ist. Die
-    // Filterreihe sagt dasselbe in Zahlen, und zwar über den tatsächlichen
-    // Stand. (/erinnerungen stand hier als zweite Seite, bis der Rückbau sie
-    // auf eine Weiterleitung reduziert hat — ohne Kopf gibt es dort nichts mehr
-    // zu verstecken.)
+    // Liste darunter sagt dasselbe über den tatsächlichen Stand.
+    // (/erinnerungen stand hier als zweite Seite, bis der Rückbau sie auf eine
+    // Weiterleitung reduziert hat — ohne Kopf gibt es dort nichts mehr zu
+    // verstecken.)
+    //
+    // Die gesuchte Frage hat sich mit dem Rückbau geändert: /nachfassen zeigt
+    // nur noch das Recycling und beantwortet damit nicht mehr „was ist heute
+    // fällig?" (das steht in der Terminliste), sondern „welcher tote Lead ist
+    // wieder einen Versuch wert?" — die dritte der drei Fragen aus docs §1.
     assert.match(SEITE_NACHFASSEN, /<InfoPopover/, "/nachfassen hat kein Info-Icon am Titel.");
     assert.match(
       versteckt(SEITE_NACHFASSEN),
-      /Was ist heute fällig\?/,
+      /Welcher tote Lead ist wieder einen Versuch wert\?/,
       "/nachfassen zeigt seine Selbstbeschreibung weiterhin als Absatz.",
     );
     assert.doesNotMatch(SEITE_NACHFASSEN, /\bmeta=/, "/nachfassen trägt weiterhin eine Meta-Zeile mit Fließtext.");
@@ -98,22 +103,22 @@ describe("1 · Erklärtexte stehen hinter dem Info-Icon", () => {
     assert.doesNotMatch(SEITE_NACHFASSEN, /onClick/, "/nachfassen reicht einen Handler in eine Server Component.");
   });
 
-  test("/nachfassen: der Verweis ist kurz, seine Bedingung steht hinter dem Icon", () => {
-    // Der Satz aus dem Feedback, wörtlich: „No-Show-Kette zu den nicht
-    // erschienenen Terminen, sofern eine Kette läuft". Der LINK bleibt — er
-    // ist eine Handlung —, der erklärende Halbsatz wandert.
-    const tabelle = slice(NACHFASSEN, "const SECTION_CROSSLINK", "/* ── Einklappbare Sektion");
-    const labels = [...tabelle.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
-    assert.equal(labels.length, 2, "Es sind genau die zwei Sektionen mit echter Überschneidung (docs §1).");
-    for (const label of labels) {
-      assert.ok(label.length <= 28, `Der Verweis „${label}" ist wieder ein Satz statt eines Ziels.`);
-      assert.doesNotMatch(label, /sofern|falls|bestehen/i, `Der Verweis „${label}" trägt seine Bedingung wieder mit.`);
-    }
-    // Der Text steht in der Tabelle und wird als `{crosslink.info}` ins
-    // Popover gereicht — geprüft wird deshalb dort, wo er lebt.
-    assert.match(versteckt(NACHFASSEN), /\{crosslink\.info\}/, "Der Text erreicht das Icon gar nicht.");
-    assert.match(tabelle, /erst, wenn der Termin angelegt oder verschoben wird/);
-    assert.match(tabelle, /nicht erschienen“ als Ergebnis eingetragen wird/);
+  test("/nachfassen: es gibt keinen Verweis mehr, der eine Kaskade verspricht", () => {
+    // HIER STAND: „Der Verweis ist kurz, seine Bedingung steht hinter dem
+    // Icon" — geprüft an `SECTION_CROSSLINK`, den zwei Links von /nachfassen
+    // nach /erinnerungen samt ihrer Bedingung im Popover.
+    //
+    // Beides ist mit dem Rückbau gefallen: /erinnerungen ist eine
+    // Weiterleitung, die Kaskade hat keine Oberfläche mehr, und die beiden
+    // Sektionen, die den Verweis trugen (Setting- und Closing-Wiedervorlage),
+    // stehen nicht mehr auf der Seite. Ein Verweis mit einer Bedingung, die
+    // nie mehr eintritt, wäre schlimmer als gar keiner — die Zusicherung
+    // dreht sich deshalb um.
+    assert.doesNotMatch(NACHFASSEN, /SECTION_CROSSLINK/);
+    assert.doesNotMatch(NACHFASSEN, /href="\/erinnerungen"/);
+    // Und das Board hat damit gar kein Info-Icon mehr: Was es zu erklären
+    // gäbe, steht am Seitentitel (Block oben) oder auf der Karte selbst.
+    assert.equal(versteckt(NACHFASSEN), "", "Das Board erklärt sich wieder hinter einem Icon.");
   });
 
   test("/ablage: die Begründungen der Sperrliste und der Rückholung sind weg vom Schirm", () => {
@@ -143,8 +148,10 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
   }
 
   test("Fehlermeldungen und „nicht verfügbar\"-Kästen — eine versteckte Fehlermeldung ist keine", () => {
+    // „Die Aufgabenliste konnte nicht geladen werden" ist mit der Union-RPC
+    // entfallen: /nachfassen liest nur noch `recycle_tasks`, und damit gibt es
+    // dort genau EINEN Ausfall statt zweier.
     sichtbar("/nachfassen", NACHFASSEN, [
-      "Die Aufgabenliste konnte nicht geladen werden",
       "Recycling ist nicht verfügbar",
       "Konnte nicht gespeichert werden — bitte erneut versuchen.",
     ]);
@@ -168,14 +175,19 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
   });
 
   test("Leerzustände sagen weiterhin ohne Klick, was als Nächstes passiert", () => {
-    sichtbar("/nachfassen", NACHFASSEN, ["Alles nachgefasst", "Keine Aufgaben in dieser Auswahl"]);
+    // Zwei Leerzustände waren es, solange es Filter gab („in dieser Auswahl").
+    // Ohne Filterreihe bleibt der eine, und er sagt jetzt, worauf man wartet.
+    sichtbar("/nachfassen", NACHFASSEN, ["Kein Lead wartet auf einen zweiten Anlauf"]);
     sichtbar("/erinnerungen", ERINNERUNGEN, ["Nichts offen", /Erinnerungen entstehen, wenn ein Termin angelegt/]);
     sichtbar("/ablage", ABLAGE, ["Nichts abgelegt"]);
     sichtbar("Kaskaden-Panel", PANEL, [/nie eine Erinnerung geplant/, "Für diesen Termin steht keine Erinnerung an."]);
   });
 
   test("Warnungen an einer konkreten Karte bleiben an ihrer Karte", () => {
-    sichtbar("/nachfassen", NACHFASSEN, ["Zuletzt kontaktiert"]);
+    // /nachfassen trug hier die Kontaktfrequenz-Warnung. Ihre Quelle waren
+    // erledigte Kaskaden-Touches — die gibt es nicht mehr; geblieben ist eine
+    // schlichte Angabe („Zuletzt versucht"), die ebenfalls ohne Klick dasteht.
+    sichtbar("/nachfassen", NACHFASSEN, ["Zuletzt versucht"]);
     sichtbar("/erinnerungen", ERINNERUNGEN, ["Zuletzt kontaktiert", "ist hier nicht ermittelbar"]);
     // Die Sätze zu weggelassenen Knöpfen (`hints`) und der Vorgänger-Hinweis
     // hängen an EINER Zeile und entscheiden dort etwas.

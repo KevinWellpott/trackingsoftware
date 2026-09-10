@@ -18,12 +18,12 @@ import {
   buildDossier,
   collectCore,
   normalizeCompany,
+  type DossierAttempt,
   type DossierClosing,
   type DossierContact,
   type DossierInput,
   type DossierPhoneLead,
   type DossierSetting,
-  type DossierTouch,
 } from "@/lib/leadDossier";
 
 const NOW = "2026-09-09T10:00:00.000Z";
@@ -139,6 +139,9 @@ function setting(partial: Partial<DossierSetting> & { id: string }): DossierSett
     objections_handled: null,
     objections_open: null,
     follow_up_due: null,
+    follow_up_last_contacted_at: null,
+    follow_up_last_contacted_by_user_id: null,
+    follow_up_last_contacted_username: null,
     no_show_count: 0,
     no_show_resolution: null,
     cancelled_at: null,
@@ -178,6 +181,9 @@ function closing(partial: Partial<DossierClosing> & { id: string }): DossierClos
     lost_reason: null,
     follow_up_due: null,
     follow_up_due_at: null,
+    follow_up_last_contacted_at: null,
+    follow_up_last_contacted_by_user_id: null,
+    follow_up_last_contacted_username: null,
     script_answers: null,
     notes: null,
     objections_handled: null,
@@ -199,19 +205,16 @@ function closing(partial: Partial<DossierClosing> & { id: string }): DossierClos
   };
 }
 
-function touch(partial: Partial<DossierTouch> & { id: string; entity_id: string }): DossierTouch {
+function attempt(partial: Partial<DossierAttempt> & { id: string; lead_id: string; called_at: string }): DossierAttempt {
   return {
-    entity_type: "setting",
-    cascade_kind: "setting_msg",
-    touch_kind: "cascade",
-    step_no: 1,
-    template_key: "setting_msg_1",
-    channel: "linkedin",
-    due_at: "2026-08-20T08:00:00.000Z",
-    outcome: null,
-    done_at: null,
-    done_note: null,
-    superseded_at: null,
+    attempt_no: 1,
+    kind: "erstanruf",
+    outcome: "nicht_erreicht",
+    mailbox: null,
+    gatekeeper_reached: null,
+    decider_reached: null,
+    pitch_delivered: null,
+    notes: null,
     ...partial,
   };
 }
@@ -223,7 +226,6 @@ function input(partial: Partial<DossierInput> & { anchor: DossierInput["anchor"]
     settings: [],
     closings: [],
     attempts: [],
-    touches: [],
     now: NOW,
     ...partial,
   };
@@ -325,33 +327,27 @@ describe("Zusammenführung — nur über Fremdschlüssel", () => {
     assert.equal(normalizeCompany(null), null);
   });
 
-  test("Anwahlen und Erinnerungen fremder Zeilen bleiben draußen", () => {
+  test("Anwahlen und Nachfass-Stempel fremder Zeilen bleiben draußen", () => {
     const data = input({
       anchor: { kind: "contact", id: "c1" },
       contacts: [contact({ id: "c1", setting_call_id: "s1" })],
-      settings: [setting({ id: "s1", source_contact_id: "c1" })],
-      phoneLeads: [phoneLead({ id: "p-fremd" })],
-      attempts: [
-        {
-          id: "a1",
-          lead_id: "p-fremd",
-          called_at: "2026-09-07T09:00:00.000Z",
-          attempt_no: 1,
-          kind: "erstanruf",
-          outcome: "nicht_erreicht",
-          mailbox: null,
-          gatekeeper_reached: null,
-          decider_reached: null,
-          pitch_delivered: null,
-          notes: null,
-        },
+      settings: [
+        setting({ id: "s1", source_contact_id: "c1" }),
+        // Gleiche Firma, kein Fremdschlüssel — und jemand hat dort gestern
+        // nachgefasst. Das darf weder in der Leiste stehen noch „zuletzt
+        // kontaktiert" verjüngen.
+        setting({ id: "s-fremd", follow_up_last_contacted_at: "2026-09-08T10:00:00.000Z" }),
       ],
-      touches: [touch({ id: "t-fremd", entity_id: "s-fremd", done_at: "2026-09-07T10:00:00.000Z" })],
+      phoneLeads: [phoneLead({ id: "p-fremd" })],
+      attempts: [attempt({ id: "a1", lead_id: "p-fremd", called_at: "2026-09-07T09:00:00.000Z" })],
     });
 
     const d = buildDossier(data);
     assert.equal(d.events.some((e) => e.id === "attempt:a1"), false);
-    assert.equal(d.events.some((e) => e.id.startsWith("touch:")), false);
+    assert.equal(d.events.some((e) => e.id === "setting:s-fremd:followed_up"), false);
+    // Der eigene Pitch bleibt der jüngste Kontakt — das fremde Nachfassen von
+    // gestern hätte die Zahl sonst um einen Monat verjüngt.
+    assert.equal(d.lastContact.at, "2026-08-01");
   });
 });
 
@@ -372,32 +368,16 @@ describe("Zeitleiste", () => {
         }),
       ],
       attempts: [
-        {
+        attempt({
           id: "a2",
           lead_id: "p1",
           called_at: "2026-09-01T09:00:00.000Z",
           attempt_no: 2,
           kind: "folgeanruf",
           outcome: "rueckruf",
-          mailbox: null,
           gatekeeper_reached: "ja",
-          decider_reached: null,
-          pitch_delivered: null,
-          notes: null,
-        },
-        {
-          id: "a1",
-          lead_id: "p1",
-          called_at: "2026-08-03T09:00:00.000Z",
-          attempt_no: 1,
-          kind: "erstanruf",
-          outcome: "nicht_erreicht",
-          mailbox: true,
-          gatekeeper_reached: null,
-          decider_reached: null,
-          pitch_delivered: null,
-          notes: null,
-        },
+        }),
+        attempt({ id: "a1", lead_id: "p1", called_at: "2026-08-03T09:00:00.000Z", mailbox: true }),
       ],
     });
 
@@ -431,37 +411,17 @@ describe("Zeitleiste", () => {
     const data = input({
       anchor: { kind: "contact", id: "c1" },
       contacts: [contact({ id: "c1", pitched_at: "2026-09-01", setting_call_id: "s1" })],
-      settings: [setting({ id: "s1", source_contact_id: "c1" })],
-      touches: [
-        touch({ id: "t-frueh", entity_id: "s1", done_at: "2026-09-01T06:00:00.000Z" }),
-        touch({ id: "t-spaet", entity_id: "s1", step_no: 2, done_at: "2026-09-01T20:00:00.000Z" }),
+      settings: [setting({ id: "s1", source_contact_id: "c1", source_phone_lead_id: "p1" })],
+      phoneLeads: [phoneLead({ id: "p1" })],
+      attempts: [
+        attempt({ id: "a-frueh", lead_id: "p1", called_at: "2026-09-01T06:00:00.000Z" }),
+        attempt({ id: "a-spaet", lead_id: "p1", called_at: "2026-09-01T20:00:00.000Z", attempt_no: 2 }),
       ],
     });
 
     const d = buildDossier(data);
     const order = d.events.filter((e) => e.source !== "setting").map((e) => e.id);
-    assert.deepEqual(order, ["touch:t-spaet:done", "contact:c1:pitch", "touch:t-frueh:done"]);
-  });
-
-  test("entwertete, nie erledigte Erinnerungen stehen nicht in der Akte", () => {
-    const data = input({
-      anchor: { kind: "setting", id: "s1" },
-      settings: [setting({ id: "s1" })],
-      touches: [
-        touch({ id: "t1", entity_id: "s1", superseded_at: "2026-09-02T08:00:00.000Z" }),
-        touch({
-          id: "t2",
-          entity_id: "s1",
-          step_no: 2,
-          done_at: "2026-09-02T07:00:00.000Z",
-          superseded_at: "2026-09-02T08:00:00.000Z",
-        }),
-      ],
-    });
-
-    const d = buildDossier(data);
-    assert.equal(d.events.some((e) => e.id.startsWith("touch:t1")), false);
-    assert.equal(d.events.some((e) => e.id === "touch:t2:done"), true);
+    assert.deepEqual(order, ["attempt:a-spaet", "contact:c1:pitch", "attempt:a-frueh"]);
   });
 });
 
@@ -474,14 +434,20 @@ describe("Zuletzt kontaktiert", () => {
     const data = input({
       anchor: { kind: "contact", id: "c1" },
       contacts: [contact({ id: "c1", pitched_at: "2026-08-01", setting_call_id: "s1" })],
-      settings: [setting({ id: "s1", source_contact_id: "c1" })],
-      // Der abgehakte Erinnerungs-Touch ist der jüngste echte Kontakt.
-      touches: [touch({ id: "t1", entity_id: "s1", done_at: "2026-09-04T09:00:00.000Z" })],
+      // Der Nachfass-Stempel aus der Terminliste ist der jüngste echte Kontakt.
+      settings: [
+        setting({
+          id: "s1",
+          source_contact_id: "c1",
+          follow_up_last_contacted_at: "2026-09-04T09:00:00.000Z",
+          follow_up_last_contacted_username: "Kevin",
+        }),
+      ],
     });
 
     const d = buildDossier(data);
     assert.equal(d.lastContact.at, "2026-09-04T09:00:00.000Z");
-    assert.equal(d.lastContact.source, "erinnerung");
+    assert.equal(d.lastContact.source, "setting");
     assert.equal(d.lastContact.daysAgo, 5);
     assert.equal(d.lastContact.label, "vor 5 Tagen");
     assert.equal(d.lastContact.estimated, false);

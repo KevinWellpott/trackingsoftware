@@ -12,7 +12,6 @@ import {
   type DossierEntityKind,
   type DossierPhoneLead,
   type DossierSetting,
-  type DossierTouch,
   type LeadDossier,
 } from "@/lib/leadDossier";
 
@@ -20,7 +19,7 @@ import {
 // (src/lib/leadDossier.ts, rein und getestet). Hier steht ausschliesslich, WIE
 // die Zeilen zusammenkommen.
 //
-// VIER RUNDEN, HOECHSTENS ACHT ABFRAGEN. Die Kette Kontakt/Lead → Termin →
+// VIER RUNDEN, HOECHSTENS SIEBEN ABFRAGEN. Die Kette Kontakt/Lead → Termin →
 // Closing ist zwei Sprünge lang und laesst sich nicht in eine Abfrage falten:
 // Erst der Anker sagt, welche Termine zu suchen sind, erst die Termine sagen,
 // welche Closings und Quellzeilen dazugehoeren.
@@ -28,10 +27,16 @@ import {
 //   1. Ankerzeile                                             (1 Abfrage)
 //   2. Erstgespräche: eigene ID, Quellkontakt, Quell-Lead     (1)
 //   3. Closings · Kontakte · Telefon-Leads, parallel          (bis 3)
-//   4. Anwahlen · Erinnerungen · Namen der Zuständigen        (bis 3)
+//   4. Anwahlen · Namen der Zuständigen                       (bis 2)
 //
 // Innerhalb einer Runde laeuft alles parallel; leere Zweige entfallen. Ein
-// Dossier ohne Telefon-Bezug braucht damit fuenf Abfragen.
+// Dossier ohne Telefon-Bezug braucht damit vier Abfragen.
+//
+// `reminder_touches` wird seit dem Rueckbau NICHT mehr gelesen: Die
+// Erinnerungs-Kaskade ist gefallen, die Tabelle fuellt keine Oberflaeche mehr.
+// An ihre Stelle tritt der Nachfass-Stempel der Terminliste, und der steht in
+// zwei Spalten der beiden Termin-Tabellen — also in Abfragen, die es ohnehin
+// gibt, statt in einer eigenen.
 //
 // VERMUTUNGEN werden in Runde 3 MITGELADEN, nicht extra: derselbe
 // Firmenname wird als zusaetzlicher `or`-Zweig an die Kontakt- und
@@ -82,6 +87,20 @@ const PHONE_LEAD_COLUMNS =
   "no_transfer_reason, no_pitch_reason, no_appointment_reason, objection_notes, notes, created_at, " +
   `updated_at, ${RECYCLE_COLUMNS}, phone_lists(name, owner_name)`;
 
+/**
+ * Der Nachfass-Stempel der Terminliste (Migration 0041), auf beiden
+ * Termin-Tabellen gleich.
+ *
+ * ER STEHT NAMENTLICH IN DER HAUPTABFRAGE, und das ist die harte Richtung:
+ * Fehlt die Migration, weist PostgREST die GANZE Abfrage ab und das Dossier ist
+ * leer statt unvollstaendig (Muster 0029/0032, docs §7). Der `catch` unten
+ * faengt das als „Dossier nicht verfuegbar" ab — die ehrliche Meldung, keine
+ * weisse Seite. Die Alternative waere eine eigene, fail-soft nachgeladene
+ * Abfrage gewesen; die kostete eine Runde mehr fuer zwei Spalten, die ohnehin
+ * an Zeilen haengen, die hier schon gelesen werden.
+ */
+const FOLLOW_UP_STAMP_COLUMNS = "follow_up_last_contacted_at, follow_up_last_contacted_by_user_id";
+
 const SETTING_COLUMNS =
   "id, lead_name, company, phone, wa_phone, wa_consent_at, wa_refused_at, source_type, source_detail, " +
   "source_contact_id, source_phone_lead_id, appointment_at, call_at, meeting_kind, meet_link, status, " +
@@ -89,22 +108,19 @@ const SETTING_COLUMNS =
   "soll_ziel, script_answers, notes, objections_handled, objections_open, follow_up_due, no_show_count, " +
   "no_show_resolution, cancelled_at, cancel_reason_code, cancel_reason, cancel_outlook, reschedule_count, " +
   "last_reschedule_at, revived_at, disqualify_reason_code, disqualify_reason, assigned_user_id, " +
-  `created_by_user_id, created_at, updated_at, ${RECYCLE_COLUMNS}`;
+  `created_by_user_id, created_at, updated_at, ${FOLLOW_UP_STAMP_COLUMNS}, ${RECYCLE_COLUMNS}`;
 
 const CLOSING_COLUMNS =
   "id, setting_call_id, lead_name, company, call_at, meet_link, status, show_status, deal_volume, " +
   "payment_type, signature_received, contract_start, onboarding_at, lost_reason_code, lost_reason, " +
   "follow_up_due, follow_up_due_at, script_answers, notes, objections_handled, objections_open, " +
   "cancelled_at, cancel_reason_code, cancel_reason, cancel_outlook, reschedule_count, last_reschedule_at, " +
-  `revived_at, assigned_user_id, created_by_user_id, created_at, updated_at, ${RECYCLE_COLUMNS}`;
+  `revived_at, assigned_user_id, created_by_user_id, created_at, updated_at, ${FOLLOW_UP_STAMP_COLUMNS}, ` +
+  RECYCLE_COLUMNS;
 
 const ATTEMPT_COLUMNS =
   "id, lead_id, called_at, attempt_no, kind, outcome, mailbox, gatekeeper_reached, decider_reached, " +
   "pitch_delivered, notes";
-
-const TOUCH_COLUMNS =
-  "id, entity_type, entity_id, cascade_kind, touch_kind, step_no, template_key, channel, due_at, " +
-  "outcome, done_at, done_note, superseded_at";
 
 /* ------------------------------------------------------------------ *
  * Hilfen
@@ -255,24 +271,24 @@ export async function getLeadDossier(kind: string, id: string): Promise<LeadDoss
       return rows.some((r) => r.id === id) ? rows : [...rows, anchor];
     };
 
-    /* ── Runde 4: Anwahlen, Erinnerungen, Namen ────────────────── */
+    /* ── Runde 4: Anwahlen, Namen ──────────────────────────────── */
     const allLeads = mergeAnchor(leadRows, "phone_lead");
     const allSettings = mergeAnchor(settingRows, "setting");
     const allClosings = mergeAnchor(closingRows, "closing");
     const allContacts = mergeAnchor(contactRows, "contact");
 
     const leadIds = uuids(allLeads.map((l) => l.id as string));
-    const closingIds = uuids(allClosings.map((c) => c.id as string));
+    // Zwei Rollen in einer Abfrage: die zuständige Person eines Termins UND
+    // wer zuletzt nachgefasst hat. Das kann derselbe sein, muss aber nicht —
+    // in einem Dreier-Team hakt ab, wer gerade Zeit hat.
     const personIds = uuids([
       ...allSettings.map((s) => personOf(s as { assigned_user_id: string | null; created_by_user_id: string | null })),
       ...allClosings.map((c) => personOf(c as { assigned_user_id: string | null; created_by_user_id: string | null })),
+      ...allSettings.map((s) => s.follow_up_last_contacted_by_user_id as string | null),
+      ...allClosings.map((c) => c.follow_up_last_contacted_by_user_id as string | null),
     ]);
 
-    const touchOr: string[] = [];
-    if (settingIds.length > 0) touchOr.push(`setting_call_id.in.(${settingIds.join(",")})`);
-    if (closingIds.length > 0) touchOr.push(`closing_call_id.in.(${closingIds.join(",")})`);
-
-    const [attemptRes, touchRes, profileRes] = await Promise.all([
+    const [attemptRes, profileRes] = await Promise.all([
       leadIds.length > 0
         ? supabase
             .from("phone_call_attempts")
@@ -281,18 +297,14 @@ export async function getLeadDossier(kind: string, id: string): Promise<LeadDoss
             .in("lead_id", leadIds)
             .order("called_at", { ascending: true })
         : Promise.resolve({ data: [], error: null }),
-      touchOr.length > 0
-        ? supabase.from("reminder_touches").select(TOUCH_COLUMNS).eq("workspace_id", ws).or(touchOr.join(","))
-        : Promise.resolve({ data: [], error: null }),
       personIds.length > 0
         ? supabase.from("profiles").select("user_id, username").in("user_id", personIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
-    // Anwahl-Log und Erinnerungen sind fail-soft: fehlt eine der beiden
-    // Migrationen, bleibt die Zeitleiste unvollständig statt leer. Der Anker
-    // steht bereits, das Dossier ist auch ohne sie brauchbar.
+    // Das Anwahl-Log ist fail-soft: fehlt Migration 0028, bleibt die Zeitleiste
+    // unvollständig statt leer. Der Anker steht bereits, das Dossier ist auch
+    // ohne sie brauchbar.
     if (attemptRes.error) console.error("[leadDossier] phone_call_attempts:", attemptRes.error.message);
-    if (touchRes.error) console.error("[leadDossier] reminder_touches:", touchRes.error.message);
     if (profileRes.error) console.error("[leadDossier] profiles:", profileRes.error.message);
 
     const usernameById = new Map<string, string>();
@@ -302,6 +314,10 @@ export async function getLeadDossier(kind: string, id: string): Promise<LeadDoss
     const nameOf = (row: Record<string, unknown>): string | null => {
       const uid = personOf(row as { assigned_user_id: string | null; created_by_user_id: string | null });
       return uid ? (usernameById.get(uid) ?? null) : null;
+    };
+    const stampNameOf = (row: Record<string, unknown>): string | null => {
+      const uid = row.follow_up_last_contacted_by_user_id;
+      return typeof uid === "string" ? (usernameById.get(uid) ?? null) : null;
     };
 
     /* ── Übergabe an die Bibliothek ────────────────────────────── */
@@ -315,10 +331,17 @@ export async function getLeadDossier(kind: string, id: string): Promise<LeadDoss
         const list = embeddedList(r, "phone_lists");
         return { ...(r as unknown as DossierPhoneLead), list_name: list.name, list_owner_name: list.owner };
       }),
-      settings: allSettings.map((r) => ({ ...(r as unknown as DossierSetting), assigned_username: nameOf(r) })),
-      closings: allClosings.map((r) => ({ ...(r as unknown as DossierClosing), assigned_username: nameOf(r) })),
+      settings: allSettings.map((r) => ({
+        ...(r as unknown as DossierSetting),
+        assigned_username: nameOf(r),
+        follow_up_last_contacted_username: stampNameOf(r),
+      })),
+      closings: allClosings.map((r) => ({
+        ...(r as unknown as DossierClosing),
+        assigned_username: nameOf(r),
+        follow_up_last_contacted_username: stampNameOf(r),
+      })),
       attempts: (attemptRes.data ?? []) as unknown as DossierAttempt[],
-      touches: (touchRes.data ?? []) as unknown as DossierTouch[],
       now: new Date().toISOString(),
     });
 

@@ -1,6 +1,6 @@
 import { getAccessContext } from "@/lib/access";
 import { berlinDateISO } from "@/lib/apptTime";
-import { loadDropoutCounts, loadDropoutList } from "@/app/actions/dropout";
+import { loadDropoutList } from "@/app/actions/dropout";
 import { dropoutListMeta, parseDropoutList } from "@/lib/dropoutLists";
 import { AblageBoard } from "@/components/ablage/AblageBoard";
 import { AblageNav } from "@/components/ablage/AblageNav";
@@ -8,19 +8,18 @@ import { BackLink } from "@/components/ui/BackLink";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 
-// Ablage: die sechs gesonderten Listen aus dem Nachfassen-Umbau
-// (ENTSCHEIDUNGEN.md #7) — ein Bereich, sechs Ansichten, umgeschaltet über
-// `?liste=`.
+// Ablage: ein Bereich, zwei Ansichten, umgeschaltet über `?liste=`.
 //
-// Hier landet, was aus dem Funnel gefallen ist: abgesagt ohne Aussicht,
-// abgesagt mit noch offenem Ersatztermin, disqualifiziert, kein Close, No-Show
-// ohne Antwort — und die Sperrliste. Die Zugehörigkeit steht in keiner Tabelle,
-// sondern leitet `dropout_lists()` (Migration 0033) aus dem Zeilenzustand ab;
-// dadurch sind die Listen am ersten Tag gefüllt und können nicht neben `status`
-// und `cancelled_at` auseinanderlaufen.
+// Hier landet, was aus dem Funnel gefallen ist — abgesagt ohne Aussicht,
+// disqualifiziert, kein Close, No-Show ohne Antwort — und daneben die
+// Sperrliste. Die Zugehörigkeit steht in keiner Tabelle, sondern leitet
+// `dropout_lists()` (Migration 0033) aus dem Zeilenzustand ab; dadurch sind die
+// Listen am ersten Tag gefüllt und können nicht neben `status` und
+// `cancelled_at` auseinanderlaufen.
 //
 // Der Zustand liegt vollständig in der URL — jede Ansicht ist teilbar, und der
-// Zurück-Knopf des Browsers tut das Erwartete.
+// Zurück-Knopf des Browsers tut das Erwartete. Die alten Reiter-Adressen führen
+// weiter auf die Ansicht, in der ihr Inhalt jetzt liegt (`parseDropoutList`).
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +35,7 @@ export default async function AblagePage({
   const list = parseDropoutList(sp.liste);
   const meta = dropoutListMeta(list);
 
-  // Zähler und Zeilen parallel: Der Zähler-Block ist fail-soft und darf die
-  // Liste nicht aufhalten.
-  const [result, counts] = await Promise.all([loadDropoutList(list), loadDropoutCounts()]);
+  const result = await loadDropoutList(list);
 
   // „Heute" kommt vom Server, nicht aus dem Browser: die Karte entscheidet
   // damit, ob eine Wiedervorlage bereits fällig ist, und der Browser kann in
@@ -78,7 +75,7 @@ export default async function AblagePage({
           </>
         }
       >
-        <AblageNav active={list} counts={counts} />
+        <AblageNav active={list} />
       </PageHeader>
 
       <AblageBoard

@@ -5,7 +5,7 @@ import { updateClosingCall } from "@/app/actions/closingCalls";
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { slotToIso } from "@/lib/apptTime";
 import { localDateISO } from "@/lib/dates";
-import { buildEvents, type TerminEvent, type WithCancellation } from "@/lib/termine";
+import { buildEvents, type RueckrufAufgabe, type TerminEvent, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
 import { Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -14,6 +14,7 @@ import { CalendarMonth } from "./CalendarMonth";
 import { CalendarTimeGrid, type TimeGridHandle } from "./CalendarTimeGrid";
 import { EventChip } from "./EventChip";
 import { EventPopover } from "./EventPopover";
+import { RueckrufListe } from "./RueckrufListe";
 import { TermineFilterBar, type Member } from "./TermineFilterBar";
 import { TermineList } from "./TermineList";
 import { useDragReschedule, type DragGeometry, type DragTarget } from "./useDragReschedule";
@@ -23,36 +24,55 @@ import {
   periodLabel,
   rangeForView,
   stepDate,
+  tabForView,
   type TerminSort,
+  type TerminTab,
   type TerminView,
 } from "./viewState";
 
-// Client-Shell des Termine-Kalenders: hält Ansichts-State (in der URL),
+// Client-Shell des Termine-Bereichs: hält den Ansichts-State (in der URL),
 // normalisiert Setting + Closing zu einem Event-Modell und verteilt es an
-// Monat / Woche / Tag / Liste. Alle Daten kommen komplett vom Server-Parent —
-// Ansichtswechsel und Navigation laufen darum ohne Server-Roundtrip.
+// Arbeitsliste / Kalender / Rückrufe. Alle Daten kommen komplett vom
+// Server-Parent — Ansichtswechsel und Navigation laufen darum ohne
+// Server-Roundtrip.
 //
-// Typ-, Personen- und „Versteckte"-Filter sind ersatzlos entfallen (siehe
-// viewState.ts). Was übrig bleibt, ist eine Suche und der Zeitraum — alles
-// andere liest man jetzt am Chip selbst ab.
+// Die Reihenfolge ist neu und sie ist die Aussage: Die ARBEITSLISTE ist die
+// Vorgabe, der Kalender der zweite Reiter. Wer die Seite morgens öffnet, will
+// wissen, wen er nerven muss — nicht, wie die Woche aussieht.
 
 export function TermineBoard({
   settings,
   closings,
   members,
+  rueckrufe,
+  rueckrufeVerfuegbar,
+  scopeUserId,
+  canSeeAll,
 }: {
-  // `WithCancellation`: Die Seite lädt mit `select("*")`, `cancelled_at` ist
-  // also da — nur im geteilten Typ steht es bewusst nicht (siehe lib/termine).
+  // `WithCancellation`: Die Seite lädt mit `select("*")`, `cancelled_at` und die
+  // beiden Nachfass-Spalten sind also da — nur im geteilten Typ stehen sie
+  // bewusst nicht (siehe lib/termine).
   settings: WithCancellation<SettingCall>[];
   closings: WithCancellation<ClosingCall>[];
-  /** Nur noch Namensquelle für `assigned_user_id` — kein Filter mehr. */
+  /** Namensquelle für `assigned_user_id` und für den Nachfass-Stempler. */
   members: Member[];
+  /** Fällige Telefon-Rückrufe — der dritte Reiter (docs §1: eigene Zeitkörnung). */
+  rueckrufe: RueckrufAufgabe[];
+  /** `false` = Abfrage gescheitert. „Nicht ermittelbar" ≠ „nichts zu tun". */
+  rueckrufeVerfuegbar: boolean;
   /**
-   * Ohne Wirkung. Der Personenfilter ist mit der zweiten Filterzeile entfallen;
-   * die Prop bleibt im Typ, damit `/termine/page.tsx` (fremdes Paket in dieser
-   * Runde) unverändert kompiliert. Beim nächsten Anfassen der Seite streichen.
+   * Wessen Liste ist die Vorgabe — `effective_user_id ?? user.id`, dieselbe
+   * Regel wie bei den Navigations-Zählern (docs §5.4). Bei aktiver Datensicht
+   * ist das der Kollege, dessen Liste man gerade abarbeitet, NICHT das eigene
+   * Konto; sonst stünde die Seite leer da.
    */
-  canFilterPersons?: boolean;
+  scopeUserId: string | null;
+  /**
+   * Darf über die eigene Liste hinausgesehen werden? Nur ein Owner mit
+   * Team-Sicht. Bei aktiver Datensicht hat der Server die Menge längst
+   * zugeschnitten — ein Schalter „Alle" wäre dort eine Lüge.
+   */
+  canSeeAll: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -61,6 +81,7 @@ export function TermineBoard({
 
   const today = localDateISO();
   const params = useMemo(() => parseTermineParams(sp, today), [sp, today]);
+  const tab = tabForView(params.view);
 
   const [popover, setPopover] = useState<{ event: TerminEvent; anchor: DOMRect } | null>(null);
   const [showManual, setShowManual] = useState(false);
@@ -91,17 +112,16 @@ export function TermineBoard({
   );
 
   // ── Events aufbauen + filtern ──────────────────────────────
-  // Die Mitgliederliste ist die Namensquelle für `assigned_user_id` — eine
-  // zweite Abfrage dafür gibt es nicht. Seit der Personenfilter weg ist, ist
-  // das ihr einziger Zweck.
+  // Die Mitgliederliste ist die Namensquelle für `assigned_user_id` und für den
+  // Nachfass-Stempler — eine zweite Abfrage dafür gibt es nicht.
   const usernameById = useMemo(
     () => new Map(members.map((m) => [m.user_id, m.username])),
     [members],
   );
 
   const { events: allEvents, ohneTermin: allOhneTermin } = useMemo(
-    () => buildEvents(settings, closings, usernameById),
-    [settings, closings, usernameById],
+    () => buildEvents(settings, closings, usernameById, today),
+    [settings, closings, usernameById, today],
   );
 
   /** Optimistische Verschiebungen einrechnen, bevor gefiltert wird. */
@@ -126,17 +146,52 @@ export function TermineBoard({
     [params.search],
   );
 
+  /**
+   * „Eine Liste pro Person."
+   *
+   * Der Filter läuft über `assignee` — also über `personOf()` = Zuweisung vor
+   * Ersteller (docs §2), dieselbe Achse wie jede Auswertung. Eine Zeile ohne
+   * auflösbare Person (gelöschter Nutzer, `on delete set null`) gehört
+   * niemandem und fällt aus jeder persönlichen Liste heraus; sie steht unter
+   * „Alle", statt jemandem angedichtet zu werden.
+   *
+   * Der Filter gilt bewusst auch für den KALENDER und nicht nur für die Liste:
+   * Ein Schalter, der je nach Reiter etwas anderes bedeutet, ist zwei Schalter.
+   */
+  const matchesWer = useCallback(
+    (e: TerminEvent) => {
+      if (params.wer === "alle" || !scopeUserId) return true;
+      return e.assignee?.user_id === scopeUserId;
+    },
+    [params.wer, scopeUserId],
+  );
+
   const filtered = useMemo(
-    () => withMoves(allEvents).filter(matchesSearch),
-    [allEvents, withMoves, matchesSearch],
+    () => withMoves(allEvents).filter((e) => matchesSearch(e) && matchesWer(e)),
+    [allEvents, withMoves, matchesSearch, matchesWer],
   );
 
   const ohneTermin = useMemo(
-    () => allOhneTermin.filter(matchesSearch),
-    [allOhneTermin, matchesSearch],
+    () => allOhneTermin.filter((e) => matchesSearch(e) && matchesWer(e)),
+    [allOhneTermin, matchesSearch, matchesWer],
   );
 
-  // Auf den sichtbaren Zeitraum eingrenzen (Liste zeigt alles).
+  /**
+   * Rückrufe folgen derselben Personenachse — aber über den LISTEN-Owner
+   * (`list_owned_by_user()`, docs §2). Das sind die zwei Achsen, die im ganzen
+   * Datenmodell nebeneinanderlaufen; sie hier zu vermischen hieße, einen
+   * Telefon-Lead demjenigen zuzuschreiben, der zufällig den Termin angelegt hat.
+   */
+  const rueckrufeGefiltert = useMemo(() => {
+    const q = params.search.trim().toLowerCase();
+    return rueckrufe.filter((r) => {
+      if (params.wer !== "alle" && scopeUserId && r.ownerUserId !== scopeUserId) return false;
+      if (!q) return true;
+      return [r.company, r.decider].filter(Boolean).join(" ").toLowerCase().includes(q);
+    });
+  }, [rueckrufe, params.search, params.wer, scopeUserId]);
+
+  // Auf den sichtbaren Zeitraum eingrenzen (Liste und Rückrufe zeigen alles).
   const range = rangeForView(params.view, params.date);
   const inRange = useMemo(
     () => (range ? filtered.filter((e) => e.dayISO! >= range.from && e.dayISO! <= range.to) : filtered),
@@ -209,6 +264,18 @@ export function TermineBoard({
     [commit, params.sort, params.dir],
   );
 
+  /**
+   * Reiter-Wechsel. „Kalender" landet auf der Woche und nicht auf der zuletzt
+   * benutzten Kalenderstufe: Die Stufe steht in derselben URL-Variable wie der
+   * Reiter, und ein gemerkter Nebenzustand wäre ein zweiter Ort für dieselbe
+   * Frage. Die Liste ist der Vorgabewert und fliegt deshalb aus der URL.
+   */
+  const handleTab = useCallback(
+    (next: TerminTab) =>
+      setParam("view", next === "liste" ? null : next === "rueckruf" ? "rueckruf" : "woche"),
+    [setParam],
+  );
+
   // ── Render ─────────────────────────────────────────────────
   const [ay, am] = params.date.split("-").map(Number);
 
@@ -246,11 +313,16 @@ export function TermineBoard({
 
       <TermineFilterBar
         view={params.view}
+        tab={tab}
         periodLabel={periodLabel(params.view, params.date)}
         search={params.search}
         zeit={params.zeit}
+        wer={params.wer}
+        canSeeAll={canSeeAll}
         onSearch={(q) => setParam("q", q.trim() ? q : null)}
-        onZeit={(z) => setParam("zeit", z === "anstehend" ? null : z)}
+        onZeit={(z) => setParam("zeit", z === "zu_tun" ? null : z)}
+        onWer={(w) => setParam("wer", w === "mein" ? null : w)}
+        onTab={handleTab}
         onView={(v: TerminView) => setParam("view", v)}
         onStep={(dir) => setParam("date", stepDate(params.view, params.date, dir))}
         onToday={() => setParam("date", today)}
@@ -272,7 +344,7 @@ export function TermineBoard({
         </div>
       )}
 
-      {params.view === "liste" ? (
+      {tab === "liste" ? (
         <TermineList
           events={filtered}
           ohneTermin={ohneTermin}
@@ -281,7 +353,10 @@ export function TermineBoard({
           sort={params.sort}
           dir={params.dir}
           onSort={handleSort}
+          onError={setError}
         />
+      ) : tab === "rueckruf" ? (
+        <RueckrufListe aufgaben={rueckrufeGefiltert} verfuegbar={rueckrufeVerfuegbar} />
       ) : params.view === "monat" ? (
         <CalendarMonth
           year={ay}

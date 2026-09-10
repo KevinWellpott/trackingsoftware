@@ -7,15 +7,14 @@
 // Zeitzonen-Arithmetik mehr — Sommer-/Winterzeit kann nirgends durchschlagen.
 
 import { toBerlinSlot } from "@/lib/apptTime";
+import { istTerminDran, terminZustand, type TerminZustand } from "@/lib/dranRegel";
 import { personOf, type AssignableRow } from "@/lib/personResolution";
 import {
-  CANCELLED_PILL,
-  CLOSING_STATUS_META,
   moveLockReason,
   outlineFor,
-  SETTING_STATUS_META,
   TERMINAL_CLOSING_STATUS,
   TERMINAL_SETTING_STATUS,
+  zustandPill,
   type EventOutline,
   type Pill,
   type ShowStatus,
@@ -23,17 +22,37 @@ import {
 import type { ClosingCall, SettingCall } from "@/lib/types";
 
 /**
- * Die Absage-Spalte aus Migration 0032 — als OPTIONALES Feld neben dem
- * geteilten Typ, nicht darin (Muster `AppointmentLifecycle`,
+ * Die Spalten aus dem Termin-Lebenszyklus, die der geteilte Typ nicht trägt —
+ * als OPTIONALE Felder daneben (Muster `AppointmentLifecycle`,
  * components/termine/lifecycleMeta.ts).
  *
- * Die Kalender-Abfrage lädt mit `select("*")`, der Wert ist zur Laufzeit also
+ * Die Kalender-Abfrage lädt mit `select("*")`, die Werte sind zur Laufzeit also
  * längst da; `SettingCall`/`ClosingCall` tragen dagegen die Achsen sämtlicher
  * Auswertungen und sollen nicht bei jedem Lebenszyklus-Feld wachsen. Optional
- * deklariert, damit die Seite unverändert `SettingCall[]` übergeben kann —
- * fehlt das Feld, gilt der Termin als nicht abgesagt.
+ * deklariert, damit die Seite unverändert `SettingCall[]` übergeben kann.
+ *
+ * DAS `select("*")` IST HIER KEIN DETAIL, SONDERN DER RÜCKFALL: Die beiden
+ * Nachfass-Spalten kommen aus Migration 0041, und die ist geschrieben, aber
+ * noch nicht eingespielt. Bei einer NAMENTLICH selektierten Spalte wiese
+ * PostgREST die gesamte Abfrage ab — die Seite wäre leer statt unvollständig
+ * (dieselbe Falle wie bei 0029/0032, docs §7). Ein `select("*")` liefert
+ * stattdessen einfach zwei Felder weniger, `undefined` heißt dann „noch nie
+ * nachgefasst", und die Zeile leuchtet weiter. Deshalb darf die Termine-Seite
+ * NIE auf eine Spaltenliste umgestellt werden, solange 0041 nicht überall läuft.
  */
-export type WithCancellation<T> = T & { cancelled_at?: string | null };
+export type WithCancellation<T> = T & {
+  cancelled_at?: string | null;
+  /**
+   * Migration 0032 — „die Absage ist überholt, es steht wieder ein Termin".
+   * Wird seit dem Rückbau von `setNeuerTermin` geschrieben; davor las die App
+   * die Spalte nur (Ablage-Badge, Recycling-Riegel).
+   */
+  revived_at?: string | null;
+  /** Migration 0041 — wann zuletzt genervt wurde. `undefined` = Spalte fehlt noch. */
+  follow_up_last_contacted_at?: string | null;
+  /** Migration 0041 — wer gestempelt hat. AUDIT-Feld, KEINE Zuständigkeit (docs §2). */
+  follow_up_last_contacted_by_user_id?: string | null;
+};
 
 /** Feste Termin-Dauern — die App plant Setting halbstündig, Closing stündig. */
 export const DURATION_MIN = { setting: 30, closing: 60 } as const;
@@ -74,7 +93,25 @@ export type TerminEvent = {
   title: string;
   company: string | null;
   status: string;
+  /**
+   * Der ABGELEITETE Zustand — die eine Aussage je Zeile (src/lib/dranRegel.ts).
+   * Steht in keiner Spalte und wird nirgends geschrieben.
+   */
+  zustand: TerminZustand;
   statusPill: Pill;
+  /**
+   * „Du bist dran" — die Zeile liegt in der Arbeitsmenge und heute war noch
+   * niemand an ihr. Die eine Eigenschaft, die in der Liste GOLD leuchtet.
+   */
+  dran: boolean;
+  /** Migration 0041: wann zuletzt genervt wurde; `null` = noch nie (oder Spalte fehlt). */
+  lastContactedAt: string | null;
+  /**
+   * WER zuletzt genervt hat. Beantwortet die Frage, die zu dritt täglich
+   * anfällt: „Hast du den angerufen oder ich?" — ein AUDIT-Name, keine
+   * Zuständigkeit; die steht in `assignee` (docs §2).
+   */
+  lastContactedBy: string | null;
   /** Rahmen des Kalender-Chips (Füllung = Typ, Rahmen = Status). */
   outline: EventOutline;
   href: string;
@@ -123,43 +160,27 @@ function resolveAssignee(row: AssignableRow, names: UsernameById): Assignee | nu
   return { user_id: uid, username: names.get(uid) ?? UNKNOWN_USERNAME };
 }
 
-/**
- * Ton + Label des Status-Pills.
- *
- * Regelfall ist der Status. Ausnahme: ein Termin, zu dem der Lead nicht
- * erschienen ist, dessen Ergebnis aber noch „offen" steht. `closing_calls`
- * kennt gar keinen No-Show-Status (docs §4) — die Information steckt dort
- * ausschließlich in `show_status`. Ohne diesen Zweig läse sich ein geplatztes
- * Closing wie ein ganz normal anstehender Termin.
- *
- * Bewusst der komplette Pill und nicht nur die Farbe: Ein roter Chip mit der
- * Beschriftung „Offen" wäre in Liste und Popover ein Widerspruch — Farbe und
- * Label müssen dasselbe sagen.
- */
-function pillFor(
-  base: Pill,
-  kind: TerminKind,
-  status: string,
-  showStatus: ShowStatus,
-  cancelled: boolean,
-): Pill {
-  // Die Absage schlägt alles: Sie lässt `status` und `show_status` bewusst
-  // unangetastet (docs §3), also sagt keiner der beiden sie an. Ohne diesen
-  // Zweig stand in Liste und Popover „Offen" über einem Termin, den beide
-  // Seiten abgeräumt haben.
-  if (cancelled) return CANCELLED_PILL;
-  if (showStatus !== "no_show" || status !== "offen") return base;
-  // Setting: es gibt einen echten No-Show-Status, also dessen Pill.
-  // Closing: kein solcher Status — dort ist „Nicht erschienen" das Ergebnis,
-  // das der Gold-Rahmen ohnehin schon zeigt.
-  return kind === "setting"
-    ? SETTING_STATUS_META.no_show
-    : { ...CLOSING_STATUS_META.nachfassen, label: "Nicht erschienen" };
+/** Ein reiner Anzeigename ohne Zuständigkeits-Anspruch — für den Stempler. */
+function resolveUsername(userId: string | null | undefined, names: UsernameById): string | null {
+  if (!userId) return null;
+  return names.get(userId) ?? UNKNOWN_USERNAME;
 }
 
-function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById): TerminEvent {
+function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById, today: string): TerminEvent {
   const slot = c.appointment_at ? toBerlinSlot(c.appointment_at) : null;
   const cancelled = Boolean(c.cancelled_at);
+  const zustand = terminZustand(
+    {
+      kind: "setting",
+      status: c.status,
+      showStatus: c.show_status,
+      at: c.appointment_at,
+      cancelledAt: c.cancelled_at ?? null,
+      revivedAt: c.revived_at ?? null,
+    },
+    today,
+  );
+  const lastContactedAt = c.follow_up_last_contacted_at ?? null;
   return {
     id: `s:${c.id}`,
     kind: "setting",
@@ -171,7 +192,11 @@ function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById): Ter
     title: c.lead_name ?? "Unbenannter Lead",
     company: c.company,
     status: c.status,
-    statusPill: pillFor(SETTING_STATUS_META[c.status], "setting", c.status, c.show_status, cancelled),
+    zustand,
+    statusPill: zustandPill(zustand),
+    dran: istTerminDran(zustand, lastContactedAt, today),
+    lastContactedAt,
+    lastContactedBy: resolveUsername(c.follow_up_last_contacted_by_user_id, names),
     outline: outlineFor("setting", c.status, c.show_status, cancelled),
     href: `/setting/${c.id}`,
     meetLink: c.meet_link,
@@ -188,9 +213,21 @@ function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById): Ter
   };
 }
 
-function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById): TerminEvent {
+function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById, today: string): TerminEvent {
   const slot = c.call_at ? toBerlinSlot(c.call_at) : null;
   const cancelled = Boolean(c.cancelled_at);
+  const zustand = terminZustand(
+    {
+      kind: "closing",
+      status: c.status,
+      showStatus: c.show_status,
+      at: c.call_at,
+      cancelledAt: c.cancelled_at ?? null,
+      revivedAt: c.revived_at ?? null,
+    },
+    today,
+  );
+  const lastContactedAt = c.follow_up_last_contacted_at ?? null;
   return {
     id: `c:${c.id}`,
     kind: "closing",
@@ -202,7 +239,11 @@ function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById): Ter
     title: c.lead_name ?? "Unbenannter Lead",
     company: c.company,
     status: c.status,
-    statusPill: pillFor(CLOSING_STATUS_META[c.status], "closing", c.status, c.show_status, cancelled),
+    zustand,
+    statusPill: zustandPill(zustand),
+    dran: istTerminDran(zustand, lastContactedAt, today),
+    lastContactedAt,
+    lastContactedBy: resolveUsername(c.follow_up_last_contacted_by_user_id, names),
     outline: outlineFor("closing", c.status, c.show_status, cancelled),
     href: `/closing/${c.id}`,
     meetLink: c.meet_link,
@@ -222,16 +263,22 @@ function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById): Ter
 /**
  * Beide Tabellen zu einer Event-Liste normalisieren und in „mit Termin" /
  * „ohne Termin" trennen. Calls ohne Zeitpunkt haben keinen Platz im Raster,
- * dürfen aber nicht verschwinden → eigener Abschnitt in der Listenansicht.
+ * dürfen aber nicht verschwinden → eigener Abschnitt in der Arbeitsliste.
+ *
+ * `today` (Berliner Kalendertag) ist Pflicht und kein Vorgabewert: Zustand und
+ * Gold-Regel hängen daran, und eine Funktion, die sich ihr „heute" selbst holt,
+ * liefert je nach Aufrufzeitpunkt ein anderes Ergebnis — im Test wie im
+ * Server-Render.
  */
 export function buildEvents(
   settings: WithCancellation<SettingCall>[],
   closings: WithCancellation<ClosingCall>[],
   names: UsernameById,
+  today: string,
 ): { events: TerminEvent[]; ohneTermin: TerminEvent[] } {
   const all = [
-    ...settings.map((c) => fromSetting(c, names)),
-    ...closings.map((c) => fromClosing(c, names)),
+    ...settings.map((c) => fromSetting(c, names, today)),
+    ...closings.map((c) => fromClosing(c, names, today)),
   ];
   const events: TerminEvent[] = [];
   const ohneTermin: TerminEvent[] = [];
@@ -241,6 +288,42 @@ export function buildEvents(
   ohneTermin.sort((a, b) => a.title.localeCompare(b.title, "de"));
   return { events, ohneTermin };
 }
+
+/**
+ * Ein fälliger Telefon-Rückruf — die dritte Ansicht dieser Seite.
+ *
+ * Er steht hier und nicht bei den Terminen, weil er eine andere ZEITKÖRNUNG
+ * hat: Der Rückruf ist die einzige Aufgabe der ganzen Software mit einer MIT
+ * DEM LEAD VERABREDETEN Uhrzeit (`DueGranularity: "moment"`, docs §1/§6) —
+ * alles andere in dieser Liste ist tagesgenau. Ihn mit den Terminen in EINE
+ * Tabelle zu mischen hieße, entweder seine Uhrzeit oder die Tages-Körnung der
+ * anderen zu verlieren; deshalb ein eigener Reiter statt einer sechsten Spalte.
+ *
+ * Er trägt bewusst KEINEN Nachfass-Stempel: Migration 0041 legt die beiden
+ * Spalten nur auf den Termin-Tabellen an. Ein Rückruf verschwindet ohnehin
+ * nicht durchs Abhaken, sondern durch das Gespräch — der Weg dorthin ist der
+ * Call-Modus in seiner Liste.
+ */
+export type RueckrufAufgabe = {
+  /** `phone_leads.id`. */
+  id: string;
+  company: string | null;
+  decider: string | null;
+  phone: string | null;
+  /** `callback_at` (ISO-UTC) — eine echte Uhrzeit, keine Tagesfrist. */
+  callbackAt: string;
+  listId: string | null;
+  listName: string | null;
+  /**
+   * Zuständig ist der LISTEN-Owner (`list_owned_by_user()`, docs §2) — die
+   * zweite Personenachse neben `personOf()`. `owner_name` hat Vorrang vor dem
+   * Ersteller; zeigt er auf niemanden in dieser Organisation, bleibt hier
+   * `null` und die Zeile fällt aus jeder persönlichen Liste heraus, statt dem
+   * Admin zugeschrieben zu werden, der die Liste angelegt hat.
+   */
+  ownerUserId: string | null;
+  ownerName: string | null;
+};
 
 /** Events nach Berlin-Kalendertag gruppieren (Basis für alle Ansichten). */
 export function groupByDay(events: TerminEvent[]): Map<string, TerminEvent[]> {

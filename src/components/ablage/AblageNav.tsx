@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { DROPOUT_LISTS, type DropoutListKey } from "@/lib/dropoutLists";
 
-// Umschaltung zwischen den sechs Ablage-Ansichten.
+// Umschaltung zwischen den beiden Ablage-Ansichten.
 //
 // Bewusst `Link`s statt Knöpfen mit `router.replace` wie in der Analyse-
 // Filterleiste: Dort hängen sieben Filter aneinander, die sich beim Tabwechsel
@@ -9,23 +9,29 @@ import { DROPOUT_LISTS, type DropoutListKey } from "@/lib/dropoutLists";
 // bleibt die Leiste eine Server-Komponente, die Ansichten sind teilbar und
 // stehen im Verlauf des Browsers.
 //
+// OHNE ZÄHLER, seit aus sechs Reitern zwei geworden sind. Zwei Gründe, und der
+// zweite ist der schwerere:
+//  · Die eine Zahl, die etwas verlangte, ist weg. Sie hing an „Ersatztermin
+//    steht aus" — der einzigen Ablage-Liste mit offener Handlung, und die steht
+//    jetzt in der Hauptliste. Was bleibt, ist Archiv, und ein Archiv mahnt
+//    nicht: Eine Zahl, die man nicht abarbeiten kann, ist kein Hinweis.
+//  · „Ausgeschieden" ließe sich gar nicht ehrlich zählen, ohne es zu laden.
+//    Die Ansicht legt vier RPC-Aufrufe zusammen und entdoppelt sie; die Summe
+//    der vier Einzelzähler wäre größer als die Liste darunter (dieselbe Zeile
+//    kann in mehreren Quellen stehen). Eine Zahl, die der Liste widerspricht,
+//    ist schlimmer als keine.
+// Wie viele Vorgänge die geöffnete Ansicht trägt, steht weiterhin im Seitenkopf
+// — dort ist es die Zahl der Zeilen, die man wirklich sieht.
+//
 // Optik ist die Flow-Tab-Leiste der Analyse (.tab-scroller/.ui-tab,
 // COMPONENTS.md §10.3): Text mit Orange-Unterstrich, auf schmalen Viewports
 // scrollt die Reihe, statt umzubrechen.
 
-export function AblageNav({
-  active,
-  counts,
-}: {
-  active: DropoutListKey;
-  /** Fehlt ein Zähler (Abfrage fehlgeschlagen), bleibt der Reiter ohne Pille. */
-  counts: Partial<Record<DropoutListKey, number>>;
-}) {
+export function AblageNav({ active }: { active: DropoutListKey }) {
   return (
     <nav className="tab-scroller" aria-label="Ablage-Listen">
       {DROPOUT_LISTS.map((l) => {
         const isActive = l.key === active;
-        const count = counts[l.key];
         return (
           <Link
             key={l.key}
@@ -44,15 +50,6 @@ export function AblageNav({
             }}
           >
             {l.tab}
-            {/* Nur die eine Liste mit offener Handlung trägt eine hervorgehobene
-                Zahl — dieselbe, die auch als einzige ein Badge in der
-                Seitenleiste bekommt. Ohne diesen Unterschied sähen sechs
-                gleichaussehende Zahlen so aus, als warte überall Arbeit. */}
-            {count != null && (
-              <span className="count-pill" data-tone={l.openAction && count > 0 ? "accent" : undefined}>
-                {count}
-              </span>
-            )}
           </Link>
         );
       })}
