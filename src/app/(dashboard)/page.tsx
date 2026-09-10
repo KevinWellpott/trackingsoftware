@@ -12,7 +12,9 @@ import { StatTile, StatChip } from "@/components/dashboard/StatTile";
 import { GoalProgress } from "@/components/dashboard/GoalProgress";
 import { PersonalFunnel, type FunnelStage } from "@/components/dashboard/PersonalFunnel";
 import { berlinWindowIso } from "@/components/dashboard/periodWindow";
+import { QuickLinks } from "@/components/dashboard/QuickLinks";
 import { ViewingBanner } from "@/components/dashboard/ViewingBanner";
+import { getNavCounts } from "@/lib/navCountsData";
 
 // Persönliches Home-Dashboard: zeigt genau EINE Person (scopeUserId).
 // Alle Kennzahlen kommen aus gescopten RPCs/Head-Counts — kein Full-Table-Load.
@@ -210,6 +212,7 @@ export default async function DashboardPage({
     phoneWeekRes,
     settingOpenRes,
     closingRes,
+    navCounts,
   ] = await Promise.all([
     getTargets(),
     supabase.rpc("rpc_owner_day_metrics", {
@@ -252,6 +255,13 @@ export default async function DashboardPage({
         `and(call_at.gte.${periodFromIso},call_at.lt.${periodToIso}),` +
         `and(call_at.is.null,created_at.gte.${periodFromIso},created_at.lt.${periodToIso})`,
       ),
+    // Die Zahlen für den Quicklink-Streifen. Dieselbe Hülle, die auch das
+    // Layout für die Seitenleiste aufruft — sie ist pro Anfrage memoisiert
+    // (src/lib/navCountsData.ts), die vier Abfragen laufen also EINMAL. Sie
+    // hängt sich in dieses Bündel ein, statt davor oder danach zu laufen, und
+    // bringt ihre eigene 1,5-Sekunden-Frist mit: kommt nichts, stehen die
+    // Kacheln ohne Zahl da (nie mit einer 0).
+    getNavCounts(),
   ]);
 
   // ── Tages-Metriken (RPC existiert erst ab Migration 0011 → bei Fehler leer)
@@ -388,6 +398,16 @@ export default async function DashboardPage({
           <PeriodSwitcher value={period} />
         </div>
       </header>
+
+      {/* ══ QUICKLINKS ══
+          Sie stehen ÜBER den Kennzahlen, und das ist die einzige Stelle, an der
+          sie richtig sind: Sie beantworten „was tue ich jetzt", die Kacheln
+          darunter „wie stehe ich da" — und die erste Frage kommt morgens
+          zuerst. Unter dem Zahlenblock lägen sie außerdem auf einem 13"-Gerät
+          knapp unter der Kante, also ausgerechnet hinter einem Scrollvorgang.
+          Inhaltlich ersetzen sie den Block „Meine Arbeit" der jetzt
+          zugeklappten Seitenleiste (components/dashboard/QuickLinks.tsx). */}
+      <QuickLinks counts={navCounts} />
 
       {/* ══ KPI-REIHE ══
           Vier Kacheln folgen dem Umschalter, die fünfte ist explizit als

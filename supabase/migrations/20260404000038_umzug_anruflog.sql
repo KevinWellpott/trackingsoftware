@@ -1,3 +1,14 @@
+-- ###########################################################################
+-- #  NACHTRÄGLICH ERGÄNZT AM 10. SEPTEMBER 2026 — nur dieser Block.
+-- #
+-- #  DIESE MIGRATION IST EINGESPIELT UND DAMIT EINGEFROREN.
+-- #  Alles ab der nächsten Zeile ist HISTORIE: Warnungen wie "noch nicht
+-- #  einspielen" oder "erst nach dem Deploy" beschreiben, warum sie
+-- #  seinerzeit warten musste — sie sind keine offenen Anweisungen mehr.
+-- #
+-- #  Keine Zeile SQL wurde nachträglich geändert. Die nächste
+-- #  Schema-Änderung braucht eine neue Nummer, beginnend bei 0041.
+-- ###########################################################################
 -- 0038 — Nutzer-Umzug: das Anruf-Log zieht mit
 --
 -- Setzt 0026 (Nutzer-Umzug), 0028 (phone_call_attempts) und 0036 voraus.

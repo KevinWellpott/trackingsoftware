@@ -64,7 +64,14 @@ import { ownerInitials } from "@/lib/ownerColor";
 //   LinkedIn      Pitch-Listen + Ansichten
 //   Telefon       Telefonlisten
 //   Auswertung    Team · Analyse · Vergleich
-//   Verwaltung    Export · Einstellungen · Organisationen (zugeklappt vorbelegt)
+//   Verwaltung    Export · Einstellungen · Organisationen
+//
+// ALLE FUENF STARTEN ZUGEKLAPPT (SECTION_DEFAULT_OPEN). Damit ist die Leiste
+// beim ersten Blick eine Gliederung und keine Liste — den Ueberblick „was
+// liegt heute an" gibt statt ihrer der Quicklink-Streifen auf dem Dashboard
+// (components/dashboard/QuickLinks.tsx). Die beiden gehoeren zusammen: Ohne
+// die Quicklinks haette das Zuklappen dem Nutzer den Tageseinstieg genommen,
+// ohne das Zuklappen waeren die Quicklinks eine dritte Kopie derselben Zeilen.
 //
 // „Meine Arbeit" fasst bewusst die drei Nachfass-Mechanismen zusammen, die man
 // sonst verwechselt (docs/data-model.md §1): /nachfassen = was ist heute
@@ -139,6 +146,26 @@ export function sumNavCounts(counts: (NavCount | null | undefined)[]): NavCount 
 const SECTION_KEY = "sidebar:sections-open";
 const SECTION_EVENT = "sidebar:sections-open-change";
 
+/**
+ * Vorbelegung ALLER Bloecke — zugeklappt, ohne Ausnahme.
+ *
+ * WARUM EINE KONSTANTE UND KEIN PROP: Ein `defaultOpen` je Block waere die
+ * Einladung, die Regel bei der naechsten Zeile still wieder aufzuweichen; die
+ * Vorbelegung ist eine Entscheidung ueber die Leiste, nicht ueber einen Block.
+ *
+ * WIE SIE SICH ZUM GESPEICHERTEN ZUSTAND VERHAELT: Der gespeicherte gewinnt.
+ * `writeSectionOpen` laeuft ausschliesslich im Klick-Handler des Kopfes (und
+ * beim „Neue Liste"-Knopf, der den Block dafuer aufklappen muss) — ein
+ * Eintrag im localStorage ist also IMMER eine bewusste Entscheidung eines
+ * Menschen, nie ein mitgeschriebener Anfangszustand. Ihn zugunsten der neuen
+ * Vorbelegung zu verwerfen (Schluesselwechsel, Migration) hiesse, genau das
+ * wegzuwerfen, was Anforderung 3 schuetzt. Und teuer ist das Nichtstun nicht:
+ * Wer die Leiste noch nie angefasst hat, hat gar keinen Eintrag und bekommt
+ * die neue Vorgabe; wer einen hat, hat fuer genau diesen Block schon gesagt,
+ * wie er ihn haben will.
+ */
+const SECTION_DEFAULT_OPEN = false;
+
 /** Fallback, wenn localStorage blockiert ist (Private Mode) — dann eben nur fuer diese Sitzung. */
 let sectionCache: Record<string, boolean> | null = null;
 
@@ -178,11 +205,19 @@ function subscribeSections(onChange: () => void) {
   };
 }
 
-/** Der gespeicherte Zustand EINES Blocks; ohne Eintrag gilt seine Vorbelegung. */
-function readSectionOpen(id: string, fallback: boolean): boolean {
+/** Der gespeicherte Zustand EINES Blocks; ohne Eintrag gilt die Vorbelegung. */
+function readSectionOpen(id: string): boolean {
   const v = readSections()[id];
-  return typeof v === "boolean" ? v : fallback;
+  return typeof v === "boolean" ? v : SECTION_DEFAULT_OPEN;
 }
+
+/**
+ * Server-Schnappschuss fuer `useSyncExternalStore`: Auf dem Server gibt es kein
+ * localStorage, dort gilt die Vorbelegung. Modulweit konstant, damit die
+ * Referenz stabil bleibt — ein je Render neu gebautes Lambda zwaenge React in
+ * eine zusaetzliche Runde.
+ */
+const readSectionDefault = (): boolean => SECTION_DEFAULT_OPEN;
 
 function writeSectionOpen(id: string, next: boolean): void {
   const state = { ...readSections(), [id]: next };
@@ -785,13 +820,13 @@ function ContextReset({
  *     Summe der Zaehler seiner Zeilen — im selben Ueberfaellig-Ton. Ein
  *     Abzeichen, das man nur nach dem Aufklappen sieht, ist keine Nachricht.
  *     Aufgeklappt entfaellt es: daneben stehen dann die Einzelzahlen.
- *  3. DER ZUSTAND UEBERLEBT DEN SEITENWECHSEL (siehe SECTION_KEY oben).
+ *  3. DER ZUSTAND UEBERLEBT DEN SEITENWECHSEL (siehe SECTION_KEY oben) — und
+ *     er schlaegt die Vorbelegung, siehe SECTION_DEFAULT_OPEN.
  */
 function CollapsibleSection({
   id,
   icon,
   label,
-  defaultOpen = true,
   hasActive = false,
   count,
   countLabel,
@@ -805,8 +840,6 @@ function CollapsibleSection({
   id: string;
   icon: React.ReactNode;
   label: string;
-  /** Vorbelegung, solange niemand den Block angefasst hat. */
-  defaultOpen?: boolean;
   /** Steckt die geoeffnete Seite in diesem Block? Dann bleibt er offen. */
   hasActive?: boolean;
   /** Summe der Zaehler dieses Blocks; `null` = nicht ermittelbar (kein Abzeichen). */
@@ -822,9 +855,8 @@ function CollapsibleSection({
 }) {
   const stored = useSyncExternalStore(
     subscribeSections,
-    useCallback(() => readSectionOpen(id, defaultOpen), [id, defaultOpen]),
-    // Auf dem Server gibt es kein localStorage — dort gilt die Vorbelegung.
-    useCallback(() => defaultOpen, [defaultOpen]),
+    useCallback(() => readSectionOpen(id), [id]),
+    readSectionDefault,
   );
   const open = stored || hasActive;
   /** Offen, obwohl zugeklappt gespeichert — der Grund steht auf dem Bildschirm. */
@@ -1250,13 +1282,20 @@ export function SidebarContent({
               in 1h unbestaetigt), "Nachfassen" ist die taegliche Wiedervorlage.
               Einzige Ueberschneidung: ein Closing im Status 'nachfassen' taucht
               in BEIDEN auf (Tages-Eintrag hier + Uhrzeit-Touches dort) — dafuer
-              hat die Closing-Sektion in NachfassenBoard einen Querverweis. */}
+              hat die Closing-Sektion in NachfassenBoard einen Querverweis.
+
+              DIE TOOLTIPS SIND DIE ABGRENZUNG, nicht Beiwerk: Sie sind die
+              einzige Stelle, an der jemand ohne Doku erfaehrt, welche der drei
+              Zeilen welche Frage beantwortet. Deshalb muessen sie mitwandern,
+              wenn sich eine Seite aendert — der Nachfassen-Tooltip nannte nach
+              dem Wegfall des LinkedIn-Zweigs monatelang eine Quelle, die es
+              dort nicht mehr gibt. */}
           <NavLink
             href="/erinnerungen"
             icon={BellRing}
             label="Erinnerungen"
             onClick={onClose}
-            title="Stundengenaue Termin-Bestätigung vor Setting/Closing/Nachfass-Kontakt"
+            title="Stundengenau vor Setting-, Closing- und Nachfass-Terminen — dazu die Ketten nach No-Show, Qualifizierung und verlorenem Abschluss"
             // Gezaehlt wird, was HEUTE dran ist — nicht das ganze Sieben-Tage-
             // Fenster der Seite. Ein Zaehler, der auch Uebermorgen mitzaehlt,
             // geht nie auf null und mahnt an, was noch gar nicht faellig ist.
@@ -1268,7 +1307,7 @@ export function SidebarContent({
             icon={Clock}
             label="Nachfassen"
             onClick={onClose}
-            title="Tägliche Wiedervorlage: LinkedIn-Follow-ups, Telefon-Rückrufe, Setting/Closing"
+            title="Tägliche Wiedervorlage: Telefon-Rückrufe, Setting- und Closing-Wiedervorlagen, fällige Recycling-Versuche. LinkedIn-Follow-ups erledigt das Listen-Board."
             count={navCounts?.nachfassen}
             countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
           />
@@ -1483,16 +1522,15 @@ export function SidebarContent({
         <div style={{ flex: 1, minHeight: "var(--sp-7)" }} />
 
         {/* ── Verwaltung ── */}
-        {/* Als einziger Block zugeklappt vorbelegt: Export, Einstellungen und
-            die Organisationsverwaltung ruft man selten und gezielt auf. Drei
-            Zeilen, die taeglich Platz kosten und nie gesucht werden — hier ist
-            das Zuklappen der Gewinn, nicht die Ordnung. */}
+        {/* Export, Einstellungen und die Organisationsverwaltung ruft man
+            selten und gezielt auf — deshalb steht der Block unten, hinter dem
+            Abstandhalter und einer Trennlinie. Zugeklappt startet er wie alle
+            anderen auch (SECTION_DEFAULT_OPEN); frueher war er der einzige. */}
         <div style={{ borderTop: "1px solid var(--border-subtle)", marginTop: "var(--sp-4)" }}>
           <CollapsibleSection
             id="verwaltung"
             icon={<Wrench size={13} />}
             label="Verwaltung"
-            defaultOpen={false}
             hasActive={containsActive(pathname, VERWALTUNG_HREFS)}
           >
             <NavLink href="/export" icon={Download} label="Export (CSV)" onClick={onClose} />

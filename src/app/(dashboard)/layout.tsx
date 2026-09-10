@@ -5,7 +5,7 @@ import { QuickAddLinkedIn } from "@/components/quicktrack/QuickAddLinkedIn";
 import { SidebarContent } from "@/components/Sidebar";
 import { ForeignOrgBanner } from "@/components/ForeignOrgBanner";
 import { buildViewTree, type ViewRow } from "@/lib/listViews";
-import { loadNavCounts } from "@/lib/navCounts";
+import { getNavCounts } from "@/lib/navCountsData";
 import { redirect } from "next/navigation";
 
 export default async function DashboardLayout({
@@ -56,7 +56,13 @@ export default async function DashboardLayout({
       // Roundtrip, keine Summe. Wirft nie und wartet nie laenger als seine
       // eigene Frist; kommt nichts zurueck, rendert die Navigation ohne Zahlen
       // (src/lib/navCounts.ts).
-      loadNavCounts(supabase, access),
+      //
+      // Ueber `getNavCounts()` statt direkt ueber `loadNavCounts`: Der
+      // Quicklink-Streifen des Dashboards braucht dieselben Zahlen, und die
+      // Huelle ist pro Anfrage memoisiert (src/lib/navCountsData.ts). Ohne sie
+      // liefen die vier Abfragen zweimal — und zeigten auf zwei Flaechen
+      // nebeneinander zwei verschiedene Staende.
+      getNavCounts(),
     ]);
 
   const sidebarLists = (lists ?? []).map((l) => ({
