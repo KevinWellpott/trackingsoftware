@@ -14,6 +14,12 @@
 // Seitenleiste und die Karte im Board darunter müssen sie gleich lesen, sonst
 // behauptet die Navigation eine Dringlichkeit, die die Seite daneben nicht
 // kennt.
+//
+// DIESELBE FALLE, ZWEITER FALL: Der Sofort-Touch der Erinnerungs-Kaskade trägt
+// als Fälligkeit den Zeitpunkt seiner ENTSTEHUNG. Nach jeder wertbasierten
+// Regel ist er eine Minute später überfällig — versäumt hat dabei niemand
+// etwas, der Termin steht ja noch bevor. Für ihn ist deshalb nicht der Wert die
+// Frist, sondern der Termin (`DueSpec`).
 
 import { berlinDateISO } from "@/lib/apptTime";
 
@@ -26,6 +32,40 @@ import { berlinDateISO } from "@/lib/apptTime";
 export type DueGranularity = "day" | "moment";
 
 /**
+ * Woran sich entscheidet, ob eine Fälligkeit schon VERSÄUMT ist.
+ *
+ * Die beiden Körnungen oben beantworten das aus dem Wert selbst. Für den
+ * Sofort-Touch der Erinnerungs-Kaskade (`touch_kind='sofort'`, docs §4) geht
+ * das nicht: Seine Fälligkeit IST der Zeitpunkt seiner Entstehung
+ * (`planScheduledCascade`) — eine Minute später hielte ihn jede wertbasierte
+ * Regel für überfällig, obwohl niemand etwas versäumt hat. Er entsteht ja
+ * gerade deshalb, weil der Termin so kurzfristig gebucht wurde, dass keine
+ * geplante Stufe mehr davor lag.
+ *
+ * Maßgeblich ist deshalb der TERMIN: Bis dahin ist eine Bestätigung sinnvoll
+ * und nichts versäumt, danach ist sie sinnlos. Der Touch trägt sein
+ * `appointment_at` ohnehin mit — die Regel braucht dafür keine zweite Quelle.
+ */
+export type DueSpec = DueGranularity | { granularity: "sofort"; appointmentAt: string | null | undefined };
+
+/**
+ * Die Frist EINER Erinnerung (`reminder_touches`). Steht hier und nicht im
+ * Board, weil die Seitenleiste dieselbe Antwort geben muss: Ein Badge, das eine
+ * Dringlichkeit behauptet, die die Seite darunter nicht kennt, ist schlimmer
+ * als gar kein Badge (docs §5.4).
+ *
+ * Alles außer `sofort` trägt eine echte Uhrzeit — die Kaskade rechnet genau
+ * darauf („eine Stunde vorher").
+ */
+export function reminderDueSpec(touch: {
+  touch_kind?: string | null;
+  appointment_at?: string | null;
+}): DueSpec {
+  if (touch.touch_kind !== "sofort") return "moment";
+  return { granularity: "sofort", appointmentAt: touch.appointment_at ?? null };
+}
+
+/**
  * Bezugspunkt für einen Stapel Vergleiche. Ohne ihn ermittelt jede Prüfung
  * „jetzt" selbst — bei 500 Zeilen sind das 500 Intl-Formatierungen für dieselbe
  * Antwort. Der Zähler reicht ihn deshalb einmal durch; die Karte im Board
@@ -34,7 +74,18 @@ export type DueGranularity = "day" | "moment";
 export type DueRef = { nowMs: number; todayIso: string };
 
 export function dueRefNow(): DueRef {
-  const nowMs = Date.now();
+  return dueRefAt(Date.now());
+}
+
+/**
+ * Derselbe Bezugspunkt aus einem bereits gemessenen „jetzt".
+ *
+ * Die Oberfläche darf `Date.now()` nicht im Render-Körper aufrufen (unreine
+ * Funktion, react-hooks/purity) und führt die Uhrzeit deshalb minütlich per
+ * Effekt nach. Damit Karte und Zähler trotzdem dieselbe Regel benutzen können,
+ * nimmt der Bezugspunkt diesen Messwert entgegen, statt selbst zu messen.
+ */
+export function dueRefAt(nowMs: number): DueRef {
   return { nowMs, todayIso: berlinDateISO(new Date(nowMs).toISOString()) };
 }
 
@@ -45,15 +96,22 @@ export function dueDayOf(value: string): string {
 
 /**
  * Überfällig heißt: der Zeitpunkt ist vorbei. Bei Tages-Körnung erst am
- * Folgetag, bei Uhrzeit-Körnung in der Minute danach.
+ * Folgetag, bei Uhrzeit-Körnung in der Minute danach — und beim Sofort-Touch
+ * erst, wenn sein TERMIN vorbei ist (siehe `DueSpec`).
  */
 export function isOverdue(
   value: string | null | undefined,
-  granularity: DueGranularity,
+  spec: DueSpec,
   ref?: DueRef,
 ): boolean {
   if (!value) return false;
-  if (granularity === "day") {
+  if (typeof spec !== "string") {
+    // Der Sofort-Touch misst gegen den Termin statt gegen sich selbst. Ohne
+    // Termin bleibt er ruhig: eine Dringlichkeit, für die es keinen Endpunkt
+    // gibt, wird hier nicht behauptet.
+    return isOverdue(spec.appointmentAt, "moment", ref);
+  }
+  if (spec === "day") {
     const today = ref?.todayIso ?? berlinDateISO(new Date().toISOString());
     const day = dueDayOf(value);
     return Boolean(day) && Boolean(today) && day < today;

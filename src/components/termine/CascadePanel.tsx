@@ -6,7 +6,16 @@ import {
   type AppointmentCascadeTouch,
   type AppointmentCascadeView,
 } from "@/app/actions/appointmentCascade";
-import { CASCADE_KIND_LABELS, shiftBerlinMinutes, type CascadeKind, type CascadeStep } from "@/lib/cascadeEngine";
+import {
+  berlinLeadDays,
+  carriedStepNos,
+  CASCADE_KIND_LABELS,
+  leadSkipReason,
+  shiftBerlinMinutes,
+  type CascadeKind,
+  type CascadeStep,
+} from "@/lib/cascadeEngine";
+import { dueRefAt, isOverdue, reminderDueSpec } from "@/lib/dueState";
 import { TEMPLATE_META, TEMPLATE_SOURCE_LABELS, renderResolved, type TemplateKey } from "@/lib/messageTemplates";
 import type { TouchChannel } from "@/lib/reminderCascade";
 import { formatTerminParts } from "@/lib/apptTime";
@@ -162,6 +171,16 @@ function buildGroups(
   const scheduledTouches = byKind.get(scheduledKind) ?? [];
   byKind.delete(scheduledKind);
 
+  // Welche Stufen der VORLAUF trägt — dieselbe Rechnung wie beim Planen
+  // (cascadeEngine). Ohne sie behauptete das Panel bei einem Termin morgen, die
+  // Stufe „1 Tag vorher" fehle „obwohl ihre Fälligkeit noch bevorsteht", und
+  // riete zum Verschieben: Ihre Fälligkeit steht rechnerisch tatsächlich noch
+  // bevor — sie liegt nur am Buchungstag, und genau deshalb entsteht sie nicht.
+  const leadDays = view.appointmentAt
+    ? berlinLeadDays(view.appointmentAt, new Date(nowMs).toISOString())
+    : null;
+  const lead = { days: leadDays, carried: carriedStepNos(planned, leadDays) };
+
   if (planned.length > 0 || scheduledTouches.length > 0) {
     // Wurde die geplante Kaskade entwertet, ist der zeitliche Rückschluss aus
     // `skipReason` hier falsch: Die Stufen waren geplant, sie sind abgeräumt
@@ -188,7 +207,7 @@ function buildGroups(
       // Bestandstermin-Fall sein, egal was `everPlanned` sagt.
       const skip = superseded
         ? { reason: supersededReason(scheduledKind, view, superseded), neverPlanned: false }
-        : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt, everPlanned);
+        : skipReason(step, view.appointmentAt, nowMs, view.cancelledAt, everPlanned, lead);
       rows.push({
         key: `skip-${scheduledKind}-${step.step_no}`,
         kind: "skipped",
@@ -345,12 +364,16 @@ type SkipInfo = { reason: string; neverPlanned: boolean };
 /**
  * Warum eine konfigurierte Stufe keine Zeile hat — im Klartext.
  *
- * Vier Fälle, die man auseinanderhalten muss:
+ * Fünf Fälle, die man auseinanderhalten muss:
  *  1. Der Termin ist abgesagt — die Stufen sind bewusst abgeräumt.
  *  2. Er hat gar keinen Zeitpunkt — dann gibt es nichts zu terminieren.
  *  3. Für diesen Termin hat es NIE eine Kaskade gegeben.
  *  4. Die Stufe passte zeitlich nicht mehr (der Normalfall bei kurzfristigen
  *     Terminen, kein Fehler).
+ *  5. Der VORLAUF trägt sie nicht: Ihre Fälligkeit steht zwar noch bevor, läge
+ *     aber am Buchungstag — bei einem Termin morgen geht deshalb nur die
+ *     Erinnerung kurz davor raus (`carriedStepNos`). Ohne diesen Fall liefe die
+ *     Zeile in Fall 4 und riete zum Verschieben, obwohl das nichts ändert.
  *
  * Der Absage-Fall MUSS zuerst kommen: Ein in fünf Tagen abgesagter Termin fiel
  * sonst in den Zukunft-Zweig und riet direkt unter dem Absage-Banner, man solle
@@ -377,6 +400,7 @@ function skipReason(
   nowMs: number,
   cancelledAt: string | null,
   everPlanned: boolean,
+  lead: { days: number | null; carried: Set<number> },
 ): SkipInfo {
   if (cancelledAt) return { reason: "Entfällt — der Termin ist abgesagt.", neverPlanned: false };
   if (!appointmentAt) return { reason: "Entfällt — der Termin hat keinen Zeitpunkt.", neverPlanned: false };
@@ -390,15 +414,21 @@ function skipReason(
     return { reason: "Nie geplant — diese Stufe hat es an diesem Termin nie gegeben.", neverPlanned: true };
   }
   const due = shiftBerlinMinutes(appointmentAt, -step.offset_minutes);
-  if (due && new Date(due).getTime() > nowMs) {
+  // Reihenfolge wie in `planScheduledCascade`: Ist die Fälligkeit ohnehin
+  // vorbei, ist der zeitliche Grund der genauere; der Vorlauf-Grund steht nur
+  // da, wo die Stufe sonst wirklich rausgegangen wäre.
+  if (!due || new Date(due).getTime() <= nowMs) {
     return {
-      reason:
-        "Nicht geplant — diese Stufe fehlt, obwohl ihre Fälligkeit noch bevorsteht. Termin verschieben erzeugt die Erinnerungen neu.",
+      reason: `Entfällt — beim Planen lagen weniger als ${offsetLabel(step.offset_minutes)} bis zum Termin.`,
       neverPlanned: false,
     };
   }
+  if (lead.days != null && lead.days >= 0 && !lead.carried.has(step.step_no)) {
+    return { reason: leadSkipReason(lead.days, lead.carried.size), neverPlanned: false };
+  }
   return {
-    reason: `Entfällt — beim Planen lagen weniger als ${offsetLabel(step.offset_minutes)} bis zum Termin.`,
+    reason:
+      "Nicht geplant — diese Stufe fehlt, obwohl ihre Fälligkeit noch bevorsteht. Termin verschieben erzeugt die Erinnerungen neu.",
     neverPlanned: false,
   };
 }
@@ -571,7 +601,10 @@ function TouchRow({
   cascadeLabel: string | null;
   expanded: boolean;
 }) {
-  const overdue = new Date(touch.due_at).getTime() <= nowMs;
+  // Dieselbe Regel wie auf /erinnerungen und in der Seitenleiste: Der
+  // Sofort-Touch misst gegen den TERMIN, nicht gegen seine eigene Fälligkeit —
+  // die ist der Zeitpunkt seiner Entstehung (lib/dueState.ts).
+  const overdue = isOverdue(touch.due_at, reminderDueSpec(touch), dueRefAt(nowMs));
   const label = stepLabelOf(touch.template_key, touch.touch_kind, touch.step_no);
 
   // Gegen die Vorlagen der ZUSTÄNDIGEN Person gerendert und live — eine später
@@ -709,7 +742,9 @@ export function CascadePanel({
      man die Uhrzeit im Kopf selbst gegen „jetzt" rechnen, und genau das ist
      die Frage, die die Karte beantworten soll. */
   const overdueCount =
-    nowMs == null ? 0 : pending.filter((e) => new Date(e.touch.due_at).getTime() <= nowMs).length;
+    nowMs == null
+      ? 0
+      : pending.filter((e) => isOverdue(e.touch.due_at, reminderDueSpec(e.touch), dueRefAt(nowMs))).length;
   // `pending` ist nach Fälligkeit aufsteigend sortiert (splitRows) — die erste
   // Zeile ist damit zugleich die nächste fällige UND die älteste überfällige.
   const nextDue = pending[0]?.touch.due_at ?? null;

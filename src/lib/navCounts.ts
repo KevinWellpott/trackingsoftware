@@ -23,7 +23,7 @@
 
 import type { AccessContext } from "@/lib/access";
 import { berlinDateISO, berlinInputToIso } from "@/lib/apptTime";
-import { dueRefNow, isOverdue, type DueGranularity } from "@/lib/dueState";
+import { dueRefNow, isOverdue, reminderDueSpec, type DueGranularity, type DueSpec } from "@/lib/dueState";
 import { isStaleDue, staleSourceOf } from "@/lib/staleTasks";
 import type { createClient } from "@/lib/supabase/server";
 
@@ -86,18 +86,20 @@ function withDeadline<T>(work: Promise<T>, signal: Promise<null>): Promise<T | n
 }
 
 /**
- * Eine Fälligkeit samt ihrer Körnung. Die Körnung kommt aus der QUELLE, nicht
- * aus dem Datentyp: `nachfassen_tasks` castet vier Tages-Spalten nach
+ * Eine Fälligkeit samt ihrer Frist. Die Körnung kommt aus der QUELLE, nicht aus
+ * dem Datentyp: `nachfassen_tasks` castet vier Tages-Spalten nach
  * `timestamptz`, und nach dem Typ gelesen wäre alles ab 02:00 überfällig
- * (lib/dueState.ts). Deshalb holt der Zähler `source` mit.
+ * (lib/dueState.ts). Deshalb holt der Zähler `source` mit — und bei den
+ * Erinnerungen zusätzlich `touch_kind`, weil der Sofort-Touch gegen seinen
+ * Termin misst statt gegen sich selbst.
  */
-type DueRow = { due_at: string | null; granularity: DueGranularity };
+type DueRow = { due_at: string | null; spec: DueSpec };
 
 /** Fällig/überfällig aus einer Liste von Fälligkeiten — `count` schlägt `length`. */
 function tally(rows: DueRow[], exact: number | null): NavCount {
   const ref = dueRefNow();
   let overdue = 0;
-  for (const r of rows) if (isOverdue(r.due_at, r.granularity, ref)) overdue++;
+  for (const r of rows) if (isOverdue(r.due_at, r.spec, ref)) overdue++;
   return { total: exact ?? rows.length, overdue };
 }
 
@@ -184,14 +186,14 @@ async function countNachfassen(supabase: Supabase, access: AccessContext): Promi
     if (stale && isStaleDue(stale, r.due_at, today)) continue;
     rows.push({
       due_at: r.due_at,
-      granularity: (r.source === "telefon" ? "moment" : "day") as DueGranularity,
+      spec: (r.source === "telefon" ? "moment" : "day") as DueGranularity,
     });
   }
   for (const r of recycleRows) {
     if (isStaleDue("recycling", r.due_at, today)) continue;
     // Ein Recycling-Versuch ist immer auf den Tag fällig (`next_recycle_at`
     // ist eine `date`-Spalte — Wochen-Kadenz, keine Uhrzeit-Präzision).
-    rows.push({ due_at: r.due_at, granularity: "day" as DueGranularity });
+    rows.push({ due_at: r.due_at, spec: "day" as DueGranularity });
   }
   // `rows.length` statt der beiden `count`: Nach den Schnitten oben ist die
   // gefilterte Liste die Wahrheit, und dass sie vollständig ist, hat die
@@ -220,7 +222,10 @@ async function countErinnerungen(supabase: Supabase, access: AccessContext): Pro
 
   const { data, error, count } = await supabase
     .from("reminder_touches")
-    .select("due_at", { count: "exact" })
+    // `touch_kind` und `appointment_at` kommen mit, weil sie beim Sofort-Touch
+    // die Frist entscheiden — seine eigene Fälligkeit ist der Zeitpunkt seiner
+    // Entstehung und taugt dafür nicht (lib/dueState.ts).
+    .select("due_at, touch_kind, appointment_at", { count: "exact" })
     .eq("workspace_id", access.workspace_id)
     // Die Seitenleiste ist strikt persönlich (siehe layout.tsx) — die
     // Team-Ansicht der Seite ist eine bewusste Umschaltung, kein Standard.
@@ -233,11 +238,12 @@ async function countErinnerungen(supabase: Supabase, access: AccessContext): Pro
 
   if (error) return null;
   // `reminder_touches.due_at` ist echtes `timestamptz` — die Kaskade rechnet
-  // genau darauf („eine Stunde vorher"), hier ist die Uhrzeit die Aussage.
-  const rows = ((data ?? []) as unknown as { due_at: string | null }[]).map((r) => ({
-    due_at: r.due_at,
-    granularity: "moment" as DueGranularity,
-  }));
+  // genau darauf („eine Stunde vorher"), hier ist die Uhrzeit die Aussage. Der
+  // Sofort-Touch ist die Ausnahme, und `reminderDueSpec` ist genau die Stelle,
+  // an der die Seite dieselbe Ausnahme liest.
+  const rows = (
+    (data ?? []) as unknown as { due_at: string | null; touch_kind: string | null; appointment_at: string | null }[]
+  ).map((r) => ({ due_at: r.due_at, spec: reminderDueSpec(r) }));
   return tally(rows, count ?? null);
 }
 

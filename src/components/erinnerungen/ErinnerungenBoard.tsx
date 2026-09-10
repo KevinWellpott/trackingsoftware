@@ -19,11 +19,13 @@ import {
 import { CASCADE_KIND_LABELS, type CascadeKind } from "@/lib/cascadeEngine";
 import type { ReminderEntityType, TouchChannel } from "@/lib/reminderCascade";
 import { berlinDateISO, formatTerminParts } from "@/lib/apptTime";
+import { dueRefAt, isOverdue, reminderDueSpec } from "@/lib/dueState";
 import { contactAgeDays, isWithinContactGap, lastContactLabel } from "@/lib/contactGap";
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { ownerColor } from "@/lib/ownerColor";
@@ -136,16 +138,17 @@ const OUTCOME_LABELS: Record<TouchOutcome, string> = {
 /** Die drei Ergebnisse, die beim Abhaken zur Wahl stehen. */
 const OUTCOME_CHOICES: readonly TouchOutcome[] = ["antwort", "keine_antwort", "bestaetigt"];
 
-type BucketKey = "overdue" | "soon" | "today" | "week" | "later";
+type BucketKey = "overdue" | "jetzt" | "soon" | "today" | "week" | "later";
 
 const BUCKET_LABELS: Record<BucketKey, string> = {
   overdue: "Überfällig",
+  jetzt: "Jetzt fällig",
   soon: "In der nächsten Stunde",
   today: "Heute",
   week: "Diese Woche",
   later: "Später",
 };
-const BUCKET_ORDER: readonly BucketKey[] = ["overdue", "soon", "today", "week", "later"];
+const BUCKET_ORDER: readonly BucketKey[] = ["overdue", "jetzt", "soon", "today", "week", "later"];
 
 const ALL_PERSONS = "__alle__";
 
@@ -176,6 +179,15 @@ function endOfBerlinWeek(todayIso: string): string {
  * `setHours(23,59,…)` läge auf einem Rechner außerhalb Europe/Berlin daneben
  * und schöbe Karten in den falschen Korb.
  *
+ * WARUM es „Jetzt fällig" gibt: Der Sofort-Touch eines kurzfristig gebuchten
+ * Termins trägt als Fälligkeit den Zeitpunkt seiner Entstehung — nach der Uhr
+ * ist er also von der ersten Minute an vorbei, versäumt hat aber niemand etwas.
+ * „Überfällig" wäre für ihn ein Vorwurf, „In der nächsten Stunde" eine
+ * Behauptung über den Termin, die bei abgeschalteter Stundenstufe schlicht
+ * falsch sein kann. Er ist genau das, was der eigene Korb sagt: jetzt zu tun.
+ * Ob er überfällig ist, entscheidet `lib/dueState.ts` — dieselbe Regel, die
+ * auch der Zähler in der Seitenleiste liest (docs §5.4).
+ *
  * WARUM es „Später" gibt: Das Ladefenster reicht bis
  * `pipeline_settings.reminder_horizon_days` — konfigurierbar bis 60 Tage. Ohne
  * eigenen Korb landete ein Touch in fünf Wochen unter „Diese Woche", und die
@@ -184,12 +196,14 @@ function endOfBerlinWeek(todayIso: string): string {
  * der Kontakt von morgen in derselben Kachel wie der in acht Wochen, und die
  * Sortierung, die die Seite ausmacht, wäre nur noch eine Liste.
  */
-function bucketOf(dueAtIso: string, nowMs: number): BucketKey {
+function bucketOf(touch: ReminderTouchWithContext, nowMs: number): BucketKey {
+  const dueAtIso = touch.due_at;
   const t = new Date(dueAtIso).getTime();
   // Unlesbare Fälligkeit ans Ende statt in „Diese Woche": eine Dringlichkeit,
   // die niemand geprüft hat, wird hier nicht behauptet.
   if (Number.isNaN(t)) return "later";
-  if (t <= nowMs) return "overdue";
+  if (isOverdue(dueAtIso, reminderDueSpec(touch), dueRefAt(nowMs))) return "overdue";
+  if (t <= nowMs) return "jetzt";
   if (t - nowMs <= 60 * 60_000) return "soon";
   const today = berlinDateISO(new Date(nowMs).toISOString());
   const day = berlinDateISO(dueAtIso);
@@ -617,6 +631,17 @@ function ActiveStep({
         <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--text-primary)" }}>
           {stepLabel(touch)}
         </span>
+        {/* Eine einzelne Stufe statt der gewohnten Abfolge sieht wie ein Fehler
+            in der Kaskade aus — und ist keiner. Der Satz erklärt, gehört also
+            hinter das Info-Icon; handlungsrelevant ist die Fälligkeit daneben,
+            und die bleibt sichtbar. */}
+        {touch.touch_kind === "sofort" && (
+          <InfoPopover label="Warum nur eine Bestätigung" width={340}>
+            Dieser Termin wurde so kurzfristig gebucht, dass keine der geplanten Stufen mehr davor lag. Statt der
+            ganzen Abfolge steht hier die eine Bestätigung, die noch rausgehen kann — sie ist ab sofort fällig und
+            wird erst überfällig, wenn der Termin vorbei ist.
+          </InfoPopover>
+        )}
         <span
           style={{
             fontSize: "var(--fs-xs)",
@@ -812,7 +837,9 @@ function TerminCard({
   const bundle = (card.assignedUserId ? bundles[card.assignedUserId] : undefined) ?? orgBundle;
   const active = card.open[0] ?? null;
   const appt = formatTerminParts(card.appointmentAt);
-  const overdue = Boolean(active) && new Date(active!.due_at).getTime() <= nowMs;
+  // Dieselbe Regel wie der Korb oben und der Zähler in der Seitenleiste — sonst
+  // steht die Karte rot in einem Korb, der sie nicht für überfällig hält.
+  const overdue = Boolean(active) && isOverdue(active!.due_at, reminderDueSpec(active!), dueRefAt(nowMs));
 
   // Mehrere Kaskaden können an einem Termin hängen (Vor-Termin-Kaskade und
   // z. B. die No-Show-Kette). Ihre Stufen laufen unabhängig — deshalb bekommt
@@ -1239,7 +1266,7 @@ export function ErinnerungenBoard({
   // Wimpernschlag bei Erstanzeige, kein Flackern zwischen Zuständen, weil in
   // diesem Fenster auch der Leerzustand unterdrückt wird.
   if (nowMs != null) {
-    for (const c of openCards) buckets.get(bucketOf(c.nextDueAt!, nowMs))!.push(c);
+    for (const c of openCards) buckets.get(bucketOf(c.open[0], nowMs))!.push(c);
   }
   const overdueCount = buckets.get("overdue")!.length;
 
