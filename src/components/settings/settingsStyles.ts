@@ -89,7 +89,6 @@ const FIELD_NOTE: CSSProperties = {
 
 export const FIELD_ERROR: CSSProperties = { ...FIELD_NOTE, color: "var(--danger-fg)" };
 export const FIELD_OK: CSSProperties = { ...FIELD_NOTE, color: "var(--success-fg)" };
-export const FIELD_WARN: CSSProperties = { ...FIELD_NOTE, color: "var(--warning-fg)" };
 export const FIELD_HINT: CSSProperties = { ...FIELD_NOTE, color: "var(--text-subtle)" };
 
 /** Zahlenfeld: rechtsbündig mit Tabellenziffern, damit Spalten fluchten. */
@@ -100,7 +99,11 @@ export const NUMBER_INPUT: CSSProperties = {
 };
 
 // Ein SAVE_BUTTON stand hier für den ✓-Knopf neben einem einzeiligen Feld.
-// Seit alle drei Speichern-Knöpfe der Seite beschriftet sind und über
+// Seit alle Speichern-Knöpfe der Seite beschriftet sind und über
 // <Button variant="secondary" size="sm"> laufen, hatte er keinen Verwender
 // mehr — ein exportierter Stil ohne Aufrufer sieht aus wie die geltende
 // Konvention und wäre der nächste, den jemand wieder einbaut.
+//
+// Aus demselben Grund ist FIELD_WARN mit dem Vorlagen-Editor gegangen: Die
+// amberfarbene Feldmeldung („dieser Platzhalter füllt die Vorlage nicht") hatte
+// nur dort einen Verwender, und ohne Vorlagen gibt es diese Warnung nicht mehr.

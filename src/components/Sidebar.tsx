@@ -10,7 +10,6 @@ import { ABLAGE_COUNT_LABEL, type NavCount, type NavCounts } from "@/lib/navCoun
 import {
   Archive,
   BarChart2,
-  BellRing,
   Building2,
   CalendarDays,
   CalendarPlus,
@@ -60,7 +59,7 @@ import { ownerInitials } from "@/lib/ownerColor";
 // geschnitten nach dem Arbeitstag und nicht nach dem Datenmodell:
 //
 //   (ohne Block)  Suche · Dashboard · Termin buchen  — Einstieg, kein Thema
-//   Meine Arbeit  Termine · Erinnerungen · Nachfassen · Ablage
+//   Meine Arbeit  Termine · Nachfassen · Ablage
 //   LinkedIn      Pitch-Listen + Ansichten
 //   Telefon       Telefonlisten
 //   Auswertung    Team · Analyse · Vergleich
@@ -73,11 +72,16 @@ import { ownerInitials } from "@/lib/ownerColor";
 // die Quicklinks haette das Zuklappen dem Nutzer den Tageseinstieg genommen,
 // ohne das Zuklappen waeren die Quicklinks eine dritte Kopie derselben Zeilen.
 //
-// „Meine Arbeit" fasst bewusst die drei Nachfass-Mechanismen zusammen, die man
-// sonst verwechselt (docs/data-model.md §1): /nachfassen = was ist heute
-// faellig, /erinnerungen = was steht in den naechsten Stunden an, /ablage = was
-// ist herausgefallen. Sie beantworten dieselbe Frage auf drei Zeitkoernungen —
-// getrennt in der Navigation waeren sie drei unabhaengige Werkzeuge.
+// „Meine Arbeit" fasst zusammen, was taeglich anfaellt: /termine = wer steht
+// an, /nachfassen = was ist heute faellig, /ablage = was ist herausgefallen.
+// Getrennt in der Navigation waeren das drei unabhaengige Werkzeuge, von denen
+// man zwei nie oeffnet.
+//
+// /erinnerungen stand hier bis zum Rueckbau als vierte Zeile — die
+// stundengenaue Kaskade vor einem Termin. Sie ist ersatzlos gefallen (die Route
+// leitet auf /termine weiter): „Wer offen ist, wird jeden Tag kontaktiert" ist
+// eine Tagesfrage, und drei aehnlich klingende Zeilen fuer drei Zeitkoernungen
+// waren genau der Ueberbau, den der Rueckbau abraeumt.
 
 /** Ab wie vielen Listen die Sidebar auf die Uebersichtsseite verweist. */
 const SIDEBAR_LIST_CAP = 7;
@@ -102,7 +106,7 @@ function containsActive(pathname: string, hrefs: readonly string[]): boolean {
 // Welche Routen zu welchem Block gehoeren. Praefixe, keine exakten Adressen:
 // /lists/<id>, /ansicht/<id> und /analyse/vergleich sollen ihren Block genauso
 // aufgeklappt halten wie die Uebersichtsseite darueber.
-const ARBEIT_HREFS = ["/termine", "/erinnerungen", "/nachfassen", "/ablage"] as const;
+const ARBEIT_HREFS = ["/termine", "/nachfassen", "/ablage"] as const;
 const LINKEDIN_HREFS = ["/listen", "/lists", "/ansicht"] as const;
 const TELEFON_HREFS = ["/telefon"] as const;
 const AUSWERTUNG_HREFS = ["/team", "/analyse"] as const;
@@ -311,7 +315,7 @@ function NavLink({
       eigene Zeile hat (/analyse vs. /analyse/vergleich), sonst leuchten beide. */
   exact?: boolean;
   /** Tooltip — vor allem fuer Zeilen, die sich vom Namen her aehneln
-      (Erinnerungen vs. Nachfassen) und ohne Erklaerung verwechselbar waeren. */
+      (Nachfassen vs. Ablage) und ohne Erklaerung verwechselbar waeren. */
   title?: string;
   /** Faellige Aufgaben. `null` = nicht ermittelbar, 0 = nichts faellig —
       beide zeigen KEIN Abzeichen (eine 0 neben jedem Eintrag ist Rauschen,
@@ -1037,11 +1041,7 @@ export function SidebarContent({
   // stehen weiter an ihren Zeilen; diese Summe erscheint NUR zugeklappt und
   // beantwortet dort die einzige Frage, die von aussen zaehlt: „liegt da
   // etwas, und ist etwas davon zu spaet?"
-  const arbeitCount = sumNavCounts([
-    navCounts?.erinnerungen,
-    navCounts?.nachfassen,
-    navCounts?.ablage,
-  ]);
+  const arbeitCount = sumNavCounts([navCounts?.nachfassen, navCounts?.ablage]);
 
   const isImpersonating = Boolean(dataView?.activeUserId);
   const teamUsers = (dataView?.users ?? []).filter((u) => u.username !== username);
@@ -1261,13 +1261,13 @@ export function SidebarContent({
         />
 
         {/* ── Meine Arbeit ── */}
-        {/* Der Kalender und die drei Nachfass-Mechanismen in EINEM Block: Sie
-            beantworten dieselbe Frage auf drei Zeitkoernungen (docs §1) und
-            werden genau deshalb staendig verwechselt. Nebeneinander erklaeren
-            sie sich gegenseitig; verstreut waeren es drei Werkzeuge, von denen
-            man zwei nie benutzt. Der Kopf traegt zugeklappt die Summe ihrer
-            Zaehler — sonst haenge die einzige Benachrichtigung der App an
-            einer Aufklappung. */}
+        {/* Kalender, Tages-Wiedervorlage und Ablage in EINEM Block: Sie
+            beantworten dieselbe Frage auf verschiedenen Zeitkoernungen (docs
+            §1) und werden genau deshalb staendig verwechselt. Nebeneinander
+            erklaeren sie sich gegenseitig; verstreut waeren es drei Werkzeuge,
+            von denen man zwei nie benutzt. Der Kopf traegt zugeklappt die
+            Summe ihrer Zaehler — sonst haenge die einzige Benachrichtigung der
+            App an einer Aufklappung. */}
         <CollapsibleSection
           id="arbeit"
           icon={<Inbox size={13} />}
@@ -1277,31 +1277,12 @@ export function SidebarContent({
           countLabel={["offene Aufgabe", "offene Aufgaben"]}
         >
           <NavLink href="/termine" icon={CalendarDays} label="Termine" onClick={onClose} />
-          {/* Zwei bewusst getrennte Werkzeuge, deshalb beide sichtbar UND beide
-              mit erklaerendem Tooltip: "Erinnerungen" ist stundengenau (Termin
-              in 1h unbestaetigt), "Nachfassen" ist die taegliche Wiedervorlage.
-              Einzige Ueberschneidung: ein Closing im Status 'nachfassen' taucht
-              in BEIDEN auf (Tages-Eintrag hier + Uhrzeit-Touches dort) — dafuer
-              hat die Closing-Sektion in NachfassenBoard einen Querverweis.
-
-              DIE TOOLTIPS SIND DIE ABGRENZUNG, nicht Beiwerk: Sie sind die
+          {/* DIE TOOLTIPS SIND DIE ABGRENZUNG, nicht Beiwerk: Sie sind die
               einzige Stelle, an der jemand ohne Doku erfaehrt, welche der drei
               Zeilen welche Frage beantwortet. Deshalb muessen sie mitwandern,
               wenn sich eine Seite aendert — der Nachfassen-Tooltip nannte nach
               dem Wegfall des LinkedIn-Zweigs monatelang eine Quelle, die es
               dort nicht mehr gibt. */}
-          <NavLink
-            href="/erinnerungen"
-            icon={BellRing}
-            label="Erinnerungen"
-            onClick={onClose}
-            title="Stundengenau vor Setting-, Closing- und Nachfass-Terminen — dazu die Ketten nach No-Show, Qualifizierung und verlorenem Abschluss"
-            // Gezaehlt wird, was HEUTE dran ist — nicht das ganze Sieben-Tage-
-            // Fenster der Seite. Ein Zaehler, der auch Uebermorgen mitzaehlt,
-            // geht nie auf null und mahnt an, was noch gar nicht faellig ist.
-            count={navCounts?.erinnerungen}
-            countLabel={["Erinnerung heute fällig", "Erinnerungen heute fällig"]}
-          />
           <NavLink
             href="/nachfassen"
             icon={Clock}
@@ -1311,8 +1292,8 @@ export function SidebarContent({
             count={navCounts?.nachfassen}
             countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
           />
-          {/* Die Gegenrichtung zu den beiden Zeilen darueber: dort steht, was
-              noch ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
+          {/* Die Gegenrichtung zu den Zeilen darueber: dort steht, was noch
+              ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
               Bereich verschwaende ein abgesagter oder verlorener Vorgang
               lautlos; die Sperrliste darin ist die einzige Ansicht der App, die
               die Datensicht bewusst ignoriert. */}

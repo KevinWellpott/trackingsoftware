@@ -3,10 +3,7 @@
 import { useActionState, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { updatePipelineSettings, type PipelineSettings } from "@/app/actions/reminders";
-import { CASCADE_KIND_LABELS, type CascadeKind, type CascadeStep } from "@/lib/cascadeEngine";
-import { TEMPLATE_META } from "@/lib/messageTemplates";
 import { Button } from "@/components/ui/Button";
-import { Collapsible } from "@/components/settings/Collapsible";
 import {
   FIELD_ERROR,
   FIELD_HINT,
@@ -19,107 +16,102 @@ import {
   SECTION_TITLE,
 } from "@/components/settings/settingsStyles";
 
-// Eine Karte statt zweier („Erinnerungs-Kaskade" + „Recycling"): Beide lasen
-// aus einer eigenen Tabelle, seit Migration 0032 gibt es nur noch
-// `pipeline_settings` — eine Zeile je Organisation. Zwei Karten über einer
-// Zeile wären eine Trennung, die die Daten nicht mehr hergeben.
+// Zwei Zahlen — das ist die ganze Pipeline-Konfiguration.
 //
-// Der eigentliche Umbau steckt aber im Speicherpfad: Die Vorgänger-Actions
-// gaben `Promise<void>` zurück und warfen jeden Fehler weg. Ein verletzter
-// CHECK (Wert außerhalb der Grenzen, fehlende Berechtigung, fehlende
-// Migration) ließ das Feld lautlos auf den alten Wert zurückspringen — der
-// Nutzer sah eine Einstellung, die er nie gespeichert hat. Jedes Feld hängt
-// deshalb an einem eigenen useActionState und zeigt Erfolg oder Grund direkt
-// unter sich.
+// Vorher standen hier sechzehn: fünf Ursprungs-Fristen, neun Wartezeiten je
+// Verlustgrund, ein Versuchs-Deckel und der Erinnerungs-Horizont, dazu die
+// Ansicht der 21 Kaskadenstufen. Das war die Bedienoberfläche zu einem
+// Nachfass-System für zwanzig Setter; gearbeitet wird hier zu dritt. Was bleibt,
+// sind die beiden Zahlen, die eine Entscheidung ändern:
+//
+//   * `max_reschedules` — die Grenze zwischen „liegt in der Luft" und „ist
+//     versorgt". Kein Kaskaden- und kein Recycling-Feld.
+//   * EINE Recycling-Frist für alle vier Ursprünge (siehe RECYCLE_COLUMNS).
+//
+// Der Speicherpfad ist unverändert und der Grund, warum jedes Feld ein eigenes
+// useActionState hat: Die Vorgänger-Actions gaben `Promise<void>` zurück und
+// warfen jeden Fehler weg — ein verletzter CHECK ließ das Feld lautlos auf den
+// alten Wert zurückspringen, und der Nutzer sah eine Einstellung, die er nie
+// gespeichert hat.
 
 type SettingsKey = keyof PipelineSettings;
 
 type FieldSpec = {
-  field: SettingsKey;
+  /**
+   * DOM-Id des Feldes. Ausgeschrieben statt aus der ersten Spalte gebaut: Die
+   * Recycling-Frist schreibt vierzehn Spalten, und eine Id, die genau eine
+   * davon nennt, behauptete im Markup dasselbe, was der Rückbau gerade
+   * abschafft.
+   */
+  id: string;
+  /** Spalten, die dieses EINE Feld schreibt — mehr als eine nur beim Recycling. */
+  columns: SettingsKey[];
   label: string;
   min: number;
   max: number;
-  hint?: string;
 };
 
 /** Grenzen wörtlich wie SETTINGS_BOUNDS in actions/reminders.ts und die CHECKs in 0032. */
 const DAY_MIN = 1;
 const DAY_MAX = 3650;
 
-const RHYTHM_FIELDS: FieldSpec[] = [
-  {
-    field: "max_reschedules",
-    label: "Verschiebungen je Termin",
-    min: 1,
-    max: 5,
-    hint: "Ab der nächsten Verschiebung warnt die Oberfläche — keine harte Sperre.",
-  },
-  {
-    field: "reminder_horizon_days",
-    label: "Erinnerungen vorausschauen (Tage)",
-    min: 1,
-    max: 60,
-    hint: "So weit blickt „Meine Erinnerungen“ nach vorn.",
-  },
+/**
+ * Alle Wartezeit-Spalten aus `pipeline_settings` — das eine Feld schreibt sie
+ * gemeinsam.
+ *
+ * Gerechnet wird die Wartezeit nicht hier, sondern in `schedule_recycle()`
+ * (Migration 0033, eingefroren): Die Funktion sucht sich je Ursprung und
+ * Verlustgrund eine dieser Spalten aus. Ein Feld, das nur EINE davon schriebe,
+ * wäre deshalb eine Behauptung — für drei der vier Ursprünge und für jeden
+ * Closing-Verlustgrund gälte weiter die alte Staffelung, sichtbar nirgends.
+ * Alle gemeinsam zu schreiben macht „eine Frist für alle" ohne Migration wahr;
+ * fällt die Staffelung später auch in der Funktion, tragen die Spalten dann
+ * ohnehin längst dieselbe Zahl.
+ */
+const RECYCLE_COLUMNS: SettingsKey[] = [
+  "days_default_closing_lost",
+  "days_default_setting_disqualified",
+  "days_default_phone_dead",
+  "days_default_setting_dead",
+  "days_default_linkedin_exhausted",
+  "days_timing",
+  "days_preis",
+  "days_kein_bedarf",
+  "days_entscheider",
+  "days_wettbewerb",
+  "days_vertrauen",
+  "days_ghosting_breakup",
+  "days_ghosting",
+  "days_sonstiges",
 ];
 
-// Die fünf Ursprünge sind das, was ein neuer Kunde einstellt: „wann darf ein
-// tot gelaufener Lead wieder auftauchen?". Die Verlustgrund-Staffelung
-// darunter übersteuert sie nur — sie steht deshalb zugeklappt.
-const ORIGIN_FIELDS: FieldSpec[] = [
-  { field: "days_default_closing_lost", label: "Closing verloren (Tage)", min: DAY_MIN, max: DAY_MAX },
-  {
-    field: "days_default_setting_disqualified",
-    label: "Setting unqualifiziert (Tage)",
-    min: DAY_MIN,
-    max: DAY_MAX,
-  },
-  { field: "days_default_phone_dead", label: "Telefon-Lead dead (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_default_setting_dead", label: "Setting dead (Tage)", min: DAY_MIN, max: DAY_MAX },
-  {
-    field: "days_default_linkedin_exhausted",
-    label: "LinkedIn ohne Antwort (Tage)",
-    min: DAY_MIN,
-    max: DAY_MAX,
-  },
-];
-
-const ATTEMPTS_FIELD: FieldSpec = {
-  field: "max_attempts",
-  label: "Max. Recycling-Versuche",
+const RESCHEDULE_FIELD: FieldSpec = {
+  id: "pipeline-verschiebungen",
+  columns: ["max_reschedules"],
+  label: "Verschiebungen je Termin",
   min: 1,
   max: 5,
-  hint: "Deckel über alle Wiedervorlagen eines Leads.",
 };
 
-// Reihenfolge = Erzähl-Reihenfolge: kurze Wartezeit zuerst, lange zuletzt.
-// 'falsche_zielgruppe' und 'kein_fit' haben bewusst kein Feld — der eine Lead
-// haette nie in den Funnel gehoert, beim anderen hat das Gespraech gezeigt,
-// dass es nicht passt. Beide bekommen nie ein Recycling-Datum, eine Wartezeit
-// waere dort eine Einstellung ohne Wirkung.
-const LOST_REASON_FIELDS: FieldSpec[] = [
-  { field: "days_ghosting_breakup", label: "Ghosting — Breakup-Touch (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_timing", label: "Timing (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_preis", label: "Preis (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_kein_bedarf", label: "Kein Bedarf (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_sonstiges", label: "Sonstiges (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_entscheider", label: "Entscheider (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_ghosting", label: "Ghosting — danach (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_wettbewerb", label: "Wettbewerb (Tage)", min: DAY_MIN, max: DAY_MAX },
-  { field: "days_vertrauen", label: "Vertrauen (Tage)", min: DAY_MIN, max: DAY_MAX },
-];
+const RECYCLE_FIELD: FieldSpec = {
+  id: "pipeline-recycling-frist",
+  columns: RECYCLE_COLUMNS,
+  label: "Recycling — Wartezeit (Tage)",
+  min: DAY_MIN,
+  max: DAY_MAX,
+};
 
 type FieldState = { error?: string; saved?: string };
 const IDLE: FieldState = {};
 
-const GRID = (min: number): React.CSSProperties => ({
+const GRID: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))`,
+  gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
   gap: "var(--sp-6)",
   alignItems: "start",
-});
+};
 
-function NumberField({ spec, value }: { spec: FieldSpec; value: number }) {
+function NumberField({ spec, value, hint }: { spec: FieldSpec; value: number; hint: string }) {
   // Bewusst KONTROLLIERT statt defaultValue: React setzt ein Formular nach
   // einer Action zurück, und bei einem unkontrollierten Feld hieße das —
   // ausgerechnet im Fehlerfall — dass die eingegebene Zahl verschwindet,
@@ -140,14 +132,16 @@ function NumberField({ spec, value }: { spec: FieldSpec; value: number }) {
       if (parsed < spec.min || parsed > spec.max) {
         return { error: `Erlaubt sind ${spec.min} bis ${spec.max}.` };
       }
-      const res = await updatePipelineSettings({ [spec.field]: Math.round(parsed) } as Partial<PipelineSettings>);
+      const wert = Math.round(parsed);
+      const patch = Object.fromEntries(spec.columns.map((c) => [c, wert])) as Partial<PipelineSettings>;
+      const res = await updatePipelineSettings(patch);
       if (res.error) return { error: res.error };
-      return { saved: `Gespeichert: ${Math.round(parsed)}` };
+      return { saved: `Gespeichert: ${wert}` };
     },
     IDLE,
   );
 
-  const fieldId = `pipeline-${spec.field}`;
+  const fieldId = spec.id;
 
   return (
     <form action={formAction}>
@@ -180,7 +174,7 @@ function NumberField({ spec, value }: { spec: FieldSpec; value: number }) {
           Speichern
         </Button>
       </div>
-      {spec.hint && !state.error && !state.saved && <p style={FIELD_HINT}>{spec.hint}</p>}
+      {!state.error && !state.saved && <p style={FIELD_HINT}>{hint}</p>}
       {state.error && (
         <p id={`${fieldId}-msg`} role="alert" style={FIELD_ERROR}>
           {state.error}
@@ -196,103 +190,28 @@ function NumberField({ spec, value }: { spec: FieldSpec; value: number }) {
 }
 
 /* ------------------------------------------------------------------ *
- * Kaskaden-Stufen — ausschließlich lesend
- * ------------------------------------------------------------------ */
-
-function humanOffset(minutes: number): string {
-  if (minutes === 0) return "sofort";
-  if (minutes % 1440 === 0) {
-    const d = minutes / 1440;
-    return d === 1 ? "1 Tag" : `${d} Tage`;
-  }
-  if (minutes % 60 === 0) {
-    const h = minutes / 60;
-    return h === 1 ? "1 Stunde" : `${h} Stunden`;
-  }
-  return `${minutes} Minuten`;
-}
-
-function stepTiming(step: CascadeStep): string {
-  const offset = humanOffset(step.offset_minutes);
-  if (step.anchor === "before_appointment") return `${offset} vor dem Termin`;
-  return step.offset_minutes === 0 ? "sofort nach dem Ereignis" : `${offset} nach dem Ereignis`;
-}
-
-function CascadeStepList({ steps }: { steps: CascadeStep[] }) {
-  const kinds: CascadeKind[] = [];
-  for (const s of steps) if (!kinds.includes(s.cascade_kind)) kinds.push(s.cascade_kind);
-
-  if (kinds.length === 0) {
-    return (
-      <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-subtle)" }}>
-        Noch keine Stufen konfiguriert.
-      </p>
-    );
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
-      {kinds.map((kind) => (
-        <div key={kind}>
-          <div style={{ fontSize: "var(--fs-sm)", fontWeight: 500, color: "var(--text-primary)", marginBottom: "var(--sp-3)" }}>
-            {CASCADE_KIND_LABELS[kind]}
-          </div>
-          <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 2 }}>
-            {steps
-              .filter((s) => s.cascade_kind === kind)
-              .map((s) => (
-                <li
-                  key={`${kind}-${s.step_no}`}
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: "var(--sp-4)",
-                    fontSize: "var(--fs-xs)",
-                    color: s.enabled ? "var(--text-secondary)" : "var(--text-disabled)",
-                  }}
-                >
-                  <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--text-muted)" }}>
-                    {s.step_no}.
-                  </span>
-                  <span>{stepTiming(s)}</span>
-                  <span style={{ color: "var(--text-muted)" }}>
-                    · {TEMPLATE_META[s.template_key]?.label ?? s.template_key}
-                  </span>
-                  {s.requires_no_response && (
-                    <span style={{ color: "var(--text-muted)" }}>· nur ohne Antwort</span>
-                  )}
-                  {!s.enabled && <span className="badge badge-gray">aus</span>}
-                </li>
-              ))}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ *
  * Karte
  * ------------------------------------------------------------------ */
 
 export function PipelineSettingsCard({
   settings,
   configured,
-  steps,
-  stepsAvailable,
 }: {
   settings: PipelineSettings;
   /** false = es gibt noch keine gespeicherte Zeile, die Spalten-Defaults greifen. */
   configured: boolean;
-  steps: CascadeStep[];
-  stepsAvailable: boolean;
 }) {
+  const gespeichert = RECYCLE_COLUMNS.map((c) => settings[c]);
+  const kuerzeste = Math.min(...gespeichert);
+  const laengste = Math.max(...gespeichert);
+  const gestaffelt = kuerzeste !== laengste;
+
   return (
     <div className="card" style={{ overflow: "hidden" }}>
       <div style={SECTION_HEAD}>
         <SlidersHorizontal size={16} color="var(--text-muted)" />
         <span style={SECTION_TITLE}>Pipeline</span>
-        <span style={SECTION_META}>Erinnerungen &amp; Recycling</span>
+        <span style={SECTION_META}>Termine &amp; Recycling</span>
       </div>
 
       <div style={SECTION_BODY}>
@@ -303,59 +222,28 @@ export function PipelineSettingsCard({
           </p>
         )}
 
-        <div>
-          <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
-            Termine &amp; Erinnerungen
-          </div>
-          <div style={GRID(230)}>
-            {RHYTHM_FIELDS.map((spec) => (
-              <NumberField key={spec.field} spec={spec} value={settings[spec.field]} />
-            ))}
-          </div>
+        <div style={GRID}>
+          <NumberField
+            spec={RESCHEDULE_FIELD}
+            value={settings.max_reschedules}
+            hint="Ab der nächsten Verschiebung warnt die Oberfläche — keine harte Sperre."
+          />
+          {/* Angezeigt wird die LÄNGSTE der bisher gespeicherten Wartezeiten,
+              nicht die erstbeste: Solange die alte Staffelung noch in der
+              Datenbank steht, wäre die kürzeste Frist auf alles anzuwenden der
+              teure Fehler — sie spülte den gesamten toten Bestand auf einmal
+              wieder in die Arbeitsliste. Sind alle Spalten gleich (nach dem
+              ersten Speichern), ist es schlicht die eine Frist. */}
+          <NumberField
+            spec={RECYCLE_FIELD}
+            value={laengste}
+            hint={
+              gestaffelt
+                ? `Eine Frist für alle vier Ursprünge. Gespeichert stehen dort noch ${kuerzeste}–${laengste} Tage je Grund — Speichern ebnet das ein.`
+                : "Eine Frist für alle vier Ursprünge — LinkedIn, Telefon, Erstgespräch, Closing."
+            }
+          />
         </div>
-
-        <div>
-          <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
-            Recycling — Wartezeit bis zum nächsten Versuch
-          </div>
-          <div style={GRID(230)}>
-            {ORIGIN_FIELDS.map((spec) => (
-              <NumberField key={spec.field} spec={spec} value={settings[spec.field]} />
-            ))}
-            <NumberField spec={ATTEMPTS_FIELD} value={settings[ATTEMPTS_FIELD.field]} />
-          </div>
-          {/* Es sind ZWEI Codes (Migration 0033, CHECK auf closing_calls) —
-              der Satz nannte lange nur den ersten. Wer „Kein Fit" wählt,
-              wartete dann auf eine Wiedervorlage, die nie kommt. */}
-          <p style={{ margin: "var(--sp-5) 0 0", fontSize: "var(--fs-xs)", color: "var(--text-subtle)" }}>
-            Die Verlustgründe &bdquo;Falsche Zielgruppe&ldquo; und &bdquo;Kein Fit&ldquo; bekommen bewusst
-            kein automatisches Recycling.
-          </p>
-        </div>
-
-        {/* Vierzehn Zahlen auf einmal beantworten keine Frage. Die neun
-            Verlustgründe übersteuern nur den Ursprungswert darüber und
-            stehen deshalb hinter einem Klick. */}
-        <Collapsible title="Feinstaffelung je Verlustgrund" meta={`${LOST_REASON_FIELDS.length} Werte`}>
-          <p style={{ margin: "0 0 var(--sp-6)", fontSize: "var(--fs-xs)", color: "var(--text-subtle)" }}>
-            Gilt nur für verlorene Closings und übersteuert dort &bdquo;Closing verloren&ldquo;. Steht kein
-            Verlustgrund am Closing, bleibt es beim Ursprungswert.
-          </p>
-          <div style={GRID(210)}>
-            {LOST_REASON_FIELDS.map((spec) => (
-              <NumberField key={spec.field} spec={spec} value={settings[spec.field]} />
-            ))}
-          </div>
-        </Collapsible>
-
-        {/* Nur Ansicht: Der Editor für Stufen (Abstände, Reihenfolge, An/Aus)
-            ist ein eigener Arbeitsschritt. Sichtbar sind sie hier trotzdem,
-            weil sonst niemand nachvollziehen kann, welche Vorlage wann greift. */}
-        {stepsAvailable && (
-          <Collapsible title="Erinnerungs-Stufen" meta="nur Ansicht">
-            <CascadeStepList steps={steps} />
-          </Collapsible>
-        )}
       </div>
     </div>
   );

@@ -1,4 +1,11 @@
-// Die drei Aufgaben-Zähler der Seitenleiste.
+// Die beiden Aufgaben-Zähler der Seitenleiste.
+//
+// FRÜHER WAREN ES DREI. Der dritte hing an /erinnerungen und damit an der
+// Erinnerungs-Kaskade; beide sind mit dem Rückbau gefallen. Die Erwartungen
+// dieser Datei haben sich deshalb an genau einer Stelle geändert: `NavCounts`
+// trägt keinen Zweig `erinnerungen` mehr, und keine Abfrage rührt
+// `reminder_touches` an. Die vier Entscheidungen darunter sind unverändert —
+// sie beschreiben, wie ein Zähler zu seiner Zahl kommt, nicht welche es gibt.
 //
 // Reine Logik steckt hier in vier Entscheidungen, und jede davon ist eine, die
 // man einer falschen Zahl nicht ansieht:
@@ -57,7 +64,6 @@ type Antworten = {
   nachfassen_tasks?: Verhalten;
   recycle_tasks?: Verhalten;
   dropout_lists?: Verhalten;
-  reminder_touches?: Verhalten;
 };
 
 const LEER: Antwort = { data: [], count: 0 };
@@ -69,10 +75,14 @@ function supabase(antworten: Antworten, protokoll: Protokoll[]) {
       protokoll.push({ name, params, filter });
       return abfrage(antworten[name as keyof Antworten] ?? LEER, filter);
     },
+    // Bleibt in der Attrappe, obwohl kein Zähler mehr eine Tabelle direkt
+    // liest: Nur so lässt sich prüfen, dass `reminder_touches` wirklich nicht
+    // mehr angefragt wird (statt dass der Aufruf am fehlenden `from` scheitert
+    // und damit gar nichts beweist).
     from(tabelle: string) {
       const filter: Record<string, unknown> = {};
       protokoll.push({ name: tabelle, filter });
-      return abfrage(antworten[tabelle as keyof Antworten] ?? LEER, filter);
+      return abfrage(LEER, filter);
     },
   } as unknown as Parameters<typeof loadNavCounts>[0];
 }
@@ -101,7 +111,14 @@ function finde(protokoll: Protokoll[], name: string): Protokoll {
 
 describe("EMPTY_NAV_COUNTS", () => {
   test("null heißt 'nicht ermittelbar' — nirgends eine 0", () => {
-    assert.deepEqual(EMPTY_NAV_COUNTS, { nachfassen: null, erinnerungen: null, ablage: null });
+    assert.deepEqual(EMPTY_NAV_COUNTS, { nachfassen: null, ablage: null });
+  });
+
+  test("es gibt keinen Erinnerungs-Zweig mehr", () => {
+    // Der Rückbau hat /erinnerungen abgeschaltet. Ein Zweig, der weiterhin
+    // `reminder_touches` zählte, mahnte Arbeit an, für die es keine Seite mehr
+    // gibt — dieselbe Falle wie beim LinkedIn-Zweig des Nachfassen-Zählers.
+    assert.ok(!("erinnerungen" in EMPTY_NAV_COUNTS));
   });
 });
 
@@ -215,7 +232,6 @@ describe("Nachfassen-Zähler", () => {
           nachfassen_tasks: { data: [{ source: "linkedin", due_at: "2026-09-01" }], count: 9 },
           recycle_tasks: { error: { message: "function recycle_tasks does not exist" } },
           dropout_lists: { count: 2 },
-          reminder_touches: { data: [], count: 0 },
         },
         protokoll,
       ),
@@ -223,9 +239,8 @@ describe("Nachfassen-Zähler", () => {
     );
 
     assert.equal(counts.nachfassen, null);
-    // ... und die beiden anderen Zweige stehen trotzdem: ein fehlendes
-    // Recycling-Schema darf den Erinnerungs-Zähler nicht mitnehmen.
-    assert.deepEqual(counts.erinnerungen, { total: 0, overdue: 0 });
+    // ... und der andere Zweig steht trotzdem: ein fehlendes Recycling-Schema
+    // darf den Ablage-Zähler nicht mitnehmen.
     assert.deepEqual(counts.ablage, { total: 2, overdue: 0 });
   });
 
@@ -235,7 +250,6 @@ describe("Nachfassen-Zähler", () => {
       supabase(
         {
           nachfassen_tasks: new Error("Netzwerk weg"),
-          reminder_touches: { data: [], count: 3 },
           dropout_lists: { count: 1 },
         },
         [],
@@ -244,7 +258,6 @@ describe("Nachfassen-Zähler", () => {
     );
 
     assert.equal(counts.nachfassen, null);
-    assert.equal(counts.erinnerungen?.total, 3);
     assert.equal(counts.ablage?.total, 1);
   });
 
@@ -271,73 +284,30 @@ describe("Nachfassen-Zähler", () => {
     // geholten Zeilen sind wegen des Deckels von 500 auch keine belastbare
     // Ersatzzahl.
     assert.equal(counts.nachfassen, null);
-    // ... und die beiden anderen Zähler stehen trotzdem.
-    assert.deepEqual(counts.erinnerungen, { total: 0, overdue: 0 });
+    // ... und der Ablage-Zähler steht trotzdem (hier ohne eigene Antwort: die
+    // Attrappe liefert LEER, also eine belastbare 0).
+    assert.deepEqual(counts.ablage, { total: 0, overdue: 0 });
   });
 });
 
-describe("Erinnerungs-Zähler", () => {
-  test("das Fenster endet am BERLINER Tagesende, nicht am UTC-Tagesende", async (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const protokoll: Protokoll[] = [];
-    await loadNavCounts(
-      supabase({ reminder_touches: { data: [], count: 0 } }, protokoll),
-      zugriff(),
-    );
-
-    // 23:59 Berliner Wandzeit am 8.9.2026 = 21:59 UTC. Ein setHours(23, 59) auf
-    // einem UTC-Server läge im Sommer zwei Stunden daneben und zählte
-    // Erinnerungen mit, die erst morgen dran sind.
-    assert.equal(finde(protokoll, "reminder_touches").filter["lte:due_at"], "2026-09-08T21:59:00.000Z");
-  });
-
-  test("die Seitenleiste ist strikt persönlich", async (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const eigen: Protokoll[] = [];
-    await loadNavCounts(supabase({}, eigen), zugriff());
-    assert.equal(finde(eigen, "reminder_touches").filter["eq:assigned_user_id"], "u-ich");
-
-    // Mit eingestellter Datensicht zählt die gewählte Person — das ist die
-    // bewusste Umschaltung, nicht der Standard.
-    const fremd: Protokoll[] = [];
-    await loadNavCounts(supabase({}, fremd), zugriff({ effective_user_id: "u-kollegin" }));
-    assert.equal(finde(fremd, "reminder_touches").filter["eq:assigned_user_id"], "u-kollegin");
-    assert.equal(finde(fremd, "nachfassen_tasks").params?.p_effective_user_id, "u-kollegin");
-  });
-
-  test("entwertete und erledigte Erinnerungen zählen nicht mit", async (t) => {
+describe("Der Erinnerungs-Zähler ist weg — und bleibt es", () => {
+  test("keine Abfrage rührt `reminder_touches` mehr an", async (t) => {
+    // Die Tabelle steht noch (Muster `call_assignees`, docs §3), nur füllt sie
+    // niemand mehr. Ein Zähler darauf zeigte erst dauerhaft dieselbe Zahl und
+    // dann dauerhaft 0 — beides eine Aussage über nichts, und beides sähe im
+    // Betrieb völlig normal aus. Die Attrappe beantwortet `from()` weiterhin,
+    // damit dieser Test an der PROTOKOLLIERTEN Abfrage scheitert und nicht an
+    // einer fehlenden Methode.
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const protokoll: Protokoll[] = [];
     await loadNavCounts(supabase({}, protokoll), zugriff());
-    const filter = finde(protokoll, "reminder_touches").filter;
-    // superseded_at = Soft-Delete (Umzug/Neuterminierung), done_at = Häkchen.
-    assert.equal(filter["is:superseded_at"], null);
-    assert.equal(filter["is:done_at"], null);
-    assert.equal(filter["eq:workspace_id"], "ws-1");
-  });
-
-  test("ein Touch trägt eine Uhrzeit — hier ist die Stunde die Aussage", async (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(
-      supabase(
-        {
-          reminder_touches: {
-            data: [
-              { due_at: "2026-09-08T06:00:00+00:00" }, // 08:00 Berlin → vorbei
-              { due_at: "2026-09-08T08:30:00+00:00" }, // 10:30 Berlin → nächste Stunde
-              { due_at: "2026-09-08T19:00:00+00:00" }, // 21:00 Berlin → heute noch
-            ],
-            count: 3,
-          },
-        },
-        [],
-      ),
-      zugriff(),
+    assert.deepEqual(
+      protokoll.map((p) => p.name).filter((n) => n === "reminder_touches"),
+      [],
     );
-
-    // Als Tages-Körnung gelesen stünde hier 0 überfällig — die Erinnerung von
-    // heute früh verschwände genau an dem Tag, an dem sie gilt.
-    assert.deepEqual(counts.erinnerungen, { total: 3, overdue: 1 });
+    // Gegenprobe, damit der Test nicht auch dann grün wäre, wenn gar nichts
+    // mehr abgefragt würde.
+    assert.deepEqual(new Set(protokoll.map((p) => p.name)), new Set(["nachfassen_tasks", "recycle_tasks", "dropout_lists"]));
   });
 });
 
@@ -362,10 +332,10 @@ describe("Ablage-Zähler", () => {
     ]);
   });
 
-  test("die Ablage fragt org-weit, die Aufgabenlisten fragen persönlich", async (t) => {
+  test("die Ablage fragt org-weit, die Aufgabenliste fragt persönlich", async (t) => {
     // Der Zähler muss dieselbe Frage stellen wie die Seite, auf die er
-    // verlinkt: /ablage ist ein Aktenschrank der Organisation, /nachfassen und
-    // /erinnerungen sind persönliche Aufgabenlisten.
+    // verlinkt: /ablage ist ein Aktenschrank der Organisation, /nachfassen ist
+    // eine persönliche Aufgabenliste.
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const protokoll: Protokoll[] = [];
     await loadNavCounts(supabase({}, protokoll), zugriff({ effective_user_id: null }));
@@ -373,6 +343,15 @@ describe("Ablage-Zähler", () => {
     assert.equal(finde(protokoll, "dropout_lists").params?.p_effective_user_id, null);
     assert.equal(finde(protokoll, "nachfassen_tasks").params?.p_effective_user_id, "u-ich");
     assert.equal(finde(protokoll, "recycle_tasks").params?.p_effective_user_id, "u-ich");
+
+    // Mit eingestellter Datensicht zählt die gewählte Person — das ist die
+    // bewusste Umschaltung, nicht der Standard. (Stand bis zum Rückbau im
+    // Erinnerungs-Block; die Zusicherung selbst hat mit ihm nichts zu tun und
+    // zieht deshalb hierher um, statt zu verschwinden.)
+    const fremd: Protokoll[] = [];
+    await loadNavCounts(supabase({}, fremd), zugriff({ effective_user_id: "u-kollegin" }));
+    assert.equal(finde(fremd, "nachfassen_tasks").params?.p_effective_user_id, "u-kollegin");
+    assert.equal(finde(fremd, "recycle_tasks").params?.p_effective_user_id, "u-kollegin");
   });
 
   test("ohne exakte Zahl gibt es keinen Zähler statt einer 0", async (t) => {
@@ -390,7 +369,6 @@ describe("Frist", () => {
       supabase(
         {
           nachfassen_tasks: HAENGT,
-          reminder_touches: { data: [], count: 5 },
           dropout_lists: { count: 2 },
         },
         [],
@@ -400,7 +378,6 @@ describe("Frist", () => {
     const dauerMs = Number(process.hrtime.bigint() - begonnen) / 1e6;
 
     assert.equal(counts.nachfassen, null);
-    assert.equal(counts.erinnerungen?.total, 5);
     assert.equal(counts.ablage?.total, 2);
     // Die Frist steht bei 1500 ms. Untergrenze, damit der Test nicht auch dann
     // grün wäre, wenn die Attrappe sofort null lieferte; Obergrenze, weil

@@ -64,39 +64,38 @@ const ERINNERUNGEN = read("src/components/erinnerungen/ErinnerungenBoard.tsx");
 const ABLAGE = read("src/components/ablage/AblageBoard.tsx");
 const PANEL = read("src/components/termine/CascadePanel.tsx");
 const SEITE_NACHFASSEN = read("src/app/(dashboard)/nachfassen/page.tsx");
-const SEITE_ERINNERUNGEN = read("src/app/(dashboard)/erinnerungen/page.tsx");
+// /erinnerungen hat seit dem Rückbau keinen Seitenkopf mehr — die Route ist auf
+// eine Weiterleitung zusammengeschrumpft (Muster /organic, /crm). Geprüft wird
+// hier deshalb nur noch das BOARD (`ERINNERUNGEN`), das andere Ansichten
+// weiterverwenden; sein Seitenkopf-Block unten entfällt.
 
 /* ------------------------------------------------------------------ *
  * 1 — Hinwärts: die Erklärungen stehen hinter dem Icon
  * ------------------------------------------------------------------ */
 
 describe("1 · Erklärtexte stehen hinter dem Info-Icon", () => {
-  test("die Seitenköpfe beschreiben sich nicht mehr selbst", () => {
-    // Beide Seiten trugen einen Absatz unter dem Titel, der sagte, was die
-    // Seite ist. Die Filterreihe bzw. die Kopfzeile des Boards sagt dasselbe
-    // in Zahlen, und zwar über den tatsächlichen Stand.
-    for (const [name, seite, satz] of [
-      ["/nachfassen", SEITE_NACHFASSEN, /Was ist heute fällig\?/],
-      ["/erinnerungen", SEITE_ERINNERUNGEN, /eine Karte je Termin/],
-    ] as const) {
-      assert.match(seite, /<InfoPopover/, `${name} hat kein Info-Icon am Titel.`);
-      assert.match(versteckt(seite), satz, `${name} zeigt seine Selbstbeschreibung weiterhin als Absatz.`);
-      assert.doesNotMatch(seite, /\bmeta=/, `${name} trägt weiterhin eine Meta-Zeile mit Fließtext.`);
-    }
+  test("der Seitenkopf beschreibt sich nicht mehr selbst", () => {
+    // Die Seite trug einen Absatz unter dem Titel, der sagte, was sie ist. Die
+    // Filterreihe sagt dasselbe in Zahlen, und zwar über den tatsächlichen
+    // Stand. (/erinnerungen stand hier als zweite Seite, bis der Rückbau sie
+    // auf eine Weiterleitung reduziert hat — ohne Kopf gibt es dort nichts mehr
+    // zu verstecken.)
+    assert.match(SEITE_NACHFASSEN, /<InfoPopover/, "/nachfassen hat kein Info-Icon am Titel.");
+    assert.match(
+      versteckt(SEITE_NACHFASSEN),
+      /Was ist heute fällig\?/,
+      "/nachfassen zeigt seine Selbstbeschreibung weiterhin als Absatz.",
+    );
+    assert.doesNotMatch(SEITE_NACHFASSEN, /\bmeta=/, "/nachfassen trägt weiterhin eine Meta-Zeile mit Fließtext.");
   });
 
   test("Server Component: das Icon bringt seinen Handler selbst mit", () => {
     // docs §5.1: In einer Server Component darf das übergebene Element keinen
     // Handler tragen — `preventDefault`/`stopPropagation` sitzen im
-    // Client-Teil `InfoPopover`. Ein `onClick` in einer dieser Seiten bräche
-    // das Prerendering, und zwar unbemerkt: Beide Seiten sind dynamisch.
-    for (const [name, seite] of [
-      ["/nachfassen", SEITE_NACHFASSEN],
-      ["/erinnerungen", SEITE_ERINNERUNGEN],
-    ] as const) {
-      assert.doesNotMatch(seite, /"use client"/, `${name} ist keine Server Component mehr.`);
-      assert.doesNotMatch(seite, /onClick/, `${name} reicht einen Handler in eine Server Component.`);
-    }
+    // Client-Teil `InfoPopover`. Ein `onClick` in der Seite bräche das
+    // Prerendering, und zwar unbemerkt: Die Seite ist dynamisch.
+    assert.doesNotMatch(SEITE_NACHFASSEN, /"use client"/, "/nachfassen ist keine Server Component mehr.");
+    assert.doesNotMatch(SEITE_NACHFASSEN, /onClick/, "/nachfassen reicht einen Handler in eine Server Component.");
   });
 
   test("/nachfassen: der Verweis ist kurz, seine Bedingung steht hinter dem Icon", () => {

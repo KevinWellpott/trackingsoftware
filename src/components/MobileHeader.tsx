@@ -16,7 +16,7 @@ import { MobileDrawer, sumNavCounts } from "./Sidebar";
 // Navigation hinter einem Knopf. Ohne den Punkt waere die Zahl auf genau dem
 // Geraet unsichtbar, auf dem sie am ehesten gebraucht wird. Bewusst nur ein
 // Punkt und keine Zahl: WELCHER Eintrag etwas hat, steht eine Beruehrung
-// weiter — drei Zahlen auf einem 36px-Knopf waeren keine.
+// weiter — mehrere Zahlen auf einem 36px-Knopf waeren keine.
 
 type Props = {
   workspaceName: string;
@@ -53,7 +53,7 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, view
   // Dieselbe Zusammenfassung wie am zugeklappten Block „Meine Arbeit" in der
   // Seitenleiste (sumNavCounts, Sidebar.tsx) — zwei eigene Summen waeren zwei
   // Gelegenheiten, dieselbe Zahl unterschiedlich zu bilden.
-  const pending = sumNavCounts([navCounts?.nachfassen, navCounts?.erinnerungen, navCounts?.ablage]);
+  const pending = sumNavCounts([navCounts?.nachfassen, navCounts?.ablage]);
   const total = pending?.total ?? 0;
   const overdue = pending?.overdue ?? 0;
 

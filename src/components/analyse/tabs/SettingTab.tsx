@@ -1,20 +1,18 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-  BadgeCheck, BarChart3, BellRing, Briefcase, CalendarCheck, CalendarClock, ChevronRight, Eye, Filter,
+  BadgeCheck, BarChart3, Briefcase, CalendarCheck, CalendarClock, ChevronRight, Eye, Filter,
   Gauge as GaugeIcon, Handshake, ListChecks, PieChart, Timer, TrendingUp, Video, Wallet,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { loadReminderTouches, loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
-import { cascadeRank, cascadeStepLabel, type CascadeKind } from "@/lib/cascadeEngine";
+import { loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
 import {
   WEEKDAY_LABELS, buildBuckets, bucketIndex, bucketOf, channelKeyOf, daysBetween, pct, settingEffDate,
   weekdayIndex, type Granularity, type QuelleKey,
 } from "@/lib/analyse";
-import { berlinDateISO, toBerlinSlot } from "@/lib/apptTime";
+import { toBerlinSlot } from "@/lib/apptTime";
 import { CHANNELS, channelLabel } from "@/lib/channels";
 import { personIn } from "@/lib/personResolution";
-import { ownerColor } from "@/lib/ownerColor";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { Footnote, MetricTable, type MetricRow } from "@/components/analyse/AnalyseTables";
@@ -33,6 +31,13 @@ import type { SettingStatus } from "@/lib/types";
 // Qualifizierung stand, und wie viele davon wurden wirklich ins Closing
 // geschickt. Alles Weitere ist Ursachenforschung und liegt eingeklappt unter
 // „Mehr Auswertungen" — sichtbar bleibt daneben nur die Quellen-Auswertung.
+//
+// Was hier bewusst NICHT mehr steht: die „Erinnerungs-Disziplin" (Erledigungs-
+// quote je Person) und „Welcher Touch wirkt am stärksten?" (Show-Quote je
+// Kaskaden-Stufe). Beide zählten `reminder_touches`, und beide hatten als
+// Gegenstand eine Stufenlogik, die es mit dem Nachfass-Rückbau nicht mehr gibt
+// — eine Quote über Stufen, die niemand mehr erzeugt, misst nur noch den
+// Altbestand und fällt danach dauerhaft auf leer.
 //
 // Genau EINE Leitzahl je Tab (`lead` an KpiHero): hier „Termine". Sie ist die
 // einzige absolute Menge der Reihe — die drei anderen Kacheln sind Quoten, die
@@ -270,10 +275,7 @@ export async function SettingTab({
 }) {
   const supabase = await createClient();
   const hasPrev = Boolean(prevFrom && prevTo);
-  const [allRows, touchData] = await Promise.all([
-    loadSettingCalls(supabase, access, canCompare),
-    loadReminderTouches(supabase, access, canCompare, ["setting"]),
-  ]);
+  const allRows = await loadSettingCalls(supabase, access, canCompare);
   const buckets = buildBuckets(from, to, granularity);
 
   const selectedIds = new Set(selectedMembers.map((m) => m.user_id));
@@ -442,123 +444,6 @@ export async function SettingTab({
     if (r.clear_need === true) addCell(criteria.clear_need.ja, r);
     else if (r.clear_need === false) addCell(criteria.clear_need.nein, r);
   }
-
-  // ── Erinnerungs-Disziplin (Migration 0032) ───────────────────
-  // Eigene Achse, unabhängig vom Haupt-Loop oben: Touches werden nach ihrem
-  // eigenen Fälligkeits-Tag (due_at) in [from,to] gezählt, nicht nach dem
-  // effektiven Termin-Datum des Settings.
-  const reminderTouches = touchData.rows;
-  type TouchAgg = { due: number; done: number; overdue: number };
-  const ZERO_TOUCH = (): TouchAgg => ({ due: 0, done: 0, overdue: 0 });
-  const touchTotals = new Map<string, TouchAgg>();
-  const ensureTouch = (name: string): TouchAgg => {
-    let t = touchTotals.get(name);
-    if (!t) {
-      t = ZERO_TOUCH();
-      touchTotals.set(name, t);
-    }
-    return t;
-  };
-  for (const m of selectedMembers) ensureTouch(m.username);
-
-  const showStatusBySettingId = new Map(allRows.map((r) => [r.id, r.show_status]));
-  type TouchStepCell = {
-    cascade_kind: CascadeKind;
-    step_no: number;
-    label: string;
-    doneN: number;
-    doneShow: number;
-    notDoneN: number;
-    notDoneShow: number;
-  };
-  // Die Stufe steht seit `reminder_touches` v2 in `cascade_kind` + `step_no`,
-  // nicht mehr in einem Typ-Feld: Nachrichten- und Mail-Spur tragen beide eine
-  // „Stufe 1", nur die Kaskade trennt sie. Deshalb ist der Schlüssel das Paar
-  // und nicht die Nummer allein.
-  const byTouchStep = new Map<string, TouchStepCell>();
-
-  const nowIso = new Date().toISOString();
-  for (const touch of reminderTouches) {
-    const day = berlinDateISO(touch.due_at);
-    if (day < from || day > to) continue;
-
-    // Block (a): Erledigungsquote je Person — über ALLE Touch-Arten, das ist
-    // die geleistete Arbeit.
-    const uid = personIn(touch, selectedIds);
-    if (uid || allSelected) {
-      const name = uid ? nameById.get(uid)! : OHNE;
-      const t = ensureTouch(name);
-      t.due += 1;
-      if (touch.done_at) t.done += 1;
-      else if (touch.due_at < nowIso) t.overdue += 1;
-    }
-
-    // Block (b): Show-Quote je Stufe — nur Touches VOR dem Termin
-    // (`cascade` + der Ersatz-Touch `sofort`) und nur Termine mit erfasstem
-    // Ergebnis. `chain` fällt raus: Diese Stufen entstehen erst NACH dem
-    // Ereignis (No-Show-Kette) und können den show_status unmöglich beeinflusst
-    // haben — dieselbe Begründung, die früher `touch_type !== 'no_show'` trug.
-    if (touch.touch_kind === "chain") continue;
-    const parentShow = showStatusBySettingId.get(touch.entity_id);
-    if (parentShow !== "show" && parentShow !== "no_show") continue;
-
-    const key = `${touch.cascade_kind}:${touch.step_no}`;
-    let cell = byTouchStep.get(key);
-    if (!cell) {
-      cell = {
-        cascade_kind: touch.cascade_kind,
-        step_no: touch.step_no,
-        label: cascadeStepLabel(touch),
-        doneN: 0, doneShow: 0, notDoneN: 0, notDoneShow: 0,
-      };
-      byTouchStep.set(key, cell);
-    }
-    const didShow = parentShow === "show" ? 1 : 0;
-    if (touch.done_at) {
-      cell.doneN += 1;
-      cell.doneShow += didShow;
-    } else {
-      cell.notDoneN += 1;
-      cell.notDoneShow += didShow;
-    }
-  }
-
-  const touchNames = selectedMembers.map((m) => m.username);
-  if ((touchTotals.get(OHNE)?.due ?? 0) > 0) touchNames.push(OHNE);
-  const touchDueTotal = touchNames.reduce((s, n) => s + (touchTotals.get(n)?.due ?? 0), 0);
-  const touchOverdueTotal = touchNames.reduce((s, n) => s + (touchTotals.get(n)?.overdue ?? 0), 0);
-
-  const reminderPersonRows: MetricRow[] = touchNames
-    .map((name) => {
-      const t = touchTotals.get(name) ?? ZERO_TOUCH();
-      return {
-        key: name,
-        label: name,
-        share: touchDueTotal === 0 ? null : t.due / touchDueTotal,
-        color: ownerColor(name === OHNE ? "" : name).fg,
-        values: { due: t.due, done: t.done, rate: pct(t.done, t.due), overdue: t.overdue },
-      };
-    })
-    .filter((r) => (r.values.due as number) > 0)
-    .sort((a, b) => (a.values.rate as number) - (b.values.rate as number));
-
-  const reminderTouchTypeRows: MetricRow[] = [...byTouchStep.values()]
-    .sort((a, b) => cascadeRank(a.cascade_kind) - cascadeRank(b.cascade_kind) || a.step_no - b.step_no)
-    .map((c) => {
-      const doneRate = pct(c.doneShow, c.doneN);
-      const notDoneRate = pct(c.notDoneShow, c.notDoneN);
-      return {
-        key: `${c.cascade_kind}:${c.step_no}`,
-        label: c.label,
-        values: {
-          doneN: c.doneN,
-          doneRate,
-          notDoneN: c.notDoneN,
-          notDoneRate,
-          spread: doneRate === null || notDoneRate === null ? null : Math.round((doneRate - notDoneRate) * 10) / 10,
-        },
-      };
-    });
 
   const names = selectedMembers.map((m) => m.username);
   // Die OHNE-Zeile erscheint nur, wenn sie im Zeitraum wirklich etwas zählt.
@@ -929,93 +814,6 @@ export async function SettingTab({
             rows={sourceRows}
             minWidth={480}
             emptyHint="Im Zeitraum keine Termine erfasst."
-          />
-        </AnalyseSection>
-      </div>
-
-      {/* ── Erinnerungs-Disziplin ───────────────────────────────────
-             Eigener, neuer Block (bewusst nicht in „Mehr Auswertungen"
-             versteckt und nicht mit „Wer hängt hinterher?" aus dem
-             LinkedIn-Tab zusammengelegt — andere Datenquelle, andere Frage). */}
-      <div className="analyse-row fade-up" data-split="chart" style={{ animationDelay: "440ms" }}>
-        <AnalyseSection
-          title="Erinnerungs-Disziplin"
-          icon={BellRing}
-          meta={
-            touchData.available
-              ? `${INT.format(touchDueTotal)} fällig · ${INT.format(touchOverdueTotal)} überfällig`
-              : "nicht geladen"
-          }
-          collapsible
-          defaultOpen={false}
-          info={
-            <InfoText>
-              <p style={INFO_P}>
-                Fällige Bestätigungs-Touches vor dem Setting-Termin, je zuständiger
-                Person. Ein Touch gilt als erledigt, sobald das manuelle Häkchen in &bdquo;Meine Erinnerungen heute&ldquo;
-                gesetzt wurde — unabhängig vom Kanal.
-              </p>
-            </InfoText>
-          }
-        >
-          <MetricTable
-            label="Person"
-            columns={[
-              { key: "due", label: "Fällig", format: "int" },
-              { key: "done", label: "Erledigt", format: "int" },
-              { key: "rate", label: "Quote", format: "pct", emphasis: true },
-              { key: "overdue", label: "Überfällig", format: "int" },
-            ]}
-            rows={reminderPersonRows}
-            minWidth={460}
-            emptyHint={
-              touchData.available
-                ? "Noch keine fälligen Erinnerungen im Zeitraum."
-                : "Die Erinnerungen konnten nicht geladen werden — Migration 0032 im SQL-Editor ausführen."
-            }
-          />
-          {/* Muster Anruf-Log: ein Ladefehler darf nicht wie „nichts zu tun"
-              aussehen. Genau diese Verwechslung hielt den Block monatelang
-              leer, ohne dass jemand etwas merkte. */}
-          {!touchData.available && (
-            <Footnote>
-              Die Tabelle <code>reminder_touches</code> ließ sich nicht abfragen. Die leere Anzeige heißt hier{" "}
-              <strong>nicht</strong> &bdquo;keine Erinnerungen&ldquo;, sondern &bdquo;keine Daten geladen&ldquo;.
-            </Footnote>
-          )}
-        </AnalyseSection>
-        <AnalyseSection
-          title="Welcher Touch wirkt am stärksten?"
-          icon={Eye}
-          meta={touchData.available ? `${reminderTouchTypeRows.length} Stufen` : "nicht geladen"}
-          collapsible
-          defaultOpen={false}
-          info={
-            <InfoText>
-              <p style={INFO_P}>
-                Show-Quote der Termine, deren Touch erledigt wurde, gegen die, deren Touch offen blieb — je
-                Erinnerungs-Art und Stufe. Nur Termine mit erfasstem Ergebnis; Stufen, die erst NACH dem Termin greifen
-                (No-Show-Kette), bleiben außen vor — sie können den Ausgang nicht mehr beeinflusst haben.
-              </p>
-            </InfoText>
-          }
-        >
-          <MetricTable
-            label="Stufe"
-            columns={[
-              { key: "doneN", label: "Erledigt (n)", format: "int" },
-              { key: "doneRate", label: "Show-Quote", format: "pct", emphasis: true },
-              { key: "notDoneN", label: "Offen (n)", format: "int" },
-              { key: "notDoneRate", label: "Show-Quote", format: "pct" },
-              { key: "spread", label: "Δ pp", format: "num1" },
-            ]}
-            rows={reminderTouchTypeRows}
-            minWidth={560}
-            emptyHint={
-              touchData.available
-                ? "Noch keine entschiedenen Termine mit Touch-Daten."
-                : "Die Erinnerungen konnten nicht geladen werden — Migration 0032 im SQL-Editor ausführen."
-            }
           />
         </AnalyseSection>
       </div>

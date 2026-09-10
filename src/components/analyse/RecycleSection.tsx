@@ -3,20 +3,17 @@ import { RefreshCw } from "lucide-react";
 import type { AnalyseRecycleRow, RecycleData, RecycleOriginKey } from "@/lib/analyseData";
 import { fmtPct, isRecycleCandidate, listOwnerMatches, ownerKey, pct } from "@/lib/analyse";
 import { berlinDateISO } from "@/lib/apptTime";
-import { dropoutReasonLabel } from "@/lib/dropoutLists";
 import { personOf } from "@/lib/personResolution";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { Footnote, MetricTable, StatRow, type MetricRow } from "@/components/analyse/AnalyseTables";
-import { DistBars } from "@/components/analyse/AnalyseViz";
 
 // „Lohnt das Recycling?" — die einzige Frage, die diese Sektion beantwortet.
 //
 // ── Warum es sie gibt ────────────────────────────────────────────────────────
-// Das Lead-Recycling (Migration 0033) hatte bis hierher NULL Kennzahlen. Damit
-// gab es auch keine Grundlage, die org-weiten Wartezeiten in
-// `pipeline_settings` begründet zu ändern: Wer nicht misst, ob ein Lead nach
-// 75 oder nach 105 Tagen antwortet, verstellt die Zahl nach Gefühl. Genau
-// dafür trägt jede der vier Ursprungstabellen seit 0033 ein
+// Das Lead-Recycling hatte bis hierher NULL Kennzahlen. Damit gab es auch keine
+// Grundlage, die Wiedervorlage-Frist begründet zu ändern: Wer nicht misst, ob
+// ein toter Lead nach drei Monaten überhaupt noch antwortet, verstellt die Zahl
+// nach Gefühl. Genau dafür trägt jede der vier Ursprungstabellen ein
 // `recycle_responded_at` — der einzige Beleg, dass ein Wiederbelebungsversuch
 // gewirkt hat.
 //
@@ -28,12 +25,21 @@ import { DistBars } from "@/components/analyse/AnalyseViz";
 // im Vergleich der Ursprünge eine Antwort hat. Die Übersicht ist der einzige
 // Tab, dessen Zuständigkeit über einen Kanal hinausgeht.
 //
-// ── Was hier bewusst NICHT steht ─────────────────────────────────────────────
+// ── Was hier bewusst NICHT (mehr) steht ─────────────────────────────────────
 // Keine kumulative Fortschritts-Sektion. Die Konvention des Bereichs verlangt
 // sie für Mengen, die im Zeitraum WACHSEN und deren Vorsprung man sehen will
 // (DMs, Termine, Umsatz). Recycling-Reaktionen sind einzelne Ereignisse im
 // niedrigen zweistelligen Bereich, über Wochen verteilt: Eine kumulierte Kurve
 // daraus wäre eine Treppe mit drei Stufen, die nach Wachstum aussieht.
+//
+// Und seit dem Rückbau auf das FLACHE Recycling — eine Frist für alle vier
+// Ursprünge, kein Grund, kein Deckel — dreierlei nicht mehr: die Kennzahl „Am
+// Deckel" (es gibt keinen), die Aufschlüsselung je Grund (es gibt keinen
+// Grund-Code mehr, nach dem sich staffeln ließe) und die Verteilung der
+// Versuche (sie diente ausschließlich dazu, Deckel und erstes Intervall
+// gegeneinander zu justieren). Der Ursprung bleibt die eine Achse, die noch
+// etwas trennt: Ob ein totes Telefonat oder ein verlorenes Closing die besseren
+// Wiederbelebungen liefert, ist auch bei EINER Frist eine Entscheidung wert.
 //
 // ── Zeitachsen ──────────────────────────────────────────────────────────────
 // Zwei, und sie werden getrennt beschriftet, statt in eine Zahl gemischt zu
@@ -86,20 +92,9 @@ function InfoText({ children }: { children: ReactNode }) {
 type Cell = {
   contacted: number;
   responded: number;
-  /** Versuche ausgeschöpft, ohne Reaktion — der Lead ist endgültig durch. */
-  atCap: number;
 };
 
-const ZERO = (): Cell => ({ contacted: 0, responded: 0, atCap: 0 });
-
-/** Balken der Versuchs-Verteilung: 1 · 2 · 3 und mehr. */
-const ATTEMPT_LABELS = ["1 Versuch", "2 Versuche", "3+ Versuche"];
-
-function attemptSlot(n: number): number {
-  if (n <= 1) return 0;
-  if (n === 2) return 1;
-  return 2;
-}
+const ZERO = (): Cell => ({ contacted: 0, responded: 0 });
 
 export function RecycleSection({
   data,
@@ -140,18 +135,16 @@ export function RecycleSection({
   };
 
   const byOrigin = new Map<RecycleOriginKey, Cell>(ORIGIN_ORDER.map((o) => [o, ZERO()]));
-  const byReason = new Map<string, Cell>();
-  const attemptDist = [0, 0, 0];
   const total = ZERO();
   let excludedInRange = 0;
   /**
    * Zustand von HEUTE, keine Zeitraum-Zahl — die Meta-Zeile sagt das.
    *
-   * Gezählt wird nur, was `recycle_tasks` auch ausgeben WÜRDE (docs §5): Kein
-   * Rückkehrpfad räumt `next_recycle_at` ab, das Feld allein steht deshalb auch
-   * an einem gewonnenen Closing und an einem Telefon-Lead, der längst einen
-   * Termin hat. Ohne den Status-Riegel behauptet die Kachel eine Warteschlange,
-   * die im Board /nachfassen gar nicht auftaucht.
+   * Gezählt wird nur, was auch als Aufgabe erscheinen WÜRDE: Kein Rückkehrpfad
+   * räumt `next_recycle_at` ab, das Feld allein steht deshalb auch an einem
+   * gewonnenen Closing und an einem Telefon-Lead, der längst einen Termin hat.
+   * Ohne den Status-Riegel behauptet die Kachel eine Warteschlange, die im
+   * Board /nachfassen gar nicht auftaucht.
    */
   let waiting = 0;
   /** Ältester Versuch überhaupt: der Anker gegen die Deploy-Datum-Falle. */
@@ -174,35 +167,15 @@ export function RecycleSection({
     if (contactDay < from || contactDay > to) continue;
 
     const responded = r.responded_at !== null;
-    // Der Deckel ist nur zählbar, wenn er bekannt ist; ohne
-    // `pipeline_settings` bleibt die Spalte leer statt gegen einen geratenen
-    // Wert zu rechnen.
-    const atCap = data.maxAttempts !== null && !responded && r.attempts >= data.maxAttempts;
 
     const add = (c: Cell): void => {
       c.contacted += 1;
       if (responded) c.responded += 1;
-      if (atCap) c.atCap += 1;
     };
     add(total);
     // `byOrigin` ist über ORIGIN_ORDER vorbelegt und deckt die Union
     // vollständig ab — ein fehlender Topf wäre ein Tippfehler, kein Datenfall.
     add(byOrigin.get(r.origin)!);
-
-    // Der Ursprung steht IM Schlüssel, nicht nur im Grund. Sonst fielen der
-    // tote Telefon-Lead und das tote Erstgespräch in eine Zeile „Dead" — die
-    // beiden haben aber getrennte Wartezeiten (`days_default_phone_dead` vs.
-    // `days_default_setting_dead`), und genau deren Vergleich ist der Zweck
-    // dieser Tabelle. Muster: `srcOf` im Funnel-Tab, wo der Kanal aus demselben
-    // Grund in den Schlüssel wandert und als Unterzeile sichtbar bleibt.
-    const reasonKey = `${r.origin}:${r.reason}`;
-    let reasonCell = byReason.get(reasonKey);
-    if (!reasonCell) {
-      reasonCell = ZERO();
-      byReason.set(reasonKey, reasonCell);
-    }
-    add(reasonCell);
-    attemptDist[attemptSlot(r.attempts)] += 1;
   }
 
   // ── Ehrlichkeit über die Datenlage ───────────────────────────
@@ -231,52 +204,20 @@ export function RecycleSection({
 
   const rate = covers ? pct(total.responded, total.contacted) : null;
 
-  const rowsOf = (
-    entries: [string, Cell][],
-    label: (key: string) => string,
-    sub?: (key: string) => string | undefined,
-  ): MetricRow[] =>
-    entries
-      .filter(([, c]) => c.contacted > 0)
-      .map(([key, c]) => ({
-        key,
-        label: label(key),
-        sub: sub?.(key),
-        share: total.contacted === 0 ? null : c.contacted / total.contacted,
-        values: {
-          contacted: c.contacted,
-          responded: c.responded,
-          rate: pct(c.responded, c.contacted),
-          // Ohne bekannten Deckel bleibt die Zelle leer („—"), statt 0 zu
-          // behaupten.
-          atCap: data.maxAttempts === null ? null : c.atCap,
-        },
-      }));
-
-  const originRows = rowsOf(
-    ORIGIN_ORDER.map((o) => [o, byOrigin.get(o) ?? ZERO()] as [string, Cell]),
-    (k) => ORIGIN_LABELS[k as RecycleOriginKey],
-    (k) => ORIGIN_SUBS[k as RecycleOriginKey],
-  ).sort((a, b) => (b.values.contacted as number) - (a.values.contacted as number));
-
-  /** "closing:preis" → ["closing", "preis"]; der Grund darf keinen ":" tragen. */
-  const splitReason = (key: string): [RecycleOriginKey, string] => {
-    const i = key.indexOf(":");
-    return [key.slice(0, i) as RecycleOriginKey, key.slice(i + 1)];
-  };
-
-  const reasonRows = rowsOf(
-    [...byReason.entries()],
-    (k) => dropoutReasonLabel(splitReason(k)[1]),
-    (k) => ORIGIN_LABELS[splitReason(k)[0]],
-  ).sort((a, b) => (b.values.contacted as number) - (a.values.contacted as number));
-
-  const COLUMNS = [
-    { key: "contacted", label: "Kontaktiert", format: "int" as const },
-    { key: "responded", label: "Reaktionen", format: "int" as const },
-    { key: "rate", label: "Wiederbelebt", format: "pct" as const, emphasis: true },
-    { key: "atCap", label: "Am Deckel", format: "int" as const },
-  ];
+  const originRows: MetricRow[] = ORIGIN_ORDER.map((o) => [o, byOrigin.get(o) ?? ZERO()] as const)
+    .filter(([, c]) => c.contacted > 0)
+    .map(([key, c]) => ({
+      key,
+      label: ORIGIN_LABELS[key],
+      sub: ORIGIN_SUBS[key],
+      share: total.contacted === 0 ? null : c.contacted / total.contacted,
+      values: {
+        contacted: c.contacted,
+        responded: c.responded,
+        rate: pct(c.responded, c.contacted),
+      },
+    }))
+    .sort((a, b) => (b.values.contacted as number) - (a.values.contacted as number));
 
   const emptyHint = covers
     ? "Im Zeitraum wurde kein toter Lead erneut angesprochen."
@@ -322,20 +263,15 @@ export function RecycleSection({
             laufenden Zeitraums ist die Quote deshalb noch unfertig.
           </p>
           <p style={INFO_P}>
-            <strong style={INFO_STRONG}>Am Deckel</strong> = Versuche ausgeschöpft (
-            <code>max_attempts</code>
-            {data.maxAttempts !== null ? `, aktuell ${data.maxAttempts}` : " — aktuell nicht lesbar"}), ohne
-            dass der Lead reagiert hat: für diese Leads ist das Recycling zu Ende.{" "}
-            <strong style={INFO_STRONG}>Gesperrt</strong> zählt dagegen auf seinem eigenen Datum
+            <strong style={INFO_STRONG}>Gesperrt</strong> zählt auf seinem eigenen Datum
             (<code>recycle_excluded_at</code>) — ein Kontaktverbot ist ein Ereignis, keine Folge des Versuchs,
             deshalb steht es neben der Quote statt in ihr. <strong style={INFO_STRONG}>Warten aktuell</strong>{" "}
             ist der Stand von heute über alle Zeiträume, kein Wert dieses Fensters.
           </p>
           <p style={INFO_P}>
-            Wozu die Aufschlüsselung nach Grund gut ist: Sie ist die einzige Grundlage, auf der sich die
-            Wartezeiten in den Pipeline-Einstellungen begründet ändern lassen. Reagiert &bdquo;Timing&ldquo;
-            deutlich besser als &bdquo;Preis&ldquo;, gehört die kürzere Frist dorthin — und nicht dahin, wo
-            sie gerade steht.
+            Wozu die Aufteilung nach Ursprung gut ist: Die Wiedervorlage-Frist gilt für alle vier gleich, die
+            Erfolgsaussicht nicht. Reagiert ein verlorenes Closing spürbar häufiger als ein toter
+            Telefon-Lead, gehört die Arbeitszeit dorthin — und nicht gleichmäßig verteilt.
           </p>
         </InfoText>
       }
@@ -351,63 +287,29 @@ export function RecycleSection({
               tone: rate !== null && rate > 0 ? "success" : "default",
             },
             {
-              label: "Am Deckel",
-              value: covers && data.maxAttempts !== null ? INT.format(total.atCap) : "—",
-            },
-            {
               // NICHT an `covers` gehängt: Der Datenlage-Anker kommt aus dem
               // ersten VERSUCH, eine Sperre entsteht aber ohne jeden Versuch —
-              // bei `keine_zusammenarbeit` setzt die App sie sofort, während
-              // ein erster Versuch frühestens nach Wochen fällig wird. Bis
-              // dahin stand hier „—", obwohl korrekt gezählt wurde. Die Sperre
-              // zählt ohnehin auf ihrer eigenen Zeitachse (docs §5).
+              // bei einem Kontaktverbot setzt die App sie sofort, während ein
+              // erster Versuch frühestens nach Wochen fällig wird. Bis dahin
+              // stand hier „—", obwohl korrekt gezählt wurde. Die Sperre zählt
+              // ohnehin auf ihrer eigenen Zeitachse (docs §5).
               label: "Gesperrt",
               value: data.available ? INT.format(excludedInRange) : "—",
             },
           ]}
         />
 
-        <div>
-          <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
-            Je Ursprung
-          </div>
-          <MetricTable
-            label="Ursprung"
-            columns={COLUMNS}
-            rows={originRows}
-            minWidth={520}
-            emptyHint={emptyHint}
-          />
-        </div>
-
-        <div>
-          <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
-            Je Grund
-          </div>
-          <MetricTable
-            label="Grund"
-            columns={COLUMNS}
-            rows={reasonRows}
-            minWidth={520}
-            emptyHint={emptyHint}
-          />
-        </div>
-
-        {total.contacted > 0 && (
-          <div>
-            <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
-              Verteilung der Versuche
-              {data.maxAttempts !== null && ` · Deckel bei ${data.maxAttempts}`}
-            </div>
-            {/* Wie oft musste nachgefasst werden? Steht der zweite Versuch
-                dauerhaft leer, ist der Deckel zu hoch angesetzt — oder das
-                erste Intervall zu kurz. */}
-            <DistBars
-              items={ATTEMPT_LABELS.map((label, i) => ({ label, value: attemptDist[i] }))}
-              total={total.contacted}
-            />
-          </div>
-        )}
+        <MetricTable
+          label="Ursprung"
+          columns={[
+            { key: "contacted", label: "Kontaktiert", format: "int" },
+            { key: "responded", label: "Reaktionen", format: "int" },
+            { key: "rate", label: "Wiederbelebt", format: "pct", emphasis: true },
+          ]}
+          rows={originRows}
+          minWidth={440}
+          emptyHint={emptyHint}
+        />
 
         {note && <Footnote>{note}</Footnote>}
       </div>

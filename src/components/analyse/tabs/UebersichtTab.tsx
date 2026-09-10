@@ -902,9 +902,9 @@ export async function UebersichtTab({
 
       {/* ══ 4 · Recycling ══
           Ganz unten und zugeklappt: Die Frage „lohnt das Recycling?" stellt
-          sich nicht beim Öffnen der Seite, sondern wenn jemand die Wartezeiten
-          in den Pipeline-Einstellungen anfassen will. Bis dahin steht sie im
-          Weg. Die Meta-Zeile trägt die eine Zahl, für die man aufklappt. */}
+          sich nicht beim Öffnen der Seite, sondern wenn jemand die
+          Wiedervorlage-Frist anfassen will. Bis dahin steht sie im Weg. Die
+          Meta-Zeile trägt die eine Zahl, für die man aufklappt. */}
       <div className="fade-up" style={{ animationDelay: "180ms" }}>
         <RecycleSection
           data={recycle}

@@ -7,9 +7,10 @@
 // eine Stelle, an der morgens steht, was offen ist. Drei Eigenschaften sind
 // dabei besonders leicht zu verlieren, und jede kostet etwas anderes:
 //
-//  1. DIE ZIELE. Vier Wege plus die Anlege-Aktion — genau der Block „Meine
+//  1. DIE ZIELE. Drei Wege plus die Anlege-Aktion — genau der Block „Meine
 //     Arbeit" der Seitenleiste. Wer hier „Analyse" dazustellt, macht aus dem
-//     Einstieg wieder eine Liste.
+//     Einstieg wieder eine Liste. (Es waren vier, bis der Rückbau
+//     /erinnerungen abgeschaltet hat.)
 //  2. DIE ZAHLEN. Ohne sie ist ein Quicklink ein Lesezeichen. Und `null` darf
 //     nie als 0 erscheinen — die Doktrin des Projekts (lib/navCounts.ts).
 //  3. DAS EINMALIGE LADEN. Layout und Seite brauchen dieselben vier Abfragen.
@@ -47,23 +48,42 @@ function zaehle(haystack: string, needle: string): number {
  * ------------------------------------------------------------------ */
 
 describe("Ziele", () => {
-  test("die vier Wege sind die drei Nachfass-Mechanismen plus der Kalender", () => {
-    // docs/data-model.md §1: /erinnerungen (nächste Stunden), /nachfassen
-    // (heute fällig), /ablage (aus dem Funnel gefallen) — dazu der Kalender.
-    // Das ist exakt der Block „Meine Arbeit" der Seitenleiste; ersetzt wird,
-    // was das Zuklappen verdeckt, nicht eine neu erfundene Auswahl.
-    for (const href of ["/erinnerungen", "/nachfassen", "/termine", "/ablage"]) {
+  test("die drei Wege sind der Kalender plus die zwei Aufgabenlisten", () => {
+    // docs/data-model.md §1: /termine (wer steht an), /nachfassen (heute
+    // fällig), /ablage (aus dem Funnel gefallen). Das ist exakt der Block
+    // „Meine Arbeit" der Seitenleiste; ersetzt wird, was das Zuklappen
+    // verdeckt, nicht eine neu erfundene Auswahl.
+    //
+    // Es waren VIER, bis der Rückbau /erinnerungen abgeschaltet hat. Nachgerückt
+    // ist bewusst keine neue Kachel — der Streifen spiegelt die Seitenleiste,
+    // und dort ist die Zeile ebenfalls weg.
+    for (const href of ["/termine", "/nachfassen", "/ablage"]) {
       assert.ok(QUICKLINKS.includes(`href: "${href}"`), `${href} fehlt im Streifen`);
     }
-    assert.equal(zaehle(QUICKLINKS, "href: \""), 4, "es sind nicht mehr genau vier Wege");
+    assert.equal(zaehle(QUICKLINKS, "href: \""), 3, "es sind nicht mehr genau drei Wege");
+    // Geprüft am CODE, nicht am Fließtext: Der Kommentarkopf darf und soll
+    // weiter erklären, warum es die vierte Kachel nicht mehr gibt.
+    assert.doesNotMatch(QUICKLINKS, /href: "\/erinnerungen"/, "die Erinnerungs-Kachel ist zurück");
+    assert.doesNotMatch(QUICKLINKS, /BellRing/, "das Erinnerungs-Icon wird noch importiert");
+  });
+
+  test("Termine steht vorn — die zentrale Arbeitsfläche zuerst", () => {
+    // Die Terminliste wird die eine Liste je Person; die erste Kachel ist die,
+    // auf die morgens der Blick fällt. Vorher stand dort „Erinnerungen".
+    const termine = QUICKLINKS.indexOf('href: "/termine"');
+    const nachfassen = QUICKLINKS.indexOf('href: "/nachfassen"');
+    const ablage = QUICKLINKS.indexOf('href: "/ablage"');
+    assert.ok(termine !== -1 && nachfassen !== -1 && ablage !== -1);
+    assert.ok(termine < nachfassen, "Termine ist hinter Nachfassen gerutscht");
+    assert.ok(nachfassen < ablage, "die Ablage steht vor der Tagesarbeit");
   });
 
   test("jeder Weg sagt, welche Frage er beantwortet", () => {
-    // Ohne den Zusatz sind „Erinnerungen", „Nachfassen" und „Ablage" drei
-    // ähnlich klingende Wörter — dieselbe Verwechslung, gegen die in der
-    // Seitenleiste die Tooltips stehen. Hier ist der Hinweis sichtbar statt
-    // versteckt: Auf einer Kachel ist Platz dafür.
-    for (const hint of ["Nächste Stunden", "Heute fällig", "Kalender", "Aus dem Funnel gefallen"]) {
+    // Ohne den Zusatz sind „Nachfassen" und „Ablage" zwei ähnlich klingende
+    // Wörter — dieselbe Verwechslung, gegen die in der Seitenleiste die
+    // Tooltips stehen. Hier ist der Hinweis sichtbar statt versteckt: Auf einer
+    // Kachel ist Platz dafür.
+    for (const hint of ["Heute fällig", "Kalender", "Aus dem Funnel gefallen"]) {
       assert.ok(QUICKLINKS.includes(`hint: "${hint}"`), `Der Hinweis „${hint}" fehlt`);
     }
   });
@@ -97,10 +117,10 @@ describe("Ziele", () => {
  * ------------------------------------------------------------------ */
 
 describe("Zähler", () => {
-  test("die drei Aufgaben-Wege tragen ihren Zähler", () => {
+  test("die beiden Aufgaben-Wege tragen ihren Zähler", () => {
     // Ein Quicklink „Nachfassen" ohne die Zahl offener Aufgaben ist ein
     // Lesezeichen; mit ihr ist er eine Arbeitsanweisung.
-    for (const zweig of ["erinnerungen", "nachfassen", "ablage"]) {
+    for (const zweig of ["nachfassen", "ablage"]) {
       assert.ok(QUICKLINKS.includes(`counts?.${zweig} ?? null`), `Der Zähler „${zweig}" fehlt`);
     }
     // Die Beschriftung der Ablage kommt aus navCounts.ts — sie beschreibt die

@@ -12,9 +12,10 @@
 // entstanden.
 //
 // Die Regel jetzt: Ein Sofort-Touch ist erst überfällig, wenn sein TERMIN vorbei
-// ist. Sie steht in `lib/dueState.ts`, also an der Stelle, die die Seite UND der
-// Zähler in der Seitenleiste lesen (docs §5.4: „Was Badge und Seite garantiert
-// teilen, ist die Überfällig-Regel").
+// ist. Sie steht in `lib/dueState.ts`, also an der einen Stelle, die alle
+// Anzeigen lesen. (Der Navigations-Zähler war bis zum Rückbau die dritte davon;
+// er ist mit /erinnerungen gefallen — die Regel selbst nicht, sie trägt
+// weiterhin Board und Kaskaden-Panel.)
 //
 // Bauart wie in den Nachbardateien: Was eine reine Funktion entscheidet, wird am
 // VERHALTEN geprüft; was eine React-Komponente entscheidet, die der Test-Runner
@@ -25,9 +26,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
-import type { AccessContext } from "@/lib/access";
 import { dueRefAt, isOverdue, reminderDueSpec, type DueRef } from "@/lib/dueState";
-import { loadNavCounts } from "@/lib/navCounts";
 
 /** 8.9.2026, 10:00 Berliner Wandzeit (Sommerzeit, UTC+2). */
 const JETZT = Date.parse("2026-09-08T08:00:00Z");
@@ -141,90 +140,28 @@ describe("reminderDueSpec", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * Der Zähler in der Seitenleiste liest dieselbe Regel
+ * Die Regel von Hand — dieselbe Rechnung, die die Anzeige macht
  * ------------------------------------------------------------------ */
 
-type Antwort = { data?: unknown[] | null; error?: unknown; count?: number | null };
-
-/** Attrappe wie in navCounts.test.ts — nur so weit, wie dieser Test sie braucht. */
-function abfrage(antwort: Antwort) {
-  const api: Record<string, unknown> = {};
-  for (const m of ["select", "order", "range", "limit", "eq", "is", "lte", "gte", "lt", "in", "not"]) {
-    api[m] = () => api;
-  }
-  api.then = (erfuellen: (v: unknown) => void) => {
-    erfuellen({ data: null, error: null, count: null, ...antwort });
-  };
-  return api;
-}
-
-function supabase(touches: unknown[]) {
-  const leer: Antwort = { data: [], count: 0 };
-  return {
-    rpc: () => abfrage(leer),
-    from: (tabelle: string) =>
-      abfrage(tabelle === "reminder_touches" ? { data: touches, count: touches.length } : leer),
-  } as unknown as Parameters<typeof loadNavCounts>[0];
-}
-
-const ZUGRIFF = {
-  workspace_id: "ws-1",
-  user: { id: "u-ich" },
-  effective_user_id: null,
-} as unknown as AccessContext;
-
-describe("Navigations-Zähler und Board kommen zum selben Ergebnis", () => {
-  test("ein Sofort-Touch vor seinem Termin färbt das Badge nicht amber", async (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(
-      supabase([{ due_at: ENTSTANDEN, touch_kind: "sofort", appointment_at: TERMIN_GLEICH }]),
-      ZUGRIFF,
-    );
-    // Er steht weiterhin im Zähler — zu tun ist er ja —, aber nicht als
-    // Versäumnis. Vorher zählte er als überfällig, und die Navigation mahnte
-    // etwas an, das gerade erst entstanden war.
-    assert.deepEqual(counts.erinnerungen, { total: 1, overdue: 0 });
-  });
-
-  test("nach dem Termin zählt derselbe Touch als überfällig", async (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(
-      supabase([{ due_at: ENTSTANDEN, touch_kind: "sofort", appointment_at: TERMIN_VORBEI }]),
-      ZUGRIFF,
-    );
-    assert.deepEqual(counts.erinnerungen, { total: 1, overdue: 1 });
-  });
-
-  test("Gegenrichtung: eine verstrichene Kaskadenstufe zählt weiterhin als überfällig", async (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(
-      supabase([
-        { due_at: "2026-09-08T06:00:00Z", touch_kind: "cascade", appointment_at: TERMIN_GLEICH },
-        { due_at: ENTSTANDEN, touch_kind: "sofort", appointment_at: TERMIN_GLEICH },
-        { due_at: "2026-09-08T09:30:00Z", touch_kind: "cascade", appointment_at: TERMIN_GLEICH },
-      ]),
-      ZUGRIFF,
-    );
-    assert.deepEqual(counts.erinnerungen, { total: 3, overdue: 1 });
-  });
-
-  test("die Zahl des Zählers ist die Zahl, die dieselbe Regel von Hand ergibt", async (t) => {
-    // Board und Badge dürfen nicht auseinanderlaufen (docs §5.4). Das Board ist
-    // eine Client-Komponente und hier nicht ladbar — geprüft wird deshalb, dass
-    // der Zähler exakt das liefert, was `isOverdue` + `reminderDueSpec` sagen;
-    // dass das Board dieselben zwei Funktionen benutzt, hält der Block darunter
-    // am Quelltext fest.
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
+describe("Eine gemischte Liste ergibt genau die erwartete Zahl Versäumnisse", () => {
+  test("zwei von vier Touches sind überfällig — die beiden Sofort-Touches trennt ihr Termin", () => {
+    // Stand bis zum Rückbau als Vergleich zwischen Navigations-Zähler und
+    // Board hier: Der Zähler auf `reminder_touches` ist mit /erinnerungen
+    // gefallen (lib/navCounts.ts). Die RECHNUNG bleibt trotzdem geprüft — sie
+    // ist die eine Stelle, an der Board und Kaskaden-Panel ihre roten Ränder
+    // herleiten, und ohne sie fiele mit dem Zähler auch die Zusicherung weg.
     const zeilen = [
       { due_at: ENTSTANDEN, touch_kind: "sofort", appointment_at: TERMIN_GLEICH },
       { due_at: ENTSTANDEN, touch_kind: "sofort", appointment_at: TERMIN_VORBEI },
       { due_at: "2026-09-08T06:00:00Z", touch_kind: "cascade", appointment_at: TERMIN_GLEICH },
       { due_at: "2026-09-08T09:30:00Z", touch_kind: "cascade", appointment_at: TERMIN_GLEICH },
     ];
-    const vonHand = zeilen.filter((z) => isOverdue(z.due_at, reminderDueSpec(z), REF)).length;
-    const counts = await loadNavCounts(supabase(zeilen), ZUGRIFF);
-    assert.equal(counts.erinnerungen?.overdue, vonHand);
-    assert.equal(vonHand, 2);
+    const ueberfaellig = zeilen.filter((z) => isOverdue(z.due_at, reminderDueSpec(z), REF));
+    assert.equal(ueberfaellig.length, 2);
+    assert.deepEqual(
+      ueberfaellig.map((z) => z.appointment_at),
+      [TERMIN_VORBEI, TERMIN_GLEICH],
+    );
   });
 });
 
@@ -239,10 +176,12 @@ function read(relative: string): string {
 }
 
 const BOARD = read("src/components/erinnerungen/ErinnerungenBoard.tsx");
-const NAV = read("src/lib/navCounts.ts");
 const PANEL = read("src/components/termine/CascadePanel.tsx");
 
-describe("Alle drei Anzeigen lesen die EINE Regel", () => {
+// Bis zum Rückbau waren es DREI Anzeigen: Board, Kaskaden-Panel und der
+// Navigations-Zähler. Der dritte hing an /erinnerungen und ist mit der Seite
+// gefallen (lib/navCounts.ts) — geprüft wird jetzt, was noch da ist.
+describe("Beide Anzeigen lesen die EINE Regel", () => {
   test("das Board rechnet nicht selbst, sondern fragt dueState", () => {
     assert.match(BOARD, /from "@\/lib\/dueState"/);
     assert.match(BOARD, /isOverdue\(dueAtIso, reminderDueSpec\(touch\), dueRefAt\(nowMs\)\)/);
@@ -251,14 +190,6 @@ describe("Alle drei Anzeigen lesen die EINE Regel", () => {
     assert.match(BOARD, /isOverdue\(active!\.due_at, reminderDueSpec\(active!\), dueRefAt\(nowMs\)\)/);
     // Und keine handgerechnete Zweitregel daneben.
     assert.doesNotMatch(BOARD, /new Date\(active!\.due_at\)\.getTime\(\) <= nowMs/);
-  });
-
-  test("der Zähler holt die beiden Spalten, ohne die die Regel nicht greifen kann", () => {
-    // PostgREST liefert kein Feld, das niemand angefragt hat: Ohne sie wäre
-    // `touch_kind` immer `undefined`, jeder Touch hätte die Uhrzeit-Körnung —
-    // und der Fehler wäre still zurück, nur im Badge statt auf der Seite.
-    assert.match(NAV, /\.select\("due_at, touch_kind, appointment_at", \{ count: "exact" \}\)/);
-    assert.match(NAV, /spec: reminderDueSpec\(r\)/);
   });
 
   test("das Kaskaden-Panel am Termin benutzt dieselbe Regel", () => {

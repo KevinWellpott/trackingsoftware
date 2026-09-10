@@ -1,19 +1,16 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-  BarChart3, BellRing, CalendarCheck, ChevronRight, CreditCard, Euro, Eye, FileSignature, Filter, PieChart,
+  BarChart3, CalendarCheck, ChevronRight, CreditCard, Euro, Eye, FileSignature, Filter, PieChart,
   Receipt, Timer, TrendingUp, Trophy, Users, Wallet, XCircle,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { loadClosingCalls, loadReminderTouches, loadSettingCalls } from "@/lib/analyseData";
-import { cascadeRank, cascadeStepLabel, type CascadeKind } from "@/lib/cascadeEngine";
+import { loadClosingCalls, loadSettingCalls } from "@/lib/analyseData";
 import {
   NUM, bucketIndex, buildBuckets, bucketOf, closingEffDate, closingShowRate, eur, fmtPct, pct,
   settingEffDate, type Granularity,
 } from "@/lib/analyse";
-import { berlinDateISO } from "@/lib/apptTime";
 import { personIn } from "@/lib/personResolution";
-import { ownerColor } from "@/lib/ownerColor";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { Footnote, MetricTable, StatRow, type MetricColumn, type MetricRow } from "@/components/analyse/AnalyseTables";
@@ -47,6 +44,12 @@ import { CLOSING_LOST_REASON_CODES, CLOSING_LOST_REASON_LABELS } from "@/lib/typ
 // WEN kamen die Termine" (das ist der Vergleich unten), nicht „woher" — und die
 // Herkunft rechnet der Funnel-Tab als einziger in einer Zeile bis zum Umsatz
 // durch. Drei Quellen-Tabellen im Analysebereich waren zwei zu viel.
+//
+// Ebenfalls entfallen: „Erinnerungs-Disziplin" und „Welcher Touch wirkt am
+// stärksten?". Beide zählten `reminder_touches` und hatten als Gegenstand eine
+// Kaskaden-Stufenlogik, die es mit dem Nachfass-Rückbau nicht mehr gibt — eine
+// Quote über Stufen, die niemand mehr erzeugt, misst den Altbestand und danach
+// nichts. Dieselbe Streichung im Setting-Tab.
 //
 // Personenachse: `personIn` (Zuweisung vor Ersteller). Beim Closing wog der
 // alte Weg über `created_by_user_id` besonders schwer — ein Closing entsteht
@@ -201,10 +204,9 @@ export async function ClosingTab({
   const supabase = await createClient();
   const hasPrev = Boolean(prevFrom && prevTo);
 
-  const [allRows, settings, touchData] = await Promise.all([
+  const [allRows, settings] = await Promise.all([
     loadClosingCalls(supabase, access, canCompare),
     loadSettingCalls(supabase, access, canCompare),
-    loadReminderTouches(supabase, access, canCompare, ["closing", "closing_followup"]),
   ]);
   const buckets = buildBuckets(from, to, granularity);
 
@@ -354,132 +356,6 @@ export async function ClosingTab({
       perPerson.set(name, (perPerson.get(name) ?? 0) + 1);
     }
   }
-
-  // ── Erinnerungs-Disziplin (Migration 0032) ───────────────────
-  // Eigene Achse, unabhängig vom Haupt-Loop oben — Touches zählen nach ihrem
-  // eigenen Fälligkeits-Tag (due_at), nicht nach dem effektiven Closing-Datum.
-  // entity_id von 'closing' UND 'closing_followup' zeigt auf dieselbe
-  // closing_calls.id — eine Map reicht für beide Touch-Kontexte.
-  const reminderTouches = touchData.rows;
-  type TouchAgg = { due: number; done: number; overdue: number };
-  const ZERO_TOUCH = (): TouchAgg => ({ due: 0, done: 0, overdue: 0 });
-  const touchTotals = new Map<string, TouchAgg>();
-  const ensureTouch = (name: string): TouchAgg => {
-    let t = touchTotals.get(name);
-    if (!t) {
-      t = ZERO_TOUCH();
-      touchTotals.set(name, t);
-    }
-    return t;
-  };
-  for (const m of selectedMembers) ensureTouch(m.username);
-
-  const showStatusByClosingId = new Map(allRows.map((r) => [r.id, r.show_status]));
-  type TouchStepCell = {
-    cascade_kind: CascadeKind;
-    step_no: number;
-    label: string;
-    doneN: number;
-    doneShow: number;
-    notDoneN: number;
-    notDoneShow: number;
-  };
-  // Schlüssel ist das Paar (Kaskade, Stufe): Nachrichten- und Mail-Spur tragen
-  // beide eine „Stufe 1", nur die Kaskade trennt sie.
-  const byTouchStep = new Map<string, TouchStepCell>();
-
-  const nowIso = new Date().toISOString();
-  for (const touch of reminderTouches) {
-    const day = berlinDateISO(touch.due_at);
-    if (day < from || day > to) continue;
-
-    // Block (a): Erledigungsquote je Person — über ALLE Touch-Arten und beide
-    // Kontexte (Closing-Termin und Nachfass-Kontakt), das ist die geleistete
-    // Arbeit.
-    const uid = personIn(touch, selectedIds);
-    if (uid || allSelected) {
-      const name = uid ? nameById.get(uid)! : OHNE;
-      const t = ensureTouch(name);
-      t.due += 1;
-      if (touch.done_at) t.done += 1;
-      else if (touch.due_at < nowIso) t.overdue += 1;
-    }
-
-    // Block (b): Show-Quote je Stufe. Zwei Ausschlüsse, beide aus demselben
-    // Grund — der Touch muss VOR dem Gespräch gelegen haben, sonst kann er
-    // dessen show_status nicht erklären:
-    //
-    //   1. `closing_followup` raus. Diese Touches gehören zum VEREINBARTEN
-    //      NACHFASS-KONTAKT, den es erst gibt, wenn das Closing gelaufen und
-    //      auf 'nachfassen' gesetzt ist. Sie tragen dieselbe entity_id wie das
-    //      Closing selbst (beide zeigen auf closing_calls.id) — ein Closing mit
-    //      beiden Kaskaden zählte deshalb doppelt, und zwar mit einem Touch,
-    //      der nach dem Ergebnis entstanden ist.
-    //   2. `chain` raus (No-Show-Kette, Kein-Close-Kette) — dieselbe Logik,
-    //      eine Stufe nach dem Ereignis. Das war früher der
-    //      `touch_type !== 'no_show'`-Filter.
-    if (touch.entity_type === "closing_followup") continue;
-    if (touch.touch_kind === "chain") continue;
-    const parentShow = showStatusByClosingId.get(touch.entity_id);
-    if (parentShow !== "show" && parentShow !== "no_show") continue;
-
-    const key = `${touch.cascade_kind}:${touch.step_no}`;
-    let cell = byTouchStep.get(key);
-    if (!cell) {
-      cell = {
-        cascade_kind: touch.cascade_kind,
-        step_no: touch.step_no,
-        label: cascadeStepLabel(touch),
-        doneN: 0, doneShow: 0, notDoneN: 0, notDoneShow: 0,
-      };
-      byTouchStep.set(key, cell);
-    }
-    const didShow = parentShow === "show" ? 1 : 0;
-    if (touch.done_at) {
-      cell.doneN += 1;
-      cell.doneShow += didShow;
-    } else {
-      cell.notDoneN += 1;
-      cell.notDoneShow += didShow;
-    }
-  }
-
-  const touchNames = selectedMembers.map((m) => m.username);
-  if ((touchTotals.get(OHNE)?.due ?? 0) > 0) touchNames.push(OHNE);
-  const touchDueTotal = touchNames.reduce((s, n) => s + (touchTotals.get(n)?.due ?? 0), 0);
-  const touchOverdueTotal = touchNames.reduce((s, n) => s + (touchTotals.get(n)?.overdue ?? 0), 0);
-
-  const reminderPersonRows: MetricRow[] = touchNames
-    .map((name) => {
-      const t = touchTotals.get(name) ?? ZERO_TOUCH();
-      return {
-        key: name,
-        label: name,
-        share: touchDueTotal === 0 ? null : t.due / touchDueTotal,
-        color: ownerColor(name === OHNE ? "" : name).fg,
-        values: { due: t.due, done: t.done, rate: pct(t.done, t.due), overdue: t.overdue },
-      };
-    })
-    .filter((r) => (r.values.due as number) > 0)
-    .sort((a, b) => (a.values.rate as number) - (b.values.rate as number));
-
-  const reminderTouchTypeRows: MetricRow[] = [...byTouchStep.values()]
-    .sort((a, b) => cascadeRank(a.cascade_kind) - cascadeRank(b.cascade_kind) || a.step_no - b.step_no)
-    .map((c) => {
-      const doneRate = pct(c.doneShow, c.doneN);
-      const notDoneRate = pct(c.notDoneShow, c.notDoneN);
-      return {
-        key: `${c.cascade_kind}:${c.step_no}`,
-        label: c.label,
-        values: {
-          doneN: c.doneN,
-          doneRate,
-          notDoneN: c.notDoneN,
-          notDoneRate,
-          spread: doneRate === null || notDoneRate === null ? null : Math.round((doneRate - notDoneRate) * 10) / 10,
-        },
-      };
-    });
 
   const names = selectedMembers.map((m) => m.username);
   // Die OHNE-Zeile erscheint nur, wenn sie im Zeitraum wirklich etwas zählt.
@@ -851,93 +727,6 @@ export async function ClosingTab({
             />
           </AnalyseSection>
         </div>
-      </div>
-
-      {/* ── Erinnerungs-Disziplin ───────────────────────────────────
-             Eigener, neuer Block — deckt Closing-Termin- UND Nachfass-
-             Termin-Touches ab. */}
-      <div className="analyse-row fade-up" data-split="chart" style={{ animationDelay: "480ms" }}>
-        <AnalyseSection
-          title="Erinnerungs-Disziplin"
-          icon={BellRing}
-          meta={
-            touchData.available
-              ? `${INT.format(touchDueTotal)} fällig · ${INT.format(touchOverdueTotal)} überfällig`
-              : "nicht geladen"
-          }
-          collapsible
-          defaultOpen={false}
-          info={
-            <InfoText>
-              <p style={INFO_P}>
-                Fällige Bestätigungs-Touches vor dem Closing-Termin UND vor einem vereinbarten Nachfass-Kontakt,
-                je zuständiger Person. Ein Touch gilt als erledigt, sobald das manuelle Häkchen in &bdquo;Meine
-                Erinnerungen heute&ldquo; gesetzt wurde — unabhängig vom Kanal.
-              </p>
-            </InfoText>
-          }
-        >
-          <MetricTable
-            label="Person"
-            columns={[
-              { key: "due", label: "Fällig", format: "int" },
-              { key: "done", label: "Erledigt", format: "int" },
-              { key: "rate", label: "Quote", format: "pct", emphasis: true },
-              { key: "overdue", label: "Überfällig", format: "int" },
-            ]}
-            rows={reminderPersonRows}
-            minWidth={460}
-            emptyHint={
-              touchData.available
-                ? "Noch keine fälligen Erinnerungen im Zeitraum."
-                : "Die Erinnerungen konnten nicht geladen werden — Migration 0032 im SQL-Editor ausführen."
-            }
-          />
-          {/* Muster Anruf-Log: ein Ladefehler darf nicht wie „nichts zu tun"
-              aussehen. Genau diese Verwechslung hielt den Block monatelang
-              leer, ohne dass jemand etwas merkte. */}
-          {!touchData.available && (
-            <Footnote>
-              Die Tabelle <code>reminder_touches</code> ließ sich nicht abfragen. Die leere Anzeige heißt hier{" "}
-              <strong>nicht</strong> &bdquo;keine Erinnerungen&ldquo;, sondern &bdquo;keine Daten geladen&ldquo;.
-            </Footnote>
-          )}
-        </AnalyseSection>
-        <AnalyseSection
-          title="Welcher Touch wirkt am stärksten?"
-          icon={Eye}
-          meta={touchData.available ? `${reminderTouchTypeRows.length} Stufen` : "nicht geladen"}
-          collapsible
-          defaultOpen={false}
-          info={
-            <InfoText>
-              <p style={INFO_P}>
-                Show-Quote der Closings, deren Touch erledigt wurde, gegen die, deren Touch offen blieb — je
-                Erinnerungs-Art und Stufe. Nur Closings mit erfasstem Ergebnis, und nur Touches, die VOR dem Gespräch
-                lagen: Der vereinbarte Nachfass-Kontakt und die No-Show-Kette entstehen erst danach und bleiben
-                deshalb außen vor — sonst zählte dasselbe Closing zweimal.
-              </p>
-            </InfoText>
-          }
-        >
-          <MetricTable
-            label="Stufe"
-            columns={[
-              { key: "doneN", label: "Erledigt (n)", format: "int" },
-              { key: "doneRate", label: "Show-Quote", format: "pct", emphasis: true },
-              { key: "notDoneN", label: "Offen (n)", format: "int" },
-              { key: "notDoneRate", label: "Show-Quote", format: "pct" },
-              { key: "spread", label: "Δ pp", format: "num1" },
-            ]}
-            rows={reminderTouchTypeRows}
-            minWidth={560}
-            emptyHint={
-              touchData.available
-                ? "Noch keine entschiedenen Closings mit Touch-Daten."
-                : "Die Erinnerungen konnten nicht geladen werden — Migration 0032 im SQL-Editor ausführen."
-            }
-          />
-        </AnalyseSection>
       </div>
 
       {/* ── Alles Weitere: eingeklappt ──────────────────────────

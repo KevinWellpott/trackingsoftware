@@ -662,78 +662,17 @@ describe("PREVIEW_LABEL — die Beschriftung über der Vorschau", () => {
     // Information hing am Badge daneben.
     assert.match(PREVIEW_LABEL, /Wirkt bei dir/);
   });
-
-  test("die Karte benutzt sie, statt eine zweite zu führen", () => {
-    const card = read("src/components/settings/MessageTemplatesCard.tsx");
-    assert.match(card, /PREVIEW_LABEL/);
-    assert.doesNotMatch(card, /const PREVIEW_LABEL/);
-  });
 });
 
-/* ------------------------------------------------------------------ *
- * MessageTemplatesCard — am Quelltext geprüft
- * ------------------------------------------------------------------ *
- * Die Karte ist eine Client-Komponente mit JSX; der Runner
- * (`node --experimental-strip-types`) lädt sie nicht, und eine Attrappe
- * bewiese nur, dass die Attrappe stimmt. Dieselbe Bauart wie
- * tests/analyseVerdrahtung.test.ts.
- */
-
-describe("MessageTemplatesCard", () => {
-  const CARD = read("src/components/settings/MessageTemplatesCard.tsx");
-
-  test("die Vorschau löst gegen den ENTWURF auf, nicht gegen den gespeicherten Stand", () => {
-    // Vorher rendete der Block `resolveTemplate(templateKey, bundle)` — den
-    // Stand aus dem Server-Bundle. Wer tippte, sah die Vorschau nicht
-    // mitlaufen; sie sprang erst nach dem Speichern um (revalidatePath), also
-    // genau dann nicht, wenn man sie braucht.
-    assert.match(CARD, /resolveTemplate\(templateKey, merged\)/);
-    assert.doesNotMatch(CARD, /resolveTemplate\(templateKey, bundle\)/);
-    assert.match(CARD, /const entwurf = value\.trim\(\)/);
-  });
-
-  test("der Entwurf ersetzt NUR seine eigene Ebene, die Kette bleibt bestehen", () => {
-    // Sonst zeigte die Vorschau den Org-Entwurf eines Owners, für den selbst
-    // eine persönliche Vorlage gilt — also einen Text, der bei ihm gar nicht
-    // wirkt. Die Beschriftung darüber verspricht „Wirkt bei dir".
-    assert.match(CARD, /\{ \.\.\.bundle\.org, \[templateKey\]: entwurf \}/);
-    assert.match(CARD, /\{ \.\.\.bundle\.own, \[templateKey\]: entwurf \}/);
-  });
-
-  test("die Entwürfe liegen in der Karte, nicht in der Zeile", () => {
-    // Eine Zeile wird beim Suchen neu aufgebaut (Trefferfilter, und der
-    // Collapsible-Key wechselt beim ersten getippten Zeichen). Lag der Entwurf
-    // im useState der Zeile, war ein ungespeicherter Text danach weg — lautlos
-    // und ausgelöst von einer Eingabe an ganz anderer Stelle.
-    assert.match(CARD, /const \[drafts, setDrafts\] = useState<Record<string, string>>/);
-    assert.doesNotMatch(CARD, /useState\(stored\)/);
-    // Ebene im Schlüssel: sonst trüge der Umschalter den halb getippten
-    // Org-Standard in die persönliche Vorlage hinüber.
-    assert.match(CARD, /const draftKey = `\$\{level\}-\$\{key\}`/);
-  });
-
-  test("bei aktiver Suche zählt auch der Mail-Block Treffer", () => {
-    // `mailKeys` ist dann bereits gefiltert. „5 Vorlagen" stand daneben in den
-    // Gruppen als „2 Treffer" — dieselbe Zahl, zwei Bedeutungen.
-    assert.match(CARD, /mailKeys\.length\} Treffer/);
-    assert.match(CARD, /keys\.length\} Treffer/);
-  });
-
-  test("der Listen-Vorbehalt steht einmal je Zeile, nicht zweimal", () => {
-    // Das Badge trug zusätzlich „· Liste geht vor" — in derselben Zeile, in
-    // der TEMPLATE_META den Hinweis schon sichtbar führt. Und es behauptete
-    // ihn auch dort, wo gar keine Liste einen eigenen FU-Text trägt: Die Karte
-    // bekommt die Listentexte nicht übergeben und kann beide Fälle nicht
-    // unterscheiden.
-    assert.doesNotMatch(CARD, /· Liste geht vor/);
-    for (const key of LIST_SCOPED_KEYS) {
-      assert.equal(TEMPLATE_META[key].hint, "Text der Liste geht vor", key);
-    }
-    // Als Regel bleibt er am Badge im title — dort liest er sich nicht als
-    // Befund über diesen einen Kontakt.
-    assert.match(CARD, /Trägt die Liste einen eigenen Nachfass-Text/);
-  });
-});
+// Der Block „MessageTemplatesCard — am Quelltext geprüft" stand hier und ist
+// mit der Karte gegangen (Rückbau): Vorschau gegen den Entwurf, Entwürfe in der
+// Karte statt in der Zeile, Treffer-Zähler des Mail-Blocks, der Listen-Vorbehalt
+// am Badge — alles Zusicherungen über einen Editor, den es nicht mehr gibt.
+// Die Regeln DAHINTER prüft weiterhin dieser Test: resolveTemplate für die
+// Vorrangkette (inklusive Listen-Vorrang), renderTemplate für die Platzhalter.
+// Nur die Bedienoberfläche dazu fiel; die Texte selbst rendert /nachfassen
+// weiter. Was `tests/rueckbauEinstellungen.test.ts` festhält, ist die
+// Gegenrichtung: dass die Karte auch wirklich weg BLEIBT.
 
 /* ------------------------------------------------------------------ *
  * Settings-Seite — eine Speichern-Konvention statt zweier
@@ -758,14 +697,13 @@ describe("Speichern-Knöpfe der Settings-Seite", () => {
   });
 });
 
-describe("PipelineSettingsCard", () => {
-  test("der Hinweis nennt BEIDE Gründe ohne Recycling", () => {
-    // Es sind zwei Codes: 'falsche_zielgruppe' und 'kein_fit' (Migration 0033,
-    // CHECK auf closing_calls). Der sichtbare Satz nannte nur den ersten —
-    // wer „Kein Fit" wählt, wartet dann auf eine Wiedervorlage, die nie kommt.
-    const quelle = read("src/components/settings/PipelineSettingsCard.tsx");
-    const hinweis = quelle.slice(quelle.indexOf("Recycling — Wartezeit"));
-    assert.ok(/Falsche Zielgruppe/.test(hinweis));
-    assert.ok(/Kein Fit/.test(hinweis), "„Kein Fit“ fehlt im sichtbaren Hinweis");
-  });
-});
+// Hier stand „PipelineSettingsCard — der Hinweis nennt BEIDE Gründe ohne
+// Recycling". Der Satz erklärte, warum 'falsche_zielgruppe' und 'kein_fit'
+// keine Wiedervorlage bekommen — sinnvoll, solange die Karte neun Wartezeiten
+// JE VERLUSTGRUND anbot. Mit dem Rückbau steht dort eine einzige Frist für alle
+// vier Ursprünge; ein Hinweis auf zwei Grund-Codes würde eine Staffelung
+// erklären, die die Oberfläche nicht mehr zeigt. Die Regel selbst bleibt
+// unangetastet — sie sitzt im CHECK auf `closing_calls` und in
+// `schedule_recycle()` (Migration 0033) und wird in
+// `tests/recycleCadence.test.ts` am Migrationstext geprüft, also dort, wo sie
+// lebt.

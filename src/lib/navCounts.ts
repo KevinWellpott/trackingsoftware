@@ -1,13 +1,18 @@
-// Zähler für die drei Aufgaben-Einträge der Seitenleiste.
+// Zähler für die beiden Aufgaben-Einträge der Seitenleiste.
 //
-// WARUM ÜBERHAUPT: /nachfassen, /erinnerungen und /ablage erzeugen täglich
-// Arbeit, aber die Navigation schwieg darüber. Wer nicht von sich aus
-// hineinklickt, erfährt nie, dass dort etwas liegt — bei einem System, das
-// Fälligkeiten selbst erzeugt, ist das der Unterschied zwischen benutzt und
-// vergessen.
+// WARUM ÜBERHAUPT: /nachfassen und /ablage erzeugen täglich Arbeit, aber die
+// Navigation schwieg darüber. Wer nicht von sich aus hineinklickt, erfährt nie,
+// dass dort etwas liegt — bei einem System, das Fälligkeiten selbst erzeugt,
+// ist das der Unterschied zwischen benutzt und vergessen.
+//
+// FRÜHER WAREN ES DREI. Der dritte hing an /erinnerungen und damit an der
+// Erinnerungs-Kaskade; beide sind mit dem Rückbau gefallen (die Route leitet
+// nur noch weiter). Ein Zähler auf `reminder_touches` zählte danach eine
+// Tabelle, die keine Oberfläche mehr füllt: erst dauerhaft dieselbe Zahl, dann
+// dauerhaft 0 — beides ist eine Aussage über nichts.
 //
 // PREIS: Die Seitenleiste steht in `(dashboard)/layout.tsx` und wird auf JEDER
-// Seite gebaut. Vier Abfragen, alle parallel, alle winzig — die Aufgaben-RPCs
+// Seite gebaut. Drei Abfragen, alle parallel, alle winzig — die Aufgaben-RPCs
 // liefern nur die Spalte `due_at`, die Ablage nur einen `count`. Sie hängen
 // sich in das Bündel ein, das das Layout ohnehin abwartet (Listen, Ansichten,
 // Datensicht), und kosten damit einen Roundtrip, keine Summe.
@@ -22,8 +27,8 @@
 // den Seiten selbst stehen (Muster `loadRecycleTasks`, `loadDropoutList`).
 
 import type { AccessContext } from "@/lib/access";
-import { berlinDateISO, berlinInputToIso } from "@/lib/apptTime";
-import { dueRefNow, isOverdue, reminderDueSpec, type DueGranularity, type DueSpec } from "@/lib/dueState";
+import { berlinDateISO } from "@/lib/apptTime";
+import { dueRefNow, isOverdue, type DueGranularity } from "@/lib/dueState";
 import { isStaleDue, staleSourceOf } from "@/lib/staleTasks";
 import type { createClient } from "@/lib/supabase/server";
 
@@ -34,11 +39,10 @@ export type NavCount = { total: number; overdue: number };
 
 export type NavCounts = {
   nachfassen: NavCount | null;
-  erinnerungen: NavCount | null;
   ablage: NavCount | null;
 };
 
-export const EMPTY_NAV_COUNTS: NavCounts = { nachfassen: null, erinnerungen: null, ablage: null };
+export const EMPTY_NAV_COUNTS: NavCounts = { nachfassen: null, ablage: null };
 
 /**
  * So viele Fälligkeits-Werte holt der Zähler höchstens herein. Der `count` der
@@ -89,11 +93,9 @@ function withDeadline<T>(work: Promise<T>, signal: Promise<null>): Promise<T | n
  * Eine Fälligkeit samt ihrer Frist. Die Körnung kommt aus der QUELLE, nicht aus
  * dem Datentyp: `nachfassen_tasks` castet vier Tages-Spalten nach
  * `timestamptz`, und nach dem Typ gelesen wäre alles ab 02:00 überfällig
- * (lib/dueState.ts). Deshalb holt der Zähler `source` mit — und bei den
- * Erinnerungen zusätzlich `touch_kind`, weil der Sofort-Touch gegen seinen
- * Termin misst statt gegen sich selbst.
+ * (lib/dueState.ts). Deshalb holt der Zähler `source` mit.
  */
-type DueRow = { due_at: string | null; spec: DueSpec };
+type DueRow = { due_at: string | null; spec: DueGranularity };
 
 /** Fällig/überfällig aus einer Liste von Fälligkeiten — `count` schlägt `length`. */
 function tally(rows: DueRow[], exact: number | null): NavCount {
@@ -123,6 +125,13 @@ function tally(rows: DueRow[], exact: number | null): NavCount {
  *
  * Beides läuft über dieselben Funktionen wie die Server-Action — zwei Kopien
  * einer Grenze, die Aufgaben verschwinden lässt, laufen auseinander.
+ *
+ * DARAUS FOLGT EINE PFLICHT FÜR DEN NÄCHSTEN UMBAU: Die Quellenliste hier ist
+ * an die der Seite gebunden, in BEIDE Richtungen. Zieht ein Zweig von
+ * /nachfassen weg — der Telefon-Rückruf in die Terminliste, die Setting- und
+ * Closing-Wiedervorlage in den Offen-Zustand —, muss er auch hier fallen. Ein
+ * Badge, das weniger zählt als die Seite darunter, ist genauso falsch wie eines,
+ * das mehr zählt; nur fällt es später auf.
  */
 async function countNachfassen(supabase: Supabase, access: AccessContext): Promise<NavCount | null> {
   const today = berlinDateISO(new Date().toISOString());
@@ -202,52 +211,6 @@ async function countNachfassen(supabase: Supabase, access: AccessContext): Promi
 }
 
 /**
- * Die Erinnerungen, die HEUTE dran sind — überfällig, in der nächsten Stunde
- * oder im Lauf des Tages. Das Fenster der Seite reicht weiter (sieben Tage,
- * `reminder_horizon_days`); ein Zähler über den ganzen Vorlauf ginge nie auf
- * null und mahnte an, was noch gar nicht fällig ist. Die Seite trennt „Heute"
- * und „Diese Woche" sichtbar in zwei Körben — die Zahl hier ist der erste.
- *
- * Gezählt werden TOUCHES, nicht Termine: Die Seite bündelt mehrere Stufen
- * desselben Termins zu einer Karte. Der Tooltip sagt deshalb „Erinnerungen"
- * (docs §1: eine Erinnerung = eine Zeile in `reminder_touches`), nicht
- * „Termine".
- */
-async function countErinnerungen(supabase: Supabase, access: AccessContext): Promise<NavCount | null> {
-  const scopeUserId = access.effective_user_id ?? access.user.id;
-  // Tagesende in Berliner Wandzeit — auf Vercel läuft der Server in UTC, ein
-  // `setHours(23,59)` läge dort im Sommer zwei Stunden daneben (docs §6).
-  const endOfToday = berlinInputToIso(`${berlinDateISO(new Date().toISOString())}T23:59`);
-  if (!endOfToday) return null;
-
-  const { data, error, count } = await supabase
-    .from("reminder_touches")
-    // `touch_kind` und `appointment_at` kommen mit, weil sie beim Sofort-Touch
-    // die Frist entscheiden — seine eigene Fälligkeit ist der Zeitpunkt seiner
-    // Entstehung und taugt dafür nicht (lib/dueState.ts).
-    .select("due_at, touch_kind, appointment_at", { count: "exact" })
-    .eq("workspace_id", access.workspace_id)
-    // Die Seitenleiste ist strikt persönlich (siehe layout.tsx) — die
-    // Team-Ansicht der Seite ist eine bewusste Umschaltung, kein Standard.
-    .eq("assigned_user_id", scopeUserId)
-    .is("superseded_at", null)
-    .is("done_at", null)
-    .lte("due_at", endOfToday)
-    .order("due_at", { ascending: true })
-    .range(0, ROW_CAP - 1);
-
-  if (error) return null;
-  // `reminder_touches.due_at` ist echtes `timestamptz` — die Kaskade rechnet
-  // genau darauf („eine Stunde vorher"), hier ist die Uhrzeit die Aussage. Der
-  // Sofort-Touch ist die Ausnahme, und `reminderDueSpec` ist genau die Stelle,
-  // an der die Seite dieselbe Ausnahme liest.
-  const rows = (
-    (data ?? []) as unknown as { due_at: string | null; touch_kind: string | null; appointment_at: string | null }[]
-  ).map((r) => ({ due_at: r.due_at, spec: reminderDueSpec(r) }));
-  return tally(rows, count ?? null);
-}
-
-/**
  * Die eine Ablage-Liste mit offener Handlung. `count: 'exact'` mit
  * `range(0, 0)`: Postgres zählt, die Antwort trägt eine einzige Zeile (Muster
  * `loadDropoutCounts`). Kein Überfällig-Begriff — eine Absage mit Aussicht auf
@@ -271,9 +234,9 @@ async function countAblage(supabase: Supabase, access: AccessContext): Promise<N
 }
 
 /**
- * Alle drei Zähler in einem Bündel. Wirft nie und blockiert nie länger als
+ * Beide Zähler in einem Bündel. Wirft nie und blockiert nie länger als
  * `DEADLINE_MS`; jeder Zweig fällt einzeln auf `null` zurück, damit ein
- * fehlendes Recycling-Schema nicht auch den Erinnerungs-Zähler mitnimmt.
+ * fehlendes Recycling-Schema nicht auch den Ablage-Zähler mitnimmt.
  */
 export async function loadNavCounts(supabase: Supabase, access: AccessContext): Promise<NavCounts> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -282,12 +245,11 @@ export async function loadNavCounts(supabase: Supabase, access: AccessContext): 
   });
 
   try {
-    const [nachfassen, erinnerungen, ablage] = await Promise.all([
+    const [nachfassen, ablage] = await Promise.all([
       withDeadline(countNachfassen(supabase, access), deadline),
-      withDeadline(countErinnerungen(supabase, access), deadline),
       withDeadline(countAblage(supabase, access), deadline),
     ]);
-    return { nachfassen, erinnerungen, ablage };
+    return { nachfassen, ablage };
   } catch {
     return EMPTY_NAV_COUNTS;
   } finally {

@@ -13,7 +13,6 @@
 // Components importieren.
 
 import { buildOwnScope, type AccessContext } from "@/lib/access";
-import type { CascadeKind, TouchKind } from "@/lib/cascadeEngine";
 import type { ChannelKey } from "@/lib/channels";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
@@ -205,11 +204,10 @@ const SETTING_COLUMNS =
  * Als PostgREST-`or`-Ausdruck formuliert, weil beide Zweige ODER-verknüpft
  * sind; die übrigen `.eq()`-Filter der Query bleiben UND-verknüpft.
  *
- * Exportiert für `loadReminderTouches` — `reminder_touches` trägt dieselben
- * zwei Spalten (dort allerdings ist `assigned_user_id` praktisch nie NULL,
- * weil die Kaskaden-Erzeugung selbst schon auf created_by_user_id zurückfällt).
+ * Nicht mehr exportiert: Der einzige Aufrufer außerhalb dieser Datei war die
+ * Erinnerungs-Kaskade, und die ist mit dem Nachfass-Rückbau entfallen.
  */
-export function assignedOrCreatedBy(userId: string): string {
+function assignedOrCreatedBy(userId: string): string {
   return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId})`;
 }
 
@@ -379,93 +377,6 @@ export function phoneLeadDay(l: { first_call_at: string | null; created_at: stri
   return l.first_call_at ?? berlinDateISO(l.created_at);
 }
 
-// ── Erinnerungs-Kaskade (Migration 0032) ────────────────────
-
-export type ReminderTouchEntityType = "setting" | "closing" | "closing_followup";
-
-export type AnalyseReminderTouch = {
-  id: string;
-  entity_type: ReminderTouchEntityType;
-  /** Generierte Spalte: `coalesce(setting_call_id, closing_call_id)`. */
-  entity_id: string;
-  /**
-   * WELCHE Art Touch: `cascade` = geplante Stufe VOR dem Termin · `chain` =
-   * Stufe einer Kette NACH einem Ereignis (No-Show, Kein Close) · `sofort` =
-   * Ersatz-Touch, wenn der Termin für jede geplante Stufe zu kurzfristig war.
-   * Ersetzt zusammen mit `cascade_kind`/`step_no` das frühere `touch_type`
-   * (`offset_1..3`/`no_show`) aus der nie eingespielten ersten Fassung.
-   */
-  touch_kind: TouchKind;
-  cascade_kind: CascadeKind;
-  /** Stufennummer innerhalb der Kaskade; `sofort` liegt kollisionsfrei auf 0. */
-  step_no: number;
-  due_at: string;
-  appointment_at: string;
-  channel: string | null;
-  done_at: string | null;
-  assigned_user_id: string | null;
-  created_by_user_id: string | null;
-};
-
-export type ReminderTouchData = {
-  rows: AnalyseReminderTouch[];
-  /**
-   * `false` = die Abfrage ist gescheitert (Migration 0032 fehlt, Spalte
-   * umbenannt, Tabelle weg). Ohne dieses Flag war „nichts geladen" von „keine
-   * Erinnerungen im Zeitraum" nicht zu unterscheiden — genau daran hing der
-   * Fehler, den diese Datei zuletzt still verdeckte, als sie noch die alte
-   * Spalte `touch_type` selektierte. Muster: `loadCallAttempts`
-   * (src/lib/phoneAttemptsData.ts).
-   */
-  available: boolean;
-};
-
-// ACHTUNG: namentliche Spaltenliste (siehe SETTING_COLUMNS). Alle drei
-// Stufen-Spalten stammen aus `reminder_touches` v2 (Migration 0032).
-const REMINDER_TOUCH_COLUMNS =
-  "id, entity_type, entity_id, touch_kind, cascade_kind, step_no, due_at, appointment_at, " +
-  "channel, done_at, assigned_user_id, created_by_user_id";
-
-/**
- * Reminder-Touches für die "Erinnerungs-Disziplin"-Blöcke in Setting- und
- * Closing-Tab. Die Verknüpfung zum jeweiligen Termin läuft im aufrufenden Tab
- * über eine Map auf die bereits geladenen setting_calls/closing_calls — exakt
- * das Muster, das `ClosingTab.tsx` mit `settingById` bereits für die
- * Abschluss-Geschwindigkeit nutzt. Ein Embedded-Relation-Select wäre seit v2
- * zwar möglich (echte FKs), würde aber dieselben Termine ein zweites Mal
- * laden.
- *
- * Zählt auch superseded Touches mit, WENN sie erledigt wurden — eine
- * Neuterminierung macht einen offenen Touch obsolet, aber ein VORHER
- * erledigter bleibt ein echtes Stück Erinnerungs-Disziplin. Nur ein
- * superseded UND nie erledigter Touch (z. B. durch mehrfaches Verschieben
- * entstanden) fällt raus — sonst würde jede Neuterminierung die Quote der
- * zuständigen Person unfair drücken.
- */
-export async function loadReminderTouches(
-  supabase: Client,
-  access: AccessContext,
-  canCompare: boolean,
-  entityTypes: readonly ReminderTouchEntityType[],
-): Promise<ReminderTouchData> {
-  try {
-    const rows = await fetchAllRows((f, t) => {
-      let q = supabase
-        .from("reminder_touches")
-        .select(REMINDER_TOUCH_COLUMNS)
-        .eq("workspace_id", access.workspace_id)
-        .in("entity_type", entityTypes)
-        .or("done_at.not.is.null,superseded_at.is.null");
-      if (!canCompare) q = q.or(assignedOrCreatedBy(access.user.id));
-      return q.order("id").range(f, t);
-    });
-    return { rows: rows as unknown as AnalyseReminderTouch[], available: true };
-  } catch (err) {
-    console.error("analyseData/reminderTouches:", err instanceof Error ? err.message : err);
-    return { rows: [], available: false };
-  }
-}
-
 // ── Lead-Recycling (Migration 0033) ─────────────────────────
 
 /** Die vier „toten Enden", an denen ein Lead ins Recycling fällt (docs §1). */
@@ -479,14 +390,6 @@ export type RecycleOriginKey = "linkedin" | "telefon" | "setting" | "closing";
  */
 export type AnalyseRecycleRow = {
   origin: RecycleOriginKey;
-  /**
-   * Grund-Code nach derselben Coalesce-Kette wie `recycle_tasks` (0033) —
-   * sonst gruppiert die Auswertung anders, als das Nachfassen-Board die
-   * Aufgabe beschriftet hat.
-   */
-  reason: string;
-  /** `recycle_attempt_count` — 0 heißt: eingeplant, aber nie angefasst. */
-  attempts: number;
   /** `recycle_last_contacted_at` (timestamptz) — der letzte Versuch. */
   last_contacted_at: string | null;
   /** `recycle_responded_at` — der einzige Beleg, dass Recycling wirkt. */
@@ -527,13 +430,6 @@ export type AnalyseRecycleRow = {
 
 export type RecycleData = {
   rows: AnalyseRecycleRow[];
-  /**
-   * `pipeline_settings.max_attempts` der Organisation. `null` = nicht lesbar
-   * (fehlende Zeile, oder ein Plattform-Admin in fremder Org, der dort kein
-   * Mitglied ist) — die Kennzahl „am Deckel" entfällt dann, statt gegen einen
-   * geratenen Deckel zu rechnen.
-   */
-  maxAttempts: number | null;
   /** false = Migration 0033 fehlt oder die Abfrage ist gescheitert. */
   available: boolean;
 };
@@ -544,11 +440,17 @@ export type RecycleData = {
  * paar Hundert Zeilen interessiert.
  *
  * Die drei Zweige sind die drei Zustände, die es gibt: eingeplant
- * (`next_recycle_at`), mindestens einmal versucht (`recycle_attempt_count`),
- * endgültig gesperrt (`recycle_excluded_at`).
+ * (`next_recycle_at`), mindestens einmal versucht
+ * (`recycle_last_contacted_at`), endgültig gesperrt (`recycle_excluded_at`).
+ *
+ * Der mittlere Zweig las früher `recycle_attempt_count.gt.0`. Der Versuchs-
+ * ZÄHLER trug den Deckel, den es mit dem flachen Recycling nicht mehr gibt;
+ * der Zeitstempel ist ohnehin das Feld, auf dem die Kohorte dieser Auswertung
+ * liegt. Am Zähler festzuhalten hieße, den Filter an ein Feld zu hängen, das
+ * die Schreibpfade nicht mehr pflegen müssen.
  */
 const RECYCLE_TOUCHED =
-  "next_recycle_at.not.is.null,recycle_attempt_count.gt.0,recycle_excluded_at.not.is.null";
+  "next_recycle_at.not.is.null,recycle_last_contacted_at.not.is.null,recycle_excluded_at.not.is.null";
 
 /**
  * Vier Select-Ausdrücke, ausgeschrieben und ausdrücklich als `string` getippt.
@@ -562,8 +464,7 @@ const RECYCLE_TOUCHED =
  * Form der Antwort steht dafür ausdrücklich in `RawRecycle`.
  */
 const RECYCLE_COLS =
-  "recycle_reason_code, recycle_attempt_count, recycle_last_contacted_at, " +
-  "recycle_responded_at, recycle_excluded_at, next_recycle_at";
+  "recycle_last_contacted_at, recycle_responded_at, recycle_excluded_at, next_recycle_at";
 
 /**
  * Je Ursprung zusätzlich die Spalten seines Status-Riegels — dieselben, die der
@@ -582,18 +483,15 @@ const RECYCLE_SETTING_SELECT: string =
   `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, ` +
   `status, revived_at, no_show_resolution, cancel_outlook`;
 const RECYCLE_CLOSING_SELECT: string =
-  `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, lost_reason_code, status, revived_at`;
+  `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, status, revived_at`;
 
 type RawRecycle = {
-  recycle_reason_code: string | null;
-  recycle_attempt_count: number | null;
   recycle_last_contacted_at: string | null;
   recycle_responded_at: string | null;
   recycle_excluded_at: string | null;
   next_recycle_at: string | null;
   assigned_user_id?: string | null;
   created_by_user_id?: string | null;
-  lost_reason_code?: string | null;
   status?: string | null;
   blocked_at?: string | null;
   answered?: boolean | null;
@@ -651,20 +549,12 @@ export async function loadRecycleData(
       fetchAllRows<RawRecycle>(apptPage("closing_calls", RECYCLE_CLOSING_SELECT)),
     ]);
 
-    // Die Coalesce-Ketten stehen wörtlich so in `recycle_tasks` (0033). Beim
-    // Closing steht `lost_reason_code` dazwischen: Der Recycling-Grund wird
-    // erst von `schedule_recycle()` gestempelt — eine Zeile, die vorher
-    // gesperrt wurde, hätte sonst gar keinen Grund, obwohl der Verlustgrund
-    // danebensteht.
-    const map = (
-      rows: RawRecycle[],
-      origin: RecycleOriginKey,
-      fallback: (r: RawRecycle) => string,
-    ): AnalyseRecycleRow[] =>
+    // Der Ursprung ist seit dem flachen Recycling die einzige Achse, die die
+    // Auswertung noch trennt: Eine Frist gilt für alle vier, und einen
+    // Grund-Code, nach dem sich staffeln ließe, gibt es nicht mehr.
+    const map = (rows: RawRecycle[], origin: RecycleOriginKey): AnalyseRecycleRow[] =>
       rows.map((r) => ({
         origin,
-        reason: r.recycle_reason_code ?? fallback(r),
-        attempts: Number(r.recycle_attempt_count) || 0,
         last_contacted_at: r.recycle_last_contacted_at ?? null,
         responded_at: r.recycle_responded_at ?? null,
         excluded_at: r.recycle_excluded_at ?? null,
@@ -685,27 +575,15 @@ export async function loadRecycleData(
       }));
 
     const rows = [
-      ...map(contacts, "linkedin", () => "fu_exhausted"),
-      ...map(phoneLeads, "telefon", () => "dead"),
-      ...map(settings, "setting", () => "dead"),
-      ...map(closings, "closing", (r) => r.lost_reason_code ?? "sonstiges"),
+      ...map(contacts, "linkedin"),
+      ...map(phoneLeads, "telefon"),
+      ...map(settings, "setting"),
+      ...map(closings, "closing"),
     ];
 
-    // Eigener Zweig: Ein fehlender Deckel kostet EINE Kennzahl, nicht die
-    // Sektion. `maybeSingle()` liefert bei fehlender Zeile null ohne Fehler.
-    const settingsRes = await supabase
-      .from("pipeline_settings")
-      .select("max_attempts")
-      .eq("workspace_id", ws)
-      .maybeSingle();
-    const maxAttempts =
-      settingsRes.error || !settingsRes.data
-        ? null
-        : Number((settingsRes.data as { max_attempts: number | null }).max_attempts) || null;
-
-    return { rows, maxAttempts, available: true };
+    return { rows, available: true };
   } catch (err) {
     console.error("analyseData/recycle:", err instanceof Error ? err.message : err);
-    return { rows: [], maxAttempts: null, available: false };
+    return { rows: [], available: false };
   }
 }

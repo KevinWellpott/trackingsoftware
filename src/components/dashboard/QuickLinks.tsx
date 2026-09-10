@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Archive, BellRing, CalendarDays, CalendarPlus, Clock } from "lucide-react";
+import { Archive, CalendarDays, CalendarPlus, Clock } from "lucide-react";
 
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { ABLAGE_COUNT_LABEL, type NavCount, type NavCounts } from "@/lib/navCounts";
@@ -17,11 +17,16 @@ import { ABLAGE_COUNT_LABEL, type NavCount, type NavCounts } from "@/lib/navCoun
 // Streifen gibt ihn zurück — an der einen Stelle, die morgens ohnehin offen ist.
 //
 // WELCHE ZIELE: exakt der Block „Meine Arbeit" aus der Seitenleiste (Termine ·
-// Erinnerungen · Nachfassen · Ablage) plus die eine Anlege-Aktion, die dort
-// über allen Blöcken steht. Das ist kein Zufall, sondern die Regel dahinter:
-// Ersetzt wird, was das Zuklappen verdeckt — nicht eine zweite, neu erfundene
-// Auswahl. Analyse, Listen und Einstellungen fehlen bewusst; die öffnet man
-// gezielt, und dafür ist die Leiste zwei Klicks entfernt.
+// Nachfassen · Ablage) plus die eine Anlege-Aktion, die dort über allen Blöcken
+// steht. Das ist kein Zufall, sondern die Regel dahinter: Ersetzt wird, was das
+// Zuklappen verdeckt — nicht eine zweite, neu erfundene Auswahl. Analyse,
+// Listen und Einstellungen fehlen bewusst; die öffnet man gezielt, und dafür
+// ist die Leiste zwei Klicks entfernt.
+//
+// „Erinnerungen" ist mit dem Rückbau ersatzlos gefallen — samt seinem Zähler.
+// Nachgerückt ist keine neue Kachel, sondern TERMINE an die erste Stelle: Die
+// Terminliste wird die zentrale Arbeitsfläche („eine Liste pro Person"), und
+// die erste Kachel ist die, auf die morgens der Blick fällt.
 //
 // DIE ZAHLEN GEHÖREN DAZU. Ein Quicklink „Nachfassen" ohne die Zahl offener
 // Aufgaben ist ein Lesezeichen, mit ihr eine Arbeitsanweisung. Es sind
@@ -128,12 +133,13 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
 
   const links: QuickLink[] = [
     {
-      href: "/erinnerungen",
-      label: "Erinnerungen",
-      hint: "Nächste Stunden",
-      icon: BellRing,
-      count: counts?.erinnerungen ?? null,
-      countLabel: ["Erinnerung heute fällig", "Erinnerungen heute fällig"],
+      href: "/termine",
+      label: "Termine",
+      hint: "Kalender",
+      icon: CalendarDays,
+      // Es gibt keinen Termin-Zähler, und einer wäre auch keine Aufgabe: Ein
+      // Kalender ist voll oder leer, aber nie überfällig.
+      count: null,
     },
     {
       href: "/nachfassen",
@@ -142,15 +148,6 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
       icon: Clock,
       count: counts?.nachfassen ?? null,
       countLabel: ["Aufgabe fällig", "Aufgaben fällig"],
-    },
-    {
-      href: "/termine",
-      label: "Termine",
-      hint: "Kalender",
-      icon: CalendarDays,
-      // Es gibt keinen Termin-Zähler, und einer wäre auch keine Aufgabe: Ein
-      // Kalender ist voll oder leer, aber nie überfällig.
-      count: null,
     },
     {
       href: "/ablage",

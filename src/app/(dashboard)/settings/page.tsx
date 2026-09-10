@@ -16,10 +16,8 @@ import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
 import { RenameUserButton } from "@/components/settings/RenameUserButton";
 import { DataScopeSelect } from "@/components/settings/DataScopeSelect";
 import { RoleSelect } from "@/components/settings/RoleSelect";
-import { getCascadeSteps, getPipelineSettings, getTemplateBundles } from "@/app/actions/reminders";
-import { EMPTY_TEMPLATE_BUNDLE } from "@/lib/messageTemplates";
+import { getPipelineSettings } from "@/app/actions/reminders";
 import { PipelineSettingsCard } from "@/components/settings/PipelineSettingsCard";
-import { MessageTemplatesCard } from "@/components/settings/MessageTemplatesCard";
 import {
   FEEDBACK_ERR,
   FEEDBACK_OK,
@@ -43,9 +41,10 @@ const TARGET_FIELDS: {
   { label: "Termine/Woche", channel: "telefon", period: "weekly", metric: "appointments" },
 ];
 
-// Die gemeinsamen Stile des Settings-Layouts (COMPONENTS.md §15) liegen jetzt
-// in components/settings/settingsStyles.ts — die beiden neuen Karten sind
-// Client-Komponenten und müssen dieselbe Optik aus derselben Quelle beziehen.
+// Die gemeinsamen Stile des Settings-Layouts (COMPONENTS.md §15) liegen in
+// components/settings/settingsStyles.ts — die Pipeline-Karte ist eine
+// Client-Komponente (Fehleranzeige über useActionState) und muss dieselbe
+// Optik aus derselben Quelle beziehen wie diese Server-Seite.
 
 export default async function SettingsPage({
   searchParams,
@@ -63,34 +62,27 @@ export default async function SettingsPage({
 
   const q = await searchParams;
   const isOwner = access.role === "owner";
-  // Strenger als `isOwner`: die Kaskaden-Einstellungen sind Team-weit sichtbar
-  // (jeder rendert seine "Meine Erinnerungen heute" gegen dieselben Vorlagen)
-  // und deshalb bewusst nur für role='owner' UND data_scope='workspace'
-  // änderbar — dasselbe Prädikat wie access.can_switch_view / setAssignee().
-  const canManageReminders = access.role === "owner" && access.data_scope === "workspace";
+  // Strenger als `isOwner`: die Pipeline-Werte gelten für das ganze Team —
+  // die Verschiebe-Warnung an jedem Termin, die Recycling-Frist an jedem toten
+  // Lead. Deshalb bewusst nur für role='owner' UND data_scope='workspace';
+  // wörtlich dasselbe Prädikat wie can_manage_org_settings() in der RLS
+  // (Migration 0031) und wie access.can_switch_view.
+  const canManageOrgSettings = access.role === "owner" && access.data_scope === "workspace";
   const { users } = isOwner ? await listUsers(access.workspace_id) : { users: [] };
   const targets = isOwner ? await getTargets() : [];
 
-  // Eine Zeile je Organisation (pipeline_settings) statt der beiden früheren
-  // Tabellen. `available: false` heißt „Migration 0032 fehlt" und ist
-  // ausdrücklich etwas anderes als „noch nichts konfiguriert" — deshalb zeigt
-  // die Seite in dem Fall einen Hinweis statt einer Karte voller Defaults,
-  // deren Speichern-Knöpfe nur Fehler produzieren würden.
-  const pipeline = canManageReminders ? await getPipelineSettings() : null;
-  const cascade = canManageReminders ? await getCascadeSteps() : null;
-
-  // Vorlagen: der Standard der Organisation UND die persönlichen Texte des
-  // ANGEMELDETEN Kontos — nicht die der eingestellten Datensicht. Wer die
-  // Datensicht eines Kollegen betrachtet, bearbeitet hier trotzdem seine
-  // eigenen Vorlagen (dieselbe Regel wie in setOwnTemplate).
-  const templateBundle =
-    (await getTemplateBundles([access.user.id])).get(access.user.id) ?? EMPTY_TEMPLATE_BUNDLE;
+  // Eine Zeile je Organisation (pipeline_settings). `available: false` heißt
+  // „Migration 0032 fehlt" und ist ausdrücklich etwas anderes als „noch nichts
+  // konfiguriert" — deshalb zeigt die Seite in dem Fall einen Hinweis statt
+  // einer Karte voller Defaults, deren Speichern-Knöpfe nur Fehler produzieren
+  // würden.
+  const pipeline = canManageOrgSettings ? await getPipelineSettings() : null;
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
 
       {/* Header */}
-      <PageHeader eyebrow="Verwaltung" title="Einstellungen" meta="Workspace, Team, Ziele und Vorlagen" />
+      <PageHeader eyebrow="Verwaltung" title="Einstellungen" meta="Workspace, Team, Ziele und Pipeline" />
 
       {/* Feedback */}
       {q.userOk && (
@@ -257,14 +249,14 @@ export default async function SettingsPage({
                               className="ui-input"
                               style={{ minWidth: 0, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                             />
-                            {/* Beschriftet statt „✓" — wörtlich wie in
-                                PipelineSettingsCard und MessageTemplatesCard:
-                                Ohne Hover war nicht zu erkennen, ob der Knopf
-                                speichert oder etwas abhakt, und dieselbe Seite
-                                trug zwei Konventionen nebeneinander. Der title
-                                nennt zusätzlich das Ziel — fünf gleich
-                                beschriftete Knöpfe je Nutzer sind sonst
-                                untereinander nicht zu unterscheiden. */}
+                            {/* Beschriftet statt „✓" — wörtlich wie in der
+                                Pipeline-Karte: Ohne Hover war nicht zu
+                                erkennen, ob der Knopf speichert oder etwas
+                                abhakt, und dieselbe Seite trug zwei
+                                Konventionen nebeneinander. Der title nennt
+                                zusätzlich das Ziel — fünf gleich beschriftete
+                                Knöpfe je Nutzer sind sonst untereinander nicht
+                                zu unterscheiden. */}
                             <Button type="submit" variant="secondary" size="sm" title={`${f.label} speichern`}>
                               Speichern
                             </Button>
@@ -286,18 +278,12 @@ export default async function SettingsPage({
       )}
 
       {/* ── Pipeline (pipeline_settings) ──
-          Eine Karte statt „Erinnerungs-Kaskade" + „Recycling": Seit Migration
-          0032 liegt beides in EINER Zeile je Organisation.
+          Zwei Zahlen: das Verschiebe-Kontingent und die eine Recycling-Frist.
           Sichtbarkeits-Gate bewusst STRENGER als bei „Nutzer"/„Ziele" oben
-          (dort reicht role='owner') — siehe Kommentar bei canManageReminders. */}
-      {canManageReminders && pipeline && (
+          (dort reicht role='owner') — siehe Kommentar bei canManageOrgSettings. */}
+      {canManageOrgSettings && pipeline && (
         pipeline.available ? (
-          <PipelineSettingsCard
-            settings={pipeline.settings}
-            configured={pipeline.configured}
-            steps={cascade?.steps ?? []}
-            stepsAvailable={Boolean(cascade?.available)}
-          />
+          <PipelineSettingsCard settings={pipeline.settings} configured={pipeline.configured} />
         ) : (
           <div
             role="status"
@@ -315,21 +301,6 @@ export default async function SettingsPage({
           </div>
         )
       )}
-
-      {/* ── Nachrichtenvorlagen ──
-          Bewusst OHNE Owner-Gate: Die persönliche Übersteuerung gehört jedem
-          Mitglied. Welche Ebene bearbeitbar ist, entscheidet die Karte selbst
-          (canManageOrg) — und die Server-Action prüft es erneut.
-
-          Ersetzt zugleich die früher hier entfernte Karte „Follow-up-Vorlagen
-          (FU1–FU3)": Diese Texte tragen jetzt die Keys linkedin_fu_1..3 und
-          stehen in der Gruppe „LinkedIn". Der Vorrang des Listen-Textes bleibt
-          und wird dort auch benannt. */}
-      <MessageTemplatesCard
-        bundle={templateBundle}
-        canManageOrg={canManageReminders}
-        isForeignOrg={access.is_foreign_org}
-      />
 
       {/* ── Passwort-Info ── */}
       <div style={{ background: "var(--warning-bg)", borderLeft: "2px solid var(--warning)", borderRadius: "var(--r-md)", padding: "var(--sp-6) var(--sp-7)" }}>

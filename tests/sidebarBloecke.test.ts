@@ -64,18 +64,29 @@ describe("Gliederung", () => {
     assert.equal(zaehle(SIDEBAR, "<CollapsibleSection"), bloecke.length);
   });
 
-  test("die drei Nachfass-Mechanismen stehen zusammen in einem Block", () => {
-    // docs/data-model.md §1: /nachfassen (heute fällig), /erinnerungen (nächste
-    // Stunden) und /ablage (aus dem Funnel gefallen) beantworten dieselbe Frage
-    // auf drei Zeitkörnungen. Getrennt in der Navigation werden sie zu drei
-    // unabhängigen Werkzeugen, von denen man zwei nie öffnet.
+  test("die Tagesarbeit steht zusammen in einem Block", () => {
+    // docs/data-model.md §1: /termine (wer steht an), /nachfassen (heute
+    // fällig) und /ablage (aus dem Funnel gefallen) beantworten dieselbe Frage
+    // auf verschiedenen Zeitkörnungen. Getrennt in der Navigation werden sie zu
+    // drei unabhängigen Werkzeugen, von denen man zwei nie öffnet.
+    //
+    // /erinnerungen stand hier als vierte Zeile, bis der Rückbau die
+    // Erinnerungs-Kaskade abgeräumt hat; die Route leitet nur noch weiter, und
+    // eine Navigationszeile auf eine Weiterleitung wäre eine Sackgasse mit
+    // Zähler.
     const arbeit = block("arbeit");
-    for (const href of ["/termine", "/erinnerungen", "/nachfassen", "/ablage"]) {
+    for (const href of ["/termine", "/nachfassen", "/ablage"]) {
       assert.ok(arbeit.includes(`href="${href}"`), `${href} steht nicht in „Meine Arbeit"`);
       // ... und nirgends sonst: eine zweite Zeile derselben Seite wäre ein
       // zweiter Zähler, der irgendwann etwas anderes zählt.
       assert.equal(zaehle(SIDEBAR, `href="${href}"`), 1, `${href} kommt mehrfach vor`);
     }
+    // Und die abgeklemmte Seite ist wirklich raus — auch aus der Liste, die
+    // einen Block aufgeklappt hält. (Geprüft am CODE, nicht am Fließtext: Der
+    // Kommentarkopf darf weiter erklären, warum es die Zeile nicht mehr gibt.)
+    assert.doesNotMatch(SIDEBAR, /href="\/erinnerungen"/, "die Erinnerungs-Zeile ist zurück in der Seitenleiste");
+    assert.doesNotMatch(SIDEBAR, /ARBEIT_HREFS = \[[^\]]*erinnerungen/, "/erinnerungen hält weiterhin einen Block offen");
+    assert.doesNotMatch(SIDEBAR, /BellRing/, "das Erinnerungs-Icon wird noch importiert");
   });
 
   test("Einstieg und Anlege-Aktion liegen vor jeder Aufklappung", () => {
@@ -170,22 +181,21 @@ describe("Die geöffnete Seite verschwindet nie in einem zugeklappten Block", ()
  * ------------------------------------------------------------------ */
 
 describe("Navigations-Zähler", () => {
-  test("der zugeklappte Block trägt die Summe seiner drei Zähler", () => {
+  test("der zugeklappte Block trägt die Summe seiner Zähler", () => {
     // Ein Abzeichen, das man nur nach dem Aufklappen sieht, ist keine
     // Benachrichtigung. Gezeigt wird es NUR zugeklappt (aufgeklappt stehen
     // daneben die Einzelzahlen), und es erbt den Überfällig-Ton.
+    //
+    // Es sind seit dem Rückbau zwei statt drei: Der Erinnerungs-Zähler ist mit
+    // seiner Seite gefallen (lib/navCounts.ts).
     assert.match(SIDEBAR, /const badge = !open && count && count\.total > 0 \? count : null;/);
     assert.match(SIDEBAR, /data-tone=\{badge\.overdue > 0 \? "overdue" : undefined\}/);
     assert.ok(block("arbeit").includes("count={arbeitCount}"));
-    assert.match(
-      SIDEBAR,
-      /const arbeitCount = sumNavCounts\(\[\s*navCounts\?\.erinnerungen,\s*navCounts\?\.nachfassen,\s*navCounts\?\.ablage,\s*\]\);/,
-    );
+    assert.match(SIDEBAR, /const arbeitCount = sumNavCounts\(\[navCounts\?\.nachfassen, navCounts\?\.ablage\]\);/);
   });
 
   test("die Einzelzähler an den Zeilen bleiben erhalten", () => {
     const arbeit = block("arbeit");
-    assert.ok(arbeit.includes("count={navCounts?.erinnerungen}"));
     assert.ok(arbeit.includes("count={navCounts?.nachfassen}"));
     assert.ok(arbeit.includes("count={navCounts?.ablage}"));
     // Die Ablage zählt bewusst nur die eine Liste mit offener Handlung; ihre
@@ -203,7 +213,7 @@ describe("Navigations-Zähler", () => {
     // Zwei eigene Summen wären zwei Gelegenheiten, dieselbe Zahl verschieden
     // zu bilden — auf genau den beiden Flächen, die nebeneinander stehen.
     assert.match(MOBILE, /import \{ MobileDrawer, sumNavCounts \} from "\.\/Sidebar";/);
-    assert.match(MOBILE, /sumNavCounts\(\[navCounts\?\.nachfassen, navCounts\?\.erinnerungen, navCounts\?\.ablage\]\)/);
+    assert.match(MOBILE, /sumNavCounts\(\[navCounts\?\.nachfassen, navCounts\?\.ablage\]\)/);
     assert.doesNotMatch(MOBILE, /reduce\(\(n, c\) => n \+ \(c\?\./);
   });
 });
@@ -238,13 +248,14 @@ describe("Tooltips", () => {
     );
   });
 
-  test("Erinnerungen bleibt die stundengenaue Seite — inklusive der Ketten", () => {
-    // Die Kaskade läuft nicht nur VOR einem Termin: No-Show, Kickoff und
-    // „kein Abschluss" erzeugen Ketten NACH dem Ereignis (docs §1), und die
-    // stehen auf derselben Seite.
+  test("es gibt keine Erinnerungs-Zeile mehr, die eine Kaskade verspricht", () => {
+    // Die Zeile beschrieb die stundengenaue Kaskade („Stundengenau vor
+    // Setting-, Closing- und Nachfass-Terminen … Ketten nach No-Show"). Mit dem
+    // Rückbau gibt es weder Stufen noch Ketten; ein Tooltip, der sie weiterhin
+    // verspricht, schickt jemanden auf eine Weiterleitung.
     const arbeit = block("arbeit");
-    assert.ok(arbeit.includes("Stundengenau vor Setting-, Closing- und Nachfass-Terminen"));
-    assert.ok(arbeit.includes("No-Show"));
+    assert.doesNotMatch(arbeit, /Stundengenau/);
+    assert.doesNotMatch(arbeit, /label="Erinnerungen"/);
   });
 
   test("Ablage grenzt sich als Gegenrichtung ab", () => {
