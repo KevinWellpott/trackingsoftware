@@ -42,12 +42,10 @@ const ERROR: Omit<Pill, "label"> = {
   bg: "var(--danger-bg)",
   border: "rgb(214 90 82 / 0.28)",
 };
-const WARNING: Omit<Pill, "label"> = {
-  tone: "warning",
-  color: "var(--warning-fg)",
-  bg: "var(--warning-bg)",
-  border: "rgb(209 162 79 / 0.28)",
-};
+// Einen WARNING-Pill gibt es hier bewusst NICHT mehr: Gold gehört in der
+// Arbeitsliste dem Terminfeld (`DRAN_TONE`), und zwar allein — siehe die
+// Begründung an ZUSTAND_TONE. Der Ton „warning" lebt weiter als RAHMEN eines
+// Kalender-Chips (`outlineFor`), wo er mit keinem goldenen Feld konkurriert.
 
 /**
  * Der Pill EINES abgeleiteten Zustands (`TerminZustand`, src/lib/dranRegel.ts).
@@ -64,18 +62,33 @@ const WARNING: Omit<Pill, "label"> = {
  * „Offen" das Gegenteil des gespeicherten `status='offen'` bedeutet), und diese
  * Datei tut, wofür es sie gibt: Sie ordnet ihr eine Farbe zu. Die Semantik der
  * Farben ist unverändert — Grün weitergekommen/gewonnen, Rot geplatzt/verloren,
- * Gold da muss jemand ran, Neutral steht noch an.
+ * Neutral steht noch an.
  *
- * `offen`, `no_show` und `show` sind die Arbeitsmenge und tragen deshalb Gold:
- * Es sind genau die drei, bei denen jemand in der Luft liegt.
+ * ── WARUM DIE ARBEITSMENGE HIER KEIN GOLD MEHR TRÄGT ──────────────────────
+ * `offen`, `no_show` und `show` sind die Arbeitsmenge — und genau deshalb
+ * leuchtet in ihrer Zeile bereits das TERMINFELD gold (`DRAN_TONE`,
+ * src/lib/dranRegel.ts). Trug der Status-Pill dieselben Warn-Tokens, stand in
+ * der Vorgabe-Ansicht „Zu tun" zweimal dasselbe Gold in einer Zeile: eine
+ * Spalte, in der ALLES gold ist, trägt keine Information.
+ *
+ * Schlimmer war der zweite Teil: Ein Klick auf „Genervt" nimmt dem Terminfeld
+ * das Gold für heute, der Pill drei Spalten weiter blieb gold stehen. Damit
+ * behauptete die Zeile weiter „du bist dran", obwohl gerade jemand dran war —
+ * und Gold heißt in dieser App ausnahmslos das eine (dranRegel.ts) und in
+ * dieser Zeile deshalb nur an einer Stelle (DESIGN.md §3.6, Badge-Budget:
+ * höchstens EIN farbiges Element pro Zeile).
+ *
+ * Verloren geht dabei nichts: „Offen", „Show" und „No-Show" stehen als WORT
+ * da, und ob die Zeile heute noch anzufassen ist, sagt das goldene Terminfeld
+ * daneben — genauer, als der Pill es je konnte.
  */
 const ZUSTAND_TONE: Record<TerminZustand, Omit<Pill, "label">> = {
   // Versorgt — ein Termin steht. Neutral heißt in diesem Bereich unverändert
   // „steht noch an", und nichts anderes ist gemeint.
   verlegt: NEUTRAL,
-  offen: WARNING,
-  no_show: WARNING,
-  show: WARNING,
+  offen: NEUTRAL,
+  no_show: NEUTRAL,
+  show: NEUTRAL,
   // Weiter, nicht fertig: Die Arbeit hängt ab hier an der Closing-Zeile.
   qualifiziert: SUCCESS,
   closing_gelegt: SUCCESS,

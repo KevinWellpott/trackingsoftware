@@ -30,9 +30,16 @@ import { PageHeader } from "@/components/ui/PageHeader";
 // Seitenleiste erklärt in ihrem eigenen Tooltip längst „Fällige
 // Recycling-Versuche".
 //
-// NOCH NACHZUZIEHEN (andere Dateien): `src/components/Sidebar.tsx` (NavLink
-// label="Nachfassen") und `src/components/dashboard/QuickLinks.tsx`
-// (label: "Nachfassen"). Die ROUTE bleibt `/nachfassen`.
+// NACHGEZOGEN: `src/components/Sidebar.tsx` und
+// `src/components/dashboard/QuickLinks.tsx` tragen inzwischen ebenfalls
+// „Recycling"; der Quicklink-Hinweis lautet „Zweiter Anlauf fällig" statt
+// „Heute fällig" — die Wartezeiten liegen bei 14 bis 270 Tagen.
+//
+// NOCH NACHZUZIEHEN, und zwar bewusst NICHT: Die ROUTE bleibt `/nachfassen`,
+// mit ihr die Dateinamen (`NachfassenBoard`, `actions/nachfassen.ts`) und der
+// Zählerschlüssel `counts.nachfassen`. Das sind Namen im Code, keine auf dem
+// Bildschirm — sie umzubenennen kostet jedes Lesezeichen und jeden
+// `?from=nachfassen`-Rückweg und gewinnt nichts.
 
 export default async function NachfassenPage({
   searchParams,

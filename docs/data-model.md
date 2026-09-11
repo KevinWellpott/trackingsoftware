@@ -2,31 +2,78 @@
 
 Kontext für KI-gestützte Datenauswertung über den read-only Supabase-MCP.
 Quellen: `supabase/migrations/` (maßgeblich für Schema) + tatsächliche Nutzung in `src/`.
-Stand: 10. September 2026 — Schema nach Migration
-`20260404000040_schreibpfad_mandantengrenzen.sql`, Oberfläche nach der Entschlackung
-des Analyse-Bereichs (einklappbare Sektionen, Erklärungen hinter dem Info-Icon,
-kumulative Fortschritts-Sektion je Tab), nach dem Nachfassen-Umbau — Vorlagen-Katalog
-(**0031** `message_templates`), Kaskade und Termin-Lebenszyklus (**0032**
-`reminder_cascade`), Lead-Recycling und Ablage (**0033** `lead_recycling`),
-Mandanten-Seeding (**0034** `tenant_lifecycle`), Pflichtfeld-Trigger (**0035**
-`pflichtfelder`), Lifecycle-Nachtrag (**0036**), Zugriffsprüfung der beiden
-schreibenden Recycling-RPCs (**0037**), Umzug des Anruf-Logs (**0038**), Prüfungen in
-`apply_reminder_touches` (**0039**) und die Mandantengrenzen dreier Schreibpfade
-(**0040**) — sowie nach den Nachbesserungen des ersten Produktivtags: LinkedIn-Schnitt
-und Altlasten-Schnitt in `/nachfassen` (§5.5) und die Rückmeldungen zu Seitenleiste,
-Knopfbeschriftungen und Detailseiten. Dazu die dritte Arbeitswelle in der Oberfläche:
-Lead-Dossier (§5.3), Navigations-Zähler, Kontaktfrequenz-Warnung, Absage- und
-Recycling-Kennzahlen im Analyse-Bereich.
+Stand: 11. September 2026, **nach dem Rückbau des Nachfass-Systems** (drei Wellen am
+10. September: `4189cbd` Oberfläche · `d8c654f` Arbeitsliste · `e87a924` Kaskaden-Kern,
+dazu `0fdfce8` die Befunde einer adversarischen Prüfung). Schema live bis Migration
+`20260404000040_schreibpfad_mandantengrenzen.sql`; **0041**
+(`rueckbau_pflichtfelder_und_nachfass_stempel`) ist geschrieben und noch **nicht**
+eingespielt (§7).
 
-**Code und Schema sind seit dem 10. September 2026 in Sync.** Der gesamte
-Nachfassen-Umbau liegt auf `main` und ist deployt; **alle Migrationen bis
-einschließlich 0040 sind auf der Produktions-Datenbank eingespielt** und damit
-eingefroren — die nächste Schema-Änderung braucht die Nummer **0041** (§7). Für
-Auswertungen heißt das: Jede Tabelle, jede RPC und jeder Trigger, den dieses Dokument
-beschreibt, existiert live, und die App schreibt auch hinein. Was die neuen Tabellen
+> ## ⚠ Lies das zuerst: Der Rückbau hat die Oberfläche verkleinert, nicht das Schema
+>
+> Der Geschäftspartner hat das Nachfass-System als over-engineered zurückgewiesen:
+> „Wir haben Kaskaden mit Stufenlogik, Template-Kataloge, Recycling-Regeln mit
+> Reason-Codes und Wiedervorlage-Fristen pro Einwandtyp. Das ist ein Produkt für eine
+> Firma mit zwanzig Settern. Wir sind zu dritt." Zielbild: **eine Liste je Person mit
+> den Namen, die genervt werden müssen** — wer offen ist, wird jeden Tag kontaktiert
+> und verschwindet, wenn er neu terminiert oder tot ist. Begründung und die
+> abgewogenen Alternativen: `docs/nachfassen-umbau/ENTSCHEIDUNGEN.md`, Nachtrag
+> „Der Rückbau".
+>
+> **Für Auswertungen sind daraus genau drei Dinge wichtig:**
+>
+> 1. **Vier Tabellen stehen weiter da und werden von keiner Zeile Code mehr gelesen:**
+>    `template_catalog`, `message_templates`, `cascade_steps`, `reminder_touches`
+>    (§3). Sie sind weder gelöscht noch lebendig — sie sind **eingefroren**. Ihre
+>    Zeilen beschreiben den Zustand vom 8. bis 10. September 2026 und wachsen nicht
+>    mehr. Wer sie auswertet, wertet ein abgeschlossenes Experiment aus; wer aus ihrer
+>    Leere schließt „es wird nicht nachgefasst", irrt. Dasselbe Muster wie
+>    `call_assignees` (§2) und `followup_templates` (§3).
+> 2. **„Offen" heißt in der neuen Arbeitsliste das GEGENTEIL von
+>    `setting_calls.status='offen'`.** Das ist die gefährlichste Verwechslung des
+>    neuen Modells und steht ausführlich in §1 („Die abgeleiteten Zustände"). Kurz:
+>    Der gespeicherte Wert heißt „Termin steht, Ergebnis fehlt", der abgeleitete
+>    Zustand heißt „es steht KEIN Termin". Es gibt keine Spalte für den abgeleiteten
+>    Zustand — er wird bei jedem Rendern neu berechnet.
+> 3. **Recycling bleibt, aber flach.** Der Mechanismus, die vier Ursprünge und alle
+>    sechs Spalten je Tabelle sind unverändert; was fällt, ist die *Staffelung* in der
+>    Oberfläche: In `/settings` stehen noch **drei** Zahlen statt sechzehn —
+>    Verschiebe-Kontingent, EINE Recycling-Frist (die alle vierzehn Frist-Spalten
+>    zugleich schreibt) und der Versuchs-Deckel `max_attempts`. Die grundabhängigen
+>    Wartezeiten stehen weiterhin in `pipeline_settings` und werden weiterhin von der
+>    eingefrorenen RPC `schedule_recycle()` ausgewertet — §5 sagt genau, was das für
+>    eine Auswertung bedeutet.
+>
+>    **Der Deckel ist dabei die Stelle, an der der Rückbau einmal zu weit ging und
+>    zurückgenommen wurde.** `max_attempts` war mit der Staffelung aus Einstellungen
+>    *und* Analyse geflogen — nur aus der Datenbank nicht: `recycle_attempt()` (0033,
+>    eingefroren) nullt beim Erreichen des Deckels `next_recycle_at`, der Lead
+>    verschwindet also nach zwei Versuchen endgültig aus der Wiedervorlage. Er wirkte
+>    weiter, war aber unsichtbar und für niemanden verstellbar. Abschalten ginge nicht
+>    ohne Migration (der CHECK aus 0032 klemmt ihn zwischen 1 und 5, einen „greift
+>    nie"-Wert gibt es dort nicht), also steht er wieder in `/settings`. **Was wirkt,
+>    muss man sehen können** — das ist die Linie, an der dieser Rückbau haltmacht.
+>
+> **Was der Rückbau NICHT angefasst hat:** die LinkedIn-Liste, den Telefon-Funnel, die
+> fünf Quoten des Termin-Funnels (§5), den Trichter, die Absagequote, die
+> Vergleichsseite und den Termin-Lebenszyklus (Absage, Verschiebung, No-Show-Ausgang,
+> Disqualifikationsgrund). Wer eine dieser Zahlen nachrechnet, rechnet unverändert.
+
+**Migrationen bis 0040 sind eingespielt und eingefroren.** Für Auswertungen heißt das:
+Jede Tabelle, jede RPC und jeder Trigger, den dieses Dokument beschreibt, existiert
+live — ob die App noch hineinschreibt, steht jeweils dabei. Was die 0032/0033-Tabellen
 NICHT tragen, ist Vergangenheit: Für `reminder_touches` und die Recycling-Spalten gibt
 es bewusst **keinen Backfill** (§7) — leer heißt dort „gab es damals noch nicht", nicht
 „niemand hat gearbeitet". Dasselbe Muster wie beim Anruf-Log aus 0028 (§3).
+
+**0041 ist der offene Punkt.** Sie entfernt die drei Pflichtfeld-Trigger aus 0035 und
+legt den **Nachfass-Stempel** an (`follow_up_last_contacted_at` + `_by_user_id` je
+Termin-Tabelle). Solange sie nicht läuft, gibt es die beiden Spalten nicht: Der Knopf
+„Genervt" der Arbeitsliste antwortet mit einem eigenen Satz statt mit einer rohen
+Postgres-Meldung, und **jede Zeile der Liste leuchtet dauerhaft**, weil „noch nie
+kontaktiert" die einzig mögliche Antwort ist. Die LESENDE Seite ist davon nicht
+betroffen — die Termine-Seite lädt mit `select("*")` und bekommt dann schlicht zwei
+Felder weniger (§7).
 
 **Historie — der Zustand davor steht in diesem Dokument an mehreren Stellen noch als
 Begründung.** Zwischen dem 8. und dem 10. September war die Datenbank dem
@@ -37,6 +84,14 @@ unten Sätze wie „muss **vor** dem Deploy laufen" oder „die heute produktive
 zerbräche daran" liest, liest eine Begründung aus dieser Zeit: Sie erklärt, warum eine
 Migration so geschnitten und in dieser Reihenfolge eingespielt wurde — einen offenen
 Punkt beschreibt sie nicht mehr.
+
+**Und ein zweites Mal Historie: die Kaskade selbst.** Abschnitte, die Stufen, Vorlagen,
+Kanäle und Touch-Fälligkeiten beschreiben, sind **nicht gelöscht, sondern als
+historisch gekennzeichnet**. Sie erklären, warum vier Tabellen mit diesen Spalten
+dastehen, warum `reminder_touches` echte Fremdschlüssel statt einer polymorphen
+`entity_id` hat und warum `follow_up_due_at` neben `follow_up_due` liegt. Wer sie für
+eine Beschreibung des heutigen Verhaltens hält, sucht eine Oberfläche, die es nicht
+mehr gibt — jeder dieser Abschnitte sagt das in seinem ersten Satz.
 
 **Frühere Nummerierung — Vorsicht beim Nachschlagen.** Bis Anfang September trugen
 0031 „Erinnerungs-Kaskade" und 0032 „Lead-Recycling". Beide waren auf keiner
@@ -61,17 +116,20 @@ Direkt:    manuell angelegter Termin ▶ setting_calls (source_type = social_med
 setting_calls (Erstgespräch/Qualifizierung) ──qualifiziert──▶ closing_calls (Abschlussgespräch)
 closing_calls ▶ gewonnen (Umsatz = deal_volume) | verloren (lost_reason_code + optionaler Freitext) | nachfassen
 
-Vor jedem Setting-/Closing-Termin UND vor einem vereinbarten Nachfass-Kontakt (Closing
-im Status nachfassen):
-  Erinnerungs-Kaskade  cascade_steps (Konfiguration) ──▶ reminder_touches (Fälligkeiten)
-  Auslieferungs-Stufen: 3 Tage / 1 Tag / 1 Stunde vor dem Termin, je Kaskade eigene
-  Stufen und Texte. Eine Stufe entsteht nur, wenn ihre Fälligkeit noch bevorsteht
-  UND nicht auf den Buchungstag fällt (Ausnahme: die termin-nächste Stufe, s. u.).
-  Passt danach keine Stufe mehr, entsteht EIN sofort fälliger Touch.
-Nach einem Ereignis statt vor einem Termin — dieselbe Tabelle, touch_kind='chain':
-  No-Show (2 Stufen) · Kickoff nach der Qualifizierung (1) · kein Abschluss (2).
-  Die jeweils zweite Stufe trägt requires_no_response und entfällt bei Antwort.
-  Rein manuell: die App trackt nur Fälligkeit + Erledigt-Häkchen, verschickt nichts.
+Die ARBEITSLISTE /termine?view=liste — die zentrale Arbeitsfläche seit dem Rückbau:
+  Jede Setting- und Closing-Zeile trägt GENAU EINEN abgeleiteten Zustand
+  (src/lib/dranRegel.ts), berechnet aus status + show_status + Termin + cancelled_at
+  + revived_at. Nichts davon wird geschrieben, es gibt keine Zustands-Spalte.
+  Arbeitsmenge = offen | no_show | show  ─ „es steht kein Termin, der Mensch liegt
+  in der Luft". Raus kommt man über zwei BEDIENTE Wege: neu terminiert (→ verlegt)
+  oder tot (→ dead bzw. verloren). Dazu ZWEI Zustände, die schon aus dem Funnel
+  gefallen sind, ohne dass ein status es sagt — abgesagt ohne Aussicht und No-Show
+  ohne Antwort; sie liegen in der Ablage und werden auf tot/kein_close abgebildet.
+  Nichts sonst nimmt eine Zeile von der Liste.
+  Gold leuchtet, wer in der Arbeitsmenge liegt UND heute noch nicht gestempelt ist
+  (follow_up_last_contacted_at, Migration 0041) — dieselbe Regel wie die
+  LinkedIn-Liste, aus ihr herausgelöst und geteilt.
+  Darüber liegt der Altlasten-Schnitt: 30 Tage ohne Lebenszeichen (§5.5).
 
 Termin-Lebenszyklus (0032) — eigene Spalten, KEIN neuer status-Wert:
   verschoben (reschedule_count, nur durch den Lead) · abgesagt (cancelled_at +
@@ -80,94 +138,128 @@ Termin-Lebenszyklus (0032) — eigene Spalten, KEIN neuer status-Wert:
 
 Terminal negativ (closing_calls.status='verloren' | phone_leads/setting_calls.status='dead' |
 setting_calls abgesagt ohne Aussicht bzw. No-Show ohne Antwort | contacts nach FU3 ohne
-Antwort) ──▶ Ablage /ablage (6 abgeleitete Listen, nur Ansicht)
-                └──Recycling (next_recycle_at)──▶ Wiedervorlage nach einer vom Grund
-                  abhängigen Wartezeit, zurück in denselben Funnel — außer
-                  lost_reason_code in ('falsche_zielgruppe','kein_fit') bzw.
-                  disqualify_reason_code in ('falsche_zielgruppe','keine_zusammenarbeit')
-                  (nie) oder recycle_attempt_count ≥ max_attempts (Deckel erreicht).
+Antwort) ──▶ Ablage /ablage (2 abgeleitete Ansichten, nur Ansicht)
+                └──Recycling (next_recycle_at)──▶ Wiedervorlage nach einer Wartezeit,
+                  zurück in denselben Funnel — außer lost_reason_code in
+                  ('falsche_zielgruppe','kein_fit') bzw. disqualify_reason_code in
+                  ('falsche_zielgruppe','keine_zusammenarbeit') (nie) oder
+                  recycle_attempt_count ≥ max_attempts (Deckel — wirkt in der Datenbank
+                  und ist in /settings einstellbar, §5).
+
+HISTORISCH (bis 10.09.2026, Code gefallen — die Tabellen stehen noch, §3):
+  Erinnerungs-Kaskade  cascade_steps ──▶ reminder_touches, 3 Tage / 1 Tag / 1 Stunde
+  vor jedem Termin, neun benannte Kaskaden, dazu die Ereignis-Ketten nach No-Show,
+  Qualifizierung und verlorenem Closing. Seite /erinnerungen (leitet nach /termine um).
 ```
 
-**Drei Nachfass-Mechanismen — nicht verwechseln.** Der Name „Nachfassen" wird umgangssprachlich
-für alle drei benutzt, sie beantworten aber unterschiedliche Fragen, laufen auf
-unterschiedlicher Zeitkörnung und sind bewusst getrennte Seiten. In der Seitenleiste stehen
-sie deshalb **zusammen in einem Block** („Meine Arbeit", zusammen mit `/termine`), jede mit
-erklärendem Tooltip: Getrennt verteilt wären es drei unabhängige Werkzeuge, von denen man
-zwei nie öffnet — dieselbe Frage auf drei Zeitkörnungen gehört nebeneinander:
+**Zwei Nachfass-Mechanismen — nicht verwechseln.** Bis zum Rückbau waren es drei
+(`/nachfassen` als Tages-Wiedervorlage, `/erinnerungen` als stundengenaue Kaskade,
+Recycling als dritte Kadenz). Geblieben sind zwei, und sie unterscheiden sich um
+Größenordnungen in der Zeitkörnung — genau deshalb sind es weiterhin zwei Seiten und nicht
+eine. In der Seitenleiste stehen sie zusammen im Block „Meine Arbeit" (mit `/ablage`), jede
+mit erklärendem Tooltip:
 
 | Mechanismus | Frage | Körnung | Seite | Quellen |
 |---|---|---|---|---|
-| **Nachfassen** | „Was ist heute fällig?" | Tag | `/nachfassen` | Telefon-Rückruf, Setting-Wiedervorlage (no_show/unqualifiziert), Closing-Wiedervorlage (nachfassen), **Recycling** (4. Sektion) — **kein LinkedIn-Follow-up mehr**, s. u. |
-| **Erinnerungen** | „Was steht in den nächsten Stunden/Tagen vor einem Termin an?" | Stunde | `/erinnerungen` | Setting-Termin, Closing-Termin, Closing-Nachfass-Kontakt — plus die Ereignis-Ketten (No-Show, Kickoff, kein Abschluss) |
-| **Recycling** | „Welcher tote Lead ist wieder einen Versuch wert?" | Woche/Monat | 4. Sektion in `/nachfassen` | Closing verloren, Telefon-/Setting-Lead dead, Setting abgesagt ohne Aussicht / No-Show ohne Antwort, LinkedIn FU3 ohne Antwort |
+| **Arbeitsliste** | „Wer liegt in der Luft und wurde heute noch nicht genervt?" | Tag | `/termine` (Reiter **Liste**) | alle `setting_calls` und `closing_calls` im abgeleiteten Zustand `offen`/`no_show`/`show` — unabhängig davon, ob je ein Termin stand; abzüglich der Altlasten (30 Tage ohne Lebenszeichen, §5.5) |
+| **Telefon-Rückruf** | „Was habe ich für wann zugesagt?" | **Minute** | `/termine` (Reiter **Rückrufe**) | `phone_leads` mit `status='rueckruf'` und `callback_at`; abzüglich der Altlasten (14 Tage) |
+| **Recycling** | „Welcher tote Lead ist wieder einen Versuch wert?" | Woche/Monat | `/nachfassen` | Closing verloren, Telefon-/Setting-Lead dead, Setting abgesagt ohne Aussicht / No-Show ohne Antwort, LinkedIn FU3 ohne Antwort; abzüglich der Altlasten (90 Tage) |
 
-> **Das LinkedIn-Follow-up steht nicht mehr in `/nachfassen`.** Gefiltert wird
-> **app-seitig** in `getNachfassenTasks()` (`src/app/actions/nachfassen.ts`, Konstante
-> `RPC_SOURCES` und der eine `filter()` davor); die RPC `nachfassen_tasks` ist
-> **unverändert** und liefert ihren Zweig ① weiter (§5). Der Grund für den Schnitt ist eine
-> Mengenfrage: Die Follow-up-Kadenz gehört an die Liste, nicht in eine Tages-Wiedervorlage —
-> ein Pitch-Board mit 20 DMs am Tag erzeugt allein drei Fälligkeiten je Kontakt und deckte
-> damit jede andere Quelle der Seite zu; `/nachfassen` war faktisch ein LinkedIn-Board mit
-> vier Anhängseln. Erledigt werden die Follow-ups jetzt ausschließlich dort, wo auch der
-> Pitch-Text und die FU-Sequenz der Liste stehen: in der Ansicht **„Nachfassen" des
-> Listen-Boards** (`ListBoardV2`, Stufenfilter FU1–FU3), die über `updateContact` schreibt
-> und nach FU3 auch das Recycling einplant.
+Der Telefon-Rückruf steht bewusst als eigener **Reiter** neben der Liste und nicht in ihr:
+Er ist die einzige Aufgabe der ganzen Software mit einer **mit dem Lead verabredeten
+Uhrzeit** und entscheidet „du bist dran" deshalb auf die Minute, während die Liste daneben
+auf Tage rechnet. Zwei Dringlichkeits-Begriffe in einer Tabelle wären in derselben Spalte
+zwei verschiedene Aussagen. Er steht aber auf **derselben Seite**, weil es dieselbe Frage
+ist („um wen kümmere ich mich jetzt") und weil eine eigene Seite für eine Handvoll Zeilen
+genau der Überbau wäre, gegen den sich der Rückbau richtet.
+
+> **Warum `/nachfassen` bleibt, obwohl es nur noch das Recycling zeigt.** Der Grund ist
+> strukturell, nicht Bequemlichkeit: Das Recycling deckt **vier** Ursprungstabellen ab,
+> darunter `contacts` und `phone_leads`. Die haben gar keinen Termin und können in einer
+> Terminliste nicht vorkommen — ein LinkedIn-Kontakt nach FU3 ohne Antwort wäre nach einem
+> Umzug **nirgends** mehr erreichbar, denn das Listen-Board schließt genau ihn aus
+> (`isDueFollowUp` verlangt `follow_up_number !== 3`, der Recycling-Zweig verlangt
+> `follow_up_number = 3` — die beiden Mengen sind disjunkt). Dazu die fachliche Seite:
+> „Wer offen ist, wird jeden Tag kontaktiert" ist für einen Lead mit 28–270 Tagen Wartezeit
+> genau die falsche Regel.
 >
-> **Das RECYCLING von LinkedIn-Kontakten bleibt dagegen in `/nachfassen`** — und das ist
-> keine Inkonsequenz, sondern die Bedingung dafür, dass der Schnitt oben überhaupt
-> verlustfrei ist. Das Listen-Board zeigt in seiner Nachfass-Ansicht nur Kontakte mit
-> `follow_up_number !== 3` (`isDueFollowUp` in `ListBoardV2.tsx`); der Recycling-Zweig für
-> LinkedIn verlangt umgekehrt genau `follow_up_number = 3` (`recycle_tasks`, §5). Die beiden
-> Mengen sind also disjunkt: Ein nach FU3 erschöpfter Kontakt ist im Listen-Board per
-> Definition unsichtbar. Ohne die Recycling-Sektion in `/nachfassen` wäre er **nirgends mehr
-> erreichbar** — es sind zwei verschiedene Mechanismen (Tag vs. Woche/Monat), und nur der
-> zweite hat für diese Kontakte noch eine Oberfläche.
+> **Weg sind dort:** die Telefon-Rückruf-, Setting- und Closing-Sektion (stehen jetzt in
+> der Terminliste bzw. in deren Rückruf-Reiter), die Kanal-Pillen, der aus einer Vorlage
+> gerenderte Kopiertext samt Vorlagen-Herkunft und die beiden Verweise nach
+> `/erinnerungen`. **Die Namen bleiben** — Route, Datei und Server-Action heißen weiter
+> „nachfassen", weil Lesezeichen und der Rückweg der Detailseiten (`?from=nachfassen`)
+> daran hängen; auf dem Bildschirm heißt die Seite „Recycling".
+>
+> **Historisch, damit die Codestellen einsortierbar bleiben:** Der LinkedIn-Zweig von
+> `nachfassen_tasks` wurde schon vor dem Rückbau app-seitig verworfen (die Kadenz gehört an
+> die Liste, wo auch Pitch-Text und FU-Sequenz stehen). Seit dem Rückbau liest die Seite
+> die RPC `nachfassen_tasks` **gar nicht mehr** — sie ruft nur noch `recycle_tasks` (§5).
+> Der Navigations-Zähler tut das noch, und genau daraus entsteht die einzige verbliebene
+> Abweichung zwischen Badge und Seite (§5.4).
 
-**Genau ZWEI echte Überschneidungen** — bis zum Termin-Ereignis-Umbau war es eine:
+**Es gibt keine Überschneidungen mehr.** Bis zum Rückbau standen an genau zwei Stellen
+dieselbe Ursache in zwei Mechanismen — ein Closing im Status `nachfassen` (Tages-Eintrag
+*und* Kaskade `followup_msg`) und ein Erstgespräch mit `no_show` (Wiedervorlage *und* Kette
+`no_show_setting`) —, und beide Seiten verlinkten dort aufeinander, statt die Logik zu
+duplizieren. Mit der Kaskade ist die zweite Hälfte jedes Paars entfallen: Beide Fälle sind
+heute schlicht Zeilen in der Arbeitsmenge der Terminliste.
 
-1. **Closing im Status `nachfassen`.** Erzeugt einen Tages-Eintrag in `/nachfassen` (Zweig ③
-   aus `follow_up_due`) *und* die Kaskade `followup_msg` in `/erinnerungen` (aus
-   `follow_up_due_at`).
-2. **Erstgespräch mit Ergebnis `no_show`.** `setSettingOutcome('no_show')`
-   (`src/app/actions/settingCalls.ts`) schreibt in EINEM Durchgang beides: `follow_up_due`
-   (→ `/nachfassen`, Zweig ④) und über `createNoShowTouch()` den Start der Kette
-   `no_show_setting` (→ `/erinnerungen`). Die Wiedervorlage beantwortet „an welchem Tag
-   kümmere ich mich darum", die Kette „welcher Text geht wann raus" — dieselbe Ursache,
-   zwei Fragen.
-
-Beide Seiten **verlinken genau an diesen zwei Stellen** aufeinander, statt die Logik zu
-duplizieren: im Board über `SECTION_CROSSLINK` (`NachfassenBoard.tsx`, nur die Sektionen
-`closing` und `setting`), auf der Gegenseite über die Rückverweise im `ErinnerungenBoard`.
-Die übrigen `/nachfassen`-Sektionen bekommen bewusst **keinen** Verweis: Der Telefon-Rückruf
-erzeugt gar keine Kaskade, und das Recycling eines verlorenen Closings folgt Wochen NACH
-dessen „Kein Abschluss"-Kette — ein Verweis zeigte dort auf lauter längst erledigte Stufen.
-(Für das LinkedIn-Follow-up galt dasselbe; seit es nicht mehr auf der Seite steht, stellt
-sich die Frage dort nicht mehr.)
-
-Was **keine** Überschneidung ist, obwohl es so aussieht: `unqualifiziert` setzt zwar
-ebenfalls eine Wiedervorlage, erzeugt aber keinen Touch; und ein verlorenes Closing steht in
-`/erinnerungen` (Kette `kein_close`) und Monate später im Recycling-Abschnitt von
-`/nachfassen` — nacheinander, nie gleichzeitig.
+> **⚠ `follow_up_due` steuert keine Arbeitsliste mehr — gelesen wird es trotzdem noch.** Die
+> Unterscheidung ist wichtig genug für einen eigenen Absatz, weil beide Hälften falsch
+> verstanden werden können:
+> * **Geschrieben** wird es unverändert von `setSettingOutcome`/`setClosingOutcome` (No-Show
+>   +1 Tag, unqualifiziert +7 Tage, Closing im Status `nachfassen`), und es ist auf den beiden
+>   **Detailseiten weiter ein bedienbares Feld** (`SettingCallEditor`, `ClosingCallEditor`).
+>   Das **Lead-Dossier** zeigt es als Ereignis in der Zeitleiste („Wiedervorlage Setting",
+>   „Nachfass-Kontakt vereinbart", §5.3).
+> * **Was es NICHT mehr tut:** eine Arbeitsmenge bestimmen. Die Terminliste fragt nicht nach
+>   einer Wiedervorlage, sondern nach dem Zustand „es steht kein Termin" (§1) — sie liest die
+>   Spalte gar nicht. Der einzige Leser, der aus ihr eine Aufgabenliste machte, war
+>   `nachfassen_tasks` (Zweige ③④), und die RPC hat keinen Aufrufer mehr (§5).
+>
+> **Für Auswertungen heißt das:** `follow_up_due` ist ein gepflegtes Feld mit einer
+> abgeschwächten Folge. Wer daraus die tägliche Arbeitsmenge ableitet, bekommt eine andere
+> Menge als die Oberfläche — in beide Richtungen: Ein Setting im Status `offen` ohne Termin
+> steht in der Liste, aber trägt kein `follow_up_due`; ein unqualifiziertes trägt eines, steht
+> aber nicht in der Liste.
 
 **Die Gegenrichtung: `/ablage`** (Migration 0033, Entscheidung #7 in
-`docs/nachfassen-umbau/ENTSCHEIDUNGEN.md`). Die drei Mechanismen oben zeigen, was
-noch ANSTEHT; die Ablage zeigt, was aus dem Funnel GEFALLEN ist — ein Bereich, sechs
-Ansichten (`?liste=`), gespeist aus der RPC `dropout_lists()`. Sie ist kein vierter
+`docs/nachfassen-umbau/ENTSCHEIDUNGEN.md`). Die Mechanismen oben zeigen, was
+noch ANSTEHT; die Ablage zeigt, was aus dem Funnel GEFALLEN ist — ein Bereich, **zwei**
+Ansichten (`?liste=`), gespeist aus der RPC `dropout_lists()`. Sie ist kein dritter
 Nachfass-Mechanismus, sondern eine reine Ansicht: Die Zugehörigkeit steht in **keiner
 Tabelle**, sondern wird aus dem Zeilenzustand abgeleitet — eine Ablage-Tabelle wäre
 eine zweite Wahrheit neben `status` und `cancelled_at` und liefe beim ersten
 Statuswechsel auseinander (derselbe Fehler, den `call_assignees` hinterlassen hat, §2).
-Nebeneffekt der Ableitung: Die Listen sind am ersten Tag gefüllt. Die sechs Ansichten:
-**Abgesagt ohne Aussicht · Abgesagt, Ersatztermin steht aus · Disqualifiziert · Kein Close ·
-No-Show ohne Antwort · Sperrliste** (Details und die Sonderrolle der Sperrliste im Begriff
-„Ablage" unten). Nur eine davon trägt einen Navigations-Zähler — „Ersatztermin steht aus",
-die einzige mit offener Handlung (§5.4).
+Nebeneffekt der Ableitung: Die Listen sind am ersten Tag gefüllt. Die zwei Ansichten:
+**Ausgeschieden** (vier Endzustände in einer Liste) und **Sperrliste** (Details und die
+Sonderrolle der Sperrliste im Begriff „Ablage" unten).
 
-**Quer zu allem: das Lead-Dossier `/lead/[kind]/[id]`** (§5.3). Die vier Seiten oben zeigen
+> **Aus sechs Ansichten wurden zwei — warum.** Die sechs Reiter der RPC hatten ihren Sinn,
+> solange der GRUND eine Folge hatte: Er bestimmte die Recycling-Wartezeit und die Kaskade.
+> Beides ist gefallen. Damit unterscheiden vier der sechs Listen nur noch die *Art* des
+> Endes — und die steht seither als **Kennzeichen auf jeder Karte**
+> (`DROPOUT_SOURCE_LABELS`, `src/lib/dropoutLists.ts`). Ohne diesen Chip stünde ein
+> No-Show ohne Antwort nur mit „Ohne Grund" da (die RPC liefert für ihn gar keinen
+> Grund-Code) und wäre von einer Absage mit vergessenem Grund nicht zu unterscheiden.
+>
+> **Eine Liste ist ersatzlos weg: „Abgesagt, Ersatztermin steht aus".** Sie beschrieb
+> keinen Endzustand, sondern einen Lead ohne nächsten Termin — also genau den, der jetzt in
+> der Hauptliste steht und täglich genervt wird. Ein Archivreiter für offene Arbeit war
+> schon vorher die Ausnahme (er war der einzige mit einem Zähler); neben der Arbeitsliste
+> wäre er eine zweite, stille Arbeitsliste.
+>
+> **Die RPC ist unverändert** (0033, eingefroren) und kennt weiterhin alle sechs Werte,
+> `ersatztermin_offen` eingeschlossen — wer per SQL auswertet, bekommt sie. Die App fragt
+> nur noch fünf davon ab und legt sie zu zwei Ansichten zusammen. Alte Adressen brechen
+> nicht: `parseDropoutList()` bildet jeden alten `?liste=`-Wert auf die Ansicht ab, in der
+> sein Inhalt jetzt liegt.
+
+**Quer zu allem: das Lead-Dossier `/lead/[kind]/[id]`** (§5.3). Die Seiten oben zeigen
 jeweils einen Ausschnitt nach *Fälligkeit*; das Dossier zeigt einen einzelnen Lead nach
 *Vollständigkeit* — alles, was mit ihm je passiert ist, über alle vier Ursprungstabellen
-hinweg. Es ist aus `/nachfassen`, `/erinnerungen` und `/ablage` als Overlay erreichbar und
-zählt selbst nichts.
+hinweg. Es ist aus `/nachfassen` und `/ablage` als Overlay erreichbar und zählt selbst
+nichts.
 
 Begriffe:
 - **Pitch / DM** = eine Zeile in `contacts`. Pitch-Datum = `pitched_at` (bzw. `created_at::date` als Fallback).
@@ -176,71 +268,146 @@ Begriffe:
 - **Erstkontakt** = eine Firma mit `phone_leads.first_call_at` im Zeitraum: **Lead-Ebene** — jede Firma genau einmal. Wer 40-mal wählt und dabei 12 neue Firmen erreicht, hat **40 Anwahlen und 12 Erstkontakte**. Die beiden Wörter sind im ganzen Analyse-Bereich für genau diese zwei Ebenen reserviert und nicht austauschbar; ein gemeinsames Wort ergäbe zwei verschiedene Zahlen unter demselben Namen. Die RPC-Spalte heißt aus historischen Gründen weiter `calls`, zählt aber Erstkontakte (§5).
 - **Setting** = `setting_calls`: gebuchter Termin + Qualifizierungsgespräch (Budget, Pain, Entscheider …). Genau eine zuständige Person (`assigned_user_id`, §2).
 - **Closing** = `closing_calls`: Abschlussgespräch, entsteht aus qualifiziertem Setting (verknüpft über `closing_calls.setting_call_id`).
-- **Termine** = `/termine`: gemeinsamer Kalender über beide Tabellen (Monat/Woche/Tag + versteckte Listenansicht). Feste Dauern: Setting 30 min, Closing 60 min. `/setting` und `/closing` leiten dorthin um; die Detailrouten `/setting/[id]` und `/closing/[id]` bleiben. **Es wird nichts ausgeblendet** — auch nicht `dead`/`unqualifiziert`. Der frühere „Versteckt"-Schalter ließ Termine lautlos verschwinden; stattdessen kodiert der Chip beides zugleich: **Füllung = Typ** (Setting/Closing), **Rahmen = Status** (durchgezogen = steht noch an, gestrichelt = Ergebnis steht fest, abgeblendet = erledigt). Eine **Absage** ist dabei kein Status, sondern ein eigener Pill „Abgesagt" (`CANCELLED_PILL`) — sie lässt `status` und `show_status` unangetastet (§3), ein abgesagtes Erstgespräch stünde sonst als „Offen" im Kalender. Definitionen ausschließlich in `src/lib/terminMeta.ts` (`outlineFor`). Dieselbe Datei entscheidet, was sich **verschieben** lässt: `moveLockReason(kind, status, cancelled)` sperrt den Kalender-Drag bei einer Absage („bitte einen neuen Termin anlegen statt zu verschieben") und bei terminalem Status — `TERMINAL_SETTING_STATUS` trägt dafür seit dem ersten Produktivtag **`unqualifiziert` neben `dead`**, `TERMINAL_CLOSING_STATUS` `gewonnen` und `verloren`. Der abgeprallte Zug sagt jeweils den Grund, statt nur nicht zu greifen.
+- **Termine** = `/termine`: die **Arbeitsfläche**, drei gleichrangige Reiter — **Liste** (Vorgabe) · **Kalender** (Monat/Woche/Tag) · **Rückrufe**. Bis zum Rückbau öffnete die Seite im Kalender und die Liste war eine versteckte Nebenansicht; jetzt ist es umgekehrt, weil die Liste die Frage beantwortet, mit der man den Tag beginnt („um wen kümmere ich mich?"), und der Kalender die, die man zwischendurch stellt („wann habe ich Zeit?"). Die Monat/Woche/Tag-Wahl erscheint **nur im Kalender**: Sie ist eine Frage *innerhalb* des Kalenders, keine Geschwister der Liste. Feste Dauern: Setting 30 min, Closing 60 min. `/setting`, `/closing` und `/erinnerungen` leiten dorthin um; die Detailrouten `/setting/[id]` und `/closing/[id]` bleiben. **Es wird nichts ausgeblendet** — auch nicht `dead`/`unqualifiziert`. Der frühere „Versteckt"-Schalter ließ Termine lautlos verschwinden; stattdessen kodiert der Chip beides zugleich: **Füllung = Typ** (Setting/Closing), **Rahmen = Status** (durchgezogen = steht noch an, gestrichelt = Ergebnis steht fest, abgeblendet = erledigt). Eine **Absage** ist dabei kein Status, sondern ein eigener Pill „Abgesagt" (`CANCELLED_PILL`) — sie lässt `status` und `show_status` unangetastet (§3), ein abgesagtes Erstgespräch stünde sonst als „Offen" im Kalender. Definitionen ausschließlich in `src/lib/terminMeta.ts` (`outlineFor`). Dieselbe Datei entscheidet, was sich **verschieben** lässt: `moveLockReason(kind, status, cancelled)` sperrt den Kalender-Drag bei einer Absage („bitte einen neuen Termin anlegen statt zu verschieben") und bei terminalem Status — `TERMINAL_SETTING_STATUS` trägt dafür seit dem ersten Produktivtag **`unqualifiziert` neben `dead`**, `TERMINAL_CLOSING_STATUS` `gewonnen` und `verloren`. Der abgeprallte Zug sagt jeweils den Grund, statt nur nicht zu greifen.
 - **Termin-Art** (`setting_calls.meeting_kind`) = `link` **oder** `telefon`. Die dritte Option „Ohne" gibt es nicht mehr: Bei `telefon` ist die Rufnummer (`setting_calls.phone`) Pflicht, bei `link` der Meet-Link — ein Termin ohne beides ist einer, den niemand übernehmen kann. Bestandszeilen mit `meeting_kind is null` bleiben gültig.
 - **Kanal / Quelle** = `setting_calls.source_type`. Schlüssel, Labels, Farben und die Frage, ob ein Kanal ein eigenes Akquise-Volumen hat, stehen an genau **einer** Stelle: der Kanal-Registry `src/lib/channels.ts` (§4). Nur LinkedIn (`contacts`) und Telefon (`phone_leads`) haben eine Stufe **vor** dem Termin; Ads, Social Media und Sonstige beginnen erst beim Termin und zeigen dort „—" statt 0.
-- **Nachfassen** = zentrale Wiedervorlage (`/nachfassen`), gespeist aus RPC `nachfassen_tasks` (4 Zweige, davon **3 angezeigt** — der LinkedIn-Zweig wird app-seitig verworfen, siehe §5) **plus** RPC `recycle_tasks` (Recycling, 4 weitere Quellen, alle angezeigt) — beide werden app-seitig in `getNachfassenTasks()` (`src/app/actions/nachfassen.ts`) zu einer Union gemischt, nicht in SQL: eine geänderte `RETURNS TABLE`-Signatur einer bestehenden Funktion bräuchte `DROP FUNCTION` statt `CREATE OR REPLACE` (§5). Über die Anzeige legt sich zusätzlich der **Altlasten-Schnitt** (`src/lib/staleTasks.ts`, §5.5).
-- **Erinnerung / Touch** = eine Zeile in `reminder_touches` (Migration 0032): ein fälliger Kontakt vor einem Setting-/Closing-Termin, vor einem vereinbarten Nachfass-Kontakt oder nach einem Ereignis. Seite `/erinnerungen` ("Meine Erinnerungen"), stundengenau gruppiert — **sechs** Körbe: Überfällig · **Jetzt fällig** · In der nächsten Stunde · Heute · Diese Woche · Später (`bucketOf` in `ErinnerungenBoard.tsx`, Begründung des zweiten Korbs unten); der Blick nach vorn endet nach `pipeline_settings.reminder_horizon_days` (Default 7) — ohne obere Grenze stünde ein Touch in fünf Wochen unter „Diese Woche". Rein manuell — kein Auto-Versand, die App liefert nur den fertigen Text zum Kopieren, ein Erledigt-Häkchen und ein `outcome`.
-- **Kaskade** = die konfigurierte Abfolge von Stufen, aus der Touches entstehen. Neun benannte Kaskaden je Organisation (`cascade_steps.cascade_kind`, §4), nicht mehr EIN Offset-Tripel für alles: Setting und Closing tragen eigene Abstände, die Mail-Spur eigene Stufen, jede Stufe ist abschaltbar. Gerechnet wird ausschließlich in `src/lib/cascadeEngine.ts` — und zwar in **Berliner Wandzeit**: „1 Tag vorher" heißt dieselbe Uhrzeit einen Tag früher, über eine Zeitumstellung hinweg läge eine Millisekunden-Rechnung eine Stunde daneben. Welche Stufen ein konkreter Termin überhaupt bekommt, entscheidet zusätzlich die **Buchungstag-Regel** (unten): Am Tag, an dem der Termin vereinbart wurde, geht keine Erinnerung an ihn raus.
-- **Vorlage** = ein Nachrichtentext aus dem gemeinsamen Katalog (`template_catalog`, 31 Schlüssel) mit einer Vorrangkette: **Liste > persönlich > Organisation > Auslieferungstext** (`resolveTemplate()` in `src/lib/messageTemplates.ts`). Die Auslieferungstexte stehen bewusst **nur in TypeScript** (`TEMPLATE_DEFAULTS`), nicht in der DB — eine geseedete Textkopie je Organisation friert den Text ein und erreicht Bestandskunden nicht mehr. Eine Zeile in `message_templates` entsteht erst, wenn jemand einen Text ändert.
-- **Recycling** = Wiedervorlage für terminal negative Leads (Migration 0033) — die „toten Enden" der Pipeline, an denen ein Lead sonst spurlos verschwindet: `closing_calls.status='verloren'`, `phone_leads.status='dead'`, `setting_calls.status='dead'` oder `unqualifiziert`, ein Erstgespräch mit `cancel_outlook='ohne_aussicht'` bzw. `no_show_resolution='ohne_antwort'`, `contacts` nach FU3 ohne Antwort. Wartezeit bis zum nächsten Versuch (`next_recycle_at`) hängt vom Grund ab (`pipeline_settings`, org-weit editierbar), gedeckelt über `max_attempts`. Gerechnet wird **serverseitig** in `schedule_recycle()` — der Grund kommt aus der Ursprungszeile, nicht vom Client (§5). Vier Codes bekommen bewusst nie ein Recycling-Datum: `lost_reason_code` in `falsche_zielgruppe`/`kein_fit`, `disqualify_reason_code` in `falsche_zielgruppe`/`keine_zusammenarbeit`.
-- **Ablage** = `/ablage`, sechs abgeleitete Listen ausgeschiedener Vorgänge (RPC `dropout_lists`, §5): Abgesagt ohne Aussicht · Abgesagt, Ersatztermin steht aus · Disqualifiziert · Kein Close · No-Show ohne Antwort · **Sperrliste**. Die Sperrliste ist die **einzige Ansicht der App, die die Datensicht bewusst ignoriert** und immer org-weit liefert: Ein Kontaktverbot, das nur sein Besitzer sieht, ist keines — die nächste Person spräche den Lead sonst neu an. Sie ist außerdem die einzige der sechs, die alle vier Recycling-Tabellen abdeckt; die anderen fünf beschreiben Ereignisse, die es nur an einem Termin gibt.
+- **Arbeitsliste** = `/termine?view=liste`, die zentrale Arbeitsfläche seit dem Rückbau. Geschnitten wird über drei Reiter-Werte in `?zeit=`: **Zu tun** (Vorgabe, = Arbeitsmenge) · **Verlegt** · **Alle**. Drei Knöpfe je Zeile, alle ohne Seitenwechsel: **Genervt** (stempelt, ohne Rückfrage — folgenlos), **Termin** (Datum-Zeit-Feld; danach `verlegt` und raus aus der Arbeitsmenge), **Tot** (mit Rückfrage, weil es die Zeile beendet). Genau zwei Abgangskriterien, nichts sonst. Personenachse `?wer=`: `mein` (Vorgabe, `effective_user_id ?? user.id` nach `personOf()`) oder `alle` — Letzteres nur für einen Owner mit Team-Sicht, sonst wäre der Schalter eine Lüge über zugeschnittene Daten.
+- **Abgeleiteter Zustand** = die EINE Aussage je Zeile der Arbeitsliste (`terminZustand()`, `src/lib/dranRegel.ts`): `verlegt` · `offen` · `show` · `no_show` · `qualifiziert` · `closing_gelegt` · `nicht_qualifiziert` · `tot` · `close` · `kein_close`. **Steht in keiner Spalte und wird nirgends geschrieben** — er entsteht bei jedem Rendern aus `status`, `show_status`, dem Termin, `cancelled_at` und `revived_at`. Siehe die Warnung „Die abgeleiteten Zustände" unten; sie ist die wichtigste Stelle dieses Abschnitts.
+- **Gold-Regel** = „du bist dran". Eine Zeile leuchtet gold, wenn sie in der Arbeitsmenge liegt **und** heute noch niemand an ihr war. Die Regel steht EINMAL (`src/lib/dranRegel.ts`) und wird von der LinkedIn-Liste (`istKontaktDran`) und der Terminliste (`istTerminDran`) geteilt — samt Farbton (`DRAN_TONE`, die vorhandenen Warn-Tokens, keine neue Farbe). Herausgelöst statt abgeschrieben: Zwei Definitionen von „du bist dran" wären genau der Fehler, den dieses Projekt an `nachfassen_tasks` vs. `isDueFollowUp` schon einmal bezahlt hat. Die *Bedingung* ist bewusst nicht geteilt — ein LinkedIn-Kontakt steht über seine Fälligkeit in der Arbeitsmenge, ein Termin über seinen abgeleiteten Zustand plus den Nachfass-Stempel; ein gemeinsamer Union-Typ über zwei so verschiedene Quellen wäre wieder Überbau.
+- **Nachfass-Stempel** = `follow_up_last_contacted_at` + `follow_up_last_contacted_by_user_id` auf beiden Termin-Tabellen (Migration 0041, §3). Der Ein-Klick-Knopf „Genervt" schreibt hinein; die Zeile wird dadurch ruhig und leuchtet morgen wieder. **WIE genervt wurde, interessiert bewusst niemanden** — „DM, Anruf, WhatsApp, Mail, Brieftaube": kein Kanal, keine Stufe, kein Text. Die Spalte hält **einen Zeitpunkt, keine Historie**: Wer dreimal nachgefasst hat, hinterlässt eine Zeile, nicht drei. Ein Ereignis-Log je Klick wäre genau der Überbau, der hier abgeräumt wurde.
+- **Nachfassen** = seit dem Rückbau ausschließlich das **Recycling** (`/nachfassen`, Titel auf dem Bildschirm: „Recycling"), gespeist allein aus RPC `recycle_tasks` (4 Ursprünge). `nachfassen_tasks` wird von der Seite **nicht mehr gelesen** — nur noch vom Navigations-Zähler (§5.4). Über die Anzeige legt sich zusätzlich der **Altlasten-Schnitt** (`src/lib/staleTasks.ts`, §5.5).
+- **Erinnerung / Touch** = **historisch.** Eine Zeile in `reminder_touches` (Migration 0032): ein fälliger Kontakt vor einem Setting-/Closing-Termin, vor einem vereinbarten Nachfass-Kontakt oder nach einem Ereignis, stundengenau auf der Seite `/erinnerungen` gruppiert. Die Seite ist mit dem Rückbau gefallen und leitet nach `/termine` um; **kein Code erzeugt, liest oder erledigt noch einen Touch**. Die Tabelle steht weiter da und behält ihre Zeilen (§3). Nachfolger im neuen Modell ist der Nachfass-Stempel — dasselbe Ereignis in flacher Form, ohne Stufe, Kanal und Text.
+- **Kaskade** = **historisch.** Die konfigurierte Abfolge von Stufen, aus der Touches entstanden: neun benannte Kaskaden je Organisation (`cascade_steps.cascade_kind`, §4), Setting und Closing mit eigenen Abständen, eine eigene Mail-Spur, jede Stufe abschaltbar. Gerechnet wurde in `src/lib/cascadeEngine.ts` (gelöscht) und zwar in Berliner Wandzeit; dazu kam die **Buchungstag-Regel** — am Tag der Vereinbarung ging keine Erinnerung raus. `cascade_steps` steht weiter da und trägt je Organisation seine 21 geseedeten Stufen; **niemand liest sie mehr**.
+- **Vorlage** = **historisch.** Ein Nachrichtentext aus dem gemeinsamen Katalog (`template_catalog`, 31 Schlüssel) mit der Vorrangkette Liste > persönlich > Organisation > Auslieferungstext. Die Auslieferungstexte standen in TypeScript (`src/lib/messageTemplates.ts`, gelöscht), die Abweichungen in `message_templates`. Mit der Kaskade ist auch der Vorlagen-Editor gefallen; es gibt in der ganzen App **keinen vorformulierten Text mehr** — `/nachfassen` zeigt Namen und Grund, nicht einen fertigen Satz zum Kopieren. Einzige Ausnahme und **unverändert**: die FU-Texte der LinkedIn-Liste (`lists.fu1_text`/`fu2_text`/`fu3_text`), die das Listen-Board schon immer selbst trug.
+- **Recycling** = Wiedervorlage für terminal negative Leads (Migration 0033) — die „toten Enden" der Pipeline, an denen ein Lead sonst spurlos verschwindet: `closing_calls.status='verloren'`, `phone_leads.status='dead'`, `setting_calls.status='dead'` oder `unqualifiziert`, ein Erstgespräch mit `cancel_outlook='ohne_aussicht'` bzw. `no_show_resolution='ohne_antwort'`, `contacts` nach FU3 ohne Antwort. Der **Mechanismus bleibt unverändert**, die Staffelung nicht: In `/settings` steht seit dem Rückbau **EIN** Feld „Recycling — Wartezeit (Tage)", und es schreibt **alle vierzehn** Frist-Spalten in `pipeline_settings` mit derselben Zahl. Gerechnet wird weiterhin **serverseitig** in `schedule_recycle()` — der Grund kommt aus der Ursprungszeile, nicht vom Client (§5). Vier Codes bekommen bewusst nie ein Recycling-Datum: `lost_reason_code` in `falsche_zielgruppe`/`kein_fit`, `disqualify_reason_code` in `falsche_zielgruppe`/`keine_zusammenarbeit`. Der Versuchs-Deckel `max_attempts` **wirkt weiter und ist weiterhin einstellbar** — er war zwischenzeitlich aus der Oberfläche gefallen und steht seit der Nachbesserung wieder als drittes Feld in `/settings` (Begründung im Kasten am Dokumentanfang und in §5).
+- **Ablage** = `/ablage`, **zwei** abgeleitete Ansichten ausgeschiedener Vorgänge (RPC `dropout_lists`, §5): **Ausgeschieden** (abgesagt ohne Aussicht · disqualifiziert · kein Close · No-Show ohne Antwort, zusammengelegt, mit Kennzeichen je Karte) und **Sperrliste**. Die Sperrliste ist die **einzige Ansicht der App, die die Datensicht bewusst ignoriert** und immer org-weit liefert: Ein Kontaktverbot, das nur sein Besitzer sieht, ist keines — die nächste Person spräche den Lead sonst neu an. Sie ist außerdem die einzige, die alle vier Recycling-Tabellen abdeckt; die vier zusammengelegten Endzustände beschreiben Ereignisse, die es nur an einem Termin gibt.
 - **Lead-Dossier** = `/lead/[kind]/[id]` (`src/lib/leadDossier.ts`, §5.3) — die Akte EINES Leads über alle vier Ursprungstabellen hinweg: Verlauf, Kontaktwege, Steckbrief, Notizen. Kein Zähl-, sondern ein Nachschlagewerk; es kommt in keiner Auswertung vor. Entscheidend ist die **Zwei-Stufen-Lösung der Lead-Identität**: belegt vs. vermutet (§5.3) — Vermutetes zählt nirgends mit.
-- **Navigations-Zähler** = die drei Badges in der Seitenleiste (`src/lib/navCounts.ts`, §5.4) an `/erinnerungen`, `/nachfassen` und `/ablage`. `null` heißt „nicht ermittelbar", **nicht** „null Aufgaben" — bei einem Fehler verschwindet das Badge, statt eine beruhigende 0 zu behaupten.
-- **Kontaktfrequenz-Warnung** = der amberfarbene Hinweis „Zuletzt kontaktiert vor …" auf den Karten in `/nachfassen` und `/erinnerungen` (`src/lib/contactGap.ts`, `CONTACT_GAP_WARN_DAYS = 3`, Entscheidung K3). **Ein Hinweis, kein Riegel** — die Zahl steht bewusst als Code-Konstante da und nicht als `pipeline_settings`-Spalte, weil sie nichts blockiert und deshalb auch nichts zu konfigurieren gibt. Die Termin-Kaskade ist ausgenommen: drei Kontakte in drei Tagen sind dort das Verfahren, keine Belästigung.
+- **Navigations-Zähler** = **ein** Badge in der Seitenleiste (`src/lib/navCounts.ts`, §5.4), an `/nachfassen`. Aus drei wurden zwei wurden einer: Der Erinnerungs-Zähler fiel mit der Kaskade (ein Zähler auf `reminder_touches` zählte danach eine Tabelle, die keine Oberfläche mehr füllt — erst dauerhaft dieselbe Zahl, dann dauerhaft 0, und beides ist eine Aussage über nichts), der Ablage-Zähler mit der Ablage-Liste, die er zählte (§5.4). `/termine` hat bewusst **keinen** bekommen, obwohl dort jetzt die meiste Arbeit liegt (§5.4). `null` heißt „nicht ermittelbar", **nicht** „null Aufgaben" — bei einem Fehler verschwindet das Badge, statt eine beruhigende 0 zu behaupten.
+- **Kontaktfrequenz-Warnung** = **gefallen als Warnung, geblieben als Sprechweise.** Der amberfarbene Hinweis „Zuletzt kontaktiert vor …" auf den Nachfass- und Erinnerungs-Karten (Entscheidung K3, `CONTACT_GAP_WARN_DAYS = 3`) hatte seine Datenbasis in den erledigten Kaskaden-Touches; ohne sie wäre die einzige verbliebene Quelle der letzte Versuch DESSELBEN Vorgangs gewesen, den die Warnung ausdrücklich ausschloss — sie hätte einen Roundtrip je Seitenaufruf gekostet und niemals angeschlagen. Die Warnung ist damit weg, und mit ihr die Frage, die sie beantwortete: Die neue Liste sagt „wer offen ist, wird jeden Tag kontaktiert", da gibt es keine Obergrenze mehr zu bewachen. **`src/lib/contactGap.ts` bleibt** — `dayDiff()` und `lastContactLabel()` beschriften jetzt „Zuletzt kontaktiert" im Lead-Dossier (§5.3) und die Unterzeile jeder Zeile der Arbeitsliste („heute genervt · kevin", „vor 3 Tagen", „noch nie kontaktiert"). Dieselbe Zahl muss überall gleich heißen.
 
-**Die Buchungstag-Regel: am Tag der Vereinbarung geht keine Erinnerung raus.**
-`planScheduledCascade()` (`src/lib/cascadeEngine.ts`) plant eine Stufe nur, wenn **beides**
-gilt: ihre Fälligkeit steht noch bevor **und** sie fällt nicht auf den Buchungstag (Berliner
-Kalendertag). Der Grund ist einer, kein technischer: *Eine Erinnerung am Tag der Vereinbarung
-ist keine.* Wer um 14:00 einen Termin für morgen 18:00 bucht, bekam nach der reinen
-Zukunfts-Prüfung um 18:00 desselben Tages die Stufe „1 Tag vorher" — eine Bestätigung für
-etwas, das der Lead vier Stunden zuvor selbst verabredet hat. Genau das war die Beschwerde,
-die den Umbau ausgelöst hat.
+### Die abgeleiteten Zustände — und die gefährlichste Verwechslung des neuen Modells
 
-**Die eine Ausnahme: die termin-nächste Stufe** wird immer geplant, solange ihre Fälligkeit
-bevorsteht — auch am Buchungstag. Ohne sie bekäme ein Termin, der **heute** stattfindet, gar
-keine Erinnerung mehr: „1 Stunde vorher" liegt bei ihm zwangsläufig am Buchungstag. Und dort
-ist sie richtig; der Ärger galt verfrühten Bestätigungen für weit entfernte Termine, nicht der
-Stunde vor einem Gespräch, das heute läuft. „Termin-nächste" heißt: kleinster
-`offset_minutes`, **nicht** höchste `step_no` — die Reihenfolge der Stufennummern prüft nur
-die Oberfläche, ein per SQL gesetzter Datensatz kann sie verdrehen.
+> **⚠ `offen` heißt in der Arbeitsliste das GEGENTEIL von `setting_calls.status='offen'`.**
+>
+> In der Datenbank ist `offen` der **Anfangszustand jeder Zeile** und bedeutet „ein Termin
+> steht, das Ergebnis fehlt noch". In der Arbeitsliste bedeutet `offen` „es steht **kein**
+> Termin — der Mensch liegt in der Luft". Dieselben fünf Buchstaben, entgegengesetzte
+> Aussagen.
+>
+> Deshalb wurde beim Rückbau **nichts umgedeutet und nichts geschrieben**: Der Zustand wird
+> bei jedem Rendern neu abgeleitet. Wer den gespeicherten Wert stattdessen übernommen hätte,
+> hätte die Bedeutung des halben Bestands umgedreht, ohne dass irgendwo eine Zahl rot
+> geworden wäre. Für Auswertungen gilt: **`status='offen'` ist keine Arbeitsmenge.** Wer die
+> Arbeitsliste in SQL nachbauen will, muss die Ableitung unten nachbauen.
 
-Für die **Auslieferungswerte** (3 Tage / 1 Tag / 1 Stunde) ergibt die Regel diese Staffelung.
-Sie ist ein **Beispiel, nicht die Regel** — die Offsets stehen in `cascade_steps` und sind je
-Organisation per SQL änderbar; eine Kaskade mit vier Stufen oder ganz anderen Abständen folgt
-derselben Regel und bekommt eine andere Tabelle:
+Berechnet in `terminZustand()` (`src/lib/dranRegel.ts`), Reihenfolge ist die ganze
+Fachlichkeit:
 
-| Termin | Stufen |
+1. **Ergebnis schlägt alles.** Ein toter, disqualifizierter, gewonnener oder verlorener
+   Vorgang ist vorbei — egal welches Datum in der Zeile steht. `qualifiziert` und
+   `closing_gelegt` beenden ihn nicht, schieben ihn aber ins Closing weiter; die Arbeit hängt
+   ab dort an der Closing-Zeile, sonst stünde derselbe Mensch zweimal auf derselben Liste.
+2. **Abgesagt UND ohne Aussicht?** Dann ist er aus dem Funnel → `tot` (Setting) bzw.
+   `kein_close` (Closing). Steht **vor** der Termin-Frage, weil die Zeile ihr altes Datum
+   behält; `revived_at` hebt es auf.
+3. **Steht ein Termin?** Dann ist er versorgt → `verlegt`. Verglichen wird auf **Berliner
+   Kalendertage**, nicht auf die Minute: Die Liste hat Tages-Körnung wie alles außer dem
+   Telefon-Rückruf (§6), und ein Termin, der heute um 10:00 war, soll nicht ab 10:01 golden
+   mahnen — dafür gibt es den No-Show-Eintrag.
+4. **Was ist beim Termin passiert?** `show_status` ist die einzige Quelle dafür;
+   `closing_calls` kennt gar keinen No-Show-Status (§4). Ein No-Show mit
+   `no_show_resolution='ohne_antwort'` ist ebenfalls aus dem Funnel (wieder `tot`/`kein_close`)
+   — geprüft **nach** der Termin-Frage, damit ein inzwischen angesetzter Ersatztermin gewinnt.
+5. Sonst: `offen`.
+
+> **⚠ Die Grenze zur Ablage liegt NICHT im Status — Schritt 2 und die zweite Hälfte von
+> Schritt 4 sind genau deshalb da.** Der Termin-Lebenszyklus aus 0032 hat bewusst keinen
+> neuen `status`-Wert bekommen (§3): Eine Absage steht in `cancelled_at` + `cancel_outlook`,
+> ein No-Show ohne Antwort in `no_show_resolution` — `status` bleibt in beiden Fällen `offen`
+> bzw. der Show-Status stehen. Ohne die beiden Prüfungen landeten diese Zeilen als
+> `offen`/`no_show` in der Arbeitsmenge, und **genau das ist einmal passiert**: Ein „abgesagt
+> ohne Aussicht" stand täglich gold in „Zu tun" *und* gleichzeitig in der Ablage. Die eine
+> Seite sagte „aus dem Funnel gefallen", die andere „nerve ihn heute", und es gab keinen
+> Handgriff, der das aufgelöst hätte — außer die Zeile ein zweites Mal auf Tot zu setzen.
+>
+> Einen elften Zustand „ausgeschieden" gibt es dafür bewusst nicht: Die zehn sind wörtlich die
+> Liste des Auftraggebers, und beide Fälle haben in seinen Worten längst einen Namen — beim
+> Erstgespräch „Tot", beim Closing „Kein Close". Beide stehen ohnehin genau so in der Ablage
+> unter „Ausgeschieden" und werden vom Recycling später wieder hervorgeholt.
+>
+> **Für Auswertungen heißt das:** Wer die Arbeitsmenge in SQL nachbaut, muss `cancel_outlook`
+> und `no_show_resolution` mit abfragen. Ein Nachbau, der nur `status` und `appointment_at`
+> liest, liefert systematisch zu viele Zeilen — und zwar genau die, die in der Ablage liegen.
+
+**Die Absage schlägt das Datum — und das ist kein Detail.** `cancelAppointment` setzt
+`cancelled_at` und lässt `appointment_at` unangetastet (0032 gibt der Absage eigene Spalten,
+damit sie aus dem Show-Quoten-Nenner fällt, §3). Unmittelbar nach einer Absage trägt die Zeile
+deshalb eine Absage UND ein Datum in der Zukunft — man sagt ja ab, BEVOR der Termin ist. Wer
+nur auf das Datum sieht, hält einen abgeräumten Termin für „versorgt" und nervt den Menschen
+nie wieder.
+
+Der naheliegende Ausweg trägt nicht: „Ist das Datum jünger als die Absage?" ist **immer
+wahr** — verglichen würden ein Ereignis- und ein Entscheidungszeitpunkt, und der Termin liegt
+definitionsgemäß hinter seiner Absage. Aus den beiden Spalten allein ist „abgesagt, altes
+Datum steht noch drin" von „abgesagt, danach neu terminiert" **nicht** zu unterscheiden.
+Deshalb entscheidet ein drittes Feld, und zwar eines, das es dafür schon gab: **`revived_at`**
+sagt ausdrücklich „die Absage ist überholt". Gesetzt wird es beim Ansetzen eines neuen Termins
+(`setNeuerTermin`, `src/app/actions/followUpStamp.ts`) — bis zum Rückbau schrieb es nur
+`reviveDropout()` aus der Ablage (§3).
+
+**Die Arbeitsmenge** („Zu tun") sind genau drei Zustände, und alle drei bedeuten dasselbe —
+es steht kein Termin:
+
+| Zustand | Bedeutung |
 |---|---|
-| heute | „1 Stunde vorher", solange sie bevorsteht |
-| morgen | „1 Stunde vorher" |
-| in 2 Tagen | „1 Tag" + „1 Stunde" |
-| in 3 Tagen | „1 Tag" + „1 Stunde" — die 3-Tages-Stufe fiele auf den Buchungstag |
-| in 4+ Tagen | alle drei |
+| `offen` | nie einer gewesen, abgesagt, oder vorbei ohne Eintrag |
+| `no_show` | er kam nicht, und niemand hat neu terminiert |
+| `show` | er kam, und danach ist nichts passiert — auch das ist „in der Luft": ein Erstgespräch ohne Ergebnis und ohne Folgetermin führt von allein nirgendwohin |
 
-Zwei Punkte, die man beim Nachrechnen kennen muss:
+`verlegt` ist bewusst **nicht** dabei (er ist versorgt), die sechs Ergebnis-Zustände ebenso
+wenig — die beenden den Vorgang oder schieben ihn eine Stufe weiter, wo er seine eigene Zeile
+hat. „Bei Offen liegt jemand in der Luft. Bei Verlegt ist er versorgt."
 
-- **Der Buchungstag ist der Tag der PLANUNG, nicht der Tag der Ersterfassung.** `nowIso` in
-  `planScheduledCascade` ist schlicht „jetzt"; `generateScheduled` (`src/app/actions/reminders.ts`)
-  plant die Kaskade nach **jeder** Terminänderung komplett neu, beim Verschieben gilt also der
-  Tag der Verschiebung. Das ist gewollt: Wer gerade eben mit dem Lead einen neuen Zeitpunkt
-  verabredet hat, braucht am selben Tag ebenso wenig eine Erinnerung daran wie beim ersten Mal.
-- **Die Reihenfolge der beiden Riegel trägt.** Ist die Fälligkeit ohnehin verstrichen, gilt der
-  zeitliche Grund („der Termin liegt in weniger als 1 Tag"); der Buchungstag-Grund steht nur da,
-  wo die Stufe sonst wirklich rausgegangen wäre. Beide Sätze zeigt das Kaskaden-Panel am Termin
-  im Klartext (`skipReason` in `CascadePanel.tsx`, Text aus `BOOKING_DAY_SKIP_REASON`) — eine
-  Stufe, die wortlos verschwindet, ist von einem Fehler nicht zu unterscheiden.
+**Nachbau in SQL** (Setting; für Closing `call_at` statt `appointment_at`, `gewonnen`/
+`verloren` statt der vier Setting-Endzustände):
 
-**Warum es auf `/erinnerungen` den Korb „Jetzt fällig" gibt** (zwischen „Überfällig" und „In
-der nächsten Stunde"): Passt keine geplante Stufe mehr, entsteht der **Sofort-Touch**, und
-dessen Fälligkeit IST der Zeitpunkt seiner Entstehung. Nach der Uhr ist er damit von der
-ersten Minute an vorbei — versäumt hat aber niemand etwas, der Termin steht ja noch bevor.
-„Überfällig" wäre für ihn ein Vorwurf; „In der nächsten Stunde" wäre eine Behauptung über den
-Termin, die bei abgeschalteter Stundenstufe schlicht falsch sein kann. Er ist genau das, was
-der eigene Korb sagt: jetzt zu tun. Der Korb ist reine Sortierung — ob der Touch **überfällig**
-ist, entscheidet weiterhin `src/lib/dueState.ts` (§6, dritte Fälligkeits-Variante), und zwar
-vor der Korb-Zuteilung: Sonst schluckte „Jetzt fällig" auch die echten Versäumnisse.
+```sql
+-- Die Arbeitsmenge der Liste: Zeilen ohne stehenden Termin und ohne Ergebnis.
+-- Die Reihenfolge der Bedingungen entspricht den fünf Schritten oben.
+select sc.id, sc.lead_name, sc.company
+from setting_calls sc
+where sc.status not in ('dead', 'unqualifiziert', 'qualifiziert', 'closing_gelegt')
+  -- Schritt 2: abgesagt ohne Aussicht = aus dem Funnel. KEIN Status sagt das.
+  and not (sc.cancelled_at is not null
+           and sc.cancel_outlook = 'ohne_aussicht'
+           and sc.revived_at is null)
+  -- Schritt 4: No-Show, auf den nie eine Antwort kam — ebenfalls aus dem Funnel.
+  and sc.no_show_resolution is distinct from 'ohne_antwort'
+  and not (                                    -- Schritt 3: „verlegt" = es steht ein Termin
+        sc.appointment_at is not null
+    and (sc.cancelled_at is null or sc.revived_at is not null)
+    and (sc.appointment_at at time zone 'Europe/Berlin')::date
+        >= (now() at time zone 'Europe/Berlin')::date
+      );
+
+-- „Gold": davon alles, was heute noch nicht gestempelt wurde (Migration 0041).
+--   and (sc.follow_up_last_contacted_at is null
+--        or (sc.follow_up_last_contacted_at at time zone 'Europe/Berlin')::date
+--            < (now() at time zone 'Europe/Berlin')::date)
+
+-- Was die Seite zusätzlich WEGLÄSST und diese Abfrage nicht: den
+-- Altlasten-Schnitt (§5.5). Sichtbar ist nur, wessen jüngstes Lebenszeichen
+-- — appointment_at ODER follow_up_last_contacted_at, je nachdem welches
+-- jünger ist — höchstens 30 Tage zurückliegt.
+--   and greatest(
+--         coalesce((sc.appointment_at at time zone 'Europe/Berlin')::date, 'epoch'::date),
+--         coalesce((sc.follow_up_last_contacted_at at time zone 'Europe/Berlin')::date, 'epoch'::date)
+--       ) >= (now() at time zone 'Europe/Berlin')::date - 30
+```
+
+Die Reihenfolge im Nachbau ist nicht beliebig: Schritt 2 steht **vor** Schritt 3, weil eine
+abgesagte Zeile ihr altes Datum behält, und Schritt 4 **nach** Schritt 3, damit ein inzwischen
+angesetzter Ersatztermin den alten No-Show-Ausgang schlägt.
 
 ## 2. Workspace- & Sichtbarkeitsmodell
 
@@ -268,7 +435,7 @@ vor der Korb-Zuteilung: Sonst schluckte „Jetzt fällig" auch die echten Versä
 - Persönliches Dashboard `/` = genau eine Person; Team-Dashboard `/team` = workspace-weit (nur `role='owner'` mit `data_scope='workspace'`). Admins können per Cookie die Datensicht eines Mitglieds einnehmen.
   - `/team` beantwortet **eine** Frage: „wie läuft die Woche". Es trägt genau zwei Sektionen — Wochenduell (inkl. Verlauf der letzten 10 Wochen) und Team-Vergleich —, und **alle** Zahlen liegen im selben Fenster: die laufende Woche Mo–So, oben abgeschnitten bei heute. Vorher standen dort drei Fenster nebeneinander (Woche für DMs/Quoten, 30 Tage für Telefon, all-time für Umsatz), wodurch die Karten untereinander nicht vergleichbar waren. Die frühere Funnel-Sektion ist entfernt: Sie zeigte Bestandszahlen über den gesamten Datenbestand neben lauter Wochenzahlen. Tiefenanalyse gehört nach `/analyse` — dort steht sie in genau einer Zählweise (§5.1).
 - **Zwei geschachtelte Umschalter:** Der Org-Umschalter (rot, nur Plattform-Admins) wechselt die *Organisation*, die Datensicht (orange) wechselt die *Person* innerhalb der aktiven Organisation. Rot steht über Orange — äußere Grenze zuerst.
-- **Organisation anlegen:** Seit Migration 0034 hängt ein AFTER-INSERT-Trigger `workspaces_seed_defaults` auf `workspaces` und ruft `seed_workspace_defaults()` — eine `pipeline_settings`-Zeile und 21 `cascade_steps` (16 aktiv, 5 abgeschaltete Mail-Stufen). Bewusst ein Trigger statt einer Ergänzung in `bootstrap_workspace()` **und** `platform_create_workspace()`: Ein Kunde entsteht über den einen Pfad, ein anderer über den anderen — ein Trigger deckt beide ab und zusätzlich jeden künftigen, ohne dass jemand daran denken muss. Textzeilen legt er bewusst **keine** an (§1, Begriff „Vorlage"). Bestehende Organisationen wurden in 0034 nachgezogen.
+- **Organisation anlegen:** Seit Migration 0034 hängt ein AFTER-INSERT-Trigger `workspaces_seed_defaults` auf `workspaces` und ruft `seed_workspace_defaults()` — eine `pipeline_settings`-Zeile und 21 `cascade_steps` (16 aktiv, 5 abgeschaltete Mail-Stufen). **Seit dem Rückbau ist nur noch die erste Hälfte davon in Gebrauch:** `pipeline_settings` trägt weiterhin das Verschiebe-Kontingent und die Recycling-Fristen, die 21 Kaskadenstufen liest niemand mehr (§3). Der Trigger legt sie trotzdem an, und das ist Absicht — ihn zu ändern hieße, 0034 anzufassen, und die ist eingefroren; eine neue Migration nur dafür brächte nichts ein außer 21 nicht angelegten Zeilen je neuer Organisation. Die Invariante in §8 erwartet sie deshalb weiterhin, jetzt als **Einspiel-Kontrolle statt als Funktionsprüfung**. Bewusst ein Trigger statt einer Ergänzung in `bootstrap_workspace()` **und** `platform_create_workspace()`: Ein Kunde entsteht über den einen Pfad, ein anderer über den anderen — ein Trigger deckt beide ab und zusätzlich jeden künftigen, ohne dass jemand daran denken muss. Textzeilen legt er bewusst **keine** an (§1, Begriff „Vorlage"). Bestehende Organisationen wurden in 0034 nachgezogen.
 - **Organisation löschen:** `preview_delete_workspace()` / `platform_delete_workspace()` (Migration 0027, UI unter `/admin/org/[id]`). An `workspaces` hängen inzwischen **19 Fremdschlüssel mit `on delete cascade`** (15 plus `message_templates`, `pipeline_settings`, `cascade_steps`, `reminder_touches`) — ein `delete` nimmt den kompletten Datenbestand der Organisation mit, ohne Undo. **Historie — die Vorschau zählte lange weniger, als gelöscht wird:** Die Fassung aus 0027 nannte 13 Tabellen und kannte weder `phone_call_attempts` (0028) noch die vier neuen; gelöscht wurden sie trotzdem. Eine Löschvorschau, die weniger nennt als sie löscht, ist gefährlicher als gar keine. **Migration 0036 hat das behoben:** `counts` trägt jetzt **18 Tabellen** (die 13 plus `phone_call_attempts`, `message_templates`, `pipeline_settings`, `cascade_steps`, `reminder_touches`); zusammen mit `workspace_members`, das die Vorschau getrennt unter `members` führt, sind das genau die 19 Kaskaden. Die Verifikation dazu ist bewusst kein Abzählen, sondern eine `pg_constraint`-Abfrage: Sie listet jede Tabelle mit `on delete cascade` auf `workspaces`, die **nicht** als Schlüssel in `counts` vorkommt — und wird damit von selbst wieder rot, sobald jemand eine neue Tabelle anhängt. `platform_delete_workspace()` blieb unverändert; sie vergleicht die Vorschau-`counts` gegen `p_expected` und übernimmt die neuen Schlüssel automatisch. Die Funktion verweigert, solange noch Mitglieder da sind (sonst blieben verwaiste Accounts zurück: Mitgliedschaft kaskadiert weg, Login bleibt), und bei der eigenen Organisation; die UI verlangt zusätzlich das Abtippen des Namens.
 - **Nutzer verschieben:** `preview_move_user()` / `admin_move_user_to_workspace()` (Migration 0026, über **0036** und **0038** auf dem aktuellen Stand, UI unter `/admin/org/[id]`). Der Umzug stempelt `workspace_id` auf inzwischen **17 Tabellen** um (16 reine `workspace_id`-Stempel plus die Mitgliedschaft selbst) und kappt Kanten, die über die neue Org-Grenze zeigen (Termin ohne Quellkontakt, Closing ohne Setting, Smart View ohne Ordner) — genullt, nicht blockiert, weil `lead_name`/`company` als Snapshot vorliegen. Besitz-Ermittlung ausschließlich in `move_user_scope()`, damit Vorschau und Umzug nie auseinanderlaufen.
   - **Was 0036 nachgezogen hat:** die persönlichen `message_templates` (`user_id = <umziehender>`, Org-Standards mit `user_id is null` bleiben stehen) und die `reminder_touches` an den mitziehenden Terminen. Die zurückgebliebene Vorlage war dabei der leiseste Fehler: Die Vorrangkette ersetzt den fehlenden Text lautlos durch den Org-Standard — der Nutzer sieht keinen Fehler, sondern einen anderen Text. Die **Reihenfolge im Umzug ist tragend**: Die beiden neuen Stempel laufen NACH dem Mitgliedschaftswechsel, sonst entwertete `reminder_touches_ws_guard` die Erinnerungen des Umziehenden reihenweise, weil er in der Zielorganisation noch kein Mitglied war. Neu ist außerdem eine Vorbedingung: Liegen in der Zielorganisation schon persönliche Vorlagen desselben Nutzers, bricht der Umzug ab — `uq_message_templates_user (workspace_id, user_id, template_key)` aus 0031 kollidierte sonst mitten im Schreiben. (`performance_targets` und `followup_templates` haben dieses Problem nicht: Ihre Unique-Keys führen `workspace_id` gar nicht.) Erinnerungen, die an Terminen der ALTEN Organisation hängen, werden vor dem Umzug *superseded* statt gelöscht — die Erledigungs-Historie speist die „Erinnerungs-Disziplin" (§5.1); die Vorschau meldet sie als eigenen Warncode `reminder_touch_superseded`.
@@ -284,7 +451,7 @@ vor der Korb-Zuteilung: Sonst schluckte „Jetzt fällig" auch die echten Versä
 | Tabelle | Zweck / Schlüsselspalten |
 |---|---|
 | `lists` | LinkedIn-Pitch-Listen. `name`, `owner_name` (Besitzer, matcht `profiles.username`), `created_by_user_id`, `pitch_text` (Vorlage), `fu1_text`/`fu2_text`/`fu3_text` (Nachfass-Sequenz der Liste, `{name}`-Platzhalter), `archived_at`. |
-| `contacts` | 1 Zeile = 1 gepitchter LinkedIn-Kontakt. `list_id` → `lists` (Trigger setzt `workspace_id`). Kernfelder: `name`, `company`, `pitched_at` (date), `answered` (bool), `answer_category` (§4), `answer_text`, `follow_up_number` (0–3), `next_follow_up_at` (date), `appointment_set` (bool), `appointment_at` (timestamptz), `meet_link`, `linkedin_url`, `target_group` (Freitext-Zielgruppe, Achse „Zielgruppe" im Vergleich), `setting_call_id` → `setting_calls`, `blocked_at` (timestamptz — Lead hat uns auf LinkedIn blockiert; App nullt `next_follow_up_at`, RPCs schließen blockierte zusätzlich aus). Recycling (Migration 0033, **dieselben sechs Spalten auf allen vier Ursprungstabellen**): `next_recycle_at` (date, gesetzt sobald FU3 ohne Antwort abgeschlossen wird — `advanceLinkedInFollowUp` UND `updateContact` rufen dafür `schedule_recycle('linkedin', …)`), `recycle_attempt_count`, `recycle_excluded_at` (permanentes Opt-out = Sperrliste, unabhängig von `blocked_at`), `recycle_last_contacted_at`, `recycle_responded_at` (**ohne diesen Zeitstempel gibt es keine Wiederbelebungsquote** — und damit keine Grundlage, die Wartezeiten begründet zu ändern), `recycle_reason_code`. CHECK: `recycle_excluded_at` und `next_recycle_at` schließen sich aus. Legacy-CRM: `stage_id` → `pipeline_stages`, `deal_value`, `deal_closed`, `deal_lost_reason`, `meeting_notes`, `custom_fields` (jsonb). |
+| `contacts` | 1 Zeile = 1 gepitchter LinkedIn-Kontakt. `list_id` → `lists` (Trigger setzt `workspace_id`). Kernfelder: `name`, `company`, `pitched_at` (date), `answered` (bool), `answer_category` (§4), `answer_text`, `follow_up_number` (0–3), `next_follow_up_at` (date), `appointment_set` (bool), `appointment_at` (timestamptz), `meet_link`, `linkedin_url`, `target_group` (Freitext-Zielgruppe, Achse „Zielgruppe" im Vergleich), `setting_call_id` → `setting_calls`, `blocked_at` (timestamptz — Lead hat uns auf LinkedIn blockiert; App nullt `next_follow_up_at`, RPCs schließen blockierte zusätzlich aus). Recycling (Migration 0033, **dieselben sechs Spalten auf allen vier Ursprungstabellen**): `next_recycle_at` (date, gesetzt sobald FU3 ohne Antwort abgeschlossen wird — dafür ruft **`updateContact`** `schedule_recycle('linkedin', …)`; der zweite Schreibpfad `advanceLinkedInFollowUp` lag im Nachfassen-Board und ist mit dessen LinkedIn-Sektion gefallen, die Kadenz gehört an die Liste), `recycle_attempt_count`, `recycle_excluded_at` (permanentes Opt-out = Sperrliste, unabhängig von `blocked_at`), `recycle_last_contacted_at`, `recycle_responded_at` (**ohne diesen Zeitstempel gibt es keine Wiederbelebungsquote** — und damit keine Grundlage, die Wartezeiten begründet zu ändern), `recycle_reason_code`. CHECK: `recycle_excluded_at` und `next_recycle_at` schließen sich aus. Legacy-CRM: `stage_id` → `pipeline_stages`, `deal_value`, `deal_closed`, `deal_lost_reason`, `meeting_notes`, `custom_fields` (jsonb). |
 | `pipeline_stages` | Legacy-CRM-Stufen je Liste mit `probability_pct` (0–100) und `exclude_from_followup`. Defaults beim Anlegen: Neu 10 %, Gespräch 30 %, Angebot 60 %, Verhandlung 80 %, Gewonnen 100 %, Verloren 0 %. In der aktiven Tracking-UI kaum genutzt — **nicht** die „Termin-Wahrscheinlichkeit" des Setting-Flows (die gibt es nicht als Prozentwert). |
 
 ### Telefon-Funnel
@@ -304,8 +471,8 @@ vor der Korb-Zuteilung: Sonst schluckte „Jetzt fällig" auch die echten Versä
 
 | Tabelle | Zweck / Schlüsselspalten |
 |---|---|
-| `setting_calls` | Termin + Qualifizierungsgespräch. Person: `assigned_user_id` (zuständige Person, **die Auswertungsachse** — §2), `created_by_user_id` (Audit: wer angelegt hat). Herkunft: `source_type` (§4), `source_detail` (Freitext, trägt den echten Ursprung — die Analyse schlüsselt danach auf, sofern gesetzt), `source_contact_id` → `contacts`, `source_phone_lead_id` → `phone_leads`. Termin: `appointment_at` (timestamptz), `meet_link` (bei `meeting_kind='link'`), `phone` (Rufnummer bei `meeting_kind='telefon'`, Migration 0029 — nullable und ohne CHECK, die Pflicht sitzt im Formular; bewusst am Termin statt am Lead, weil `phone_leads.phone` die Firmenzentrale ist und LinkedIn-/manuelle Termine gar keine Lead-Zeile haben), `meeting_kind` (`link` \| `telefon` \| NULL = Altbestand), `call_at` (date, Gesprächstag). WhatsApp-Kanal (Migration 0032): `wa_phone` (persönliche WhatsApp-Nummer des Entscheiders — **nicht** dieselbe wie `phone`, das ist die Einwahlnummer bei `meeting_kind='telefon'`; wird HIER im Setting-Call eingesammelt, weil erst dort echtes Vertrauen besteht), `wa_consent_at` (Zeitstempel der dokumentierten Einwilligung — nach deutschem UWG Pflicht für WhatsApp-Kontakt zu kalten Leads, auch B2B; **wird seit dem Produktivstart aus der NUMMER abgeleitet, nicht mehr per Häkchen erfasst** — `withWaConsentDerived()` in `src/app/actions/settingCalls.ts` stempelt ihn beim Speichern einer Nummer und räumt ihn mit ihr weg. Grund: Wer seine persönliche Nummer im Erstgespräch genau dafür herausgibt, hat eingewilligt; das zweite Feld daneben fragte dasselbe noch einmal und blieb in der Praxis leer — und eine Nummer ohne Stempel schaltete die WhatsApp-Spur lautlos ab, weil `resolveFollowUpChannel` beides verlangt. **Für Auswertungen heißt das: `wa_consent_at is not null` ist praktisch deckungsgleich mit `wa_phone is not null`** und misst keine eigene Erfassungsdisziplin mehr; Bestandszeilen mit Nummer ohne Stempel bekommen ihn beim nächsten Speichern nachgereicht), `wa_refused_at` (dokumentierte Verweigerung „will keine Nummer rausgeben" — nur so lässt sich eine bewusste Ablehnung von einer Erfassungslücke unterscheiden; CHECK: nur OHNE `wa_phone`, und `wa_consent_at` nur MIT einer Nummer). Ohne Nummer **und** Einwilligung fällt der Kaskaden-Kanal auf den Akquise-Kanal zurück (`resolveFollowUpChannel` in `src/lib/reminderCascade.ts`). Termin-Lebenszyklus (Migration 0032, s. u.): `cancelled_at`, `cancel_reason_code`, `cancel_reason`, `cancel_outlook`, `reschedule_count`, `last_reschedule_at`, `no_show_resolution`, `revived_at`, `revived_from_setting_call_id`/`revived_from_closing_call_id`, `disqualify_reason_code`, `disqualify_reason`. Qualifizierung: `show_status` (`show`/`no_show`), `has_budget_8k`, `branche`, `sole_decider`/`can_decide_now`/`clear_need` (bool), `ist_pain` (1–10), `warmth` (1–10), `soll_ziel`, `script_answers` (jsonb, Setting-Skript-Blöcke). Ergebnis: `status` (§4), `follow_up_due` (date, Wiedervorlage), `no_show_count` (zählt No-Shows über Neuterminierungen hinweg — **kein** Nenner der Show-Quote mehr, siehe §5; die Analyse liest es nur noch für die Fußnote der Status-Verteilung „wie viele Termine hatten mehr als einen No-Show"), `closing_scheduled`/`closing_at`. Recycling (Migration 0033, die sechs Spalten s. `contacts`): `next_recycle_at` wird über `schedule_recycle('setting', …)` gesetzt — bei `status='dead'`, bei `unqualifiziert` (eigene, längere Frist) und bei einer Absage `ohne_aussicht`. |
-| `closing_calls` | Abschlussgespräch. `setting_call_id` → `setting_calls`. Person: `assigned_user_id` (erbt beim Anlegen vom Setting), `created_by_user_id` (Audit). `call_at` (timestamptz, Termin inkl. Uhrzeit), `meet_link`, `show_status` (§4), `status` (§4), Deal: `closed` (bool), `deal_volume` (numeric, €), `payment_type` (Freitext, UI: „Einmal"/„Raten"), `signature_received`, `contract_start` (date), `lost_reason_code` (zehn feste Codes, §4 — **das zählbare Feld**), `lost_reason` (Freitext daneben, optionaler Kontext), `follow_up_due` (date). `follow_up_due_at` (timestamptz, Migration 0032 — präziser Nachfass-Zeitpunkt für die Erinnerungs-Kaskade; wird von `follow_up_due` per App-Code synchron gehalten, `withFollowUpDateSynced()` in `src/app/actions/closingCalls.ts`, **kein** Trigger — `nachfassen_tasks` liest weiter unverändert `follow_up_due`). `onboarding_at` (date, Migration 0032 — Tag des Software-Onboardings nach einem gewonnenen Deal; ohne Angabe bewusst NULL statt eines geratenen Datums). Termin-Lebenszyklus (Migration 0032): `cancelled_at`, `cancel_reason_code`, `cancel_reason`, `cancel_outlook`, `reschedule_count`, `last_reschedule_at`, `no_show_resolution`, `revived_at` — dieselben Spalten wie am Setting, **ohne** `revived_from_*` und ohne Disqualifikationsgrund (dafür hat das Closing `lost_reason_code`). Recycling (Migration 0033, die sechs Spalten s. `contacts`): `next_recycle_at` wird bei `status='verloren'` über `schedule_recycle('closing', …)` gesetzt, die Wartezeit hängt am `lost_reason_code` (§5). |
+| `setting_calls` | Termin + Qualifizierungsgespräch. Person: `assigned_user_id` (zuständige Person, **die Auswertungsachse** — §2), `created_by_user_id` (Audit: wer angelegt hat). Herkunft: `source_type` (§4), `source_detail` (Freitext, trägt den echten Ursprung — die Analyse schlüsselt danach auf, sofern gesetzt), `source_contact_id` → `contacts`, `source_phone_lead_id` → `phone_leads`. Termin: `appointment_at` (timestamptz), `meet_link` (bei `meeting_kind='link'`), `phone` (Rufnummer bei `meeting_kind='telefon'`, Migration 0029 — nullable und ohne CHECK, die Pflicht sitzt im Formular; bewusst am Termin statt am Lead, weil `phone_leads.phone` die Firmenzentrale ist und LinkedIn-/manuelle Termine gar keine Lead-Zeile haben), `meeting_kind` (`link` \| `telefon` \| NULL = Altbestand), `call_at` (date, Gesprächstag). WhatsApp-Kanal (Migration 0032): `wa_phone` (persönliche WhatsApp-Nummer des Entscheiders — **nicht** dieselbe wie `phone`, das ist die Einwahlnummer bei `meeting_kind='telefon'`; wird HIER im Setting-Call eingesammelt, weil erst dort echtes Vertrauen besteht), `wa_consent_at` (Zeitstempel der dokumentierten Einwilligung — nach deutschem UWG Pflicht für WhatsApp-Kontakt zu kalten Leads, auch B2B; **wird seit dem Produktivstart aus der NUMMER abgeleitet, nicht mehr per Häkchen erfasst** — `withWaConsentDerived()` in `src/app/actions/settingCalls.ts` stempelt ihn beim Speichern einer Nummer und räumt ihn mit ihr weg. Grund: Wer seine persönliche Nummer im Erstgespräch genau dafür herausgibt, hat eingewilligt; das zweite Feld daneben fragte dasselbe noch einmal und blieb in der Praxis leer — und eine Nummer ohne Stempel schaltete die WhatsApp-Spur lautlos ab, weil `resolveFollowUpChannel` beides verlangt. **Für Auswertungen heißt das: `wa_consent_at is not null` ist praktisch deckungsgleich mit `wa_phone is not null`** und misst keine eigene Erfassungsdisziplin), `wa_refused_at` (dokumentierte Verweigerung „will keine Nummer rausgeben" — nur so lässt sich eine bewusste Ablehnung von einer Erfassungslücke unterscheiden; CHECK: nur OHNE `wa_phone`, und `wa_consent_at` nur MIT einer Nummer). **Die drei WhatsApp-Spalten sind mit dem Rückbau eingefroren**: Ihr einziger Zweck war der Kanal der Closing-Erinnerungen (`resolveFollowUpChannel` in `src/lib/reminderCascade.ts` — Datei gelöscht), und mit ihm ist auch das Pflichtfeld-Gate im Setting-Editor entfallen (Entscheidung E10: „ohne Nummer kein Closing"). Kein Formular schreibt sie mehr; `withWaConsentDerived()` in `src/app/actions/settingCalls.ts` steht noch, bekommt aber keinen Patch mit `wa_phone` mehr. Gelesen werden sie weiterhin an genau zwei Stellen: als Kontaktweg und als Warnung im Lead-Dossier (§5.3). Für Auswertungen: Die Werte beschreiben den Bestand bis zum 10. September 2026 und wachsen nicht mehr. **⚠ Offener Punkt (O1 in `ENTSCHEIDUNGEN.md`): Es gibt keinen Löschweg mehr.** Kein Formular schreibt die drei Spalten — aber es gibt auch keines, das sie leert. Widerruft ein Lead seine Einwilligung oder verlangt er die Löschung seiner Nummer, ist das heute nur per Migration oder direktem `UPDATE` zu erfüllen. Bei einer personenbezogenen Kontaktnummer mit dokumentierter Einwilligung ist das die unangenehmste Lücke, die der Rückbau hinterlässt. Nachfass-Stempel (Migration 0041, **auf beiden Termin-Tabellen gleich**): `follow_up_last_contacted_at` (timestamptz, NULL = „noch nie") und `follow_up_last_contacted_by_user_id` (uuid → `auth.users`, `on delete set null`) — s. u. Termin-Lebenszyklus (Migration 0032, s. u.): `cancelled_at`, `cancel_reason_code`, `cancel_reason`, `cancel_outlook`, `reschedule_count`, `last_reschedule_at`, `no_show_resolution`, `revived_at`, `revived_from_setting_call_id`/`revived_from_closing_call_id`, `disqualify_reason_code`, `disqualify_reason`. Qualifizierung: `show_status` (`show`/`no_show`), `has_budget_8k`, `branche`, `sole_decider`/`can_decide_now`/`clear_need` (bool), `ist_pain` (1–10), `warmth` (1–10), `soll_ziel`, `script_answers` (jsonb, Setting-Skript-Blöcke). Ergebnis: `status` (§4), `follow_up_due` (date, Wiedervorlage), `no_show_count` (zählt No-Shows über Neuterminierungen hinweg — **kein** Nenner der Show-Quote mehr, siehe §5; die Analyse liest es nur noch für die Fußnote der Status-Verteilung „wie viele Termine hatten mehr als einen No-Show"), `closing_scheduled`/`closing_at`. Recycling (Migration 0033, die sechs Spalten s. `contacts`): `next_recycle_at` wird über `schedule_recycle('setting', …)` gesetzt — bei `status='dead'`, bei `unqualifiziert` (eigene, längere Frist) und bei einer Absage `ohne_aussicht`. |
+| `closing_calls` | Abschlussgespräch. `setting_call_id` → `setting_calls`. Person: `assigned_user_id` (erbt beim Anlegen vom Setting), `created_by_user_id` (Audit). `call_at` (timestamptz, Termin inkl. Uhrzeit), `meet_link`, `show_status` (§4), `status` (§4), Deal: `closed` (bool), `deal_volume` (numeric, €), `payment_type` (Freitext, UI: „Einmal"/„Raten"), `signature_received`, `contract_start` (date), `lost_reason_code` (zehn feste Codes, §4 — **das zählbare Feld**), `lost_reason` (Freitext daneben, optionaler Kontext), `follow_up_due` (date — wird weiter geschrieben und im Closing-Editor sowie im Dossier weiter gelesen, steuert aber keine Arbeitsliste mehr, §1). `follow_up_due_at` (timestamptz, Migration 0032 — war der präzise Nachfass-Zeitpunkt für die Erinnerungs-Kaskade; mit ihr hat er seinen Hauptzweck verloren. `withFollowUpDateSynced()` in `src/app/actions/closingCalls.ts` hält ihn weiterhin synchron zu `follow_up_due`, damit die beiden Felder nicht auseinanderlaufen. **Ein Leser ist ihm geblieben**: Das Dossier bevorzugt ihn für das Ereignis „Nachfass-Kontakt vereinbart" (`follow_up_due_at ?? follow_up_due`) — er trägt die Uhrzeit, das Datum daneben nicht). `onboarding_at` (date, Migration 0032 — Tag des Software-Onboardings nach einem gewonnenen Deal; ohne Angabe bewusst NULL statt eines geratenen Datums). Nachfass-Stempel (Migration 0041): `follow_up_last_contacted_at`, `follow_up_last_contacted_by_user_id` — dieselben zwei Spalten wie am Setting. Termin-Lebenszyklus (Migration 0032): `cancelled_at`, `cancel_reason_code`, `cancel_reason`, `cancel_outlook`, `reschedule_count`, `last_reschedule_at`, `no_show_resolution`, `revived_at` — dieselben Spalten wie am Setting, **ohne** `revived_from_*` und ohne Disqualifikationsgrund (dafür hat das Closing `lost_reason_code`). Recycling (Migration 0033, die sechs Spalten s. `contacts`): `next_recycle_at` wird bei `status='verloren'` über `schedule_recycle('closing', …)` gesetzt, die Wartezeit hängt am `lost_reason_code` (§5). |
 | `call_assignees` | **Historisch, nicht mehr in Gebrauch.** Alte Multi-Zuweisung (`entity_type` = `setting_call`\|`closing_call`, `entity_id`, `user_id`). Seit Migration 0028 ersetzt durch `assigned_user_id`; wird weder gelesen noch geschrieben (§2). |
 
 **Der Termin-Lebenszyklus bekam eigene Spalten, KEINEN neuen `status`-Wert** (Migration 0032).
@@ -320,18 +487,41 @@ Statuswechsel das Ende des Vorgangs markiert, muss die Wiedervorlage bei
 `cancel_outlook='ohne_aussicht'` eigens eingeplant werden, sonst verschwände der Lead in
 der Ablage und käme nie wieder heraus.
 
-Vier Regeln, die man beim Nachrechnen kennen muss:
+Fünf Regeln, die man beim Nachrechnen kennen muss:
 - **`reschedule_count` zählt NUR Verschiebungen durch den Lead** (`postponeAppointment(byLead=true)`).
   Der Kalender-Drag und die interne Umplanung des Verkäufers zählen nicht — sonst misst der
   Zähler die Disziplin des eigenen Teams statt der Verbindlichkeit des Leads. Ein Ersatztermin
-  nach No-Show zählt ebenfalls nicht (er läuft über `rescheduleSetting`).
+  nach No-Show zählt ebenfalls nicht (er läuft über `rescheduleSetting`). Der Knopf „Termin"
+  der Arbeitsliste zählt aus demselben Grund ebenfalls nicht: Er läuft über `rescheduleSetting`
+  bzw. `updateClosingCall`, nicht über `postponeAppointment`.
 - **`pipeline_settings.max_reschedules` ist eine Warnung, keine Sperre** — über dem Kontingent
   meldet die Action `warn:'limit'`, die Oberfläche lässt bestätigen und schlägt die Ablage
-  „abgesagt ohne Aussicht" vor.
+  „abgesagt ohne Aussicht" vor. **Es hat den Rückbau bewusst überlebt**, obwohl es in derselben
+  Konfigurationszeile steht wie die gefallene Kaskade: Es ist kein Kaskaden- und kein
+  Recycling-Feld, sondern steuert genau die Unterscheidung, auf der die neue Arbeitsfläche
+  steht — „liegt in der Luft" gegen „ist versorgt". Wäre es mit dem Erinnerungs-Modul gefallen,
+  verschwänden die Warnung in `postponeAppointment` und die Lebenszyklus-Leiste, beide lautlos,
+  weil ein fehlender Hinweis kein Fehler ist. Es liegt seit dem Rückbau in
+  `src/app/actions/pipelineSettings.ts` (vorher in `actions/reminders.ts`, gelöscht).
 - **`no_show_resolution` ist per CHECK an `show_status='no_show'` gebunden.** Wandert der
   Show-Status weg, muss der Ausgang mitgehen — die App nullt ihn dafür in
   `withNoShowResolutionCleared()`, sonst weist Postgres das ganze UPDATE ab.
-- **`revived_at` wird geschrieben — von genau einem Pfad: `reviveDropout()`**
+- **Der Nachfass-Stempel ist ein AUDIT-Feld, keine Zuständigkeit** (Migration 0041).
+  `follow_up_last_contacted_by_user_id` steht in der Bedeutung von `created_by_user_id` („wer
+  hat geklickt", immer `access.user.id` — die real angemeldete Person, **nicht** die
+  eingestellte Datensicht; genau diesen Fehler hatte `created_by_user_id` bis 0028). Wem der
+  Termin gehört, steht unverändert in `assigned_user_id`, und **nur das** bleibt die
+  Personenachse jeder Auswertung (§2). Warum es die zweite Spalte überhaupt gibt: „Eine Liste
+  je Person" heißt nicht „nur eine Person schreibt hinein" — ein Owner mit Team-Sicht arbeitet
+  über die Datensicht die Liste eines Kollegen ab, ein Plattform-Admin arbeitet in einer
+  fremden Organisation. Zu dritt ist „hast du den angerufen oder ich?" die Frage, die täglich
+  anfällt. **Kein Paar-CHECK** zwischen Zeitstempel und Person, obwohl `reminder_touches` einen
+  hat: Der ist dort mit `on delete set null` auf derselben Spalte kombiniert, und die beiden
+  Klauseln widersprechen einander — beim Löschen eines Nutzers verletzt genau dieses UPDATE den
+  CHECK. Der mögliche Zustand „Zeitstempel ohne Person" ist deshalb erlaubt und richtig: Er
+  heißt „wurde nachgefasst, der Kollege ist weg".
+- **`revived_at` wird von ZWEI Pfaden geschrieben** — seit dem Rückbau. Der erste ist
+  `reviveDropout()`
   (`src/app/actions/revive.ts`, Knopf „Neuen Termin ansetzen" in `/ablage`). Der zurückgeholte
   Vorgang bleibt dabei **terminal**: Sein `status` wird nicht angefasst, sonst veränderte eine
   Rückholung rückwirkend die Quoten eines abgeschlossenen Zeitraums (§5). Der zweite Anlauf ist
@@ -348,36 +538,101 @@ Vier Regeln, die man beim Nachrechnen kennen muss:
   `revived_at` allein genügte nicht, der Vorgang wäre sonst lautlos aus jeder Wiedervorlage
   verschwunden. Für Auswertungen heißt das: `revived_at is null` trennt jetzt wirklich
   („noch nicht zurückgeholt"), und die Riegel in `schedule_recycle()`/`recycle_tasks()` greifen
-  tatsächlich. Nicht verwechseln mit der Ablage-Liste „Abgesagt, Ersatztermin steht aus": Die
-  fragt `cancel_outlook='neuer_termin'` **und** `revived_at is null` ab und leert sich genau
-  durch diesen Knopf.
+  tatsächlich.
+  **Der zweite Pfad ist neu und arbeitet anders: `setNeuerTermin()`**
+  (`src/app/actions/followUpStamp.ts`, Knopf „Termin" in der Arbeitsliste). Er legt **keine**
+  neue Zeile an, sondern terminiert die vorhandene neu und stempelt `revived_at` nur, um die
+  Absage für überholt zu erklären — ohne dieses dritte Signal bliebe ein neu terminierter Lead
+  für immer in der Arbeitsmenge stehen (§1, „Die Absage schlägt das Datum"). Gestempelt wird
+  **nur beim ersten Mal** (`.is('revived_at', null)` macht aus dem UPDATE ein Claim, zwei
+  gleichzeitige Klicks holen die Zeile nur einmal zurück); danach ist der Zeitpunkt Historie.
+  Zwei Eigenschaften dieses Pfads muss kennen, wer Bestandsdaten liest:
+  **(a) Der Stempel wird zurückgenommen, wenn das Schreiben des Datums scheitert** — und nur
+  der selbst gesetzte. Ohne diesen Schritt passierte die Zeile ab dem fehlgeschlagenen Klick
+  den Absage-Riegel, galt über ihr altes Datum als „Verlegt" und verschwand lautlos aus
+  Arbeitsliste UND Recycling (`recycle_tasks` verlangt `revived_at is null`) — während der
+  Nutzer eine Fehlermeldung sah und glaubte, es sei nichts passiert. Jede Fehlerbehandlung
+  führt deshalb in den Zustand „bleibt Arbeit", nie in „ist versorgt".
+  **(b) Eine bereits ERSCHIENENE Zeile bekommt nur ein neues Datum, keinen Reset.** Welche
+  Action das Datum schreibt, entscheidet die erfasste Tatsache und nicht die Termin-Art:
+  `rescheduleSetting` (der Ersatztermin-Weg nach einem No-Show) setzt Status und `show_status`
+  zurück — das darf es, weil der No-Show in `no_show_count` erhalten bleibt. Ein
+  `show_status='show'` steht dagegen in keiner zweiten Spalte; der Reset wäre eine **Löschung**,
+  und weil die Zeile über `settingEffDate` zugleich in den Monat des neuen Termins wandert,
+  verlöre die Show-Quote eines abgeschlossenen Zeitraums ihren Zähler (§5). Für einen
+  erschienenen Lead läuft der Knopf deshalb über `moveSettingAppointment` — genau das, was der
+  Closing-Zweig (`updateClosingCall`) ohnehin tut.
+  Konsequenz für Auswertungen: **`revived_at` bedeutet seither zweierlei** —
+  „es gibt eine Nachfolgezeile" (Ablage-Pfad, dann zeigt `revived_from_*` auf den Vorgänger)
+  oder „dieselbe Zeile hat einen neuen Termin bekommen" (Listen-Pfad, dann gibt es keine
+  Nachfolgezeile). Wer Rückholungen zählt, muss über `revived_from_setting_call_id`/
+  `revived_from_closing_call_id` gehen, nicht über `revived_at`.
+  Nicht verwechseln mit der früheren Ablage-Liste „Abgesagt, Ersatztermin steht aus": Die
+  fragte `cancel_outlook='neuer_termin'` **und** `revived_at is null` ab; sie ist mit dem
+  Rückbau aus der Oberfläche verschwunden, weil genau diese Zeilen jetzt in der Hauptliste
+  stehen (§1). Die RPC kennt den Zweig weiter (`dropout_lists('ersatztermin_offen')`), **die
+  App fragt ihn nirgends mehr ab** — auch der Navigations-Zähler nicht, der genau daran hing
+  und mit ihr gefallen ist (§5.4). Wer per SQL auswertet, bekommt den Zweig unverändert.
 
 ### Vorlagen, Kaskade & Recycling-Konfiguration
 
 Ersetzt die früheren Tabellen `reminder_settings` und `recycle_settings` (Historie: Sie
 standen in der nie eingespielten ersten Fassung von 0031/0032 und existieren **nicht**).
-Ihre Offsets liegen jetzt in `cascade_steps`, ihre Texte in `message_templates`, der Rest
+Ihre Offsets liegen in `cascade_steps`, ihre Texte in `message_templates`, der Rest
 in `pipeline_settings`.
+
+> **⚠ Vier dieser fünf Tabellen liest seit dem Rückbau niemand mehr.** Sie existieren
+> unverändert, tragen ihre Zeilen weiter und werden von Löschvorschau und Nutzer-Umzug
+> weiter mitgeführt — aber **kein Anwendungscode liest oder schreibt sie**:
+>
+> | Tabelle | Status | Was mit ihrem Leser passiert ist |
+> |---|---|---|
+> | `template_catalog` | eingefroren, **31 Zeilen** | Vorlagen-Bibliothek `src/lib/messageTemplates.ts` gelöscht |
+> | `message_templates` | eingefroren, wächst nicht mehr | Vorlagen-Editor und `actions/messageTemplates.ts` gelöscht |
+> | `cascade_steps` | eingefroren, **21 Zeilen je Organisation** (der Seeding-Trigger legt sie weiter an, §2) | Kaskaden-Rechner `src/lib/cascadeEngine.ts` und das Kaskaden-Panel am Termin gelöscht |
+> | `reminder_touches` | eingefroren, wächst nicht mehr | Erinnerungs-Modul `actions/reminders.ts`, Board und Analyse-Blöcke gelöscht; niemand ruft mehr `apply_reminder_touches()` |
+> | `pipeline_settings` | **lebendig** | wird weiter gelesen und geschrieben — s. u. |
+>
+> **Warum sie stehen bleiben, statt zu fallen.** Es ist dieselbe Linie, aus der schon
+> `call_assignees` (§2) und `followup_templates` (§3) noch dastehen: Was fällt, ist der Code,
+> der eine Tabelle liest, nicht die Zeile, die schon dasteht. Ein `drop table` wäre eine
+> eigene Migration mit vier Kaskaden-Fremdschlüsseln, zwei RLS-Paaren und je einem Eintrag in
+> Löschvorschau und Umzug — Risiko ohne Gegenwert, denn eine ungelesene Tabelle kostet nichts
+> außer Plattenplatz. Und ein zweiter Grund, der wichtiger ist: **Die Zeilen sind Daten.**
+> `reminder_touches` trägt die Erledigungs-Historie von zwei produktiven Tagen, und ein
+> Wiedereinstieg (in welcher Form auch immer) beginnt sinnvollerweise mit dem Blick darauf,
+> was damals erledigt wurde und was nicht.
+>
+> **Für Auswertungen heißt das:** Diese vier Tabellen beantworten die Frage „was war zwischen
+> dem 8. und dem 10. September 2026" — sonst nichts. Eine Kennzahl darauf ist ab dem
+> Deploy-Datum des Rückbaus konstant und sinkt danach nie wieder; wer aus ihr auf heutiges
+> Verhalten schließt, liest ein abgeschlossenes Experiment als laufenden Betrieb.
 
 | Tabelle | Zweck / Schlüsselspalten |
 |---|---|
-| `template_catalog` | Katalog der Nachrichtenarten (Migration 0031), **31 Zeilen**. `template_key` (PK), `label`, `group_key` (`setting`\|`closing`\|`followup`\|`no_show`\|`kein_close`\|`recycling`\|`linkedin`\|`aufgaben`), `placeholders` (text[]), `sort_order`, `is_mail`. Bewusst **ohne Textkörper** — die Auslieferungstexte stehen ausschließlich in `TEMPLATE_DEFAULTS` (`src/lib/messageTemplates.ts`), damit SQL und TypeScript nicht auseinanderlaufen und eine Textverbesserung jeden Kunden erreicht, der den Text nie angefasst hat. Bei jedem Einspielen abgeglichen (`on conflict do update`), Zeilen werden nie gelöscht, damit kein FK ins Leere zeigt. Lesbar für jedes angemeldete Konto, schreibbar für niemanden — er ändert sich nur mit einer Migration. Keine Gruppe `mail`: Eine Mail-Stufe gehört fachlich zu Erstgespräch bzw. Closing, die Unterscheidung trägt `is_mail`. |
-| `message_templates` | Die **abweichenden** Texte (Migration 0031). `workspace_id`, `user_id` (**NULL = Standard der Organisation**, gesetzt = persönliche Übersteuerung), `template_key` → `template_catalog`, `subject` (nur für Mail-Vorlagen), `body` (CHECK: nicht leer), `updated_by_user_id`. Zwei partielle Unique-Indizes trennen die beiden Ebenen ohne zweite Tabelle; `workspace_id` steht auch im persönlichen Index — `followup_templates` (0011) hat nur `unique(user_id, fu_number)` und wird dadurch beim Nutzer-Umzug mehrdeutig. **Keine `channel`-Spalte:** ein Text je Stufe gilt für WhatsApp, LinkedIn und Telefon gleichermaßen; die Karte ist eine Kopier-Werkbank. Eine Zeile entsteht erst beim bewussten Ändern, ein geleertes Feld löscht sie wieder. RLS: Org-Ebene über `can_manage_org_settings()`, die eigene Zeile immer gegen `auth.uid()` — **nicht** gegen die eingestellte Datensicht, sonst überschriebe ein Owner mit aktiver Datensicht unbemerkt den Text eines Kollegen. |
-| `pipeline_settings` | **Eine** Konfigurationszeile je Organisation (Migration 0032, PK = `workspace_id`) — ersetzt `reminder_settings` UND `recycle_settings`: ein Seeding-Schritt, ein RLS-Paar, eine Kartengruppe in den Einstellungen statt zweier. Termin-Disziplin: `max_reschedules` (1–5, Default 2), `reminder_horizon_days` (1–60, Default 7 — wie weit `/erinnerungen` nach vorn schaut). Recycling **zweistufig**: fünf Ursprungs-Defaults mit den Konzept-Fristen (`days_default_closing_lost` 28, `days_default_setting_disqualified` 56, `days_default_phone_dead`/`_setting_dead`/`_linkedin_exhausted` je 100) und daneben neun Verlustgrund-Werte, die sie übersteuern (`days_timing` 75, `days_preis`/`days_kein_bedarf` 105, `days_entscheider` 150, `days_wettbewerb`/`days_vertrauen` 270, `days_ghosting_breakup` 14 / `days_ghosting` 180 — Ghosting ist zweistufig: kurzer „Breakup"-Touch zuerst, dann das lange Intervall —, `days_sonstiges` 120). `max_attempts` (1–5, Default 2) deckelt die Versuche. Alle Tages-Spalten bewusst `not null`: nullable Spalten hätten die Staffelung faktisch abgeschafft. Für `falsche_zielgruppe` und `kein_fit` gibt es **keine** Spalte — sie bekommen nie ein Datum. Lesen: jedes Mitglied. Schreiben: `can_manage_org_settings()`, UI unter `/settings`. |
-| `cascade_steps` | Die Stufen der neun Kaskaden je Organisation (Migration 0032). PK `(workspace_id, cascade_kind, step_no)`. `cascade_kind` (§4), `step_no` (1–5), `trigger_event` (`scheduled`\|`created`\|`no_show`\|`no_close`), `anchor` (`before_appointment`\|`after_appointment`), `offset_minutes` (≥ 0), `requires_no_response`, `enabled`, `template_key` → `template_catalog`. **Zeile statt Spalte**, weil die Stufenzahl je Kaskade verschieden ist (Setting-Mail 2, Closing-Mail 3) und eine Stufe abschaltbar sein muss. **Minuten statt Stunden**, damit „3 Tage vorher" (4320) und „1 Stunde vorher" (60) in einer Einheit liegen. **Anker + nicht-negativer Offset statt vorzeichenbehafteter Minuten**: derselbe Ausdrucksumfang, aber eine Erinnerung NACH dem Termin lässt sich in einer Vor-Termin-Kaskade gar nicht erst formulieren (CHECK: `trigger_event='scheduled'` ⇔ `anchor='before_appointment'`). Die Reihenfolge der Stufen prüft die Oberfläche beim Speichern, nicht ein CHECK — sie ist ein zeilenübergreifender Zustand. **In der Oberfläche bisher nur ablesbar, nicht editierbar** (`PipelineSettingsCard` zeigt die Stufen als Liste); geändert werden sie per SQL. |
-| `reminder_touches` | Ein fälliger Touch je Zeile (Migration 0032, **v2** — die polymorphe Fassung mit `touch_type` gibt es nicht mehr). **Echte Fremdschlüssel** statt polymorpher `entity_id`: `setting_call_id` / `closing_call_id` (je `on delete cascade`), dazu `entity_type` (`setting`\|`closing`\|`closing_followup`) und `entity_id` als **generierte Spalte** (`coalesce(setting_call_id, closing_call_id)`, stored). Ein direkter DB-Delete oder ein vergessener Aufrufpfad nimmt die Touches damit mit, statt Karteileichen zu hinterlassen, die kein Invarianten-Check findet. Stufe: `touch_kind` (`cascade`\|`chain`\|`sofort`), `cascade_kind`, `step_no` (≥ 0; der `sofort`-Touch liegt kollisionsfrei auf 0), `requires_no_response`, `template_key` (**Snapshot** — eine später umbenannte Stufe schreibt die Historie nicht um). `assigned_user_id` ist ebenfalls ein **Snapshot** nach der `personOf()`-Regel, per BEFORE-INSERT-Trigger `reminder_touches_require_assignee` Pflicht (die Spalte bleibt trotzdem nullable: `deleteUser` räumt nicht vor, ein NOT NULL bräche die Nutzerverwaltung, ein `on delete cascade` löschte die Historie). `due_at`/`appointment_at` (timestamptz), `channel` (`linkedin`\|`telefon`\|`whatsapp`\|`mail`\|NULL) + `channel_locked`, `outcome` (§4), `done_at`/`done_by_user_id` (per CHECK ein Paar), `done_note`, `snoozed_until`, `superseded_at` (Soft-Delete — die Erledigungs-Historie bleibt zählbar). Höchstens ein aktiver Touch je `(entity_type, entity_id, cascade_kind, step_no)`: `unique index … where superseded_at is null` — die Kaskade steht bewusst IM Schlüssel, sonst kollidierte Stufe 1 der Nachrichten-Spur mit Stufe 1 der Mail-Spur desselben Termins. |
+| `template_catalog` | **Eingefroren (§ Kasten oben).** Katalog der Nachrichtenarten (Migration 0031), **31 Zeilen**. `template_key` (PK), `label`, `group_key` (`setting`\|`closing`\|`followup`\|`no_show`\|`kein_close`\|`recycling`\|`linkedin`\|`aufgaben`), `placeholders` (text[]), `sort_order`, `is_mail`. Bewusst **ohne Textkörper** — die Auslieferungstexte stehen ausschließlich in `TEMPLATE_DEFAULTS` (`src/lib/messageTemplates.ts`), damit SQL und TypeScript nicht auseinanderlaufen und eine Textverbesserung jeden Kunden erreicht, der den Text nie angefasst hat. Bei jedem Einspielen abgeglichen (`on conflict do update`), Zeilen werden nie gelöscht, damit kein FK ins Leere zeigt. Lesbar für jedes angemeldete Konto, schreibbar für niemanden — er ändert sich nur mit einer Migration. Keine Gruppe `mail`: Eine Mail-Stufe gehört fachlich zu Erstgespräch bzw. Closing, die Unterscheidung trägt `is_mail`. |
+| `message_templates` | **Eingefroren (§ Kasten oben).** Die **abweichenden** Texte (Migration 0031). `workspace_id`, `user_id` (**NULL = Standard der Organisation**, gesetzt = persönliche Übersteuerung), `template_key` → `template_catalog`, `subject` (nur für Mail-Vorlagen), `body` (CHECK: nicht leer), `updated_by_user_id`. Zwei partielle Unique-Indizes trennen die beiden Ebenen ohne zweite Tabelle; `workspace_id` steht auch im persönlichen Index — `followup_templates` (0011) hat nur `unique(user_id, fu_number)` und wird dadurch beim Nutzer-Umzug mehrdeutig. **Keine `channel`-Spalte:** ein Text je Stufe gilt für WhatsApp, LinkedIn und Telefon gleichermaßen; die Karte ist eine Kopier-Werkbank. Eine Zeile entsteht erst beim bewussten Ändern, ein geleertes Feld löscht sie wieder. RLS: Org-Ebene über `can_manage_org_settings()`, die eigene Zeile immer gegen `auth.uid()` — **nicht** gegen die eingestellte Datensicht, sonst überschriebe ein Owner mit aktiver Datensicht unbemerkt den Text eines Kollegen. |
+| `pipeline_settings` | **Lebendig.** **Eine** Konfigurationszeile je Organisation (Migration 0032, PK = `workspace_id`) — ersetzt `reminder_settings` UND `recycle_settings`: ein Seeding-Schritt, ein RLS-Paar, eine Kartengruppe in den Einstellungen statt zweier. Termin-Disziplin: `max_reschedules` (1–5, Default 2), `reminder_horizon_days` (1–60, Default 7 — **wirkungslos seit dem Rückbau**, es gab nur einen Leser: den Vorausblick von `/erinnerungen`). Recycling **zweistufig in der Datenbank, flach in der Oberfläche** (s. u.): fünf Ursprungs-Defaults mit den Konzept-Fristen (`days_default_closing_lost` 28, `days_default_setting_disqualified` 56, `days_default_phone_dead`/`_setting_dead`/`_linkedin_exhausted` je 100) und daneben neun Verlustgrund-Werte, die sie übersteuern (`days_timing` 75, `days_preis`/`days_kein_bedarf` 105, `days_entscheider` 150, `days_wettbewerb`/`days_vertrauen` 270, `days_ghosting_breakup` 14 / `days_ghosting` 180, `days_sonstiges` 120). `max_attempts` (1–5, Default 2) deckelt die Versuche, **wirkt weiter und ist weiterhin einstellbar** — er war zwischenzeitlich aus der Oberfläche gefallen und steht seit der Nachbesserung wieder in `/settings` (§5). Alle Tages-Spalten bewusst `not null`. Für `falsche_zielgruppe` und `kein_fit` gibt es **keine** Spalte — sie bekommen nie ein Datum. Lesen: jedes Mitglied. Schreiben: `can_manage_org_settings()`, UI unter `/settings` (`src/app/actions/pipelineSettings.ts`, seit dem Rückbau eine eigene Datei — vorher lag der Schreibpfad im gelöschten Erinnerungs-Modul). |
+| `cascade_steps` | **Eingefroren (§ Kasten oben).** Die Stufen der neun Kaskaden je Organisation (Migration 0032). PK `(workspace_id, cascade_kind, step_no)`. `cascade_kind` (§4), `step_no` (1–5), `trigger_event` (`scheduled`\|`created`\|`no_show`\|`no_close`), `anchor` (`before_appointment`\|`after_appointment`), `offset_minutes` (≥ 0), `requires_no_response`, `enabled`, `template_key` → `template_catalog`. **Zeile statt Spalte**, weil die Stufenzahl je Kaskade verschieden ist (Setting-Mail 2, Closing-Mail 3) und eine Stufe abschaltbar sein muss. **Minuten statt Stunden**, damit „3 Tage vorher" (4320) und „1 Stunde vorher" (60) in einer Einheit liegen. **Anker + nicht-negativer Offset statt vorzeichenbehafteter Minuten**: derselbe Ausdrucksumfang, aber eine Erinnerung NACH dem Termin lässt sich in einer Vor-Termin-Kaskade gar nicht erst formulieren (CHECK: `trigger_event='scheduled'` ⇔ `anchor='before_appointment'`). Die Reihenfolge der Stufen prüft die Oberfläche beim Speichern, nicht ein CHECK — sie ist ein zeilenübergreifender Zustand. **In der Oberfläche gar nicht mehr sichtbar**: `PipelineSettingsCard` zeigte die 21 Stufen als Leseliste, der Rückbau hat sie entfernt. |
+| `reminder_touches` | **Eingefroren (§ Kasten oben).** Ein fälliger Touch je Zeile (Migration 0032, **v2** — die polymorphe Fassung mit `touch_type` gibt es nicht mehr). **Echte Fremdschlüssel** statt polymorpher `entity_id`: `setting_call_id` / `closing_call_id` (je `on delete cascade`), dazu `entity_type` (`setting`\|`closing`\|`closing_followup`) und `entity_id` als **generierte Spalte** (`coalesce(setting_call_id, closing_call_id)`, stored). Ein direkter DB-Delete oder ein vergessener Aufrufpfad nimmt die Touches damit mit, statt Karteileichen zu hinterlassen, die kein Invarianten-Check findet. Stufe: `touch_kind` (`cascade`\|`chain`\|`sofort`), `cascade_kind`, `step_no` (≥ 0; der `sofort`-Touch liegt kollisionsfrei auf 0), `requires_no_response`, `template_key` (**Snapshot** — eine später umbenannte Stufe schreibt die Historie nicht um). `assigned_user_id` ist ebenfalls ein **Snapshot** nach der `personOf()`-Regel, per BEFORE-INSERT-Trigger `reminder_touches_require_assignee` Pflicht (die Spalte bleibt trotzdem nullable: `deleteUser` räumt nicht vor, ein NOT NULL bräche die Nutzerverwaltung, ein `on delete cascade` löschte die Historie). `due_at`/`appointment_at` (timestamptz), `channel` (`linkedin`\|`telefon`\|`whatsapp`\|`mail`\|NULL) + `channel_locked`, `outcome` (§4), `done_at`/`done_by_user_id` (per CHECK ein Paar), `done_note`, `snoozed_until`, `superseded_at` (Soft-Delete — die Erledigungs-Historie bleibt zählbar). Höchstens ein aktiver Touch je `(entity_type, entity_id, cascade_kind, step_no)`: `unique index … where superseded_at is null` — die Kaskade steht bewusst IM Schlüssel, sonst kollidierte Stufe 1 der Nachrichten-Spur mit Stufe 1 der Mail-Spur desselben Termins. |
 
-**Kanal: Snapshot für die Auswertung, live für die Anzeige.** `reminder_touches.channel` hält
-fest, was zum Erzeugungszeitpunkt galt; die Karte löst beim Rendern neu auf, damit eine
-nachträglich erfasste WhatsApp-Einwilligung noch wirkt. `channel_locked` merkt eine bewusste
-Nutzerwahl und schaltet das Nachlösen ab. Wer Kanäle auswertet, liest die Spalte (den
-Snapshot) — was der Nutzer auf dem Bildschirm sah, kann davon abweichen.
+Die beiden folgenden Regeln beschreiben **den eingefrorenen Bestand**, nicht laufendes
+Verhalten — sie stehen hier, damit die Zeilen in `reminder_touches` lesbar bleiben:
 
-**`outcome` entwertet nur Ketten, nie geplante Stufen.** Wird auf einem `chain`-Touch
-„antwort" eingetragen, werden die noch offenen Folgestufen mit `requires_no_response`
-superseded — das ist wörtlich der Pfeil „keine Antwort" aus dem Konzept. Bei einer
-Vor-Termin-Kaskade passiert das bewusst NICHT: Eine Bestätigung auf Stufe 1 lässt Stufe 2
-und 3 fällig, weil der Meeting-Link aus Stufe 3 auch nach einer Zusage rausgehen soll.
+**Kanal: Snapshot für die Auswertung, live für die Anzeige.** `reminder_touches.channel` hielt
+fest, was zum Erzeugungszeitpunkt galt; die Karte löste beim Rendern neu auf, damit eine
+nachträglich erfasste WhatsApp-Einwilligung noch wirkte. `channel_locked` merkte eine bewusste
+Nutzerwahl und schaltete das Nachlösen ab. Wer die Bestandszeilen nach Kanälen auswertet, liest
+die Spalte (den Snapshot) — was der Nutzer damals auf dem Bildschirm sah, kann davon abweichen.
+
+**`outcome` entwertete nur Ketten, nie geplante Stufen.** Wurde auf einem `chain`-Touch
+„antwort" eingetragen, wurden die noch offenen Folgestufen mit `requires_no_response`
+superseded — wörtlich der Pfeil „keine Antwort" aus dem Konzept. Bei einer Vor-Termin-Kaskade
+passierte das bewusst NICHT: Eine Bestätigung auf Stufe 1 ließ Stufe 2 und 3 fällig, weil der
+Meeting-Link aus Stufe 3 auch nach einer Zusage rausgehen sollte. **Konsequenz für den
+Bestand:** Ein `superseded_at` ohne `done_at` heißt „entwertet", nicht „versäumt" — und ab dem
+Deploy des Rückbaus wird gar nichts mehr entwertet, offene Touches bleiben für immer offen
+stehen. Sie sind kein Rückstand, sondern ein Standbild.
 
 ### Sonstiges
 
@@ -386,7 +641,7 @@ und 3 fällig, weil der Meeting-Link aus Stufe 3 auch nach einer Zusage rausgehe
 | `profiles` | `user_id` ↔ `username` (Login + Owner-Matching). |
 | `workspaces` / `workspace_members` | Team + Mitgliedschaft (`role`, `data_scope`, Invite-Code). |
 | `performance_targets` | Ziele je User: `channel` (`linkedin`\|`telefon`) × `period` (`daily`\|`weekly`) × `metric` (`pitches`\|`calls`\|`appointments`). App-Defaults ohne Eintrag: LinkedIn 20/Tag, 100/Woche; Telefon 40/Tag, 200/Woche (`src/lib/targets.ts`). |
-| `followup_templates` | **Abgelöst und von der App nicht mehr gelesen — die Tabelle steht trotzdem noch da.** FU-Textvorlagen je User (`fu_number` 1–3). Migration 0034 hat die Zeilen nach `message_templates` (`linkedin_fu_1..3`) übernommen; die Vorrangkette ist seither `lists.fuN_text` > persönlich > Organisation > Auslieferungstext (`resolveTemplate`, §1). Seit dem Deploy liest **keine Zeile Anwendungscode** die Tabelle mehr: `src/app/actions/templates.ts` ist gelöscht, `actions/nachfassen.ts` holt seine Texte aus dem Katalog, und `resolveTemplate()` kennt nur noch `message_templates`. Angefasst wird sie nur noch von den Lifecycle-RPCs — Umzug und Löschvorschau stempeln bzw. zählen sie weiter, deshalb steht ihr Label in `COUNT_LABELS` (`src/lib/lifecycleLabels.ts`). Sie **bleibt trotzdem stehen** (Muster `call_assignees`): Ein `drop table` wäre jetzt zwar gefahrlos möglich — der Grund, ihn zu verschieben, war das Verifikationsfenster, in dem das ausgelieferte `main` sie noch ohne Fehlerprüfung las —, aber er braucht eine eigene Migration (**0041** aufwärts, §7) und bringt außer einem aufgeräumten Schema nichts ein. Für Auswertungen nicht mehr verwenden: Ihre Zeilen sind ein eingefrorener Stand von vor 0034, spätere Änderungen stehen ausschließlich in `message_templates`. |
+| `followup_templates` | **Abgelöst und von der App nicht mehr gelesen — die Tabelle steht trotzdem noch da.** FU-Textvorlagen je User (`fu_number` 1–3). Migration 0034 hat die Zeilen nach `message_templates` (`linkedin_fu_1..3`) übernommen; die Vorrangkette ist seither `lists.fuN_text` > persönlich > Organisation > Auslieferungstext (`resolveTemplate`, §1). Seit dem Deploy liest **keine Zeile Anwendungscode** die Tabelle mehr: `src/app/actions/templates.ts` ist gelöscht, und mit dem Rückbau ist auch ihr Nachfolger `message_templates` ohne Leser (§ Kasten oben) — es gibt in der App überhaupt keine Nachrichtenvorlage mehr außer den FU-Texten an der LinkedIn-Liste. Angefasst wird sie nur noch von den Lifecycle-RPCs — Umzug und Löschvorschau stempeln bzw. zählen sie weiter, deshalb steht ihr Label in `COUNT_LABELS` (`src/lib/lifecycleLabels.ts`). Sie **bleibt trotzdem stehen** (Muster `call_assignees`): Ein `drop table` wäre gefahrlos möglich, braucht aber eine eigene Migration (**0042** aufwärts, §7) und bringt außer einem aufgeräumten Schema nichts ein. Für Auswertungen nicht mehr verwenden: Ihre Zeilen sind ein eingefrorener Stand von vor 0034.<br>**⚠ Offener Punkt (O2 in `ENTSCHEIDUNGEN.md`):** Die 0034 übernommenen persönlichen FU-Texte sind damit **über keine Oberfläche mehr erreichbar** — weder in der Quell- noch in der Zieltabelle. Im Ergebnis harmlos (die Listen-Texte sind der praktisch genutzte Weg und unberührt), aber es ist ein stiller Verlust: Der Nutzer sieht keinen Fehler, sondern einen anderen Text. Zu entscheiden ist, ob die persönliche Ebene eine kleine Oberfläche zurückbekommt oder als endgültig abgelöst gilt. |
 | `list_views` | **Smart Views** — gespeicherte, filter-definierte Sichten auf LinkedIn-Kontakte, beliebig verschachtelbar. `parent_id` → `list_views` (Selbstreferenz, `on delete cascade`), `name`, `sort_order`, `filters` (jsonb), `owner_name`/`created_by_user_id` wie bei `lists`. **`filters is null` = reiner Ordner** (gruppiert nur), `filters` gesetzt = Ansicht, die zu einer Kontaktmenge auflöst. Besitzt nichts: Kontakte bleiben an ihrer Liste. Filter-Schema und Query-Aufbau ausschließlich in `src/lib/listViews.ts` (`parseViewFilters`, `viewFilterOps`), UI unter `/ansicht/[viewId]` und im Sidebar-Baum. |
 | `organic_lists` / `organic_posts` | Organic-Social-Tracker (Posts, Impressions, `content_type`: educational/motivational/entertaining/bts/other). UI ist abgeklemmt (alte Routen leiten um), Daten existieren ggf. noch. |
 
@@ -402,7 +657,8 @@ und 3 fällig, weil der Meeting-Link aus Stufe 3 auch nach einer Zusage rausgehe
 **`phone_call_attempts.source`**: `app` (echtes Ereignis) · `backfill` (nachträglich synthetisiert — bisher nirgends erzeugt, hält nur die Tür offen, damit erfundene Ereignisse später von echten trennbar bleiben).
 
 **`setting_calls.status`**: `offen` „Offen" · `no_show` „Nicht erschienen" · `qualifiziert` „Qualifiziert" · `closing_gelegt` „Closing gelegt" · `unqualifiziert` „Unqualifiziert" · `dead` „Dead"
-Historie: Alt-Wert `disqualifiziert` wurde per Migration 0018 zu `unqualifiziert` migriert. Outcome-Logik: `no_show` → Wiedervorlage (Vorschlag +1 Tag) + `no_show_count`++ + No-Show-Kette; `unqualifiziert` → Wiedervorlage (Vorschlag +7 Tage), **seit dem Umbau nur noch MIT `disqualify_reason_code`** — Status und Grund schreibt `setSettingOutcome` in EINEM UPDATE, damit der Trigger `setting_calls_require_disqualify_reason` aus 0035 (eingespielt, §7) nie einen Zwischenstand sieht — in zwei Statements geschrieben würde er bereits beim ersten werfen; `dead` → Recycling-Datum; `qualifiziert` → Closing wird angelegt, Status wird `closing_gelegt`. Show-Quote: `show_status` (`show`/`no_show`); bei `offen`/`dead` bewusst NULL — und bei einem **abgesagten** Termin ebenfalls, siehe Termin-Lebenszyklus weiter unten.
+Historie: Alt-Wert `disqualifiziert` wurde per Migration 0018 zu `unqualifiziert` migriert. Outcome-Logik: `no_show` → Wiedervorlage (Vorschlag +1 Tag) + `no_show_count`++ (**die No-Show-Kette ist mit dem Rückbau entfallen**, `createNoShowTouch()` gelöscht); `unqualifiziert` → Wiedervorlage (Vorschlag +7 Tage) **und weiterhin nur MIT `disqualify_reason_code`** — Status und Grund schreibt `setSettingOutcome` unverändert in EINEM UPDATE; `dead` → Recycling-Datum, **ohne Grundcode** (das ist der Weg, den der Knopf „Tot" der Arbeitsliste nimmt); `qualifiziert` → Closing wird angelegt, Status wird `closing_gelegt`. Show-Quote: `show_status` (`show`/`no_show`); bei `offen`/`dead` bewusst NULL — und bei einem **abgesagten** Termin ebenfalls, siehe Termin-Lebenszyklus weiter unten.
+**Der DB-seitige Zwang entfällt mit Migration 0041.** Der Trigger `setting_calls_require_disqualify_reason` aus 0035 wird dort entfernt (§7): Ein Pflichtfeld, dessen Formular verschwindet, ist kein Qualitätsanspruch mehr, sondern eine Sperre gegen die eigene App. Die App-Regel bleibt trotzdem stehen — `setSettingOutcome` verlangt den Grund weiter, weil die Detailseite ihn weiter anbietet. Fürs Nachrechnen: **Ab 0041 dürfen neue Zeilen wieder ohne Grund entstehen**; eine wachsende Zahl in der entsprechenden Abfrage aus §8 ist ab dann kein Defekt mehr, sondern nur noch die Auskunft, wie oft niemand einen Grund angegeben hat.
 **Achtung: `qualifiziert` wird vom UI nicht mehr vergeben.** Ein Klick auf „Qualifiziert" legt sofort das Closing an und schreibt `closing_gelegt` (`setSettingOutcome` → `createClosingFromSetting`); wird ein Closing gelöscht, fällt das Setting auf `offen` zurück, nicht auf `qualifiziert`. Der Wert steht also nur noch in Bestandszeilen. Konsequenz für Auswertungen: Die Kennzahl „Zu Closing geschickt" (`closing_gelegt` ÷ `qualifiziert` + `closing_gelegt`, §5) liegt bei aktuellen Daten fast immer bei 100 % — sie kann erst wieder trennen, wenn der Zwischenschritt „qualifiziert, aber noch kein Closing gelegt" in der Oberfläche erreichbar ist.
 
 **`setting_calls.source_type`** — die Kanal-Registry (`src/lib/channels.ts`) ist die einzige Quelle für Schlüssel, Label, Farbe und Volumen-Flag; der CHECK aus Migration 0029 kennt dieselbe Liste. Fünf Werte sind wählbar, drei bleiben für Bestandszeilen gültig:
@@ -425,44 +681,95 @@ Zusätzlich zum Kanal trägt **`source_detail`** den echten Ursprung als Freitex
 **`setting_calls.meeting_kind`**: `link` · `telefon` · NULL (nur Altbestand — die dritte Option „Ohne" gibt es nicht mehr, §1).
 
 **Termin-Lebenszyklus (Migration 0032, beide Termin-Tabellen soweit nicht anders vermerkt):**
-- **`cancel_reason_code`**: `kein_neuer_termin` „Will keinen neuen Termin" · `krank` · `familiaer` „Familiär" · `beruflich` · `preis` „Preis" · `sonstiges`. Freitext daneben: `cancel_reason`. Der Code ist Pflicht und wird **seit Migration 0035 auch von der Datenbank erzwungen** (Trigger `setting_calls_require_cancel_reason` / `closing_calls_require_cancel_reason`) — nicht mehr nur von der Server-Action. Trigger statt CHECK, und der Trigger vergleicht OLD/NEW: Er wirft nur, wenn der schlechte Zustand **in diesem Statement neu entsteht**. Eine Bestandszeile ohne Code bleibt deshalb bearbeitbar (§7, §8).
+- **`cancel_reason_code`**: `kein_neuer_termin` „Will keinen neuen Termin" · `krank` · `familiaer` „Familiär" · `beruflich` · `preis` „Preis" · `sonstiges`. Freitext daneben: `cancel_reason`. Der Code wird von der Server-Action verlangt und von der Lebenszyklus-Leiste am Termin abgefragt (`AppointmentLifecycleBar`, unverändert). **Der DB-seitige Zwang aus 0035 fällt mit Migration 0041** (Trigger `setting_calls_require_cancel_reason` / `closing_calls_require_cancel_reason` werden entfernt, §7) — dieselbe Begründung wie beim Disqualifikationsgrund oben. Die beiden **Triggerfunktionen bleiben absichtlich stehen**, mit einem `STILLGELEGT mit 0041`-Vermerk: In ihnen steckt nicht die Regel — die ist trivial —, sondern die Bauart, die Bestandszeilen verschont (OLD/NEW-Vergleich statt CHECK). Wer sie löscht, leitet das beim Wiederanhängen neu her und baut vermutlich den CHECK nach, den 0035 ausdrücklich vermieden hat.
 - **`cancel_outlook`**: `ohne_aussicht` „Ohne Aussicht auf einen neuen Termin" · `neuer_termin`. CHECK: `cancelled_at` und `cancel_outlook` sind ein Paar (beide oder keins). Die beiden Werte trennen zwei Ablage-Listen, die nicht zusammenfallen dürfen: totes Ende vs. offener Ersatztermin.
 - **`no_show_resolution`**: `antwort` · `ohne_antwort` · `ersatztermin`. CHECK: nur bei `show_status='no_show'`. `ohne_antwort` ist der einzige saubere Auslöser für die Ablage-Ansicht „No-Show ohne Antwort" — vorher war dieser Fall von „noch nicht nachgefasst" nicht zu unterscheiden.
 - **`setting_calls.disqualify_reason_code`** (nur Setting; ein Closing hat dafür `lost_reason_code`): `geld` · `kein_budget` · `kein_bedarf` · `falscher_zeitpunkt` · `kein_entscheider` · `falsche_zielgruppe` · `keine_zusammenarbeit` · `sonstiges`. Zwei davon bekommen nie ein Recycling-Datum: `keine_zusammenarbeit` ist die rote Notiz „kein weiteres Kontaktieren!" (die App setzt zusätzlich `recycle_excluded_at`, also die **Sperrliste**), `falsche_zielgruppe` ist schlicht der falsche Fit (dort wird nur ein bereits gesetztes Datum geräumt). Freitext daneben: `disqualify_reason`.
 
-**`cascade_steps.cascade_kind`** (neun Kaskaden): `setting_msg` „Setting — Nachrichten" · `setting_mail` · `closing_msg` · `closing_mail` · `followup_msg` „Nachfass-Kontakt" · `closing_kickoff` „Nach der Qualifizierung" · `no_show_setting` · `no_show_closing` · `kein_close` „Kein Abschluss" (Labels: `CASCADE_KIND_LABELS`, `src/lib/cascadeEngine.ts`). Die fünf **Mail-Stufen sind ausgeliefert, aber `enabled=false`** (Phase 2) — der Kern erzeugt und rendert sie nicht; Touches dafür wären Karten, die die Oberfläche nicht anzeigen kann.
+**Die folgenden vier Wertelisten beschreiben EINGEFRORENE Spalten** (§3): Sie stehen live und
+tragen ihre Zeilen, aber kein Code vergibt seit dem Rückbau noch einen dieser Werte. Sie
+bleiben hier, damit der Bestand aus zwei produktiven Tagen lesbar ist — und damit niemand die
+Spalten für unbenutztes Beiwerk hält und wegräumt.
+
+**`cascade_steps.cascade_kind`** (neun Kaskaden): `setting_msg` „Setting — Nachrichten" · `setting_mail` · `closing_msg` · `closing_mail` · `followup_msg` „Nachfass-Kontakt" · `closing_kickoff` „Nach der Qualifizierung" · `no_show_setting` · `no_show_closing` · `kein_close` „Kein Abschluss" (Labels standen in `CASCADE_KIND_LABELS`, `src/lib/cascadeEngine.ts` — gelöscht). Die fünf **Mail-Stufen wurden ausgeliefert, aber mit `enabled=false`** (Phase 2, nie begonnen). Die 21 geseedeten Zeilen je Organisation entstehen weiterhin beim Anlegen einer Organisation (§2), werden aber von niemandem gelesen.
 **`cascade_steps.trigger_event`**: `scheduled` (geplant vor dem Termin) · `created` (beim Anlegen, nur `closing_kickoff`) · `no_show` · `no_close`. **`anchor`**: `before_appointment` · `after_appointment`.
 
 **`reminder_touches.entity_type`**: `setting` · `closing` · `closing_followup` (der vereinbarte Nachfass-Kontakt eines Closings im Status `nachfassen`, nicht das Closing-Gespräch selbst).
-**`reminder_touches.touch_kind`** (ersetzt das frühere `touch_type` mit `offset_1..3`/`no_show`): `cascade` (geplante Stufe vor dem Termin) · `chain` (Stufe einer Kette nach einem Ereignis) · `sofort` (Ersatz-Touch, wenn der Termin für jede geplante Stufe zu kurzfristig war — `step_no = 0`, `due_at` = Erzeugungszeitpunkt). WELCHE Stufe es ist, steht in `cascade_kind` + `step_no`, nicht mehr im Typ. CHECK: bei `touch_kind='cascade'` muss `due_at <= appointment_at` sein; `sofort` ist davon ausgenommen.
-**`reminder_touches.channel`**: `linkedin` · `telefon` · `whatsapp` · `mail` · NULL (kein Kanal ableitbar — Quelle ohne Vorlaufkanal wie `ads`/`sonstige`, oder ein Closing ohne Setting-Bezug; UI zeigt „Kanal frei wählen" statt zu raten). Auflösung: `resolveCascadeChannel()`/`resolveFollowUpChannel()` in `src/lib/reminderCascade.ts` — WhatsApp nur, wenn `setting_calls.wa_phone` **und** `wa_consent_at` gesetzt sind; ist `wa_refused_at` gesetzt, fällt der Kanal ausdrücklich auf den Akquise-Kanal des Settings zurück. `channel_locked` = die Person hat den Kanal bewusst gewählt.
-**`reminder_touches.outcome`**: `antwort` · `keine_antwort` · `bestaetigt` · `abgesagt` · `verschoben` · NULL (noch nicht erledigt oder ohne Angabe abgehakt).
+**`reminder_touches.touch_kind`** (ersetzte das frühere `touch_type` mit `offset_1..3`/`no_show`): `cascade` (geplante Stufe vor dem Termin) · `chain` (Stufe einer Kette nach einem Ereignis) · `sofort` (Ersatz-Touch, wenn der Termin für jede geplante Stufe zu kurzfristig war — `step_no = 0`, `due_at` = Erzeugungszeitpunkt). WELCHE Stufe es ist, steht in `cascade_kind` + `step_no`, nicht im Typ. CHECK: bei `touch_kind='cascade'` muss `due_at <= appointment_at` sein; `sofort` ist davon ausgenommen.
+**`reminder_touches.channel`**: `linkedin` · `telefon` · `whatsapp` · `mail` · NULL (kein Kanal ableitbar — Quelle ohne Vorlaufkanal wie `ads`/`sonstige`, oder ein Closing ohne Setting-Bezug). Aufgelöst wurde er in `resolveCascadeChannel()`/`resolveFollowUpChannel()` (`src/lib/reminderCascade.ts`, **Datei gelöscht**): WhatsApp nur, wenn `setting_calls.wa_phone` **und** `wa_consent_at` gesetzt waren; bei `wa_refused_at` fiel der Kanal auf den Akquise-Kanal des Settings zurück. `channel_locked` = die Person hatte den Kanal bewusst gewählt. **Einen Kanal-Begriff gibt es im Nachfassen heute nicht mehr** — der Nachfass-Stempel hält bewusst nicht fest, wie kontaktiert wurde (§1).
+**`reminder_touches.outcome`**: `antwort` · `keine_antwort` · `bestaetigt` · `abgesagt` · `verschoben` · NULL (nicht erledigt oder ohne Angabe abgehakt).
 
-> **`src/lib/reminderCascade.ts` trägt nur noch die Kanal-Frage.** Das feste Offset-Tripel der
-> ersten Fassung (`DEFAULT_REMINDER_SETTINGS`, `computeCascadeDueAts()`, `templateFieldFor()`,
-> `renderReminderTemplate()` und der Typ `ReminderTouchType` mit `offset_1..3`/`no_show`) ist
-> **entfernt** — es beschrieb ein Datenmodell, das die ausgelieferte Datenbank nicht kennt.
-> Gerechnet wird in `src/lib/cascadeEngine.ts`, die Texte kommen aus `message_templates`. In
-> der Datei stehen jetzt nur noch die beiden Kanal-Auflöser und die Typen
-> `ReminderEntityType`/`TouchChannel`.
+> **Was von der Kaskaden-Bibliothek übrig ist: nichts.** `src/lib/reminderCascade.ts`,
+> `src/lib/cascadeEngine.ts` und `src/lib/messageTemplates.ts` sind gelöscht, ebenso
+> `src/app/actions/reminders.ts` (Erzeugen, Entwerten, Lesen, Erledigen, Rückgängig), das
+> Kaskaden-Panel am Termin und das Erinnerungs-Board. Aus `src/lib/recycleCadence.ts` sind
+> `RECYCLE_REASON_HINTS` und `renderRecycleTemplate()` mitgefallen — sie füllten `{anlass}` in
+> einer Recycling-Vorlage, und Vorlagen gibt es nicht mehr. Geblieben sind dort genau zwei
+> Dinge mit einem echten Verbraucher: der Ursprungs-Typ `RecycleOrigin` und
+> `RECYCLE_REASON_LABELS`, das der Ablage die beiden Codes `dead` und `fu_exhausted`
+> beschriftet, die keine andere Grund-Familie kennt.
+>
+> **Ein einziges Stück ist vorher umgezogen statt mitzufallen:** das Verschiebe-Kontingent
+> `max_reschedules`. Es lag im Erinnerungs-Modul, gehört aber nicht zur Kaskade — hätte es sie
+> begleitet, wären die Verschiebe-Warnung in `postponeAppointment` und die Anzeige in der
+> Lebenszyklus-Leiste lautlos verschwunden (§3).
 
 **`closing_calls.status`**: `offen` „Offen" · `gewonnen` „Gewonnen" · `verloren` „Verloren" (erzwingt `lost_reason_code`, **nicht** mehr den Freitext) · `nachfassen` „Nachfassen" (erzwingt `follow_up_due`)
 **`closing_calls.lost_reason_code`** (CHECK aus Migration 0029, in 0032 auf **zehn** Werte erweitert): `preis` „Preis" · `timing` „Timing" · `kein_bedarf` „Kein Bedarf" · `entscheider` „Entscheider" · `wettbewerb` „Wettbewerb" · `vertrauen` „Vertrauen" · `ghosting` „Ghosting" · `falsche_zielgruppe` „Falsche Zielgruppe" · **`kein_fit` „Kein Fit"** (neu in 0032) · `sonstiges` „Sonstiges" (Labels: `CLOSING_LOST_REASON_LABELS`, `src/lib/types.ts`).
-Warum zusätzlich zum Freitext: „zu teuer", „Preis", „Budget nicht da" sind drei Zeilen mit je Häufigkeit 1 — zählbar wird der Grund erst über den Code. **Code = Statistik, Freitext = Gedächtnis**; `lost_reason` bleibt daneben bestehen und ist seit 0029 optional. `falsche_zielgruppe` ist der einzige Code, der nicht das Closing bewertet, sondern die Stufe davor: Er macht messbar, wer falsch qualifiziert — ohne ihn verschwände der Fall unter `kein_bedarf`. `kein_fit` ist das Closing-Pendant zu „Zusammenarbeit macht keinen Sinn": nicht der Lead war falsch, das Gespräch hat gezeigt, dass es nicht passt — der zweite Code neben `falsche_zielgruppe`, der nie ein Recycling-Datum bekommt. Die Erweiterung ist rein additiv, Bestandszeilen bleiben gültig. **Fallstrick:** Migration 0029 hat **alle** Bestandszeilen mit `status='verloren'` auf `sonstiges` gesetzt (bewusst kein Rate-Mapping aus dem Freitext) — sie sind von Hand nachzupflegen. Bis dahin ist die Verteilung eine Aussage über das Deploy-Datum, nicht über die Einwände. Zeilen ohne Code führt der Closing-Tab getrennt als „Ohne Angabe", statt sie nach `sonstiges` zu buchen.
+Warum zusätzlich zum Freitext: „zu teuer", „Preis", „Budget nicht da" sind drei Zeilen mit je Häufigkeit 1 — zählbar wird der Grund erst über den Code. **Code = Statistik, Freitext = Gedächtnis**; `lost_reason` bleibt daneben bestehen und ist seit 0029 optional. `falsche_zielgruppe` ist der einzige Code, der nicht das Closing bewertet, sondern die Stufe davor: Er macht messbar, wer falsch qualifiziert — ohne ihn verschwände der Fall unter `kein_bedarf`. `kein_fit` ist das Closing-Pendant zu „Zusammenarbeit macht keinen Sinn": nicht der Lead war falsch, das Gespräch hat gezeigt, dass es nicht passt — der zweite Code neben `falsche_zielgruppe`, der nie ein Recycling-Datum bekommt. Die Erweiterung ist rein additiv, Bestandszeilen bleiben gültig. **Fallstrick 1 (alt):** Migration 0029 hat **alle** Bestandszeilen mit `status='verloren'` auf `sonstiges` gesetzt (bewusst kein Rate-Mapping aus dem Freitext) — sie sind von Hand nachzupflegen. Bis dahin ist die Verteilung eine Aussage über das Deploy-Datum, nicht über die Einwände. Zeilen ohne Code führt der Closing-Tab getrennt als „Ohne Angabe", statt sie nach `sonstiges` zu buchen.
+**Fallstrick 2 (neu, seit dem Rückbau — wichtiger als der erste):** Der Knopf **„Tot"** der Arbeitsliste schreibt bei einem Closing `status='verloren'` **mit `lost_reason_code='sonstiges'`** (`markTerminDead`, `src/app/actions/followUpStamp.ts`). Der Grundkatalog ist Teil des Überbaus, der gefallen ist; die Liste fragt keinen Grund mehr ab. Das ist bewusst keine Notlüge, sondern die zutreffende Angabe — „kein bestimmter Grund erfasst", dieselbe Bedeutung wie im 0029-Bestand. Der praktische Gewinn ist das Recycling: `schedule_recycle()` wählt für `sonstiges` den konservativen Mittelwert (120 Tage), während ein direktes `update ... set status='verloren'` den Lead ohne jede Wiedervorlage verschwinden ließe. **Konsequenz für die Auswertung: Der Anteil `sonstiges` wächst ab jetzt strukturell**, und zwar genau um die Leads, die über die Liste beendet werden. Eine Verlustgrund-Verteilung misst damit zunehmend, auf welchem WEG ein Deal beendet wurde (Detailseite mit Grundauswahl vs. Listen-Knopf), nicht mehr nur, woran er scheiterte. Wer Einwände auswerten will, sollte den Zeitraum vor dem Rückbau nehmen oder die Zeilen über die Detailseite nachpflegen.
 
-**Derselbe Code entscheidet seit Migration 0033 zusätzlich die Recycling-Wartezeit** — und zwar **serverseitig in `schedule_recycle()`**, nicht mehr im App-Code (Werte in `pipeline_settings`, §3): `timing`/`preis`/`kein_bedarf` kurz (75–105 Tage), `entscheider` 150, `wettbewerb`/`vertrauen` 270, `ghosting` zweistufig (14 Tage Breakup-Touch, dann 180), `sonstiges`/ohne Code ein konservativer Mittelwert (120), `falsche_zielgruppe` und `kein_fit` **nie** — Letzteres hält ein CHECK auf `closing_calls` zusätzlich fest, nicht nur eine App-Regel. Die RPC `recycle_tasks` (§5) liefert als `reason` den gespeicherten `recycle_reason_code`, ersatzweise den `lost_reason_code`; bei `origin='telefon'`/`'setting'` steht dort `dead`, bei `origin='linkedin'` `fu_exhausted` — beides keine DB-Enums, nur die beiden Ursprüngen zugeordneten Grund-Token der App.
-**Der Grund kommt aus der Zeile, nicht vom Client.** Die frühere Fassung schickte ihn als Argument mit — womit sich per direktem POST jede beliebige Wartezeit auslösen ließ. `schedule_recycle()` liest ihn selbst, prüft zusätzlich den Status und gibt `null` zurück, wenn der Vorgang gar nicht (mehr) terminal ist. Für Auswertungen heißt das: **`recycle_reason_code` ist das maßgebliche Feld**. `recycleIntervalDays()`/`computeNextRecycleAt()` und `DEFAULT_RECYCLE_SETTINGS` in `src/lib/recycleCadence.ts` sind **entfernt** (ihre Feldnamen `days_phone_dead` … entsprachen auch nicht mehr den Spalten in `pipeline_settings`); aus der Datei wirken nur noch `RECYCLE_REASON_LABELS` und die `{anlass}`-Ableitung `RECYCLE_REASON_HINTS`. `tests/recycleCadence.test.ts` prüft die eine Regel, die dabei nicht verloren gehen durfte — „`falsche_zielgruppe`/`kein_fit` bekommen nie ein Datum" — jetzt am Text der eingefrorenen Migration 0033, also dort, wo sie lebt.
+**Derselbe Code entscheidet seit Migration 0033 zusätzlich die Recycling-Wartezeit** — und zwar **serverseitig in `schedule_recycle()`**, nicht im App-Code (Werte in `pipeline_settings`, §3): `timing`/`preis`/`kein_bedarf` kurz (75–105 Tage), `entscheider` 150, `wettbewerb`/`vertrauen` 270, `ghosting` zweistufig (14 Tage Breakup-Touch, dann 180), `sonstiges`/ohne Code ein konservativer Mittelwert (120), `falsche_zielgruppe` und `kein_fit` **nie** — Letzteres hält ein CHECK auf `closing_calls` zusätzlich fest, nicht nur eine App-Regel. Die RPC `recycle_tasks` (§5) liefert als `reason` den gespeicherten `recycle_reason_code`, ersatzweise den `lost_reason_code`; bei `origin='telefon'`/`'setting'` steht dort `dead`, bei `origin='linkedin'` `fu_exhausted` — beides keine DB-Enums, nur die beiden Ursprüngen zugeordneten Grund-Token der App.
+
+> **⚠ Die Staffelung steht weiter in der Datenbank — sie wird nur nicht mehr eingestellt.**
+> Das ist die eine Stelle, an der „flaches Recycling" (§1) missverstanden werden kann.
+> `schedule_recycle()` ist **eingefroren** (0033) und sucht sich die Wartezeit unverändert aus
+> einer von **vierzehn** Spalten aus, je nach Ursprung UND Verlustgrund. Was der Rückbau
+> geändert hat, sitzt eine Ebene darüber: In `/settings` steht nur noch **ein** Feld
+> „Recycling — Wartezeit (Tage)", und es schreibt **alle vierzehn Spalten mit derselben Zahl**
+> (`RECYCLE_COLUMNS`, `src/components/settings/PipelineSettingsCard.tsx`). Ein Feld, das nur
+> eine Spalte schriebe, wäre eine Behauptung: In der Oberfläche stünde eine Frist, in der
+> Datenbank gälte für drei der vier Ursprünge und jeden Verlustgrund weiter die alte
+> Staffelung — sichtbar nirgends.
+> **Fürs Nachrechnen folgt daraus zweierlei:** (1) Solange in einer Organisation niemand
+> gespeichert hat, gelten weiterhin die geseedeten, gestaffelten Werte (28–270 Tage); erst der
+> erste Klick auf Speichern ebnet sie ein. Die Karte sagt das an Ort und Stelle, indem sie die
+> gespeicherte Spanne nennt. (2) `recycle_reason_code` bleibt gesetzt und bleibt **das
+> maßgebliche Feld** — der Grund verschwindet nicht, nur seine Wirkung auf die Frist.
+
+**Der Grund kommt aus der Zeile, nicht vom Client.** Die frühere Fassung schickte ihn als Argument mit — womit sich per direktem POST jede beliebige Wartezeit auslösen ließ. `schedule_recycle()` liest ihn selbst, prüft zusätzlich den Status und gibt `null` zurück, wenn der Vorgang gar nicht (mehr) terminal ist. `recycleIntervalDays()`/`computeNextRecycleAt()` und `DEFAULT_RECYCLE_SETTINGS` in `src/lib/recycleCadence.ts` sind schon mit 0033 entfallen; die `{anlass}`-Ableitung `RECYCLE_REASON_HINTS` ist mit dem Rückbau gefolgt (sie füllte einen Vorlagen-Platzhalter). Aus der Datei wirken nur noch `RecycleOrigin` und `RECYCLE_REASON_LABELS`. `tests/recycleCadence.test.ts` prüft die eine Regel, die dabei nicht verloren gehen durfte — „`falsche_zielgruppe`/`kein_fit` bekommen nie ein Datum" — am Text der eingefrorenen Migration 0033, also dort, wo sie lebt.
 **`closing_calls.show_status`** (`show`/`no_show`, bei `offen` NULL): wird beim Eintragen eines Ergebnisses **abgeleitet** — ein Ergebnis setzt voraus, dass das Gespräch stattgefunden hat, also schreibt `setClosingOutcome` `show`, sofern noch nichts erfasst ist (ein bewusst gesetztes `no_show` bleibt stehen). Analog zu `setSettingOutcome`. Migration 0028 hat das für Bestandsdaten nachgezogen. **Fallstrick:** Echte Closing-No-Shows der Vergangenheit sind nicht rekonstruierbar — die Closing-Show-Quote springt dadurch auf ~100 % und sinkt erst mit neuen Daten.
 
 **`contacts.answer_category`** (Freitext, DB-Wert = deutsches Label, kein Constraint):
 - Aktuell wählbar: `Positiv` · `Neutral` · `Negativ`
 - Legacy in Bestandsdaten: `Interessiert`, `Kein Interesse`, `Zu teuer`, `Falsches Timing`, `Bereits Lösung`, `Kein Budget`, `Falsche Zielgruppe` (Definition: `src/lib/categories.ts`)
 
-**`contacts.follow_up_number`** (FU-Stufe): **NULL** = noch kein Follow-up, 1–3 = FU1–FU3. Achtung: der CHECK erlaubt nur `null` oder `1,2,3` — eine **0 steht nie in der DB**. Wer auf „noch kein Follow-up" filtert, braucht `is null`; ein `in (0)` findet nichts, und `in (…)` trifft NULL grundsätzlich nicht. Fälligkeits-Intervalle: nach Pitch +3 Tage → FU1, danach +5 → FU2, danach +7 → FU3, danach Ende. Der Rhythmus steht an genau **einer** Stelle: `nextFollowUpAfter()` (`src/lib/followup.ts`), geschlüsselt nach der gerade *abgeschlossenen* Stufe. Beide Schreibpfade nutzen ihn — das Listen-Board (`calcNextFollowUp`, `src/app/actions/contacts.ts`, Anker = Pitch-Datum) und das Nachfassen-Board (`advanceLinkedInFollowUp`, `src/app/actions/nachfassen.ts`, Anker = heute, sonst läge die nächste Stufe bei älteren Leads sofort in der Vergangenheit). In Bestandsdaten stecken noch Fälligkeiten aus der Zeit davor, als der Nachfassen-Pfad mit der Stufe *davor* rechnete (nach FU1 nur +3 statt +5) und nach FU3 noch eine Fälligkeit setzte — je nachdem, wo ein Follow-up erledigt wurde, stand eine andere Wiedervorlage in der Zeile. Ausschluss aus dem FU-Flow: `answered=true` oder `appointment_set=true` oder FU3 erreicht oder `blocked_at` gesetzt (Lead hat uns blockiert).
+**`contacts.follow_up_number`** (FU-Stufe): **NULL** = noch kein Follow-up, 1–3 = FU1–FU3. Achtung: der CHECK erlaubt nur `null` oder `1,2,3` — eine **0 steht nie in der DB**. Wer auf „noch kein Follow-up" filtert, braucht `is null`; ein `in (0)` findet nichts, und `in (…)` trifft NULL grundsätzlich nicht. Fälligkeits-Intervalle: nach Pitch +3 Tage → FU1, danach +5 → FU2, danach +7 → FU3, danach Ende. Der Rhythmus steht an genau **einer** Stelle: `nextFollowUpAfter()` (`src/lib/followup.ts`), geschlüsselt nach der gerade *abgeschlossenen* Stufe. **Seit dem Rückbau gibt es nur noch EINEN Schreibpfad**: das Listen-Board (`calcNextFollowUp`/`updateContact`, `src/app/actions/contacts.ts`). Es kennt beide Anker und wählt zwischen ihnen — *heute*, wenn eine FU-Stufe gerade neu erledigt wurde (sonst läge die nächste Stufe bei älteren Leads sofort in der Vergangenheit), sonst *Pitch-Datum*, damit ein unabhängiger Feld-Edit den Nachfass-Termin nicht verschiebt. Der zweite Pfad `advanceLinkedInFollowUp` lag im Nachfassen-Board und ist mit dessen LinkedIn-Sektion gefallen. In Bestandsdaten stecken noch Fälligkeiten aus einer Zeit davor, als dieser Pfad mit der Stufe *davor* rechnete (nach FU1 nur +3 statt +5) und nach FU3 noch eine Fälligkeit setzte — je nachdem, wo ein Follow-up erledigt wurde, stand eine andere Wiedervorlage in der Zeile. Ausschluss aus dem FU-Flow: `answered=true` oder `appointment_set=true` oder FU3 erreicht oder `blocked_at` gesetzt (Lead hat uns blockiert).
 
 ## 5. RPCs = maßgebliche Metrik-Definitionen
 
 Die Dashboards rechnen nicht frei, sondern über diese SECURITY-DEFINER-RPCs — für konsistente Auswertungen deren Semantik übernehmen. Alle nehmen `p_workspace_id` + optional `p_effective_user_id` (NULL = workspace-weit; bei `data_scope='own'` serverseitig auf den Aufrufer erzwungen).
+
+**Welche RPC nach dem Rückbau noch aufgerufen wird — die Kurzfassung.** Keine RPC wurde
+geändert oder gelöscht; geändert hat sich nur, wer sie ruft:
+
+| RPC | Ruft die App sie noch? |
+|---|---|
+| die 8 Metrik-RPCs (`rpc_*`) | **ja**, unverändert |
+| `recycle_tasks` | **ja** — `/nachfassen` (`loadRecycleTasks`) und der eine Navigations-Zähler, beide mit denselben Schnitten (§5.4) |
+| `dropout_lists` | **ja** — nur `/ablage` (`src/app/actions/dropout.ts`), und nur fünf ihrer sechs Werte |
+| `schedule_recycle`, `recycle_attempt` | **ja** — jeder Aufruf wurde beim Rückbau einzeln geprüft und bleibt: keiner erzeugte einen Touch, alle vier planen eine Wiedervorlage |
+| `seed_workspace_defaults` | **ja**, über den Trigger — legt aber zur Hälfte Zeilen an, die niemand liest (§2) |
+| `nachfassen_tasks` | **nein — kein Aufrufer mehr.** Die Seite hat sie in Welle 2 verloren, der Navigations-Zähler in der Nachbesserung (§5.4) |
+| `apply_reminder_touches` | **nein — kein Aufrufer mehr.** Mit dem Erinnerungs-Modul ist der einzige weggefallen |
+
+Angefasst wird trotzdem keine von ihnen: Alle liegen in eingefrorenen Migrationen (0030–0037),
+und ein `drop function` für eine Anzeigefrage wäre der falsche Preis — er nähme Grants und
+Abhängigkeiten einer produktiv erreichbaren Funktion mit. Für Auswertungen sind sie damit
+unverändert benutzbar, `nachfassen_tasks` und `apply_reminder_touches` eingeschlossen; man muss
+nur wissen, dass ihr Ergebnis auf keiner Seite mehr steht. **Zwei RPCs ohne jeden Aufrufer sind
+kein Versehen, sondern der Normalzustand nach einem Rückbau** — dieselbe Linie, aus der die vier
+Tabellen stehen bleiben (§3): Was fällt, ist der Code, der etwas ruft, nicht das Gerufene.
 
 | RPC | Liefert | Semantik-Details |
 |---|---|---|
@@ -474,12 +781,12 @@ Die Dashboards rechnen nicht frei, sondern über diese SECURITY-DEFINER-RPCs —
 | `rpc_phone_owner_metrics(ws, from, to, user?)` | je Owner: `calls`, `gatekeeper_reached`, `decider_reached`, `appointments`, `callbacks`, `dead` | **`calls` = Erstkontakte** (Firmen mit `first_call_at`), **nicht** Anwahlen (§1) — Wählversuche stehen nur in `phone_call_attempts`. **Achtung: nur `calls` ist zeitraumgefiltert** (`first_call_at between`), die übrigen Spalten sind all-time-Zählungen. Personenfilter über `list_owned_by_user()` — `owner_name` hat Vorrang |
 | `rpc_phone_day_metrics(ws, from, to, user?)` | wie oben, aber je Owner+**Tag** | Tag = `coalesce(first_call_at, created_at::date)`; `calls` zählt nur Leads mit `first_call_at is not null` (wieder: Erstkontakte); für Zeitraum-Analysen diese RPC nutzen. Personenfilter wie oben |
 | `rpc_phone_list_counts(ws, user?)` | Status-Counts je Telefonliste | Personenfilter über `list_owned_by_user()` |
-| `nachfassen_tasks(ws, today, now, user?)` | fällige Aufgaben (Union) | 4 Zweige: ① LinkedIn-FU (`next_follow_up_at <= today`, Ausschlüsse §4) ② Telefon-Rückruf (`status='rueckruf'`, `callback_at <= now`) ③ Closing (`status='nachfassen'`, `follow_up_due <= today`) ④ Setting (`status in ('no_show','unqualifiziert')`, `follow_up_due <= today`). Personenfilter: ①② über `list_owned_by_user()`, ③④ über `coalesce(assigned_user_id, created_by_user_id)`. **Signatur und Verhalten unverändert seit 0030** — der ganze Nachfassen-Umbau hat sie nicht angefasst; Recycling ist bewusst eine eigene RPC, siehe nächste Zeile.<br>**⚠ Die RPC liefert vier Zweige, die Seite zeigt drei.** Zweig ① (LinkedIn) wird **app-seitig verworfen** — in `getNachfassenTasks()` an genau einer Stelle, vor jedem Nachschlag und jeder Zählung (`r.source !== "linkedin"`); der Typ `NachfassenSource` kennt den Wert nicht mehr, ein vergessener Zweig wäre also ein Compile-Fehler. In der Datenbank ist nichts geändert: **Wer per SQL auswertet, bekommt weiterhin alle vier** — `select source, count(*) from nachfassen_tasks(…) group by 1` zeigt LinkedIn-Zeilen, die auf keiner Oberfläche stehen. (Der frühere Zusatz-Schnitt „LinkedIn-Tasks mit Pitch > 7 Tage" ist damit ersatzlos entfallen; an seine Stelle ist für die verbliebenen drei Zweige der Altlasten-Schnitt getreten, §5.5.) |
-| `recycle_tasks(ws, today, user?)` | fällige Recycling-Versuche (Union, **v2** aus Migration 0033) | 4 Zweige über die „toten Enden" (§1). **Jeder Zweig prüft zusätzlich den STATUS** — das ist der Unterschied zur ersten Fassung, die nur auf das Datum sah: ein Lead, der auf anderem Weg wiederbelebt oder gewonnen wurde, tauchte dort Monate später als Aufgabe auf. LinkedIn: `next_recycle_at <= today`, `blocked_at is null`, `answered is not true`, `appointment_set is not true`, **`follow_up_number = 3`** · Telefon: `status='dead'` · Setting: `status in ('dead','unqualifiziert')` **oder** `no_show_resolution='ohne_antwort'` **oder** `cancel_outlook='ohne_aussicht'`, dazu `revived_at is null` · Closing: `status='verloren'`, `revived_at is null`. Alle vier zusätzlich `recycle_excluded_at is null` **und `recycle_responded_at is null`**. Liefert `reason` (`recycle_reason_code`, ersatzweise `lost_reason_code`/`sonstiges`), `reason_note`, `attempt_count`, `last_contacted_at`. Personenfilter wie bei `nachfassen_tasks`. **Eigene RPC statt Erweiterung von `nachfassen_tasks`**: eine geänderte `RETURNS TABLE`-Signatur verlangt `DROP FUNCTION` statt `CREATE OR REPLACE` — zwei stabile RPCs sind das kleinere Risiko als ein Drop mit Grants/Abhängigkeiten einer produktiv genutzten Funktion. Die App mischt beide Listen zu einer Union in `getNachfassenTasks()` (`src/app/actions/nachfassen.ts`). |
-| `dropout_lists(ws, list, user?)` | Zeilen einer der sechs Ablage-Listen (Migration 0033) | `list` ∈ `abgesagt` · `ersatztermin_offen` · `disqualifiziert` · `kein_close` · `no_show_ohne_antwort` · `gesperrt` (unbekannter Wert → Exception). Abgeleitet aus dem Zeilenzustand, **keine eigene Tabelle** (§1). Fünf Listen kennen nur `setting_calls`/`closing_calls`; **`gesperrt` deckt alle vier Recycling-Tabellen ab** (auch `contacts` und `phone_leads` — „Endgültig sperren" ist im Nachfassen-Board für alle vier Ursprünge anklickbar) und **setzt den Personenfilter bewusst außer Kraft**: `v_user := null`, die Liste liefert immer org-weit. Die Spalte `list_id` ist nur bei den beiden Lead-Ursprüngen gefüllt (sie haben keine Detailseite, der Verweis führt zur Liste); bei Terminen bleibt sie NULL. |
+| `nachfassen_tasks(ws, today, now, user?)` | fällige Aufgaben (Union) | 4 Zweige: ① LinkedIn-FU (`next_follow_up_at <= today`, Ausschlüsse §4) ② Telefon-Rückruf (`status='rueckruf'`, `callback_at <= now`) ③ Closing (`status='nachfassen'`, `follow_up_due <= today`) ④ Setting (`status in ('no_show','unqualifiziert')`, `follow_up_due <= today`). Personenfilter: ①② über `list_owned_by_user()`, ③④ über `coalesce(assigned_user_id, created_by_user_id)`. **Signatur und Verhalten unverändert seit 0030** — weder der Nachfassen-Umbau noch der Rückbau haben sie angefasst.<br>**⚠ Die RPC liefert vier Zweige, und sie hat KEINEN Aufrufer mehr.** Zweig ① (LinkedIn) wurde schon vor dem Rückbau app-seitig verworfen; mit dem Rückbau sind ②③④ in die Terminliste gewandert (② in deren Rückruf-Reiter, ③④ in die Arbeitsmenge, §1), und `/nachfassen` ruft die Funktion nicht mehr auf. Der Navigations-Zähler tat es noch eine Weile — das war die Ursache dafür, dass das Badge 14 zeigte und die Seite darunter zwei Karten; auch er liest sie inzwischen nicht mehr (§5.4). In der Datenbank ist nichts geändert: Wer per SQL auswertet, bekommt unverändert alle vier Zweige. **Für eine Auswertung ist sie damit die bequemste Quelle für „was wäre heute fällig", aber keine Beschreibung dessen, was jemand sieht.** |
+| `recycle_tasks(ws, today, user?)` | fällige Recycling-Versuche (Union, **v2** aus Migration 0033) | 4 Zweige über die „toten Enden" (§1). **Jeder Zweig prüft zusätzlich den STATUS** — das ist der Unterschied zur ersten Fassung, die nur auf das Datum sah: ein Lead, der auf anderem Weg wiederbelebt oder gewonnen wurde, tauchte dort Monate später als Aufgabe auf. LinkedIn: `next_recycle_at <= today`, `blocked_at is null`, `answered is not true`, `appointment_set is not true`, **`follow_up_number = 3`** · Telefon: `status='dead'` · Setting: `status in ('dead','unqualifiziert')` **oder** `no_show_resolution='ohne_antwort'` **oder** `cancel_outlook='ohne_aussicht'`, dazu `revived_at is null` · Closing: `status='verloren'`, `revived_at is null`. Alle vier zusätzlich `recycle_excluded_at is null` **und `recycle_responded_at is null`**. Liefert `reason` (`recycle_reason_code`, ersatzweise `lost_reason_code`/`sonstiges`), `reason_note`, `attempt_count`, `last_contacted_at`. Personenfilter wie bei `nachfassen_tasks`. **Eigene RPC statt Erweiterung von `nachfassen_tasks`**: eine geänderte `RETURNS TABLE`-Signatur verlangt `DROP FUNCTION` statt `CREATE OR REPLACE` — zwei stabile RPCs sind das kleinere Risiko als ein Drop mit Grants/Abhängigkeiten einer produktiv genutzten Funktion. **Seit dem Rückbau ist sie die einzige Quelle von `/nachfassen`** — `getNachfassenTasks()` mischt nichts mehr, sondern reicht sie durch, schneidet die Altlasten (§5.5) und schlägt für die beiden Lead-Ursprünge die Liste nach. |
+| `dropout_lists(ws, list, user?)` | Zeilen einer der sechs Ablage-Listen (Migration 0033) | `list` ∈ `abgesagt` · `ersatztermin_offen` · `disqualifiziert` · `kein_close` · `no_show_ohne_antwort` · `gesperrt` (unbekannter Wert → Exception). Abgeleitet aus dem Zeilenzustand, **keine eigene Tabelle** (§1). Fünf Listen kennen nur `setting_calls`/`closing_calls`; **`gesperrt` deckt alle vier Recycling-Tabellen ab** (auch `contacts` und `phone_leads` — „Endgültig sperren" ist im Nachfassen-Board für alle vier Ursprünge anklickbar) und **setzt den Personenfilter bewusst außer Kraft**: `v_user := null`, die Liste liefert immer org-weit. Die Spalte `list_id` ist nur bei den beiden Lead-Ursprüngen gefüllt (sie haben keine Detailseite, der Verweis führt zur Liste); bei Terminen bleibt sie NULL.<br>**⚠ Die RPC ist unverändert, die App fragt seit dem Rückbau nur noch fünf der sechs Werte ab.** `/ablage` ruft sie je Ansicht mehrfach auf und legt die Ergebnisse entdoppelt zusammen: „Ausgeschieden" = `disqualifiziert` + `kein_close` + `abgesagt` + `no_show_ohne_antwort` (in **dieser Reihenfolge** — sie ist die Vorrangkette beim Entdoppeln, weil derselbe Termin in mehreren Quellen stehen kann und vorn stehen soll, was den aussagekräftigsten Grund mitbringt), „Gesperrt" = `gesperrt`. **`ersatztermin_offen` fragt niemand mehr ab** — der Zustand gehört in die Hauptliste, nicht ins Archiv (§1); der Navigations-Zähler, der genau an diesem Zweig hing, ist mit ihm gefallen (§5.4). Er bleibt in der RPC und ist per SQL unverändert abrufbar. |
 | `schedule_recycle(ws, origin, entity_id, today?)` | das gesetzte `next_recycle_at` oder `null` (Migration 0033, Zugriffsprüfung 0037) | Bestimmt die Wartezeit **serverseitig** und schreibt `next_recycle_at` + `recycle_reason_code` in die Ursprungszeile. Grund UND Status kommen aus der Zeile, nie vom Aufrufer. Gibt `null` zurück (und schreibt nichts), wenn: keine `pipeline_settings`-Zeile existiert · der Vorgang ausgeschlossen/wiederbelebt/nicht terminal ist · der Grund nie recycelt wird · `recycle_attempt_count >= max_attempts`. **Fasst den Versuchszähler NICHT an** — die alte Fassung setzte ihn bei jedem Aufruf auf 0 und startete den Deckel neu. Prüft seit 0037 die Mitgliedschaft selbst (`workspace_members` oder Plattform-Admin). |
 | `recycle_attempt(ws, origin, entity_id, today?)` | neuer `recycle_attempt_count` (Migration 0033, Zugriffsprüfung 0037) | Erhöht den Zähler, setzt `recycle_last_contacted_at` und nullt `next_recycle_at`, sobald der Deckel erreicht ist — alles in **EINER** Anweisung. Vorher wurde gelesen, gerechnet und zurückgeschrieben: zwei parallele Klicks auf „Nochmal versucht" verbrannten zwei von zwei erlaubten Versuchen. Prüft seit 0037 die Mitgliedschaft selbst — und zwar **vor** der Prüfung des `origin`-Arguments: Wer nicht zur Organisation gehört, soll nicht einmal erfahren, welche Ursprünge es gibt. **Setzt unterhalb des Deckels KEINE neue Fälligkeit** — der alte `next_recycle_at` bliebe stehen, und der liegt per Definition schon in der Vergangenheit. Die nächste Wartezeit plant deshalb `markRecycleContacted` (`src/app/actions/recycle.ts`) direkt danach über `schedule_recycle()` ein; ohne diesen zweiten Aufruf stünde dieselbe Karte am nächsten Tag wieder da, und die zweite Ghosting-Stufe (`days_ghosting` statt `days_ghosting_breakup`) wäre unerreichbar, weil sie `recycle_attempt_count > 0` verlangt. |
-| `apply_reminder_touches(ws, entity_type, entity_id, cascade_kind, rows)` | Anzahl neu angelegter Touches (Migration 0032) | Entwertet die offenen Touches dieser einen Kaskade (`superseded_at = now()`) und legt die übergebenen neu an — in **EINEM** Funktionskörper. Vorher waren das zwei Statements gegen einen partiellen Unique-Index; zwei dicht aufeinanderfolgende Auslöser (Umterminieren plus Ergebnis) ließen den Insert scheitern, und weil der Aufruf fail-soft ist, stand der Termin danach ganz ohne Kaskade da. Prüft die Mitgliedschaft selbst (`workspace_members` oder Plattform-Admin). |
+| `apply_reminder_touches(ws, entity_type, entity_id, cascade_kind, rows)` | **Kein Aufrufer mehr** (Migration 0032, Prüfungen aus 0039) | Entwertete die offenen Touches einer Kaskade (`superseded_at = now()`) und legte die übergebenen neu an — in **EINEM** Funktionskörper, weil zwei Statements gegen einen partiellen Unique-Index bei zwei dicht aufeinanderfolgenden Auslösern (Umterminieren plus Ergebnis) den Insert scheitern ließen; der Aufruf war fail-soft, der Termin stand danach ganz ohne Kaskade da. Prüft Mitgliedschaft, Termin-Zugehörigkeit und Zuweisung selbst (0039). **Mit dem Rückbau ist ihr einziger Aufrufer gefallen** — `tests/rueckbauKern.test.ts` sichert die ABWESENHEIT jedes Aufrufs, nicht das Verhalten eines einzelnen; die stärkere Fassung, weil sie auch einen künftigen Weg zurück erwischt. Die Funktion selbst bleibt stehen (eingefroren in 0032/0039). |
 | `seed_workspace_defaults(ws)` | void (Migration 0034) | Legt `pipeline_settings` + 21 `cascade_steps` an, idempotent (`on conflict do nothing`), **ohne** Textzeilen. Läuft automatisch über den AFTER-INSERT-Trigger auf `workspaces` (§2). |
 
 **Jede schreibende RPC prüft die Zugehörigkeit selbst — seit Migration 0037 auch die beiden
@@ -625,26 +932,46 @@ ein Ereignis des Termins, nicht seiner Kohorte.
 #### Die Recycling-Kennzahlen (Übersicht-Tab, Sektion „Lohnt das Recycling?")
 
 `src/components/analyse/RecycleSection.tsx`, zugeklappt am Ende der Übersicht — die einzige
-Auswertung, die beantwortet, ob die Wiedervorlage überhaupt etwas bringt. Ohne sie ließen sich
-die Wartezeiten in `pipeline_settings` nur nach Gefühl ändern.
+Auswertung, die beantwortet, ob die Wiedervorlage überhaupt etwas bringt. Sie hat den Rückbau
+**gekürzt überlebt**, und das war eine bewusste Entscheidung: Die Wiederbelebungsquote ist die
+einzige Zahl, die begründet, ob die eine verbliebene Frist richtig steht. Ohne sie wäre auch
+eine flache Frist reine Gefühlssache.
 
 | Kennzahl | Zähler | Nenner | Zeitachse |
 |---|---|---|---|
 | **Kontaktiert** | — | — | Zeilen mit `recycle_last_contacted_at` (Berlin-Tag) im Zeitraum. Das ist die **Kohorte** der Sektion. |
 | **Reaktionen** | `recycle_responded_at is not null` | — | heutiger Stand, gebucht auf den Tag des Versuchs |
 | **Wiederbelebungsquote** („Wiederbelebt") | Reaktionen | Kontaktierte | **Kohorten-Quote wie die Telefon-Quoten:** Der Zeitraum schneidet den *letzten Versuch*, der Zähler ist der heutige Stand genau dieser Leads. Eine Antwort, die erst nächste Woche kommt, zählt rückwirkend auf die Woche des Versuchs. |
-| **Am Deckel** | `recycle_attempt_count >= max_attempts` **und** keine Reaktion | — | ohne konfigurierten Deckel `null` („—"), nie 0 |
-| **Gesperrt** | `recycle_excluded_at` im Zeitraum | — | **eigenes Datum**, bewusst außerhalb der Quote: Eine Sperre ist kein gescheiterter Versuch, sie ist eine Entscheidung. |
-| **Warten aktuell** | `next_recycle_at is not null` | — | Stand von **heute**, ohne Zeitraumfilter — „wie viel liegt gerade in der Wiedervorlage" |
-| **Verteilung der Versuche** | Kontaktierte je Slot (1 · 2 · 3+) | Kontaktierte | aus `recycle_attempt_count` |
+| **Gesperrt** | `recycle_excluded_at` im Zeitraum | — | **eigenes Datum**, bewusst außerhalb der Quote: Eine Sperre ist kein gescheiterter Versuch, sie ist eine Entscheidung. Hängt als einzige Kachel **nicht** am Datenlage-Anker — der kommt aus dem ersten Versuch, eine Sperre entsteht aber ohne jeden Versuch (bei einem Kontaktverbot setzt die App sie sofort). |
+| **Warten aktuell** | `next_recycle_at is not null` | — | Stand von **heute**, ohne Zeitraumfilter — „wie viel liegt gerade in der Wiedervorlage". Steht als Fußnote, nicht als Kachel. |
 
-Zwei Tabellen mit denselben vier Spalten (Kontaktiert · Reaktionen · Wiederbelebt · Am Deckel):
-**Je Ursprung** (LinkedIn · Telefon · Erstgespräch · Closing) und **Je Grund**. Der Schlüssel
-der zweiten ist `<ursprung>:<grund>`, nicht der Grund allein — „Dead" aus dem Telefon und
-„Dead" aus dem Erstgespräch sind zwei verschiedene Befunde und dürfen nicht in eine Zeile
-fallen. Personenachse wie überall zweigleisig: LinkedIn/Telefon über den Listen-Owner,
-Setting/Closing über `personOf()` (§5.1). Datenlage-Anker und `available`-Rückfall wie beim
-Anruf-Log: Fehlt Migration 0033, sagt die Sektion das, statt wie „niemand recycelt" auszusehen.
+**Eine** Tabelle mit drei Spalten (Kontaktiert · Reaktionen · Wiederbelebt), gruppiert **je
+Ursprung** (LinkedIn · Telefon · Erstgespräch · Closing). Personenachse wie überall
+zweigleisig: LinkedIn/Telefon über den Listen-Owner, Setting/Closing über `personOf()` (§5.1).
+Datenlage-Anker und `available`-Rückfall wie beim Anruf-Log: Fehlt Migration 0033, sagt die
+Sektion das, statt wie „niemand recycelt" auszusehen.
+
+> **Drei Kennzahlen sind mit dem Rückbau gefallen.** Zwei davon maßen die **Staffelung**, und
+> die gibt es in der Oberfläche nicht mehr: die zweite Tabelle **„Je Grund"** (Schlüssel
+> `<ursprung>:<grund>`) und die **Verteilung der Versuche** (1 · 2 · 3+) — Letztere diente
+> ausschließlich dazu, Deckel und erstes Intervall gegeneinander zu justieren, und justiert
+> wird nicht mehr: Die Frist gilt für alle vier Ursprünge gleich, und der Deckel ist eine Zahl
+> zwischen 1 und 5, die man einstellt statt sie aus einer Verteilung abzulesen. Was bleibt, ist
+> der **Ursprung**: Ob ein totes Telefonat oder ein verlorenes Closing die besseren
+> Wiederbelebungen liefert, ist auch bei EINER Frist eine Entscheidung wert (die Arbeitszeit
+> gehört dorthin, wo die Antworten herkommen).
+>
+> **Die dritte, „Am Deckel", ist eine LÜCKE und keine Aussage — der Unterschied ist wichtig.**
+> Hier stand zwischenzeitlich die Begründung „es gibt keinen Deckel". Die war falsch:
+> `recycle_attempt()` (0033, eingefroren) nullt bei `recycle_attempt_count >= max_attempts` das
+> `next_recycle_at`, `recycleBlockedReason()` sperrt daraufhin „Jetzt wieder anschreiben", und
+> die Ablage zeigt je Karte „1 von 2". Der Deckel wirkt, ist einstellbar (`/settings`) und ist
+> die härteste Grenze des Recyclings — er lässt einen Lead endgültig verschwinden. Die Kachel
+> fehlt trotzdem, und zwar aus einem Grund, der mit ihm nichts zu tun hat: `loadRecycleData()`
+> lädt `recycle_attempt_count` nicht mehr, `AnalyseRecycleRow` führt das Feld nicht, und
+> `max_attempts` käme aus einer zweiten Abfrage. Ohne beides wäre „Am Deckel" **geraten**.
+> **Wer die Zahl braucht, rechnet sie per SQL** (Muster bei den Beispiel-Auswertungen); sie
+> fehlt im Analyse-Bereich, nicht in der Datenbank.
 
 ### 5.1 Analyse-Bereich (`/analyse`, sechs Tabs)
 
@@ -652,11 +979,11 @@ Sechs Tabs, jeder mit genau einer Zuständigkeit — dieselbe Zahl steht nirgend
 
 | Tab | Trägt | Zuständig für (steht nur hier) |
 |---|---|---|
-| **Übersicht** | Matrix **Kennzahl × Kanal × Gesamt** („Kanäle im direkten Vergleich": Akquise-Volumen · Settingtermine · Show-Quote · Quali-Quote · Closingtermine · Umsatz), „Fortschritt im Zeitraum", Personen-Tabelle, **„Lohnt das Recycling?"** (Wiederbelebungsquote je Ursprung und je Grund, zugeklappt am Ende — §5) | der Kanalvergleich in einem Blick **und** die Recycling-Wirkung. **Kein Trichter** — den gibt es genau einmal, im Funnel-Tab; zwei optisch gleiche Trichter mit verschiedenen Zählweisen beschädigen beide |
+| **Übersicht** | Matrix **Kennzahl × Kanal × Gesamt** („Kanäle im direkten Vergleich": Akquise-Volumen · Settingtermine · Show-Quote · Quali-Quote · Closingtermine · Umsatz), „Fortschritt im Zeitraum", Personen-Tabelle, **„Lohnt das Recycling?"** (Wiederbelebungsquote je Ursprung, zugeklappt am Ende — §5) | der Kanalvergleich in einem Blick **und** die Recycling-Wirkung. **Kein Trichter** — den gibt es genau einmal, im Funnel-Tab; zwei optisch gleiche Trichter mit verschiedenen Zählweisen beschädigen beide |
 | **LinkedIn** | 6 Kennzahlen (DMs · Antwortquote · Antworten mit Stimmungs-Balken · Termine gelegt · Terminquote · Block-Quote), „Vergleich" (nur bei mehr als einer sichtbaren Person), „Fortschritt", Consistency, Follow-ups (Kaskade + „Zusatz durch FU an Umsatz"), „Wird konsequent nachgefasst?", „Wer hängt hinterher?", „Listen im Vergleich" | alle LinkedIn-Kennzahlen. Die früheren Tabs „Follow-ups" und „Listen" sind hier aufgegangen; `?tab=followup`/`?tab=listen` fällt still auf „uebersicht" zurück |
 | **Telefon** | 11 Kennzahlen in drei Blöcken (Volumen · Durchkommen · Terminquoten & Rückruf), „Vergleich" (Personen ohne Telefon-Aktivität im Zeitraum werden ausgeblendet und in der Fußnote gezählt), „Nachfassen oder neue Leads?" (Anruf-Log), „Fortschritt", A/B nach Skript und Branche, Gatekeeper-Weg, Versuchszähler, Abbruch-Gründe (drei Untertabellen), Akquise-Trichter | die Ereignis-Ebene (**Anwahlen**, §1) und die A/B-Achsen |
-| **Setting** | 4 Kennzahlen (Termine · Show-Quote · Qualifiziert · Zu Closing geschickt), „Vergleich", „Fortschritt im Zeitraum", „Termine im Verlauf", Quellen-Donut, „Quelle des Termins", „Erinnerungs-Disziplin" (Erledigungsquote je Person + Show-Quote je Kaskaden-Stufe, zugeklappt — zwei Grundgesamtheiten, s. u.); alles Weitere unter „Mehr Auswertungen" (Zeitfenster · Termin-Art · Branche · Kriterien · Budget · Qualität · Status) | die Qualifizierungs-Schnitte |
-| **Closing** | 6 Kennzahlen (Closing-Termine · Show-Quote · Abschlussrate · Umsatz pro Meeting · Ø-Deal · Umsatz), „Vergleich", „Fortschritt im Zeitraum", Top-Einwände, Matrix Einwand × Person, „Erinnerungs-Disziplin" (wie Setting; der vereinbarte Nachfass-Kontakt zählt beim Personen-Block mit, beim Stufen-Block bewusst nicht, s. u.); „Mehr Auswertungen" („Umsatz im Verlauf" · Win/Loss · Geschwindigkeit · Deal-Größen · Vertrag · Zahlungsarten) | Verlustgründe. **Keine Quellen-Tabelle mehr** — Herkunft rechnet der Funnel-Tab als einziger bis zum Umsatz durch |
+| **Setting** | 4 Kennzahlen (Termine · Show-Quote · Qualifiziert · Zu Closing geschickt), „Vergleich", „Fortschritt im Zeitraum", „Termine im Verlauf", Quellen-Donut, „Quelle des Termins"; alles Weitere unter „Mehr Auswertungen" (Zeitfenster · Termin-Art · Branche · Kriterien · Budget · Qualität · Status) | die Qualifizierungs-Schnitte |
+| **Closing** | 6 Kennzahlen (Closing-Termine · Show-Quote · Abschlussrate · Umsatz pro Meeting · Ø-Deal · Umsatz), „Vergleich", „Fortschritt im Zeitraum", Top-Einwände, Matrix Einwand × Person; „Mehr Auswertungen" („Umsatz im Verlauf" · Win/Loss · Geschwindigkeit · Deal-Größen · Vertrag · Zahlungsarten) | Verlustgründe. **Keine Quellen-Tabelle mehr** — Herkunft rechnet der Funnel-Tab als einziger bis zum Umsatz durch |
 | **Funnel** | Wert-Kacheln je Kanal, „Wo kommt der Umsatz her?", der **Trichter** („Funnel Gesamt"), „Fortschritt", Matrix „Je Quelle", **„Absagen"** (zwei Absagequoten + Tabelle „Warum abgesagt wurde", zugeklappt unter dem Trichter — §5) | der einzige Termin-Trichter, die einzige Quellen-Auswertung bis zum Umsatz **und** die einzige Stelle mit einer Absagequote. Die Sektion sitzt bewusst hier: Der Funnel ist der Tab, der Absagen ausschließt — die Zahl darf nicht verschwinden, sie muss sichtbar werden |
 
 **Zwei Konventionen gelten auf allen sechs Tabs** (und auf der Vergleichsseite):
@@ -664,29 +991,36 @@ Sechs Tabs, jeder mit genau einer Zuständigkeit — dieselbe Zahl steht nirgend
 - **„Fortschritt" ist nicht „Verlauf".** Jeder Tab führt eine kumulative Fortschritts-Sektion (`CumulativeProgressChart`): aufsummierter Stand über den Zeitraum, mit der Vorperiode als Vergleichslinie. Sie beantwortet „liegen wir vorn oder hinten" — die Frage, mit der man die Seite öffnet, und deshalb steht sie oben. Die Sektionen mit „… im Verlauf" (Setting, Closing) sind etwas anderes: bucketierte Perioden-Werte, jeder Balken für sich. Wer die kumulative Kurve als Perioden-Chart liest, sieht überall Wachstum.
 - **Sektionen sind einklappbar, Erklärungen stehen hinter dem Info-Icon.** Alles unterhalb der Kennzahlen-Reihe läuft über `AnalyseSection` mit `collapsible`; die meisten Sektionen starten zugeklappt (`defaultOpen={false}`) — der Tab öffnet mit Kennzahlen und Fortschritt, den Rest holt man sich. Die Begründungstexte stecken in `InfoPopover` statt dauerhaft im Fließtext. Wichtig für die Umsetzung: `AnalyseSection` ist eine Server Component, das `info`-Element darf **keinen** Handler tragen — `preventDefault`/`stopPropagation` sitzen im Client-Teil `InfoPopover`, sonst bricht das Prerendering (was hier lange unbemerkt blieb, weil alle Analyse-Seiten `force-dynamic` sind).
 
-> **„Erinnerungs-Disziplin": zwei Blöcke, zwei Grundgesamtheiten.** `loadReminderTouches()`
-> (`src/lib/analyseData.ts`) selektiert `touch_kind`/`cascade_kind`/`step_no` (v2, §4) und gibt
-> — Muster Anruf-Log — `{ rows, available }` zurück: Scheitert die Abfrage, sagt die Sektion
-> das, statt wie „keine Erinnerungen" auszusehen. (Bis zur Nachführung stand dort die alte
-> Spalte `touch_type`; PostgREST wies die gesamte Abfrage ab, ein `.catch(… → [])` machte
-> daraus eine leere Liste, und beide Blöcke waren dauerhaft und unbemerkt leer.)
-> Gezählt werden nur Touches, die entweder erledigt **oder** nicht superseded sind
-> (`done_at.not.is.null,superseded_at.is.null`): Eine Neuterminierung macht einen offenen Touch
-> obsolet, aber ein VORHER erledigter bleibt ein echtes Stück Disziplin.
+> **„Erinnerungs-Disziplin" gibt es nicht mehr — beide Blöcke sind mit der Kaskade gefallen.**
+> Sie standen zugeklappt im Setting- und im Closing-Tab und beantworteten „wer hakt seine
+> Erinnerungen ab" (je Person) und „welcher Touch wirkt am stärksten" (je Kaskaden-Stufe, gegen
+> die Show-Quote). Beide lasen `reminder_touches`, und die füllt seit dem Rückbau keine
+> Oberfläche mehr: Die Quote wäre ab dem Deploy-Datum konstant und danach für jeden neuen
+> Termin eine Division durch null. Mitgefallen sind der Loader `loadReminderTouches()` und die
+> Touch-Aggregation in `src/lib/analyse.ts`.
 >
-> Der **Personen-Block** zählt jeden fälligen Touch (alle `touch_kind`, im Closing-Tab auch die
-> des Nachfass-Kontakts) — das ist die geleistete Arbeit. Der **Stufen-Block** („Welcher Touch
-> wirkt am stärksten?") zählt nur, was VOR dem Gespräch lag: `chain`-Stufen (No-Show-,
-> Kein-Close-Kette) fallen raus, und im Closing-Tab zusätzlich `entity_type='closing_followup'`.
-> Beide Gründe sind derselbe — ein Touch, der erst nach dem Termin entsteht, kann dessen
-> `show_status` nicht erklären. Der Nachfass-Kontakt trägt zudem **dieselbe `entity_id`** wie
-> das Closing (beide zeigen auf `closing_calls.id`), ein Closing mit beiden Kaskaden zählte
-> sonst doppelt. Gruppiert wird über `cascade_kind` + `step_no`, nicht über die Stufennummer
-> allein: Nachrichten- und Mail-Spur tragen beide eine „Stufe 1".
+> **Für Auswertungen bleibt die Zählweise gültig — sie beschreibt jetzt einen Bestand.** Wer
+> die zwei produktiven Tage nachrechnen will: Gezählt wurden nur Touches, die entweder erledigt
+> **oder** nicht superseded sind (`done_at is not null or superseded_at is null`) — eine
+> Neuterminierung macht einen offenen Touch obsolet, aber ein VORHER erledigter bleibt ein
+> echtes Stück Disziplin. Der Personen-Block zählte jeden fälligen Touch (alle `touch_kind`, im
+> Closing-Tab auch die des Nachfass-Kontakts), der Stufen-Block nur, was VOR dem Gespräch lag:
+> `chain`-Stufen raus, im Closing-Tab zusätzlich `entity_type='closing_followup'` — ein Touch,
+> der erst nach dem Termin entsteht, kann dessen `show_status` nicht erklären; und der
+> Nachfass-Kontakt trägt **dieselbe `entity_id`** wie das Closing, ein Closing mit beiden
+> Kaskaden zählte sonst doppelt. Gruppiert wurde über `cascade_kind` + `step_no`, nicht über
+> die Stufennummer allein: Nachrichten- und Mail-Spur tragen beide eine „Stufe 1". Das
+> SQL-Muster dazu steht weiter unten bei den Beispiel-Auswertungen.
+>
+> **Die Warnung, die diese Sektion hinterlässt, gilt weiter für jeden Loader:** Bis zu einer
+> Nachbesserung stand hier die alte Spalte `touch_type`; PostgREST wies die *gesamte* Abfrage
+> ab, ein `.catch(… → [])` machte daraus eine leere Liste, und beide Blöcke waren dauerhaft und
+> **unbemerkt** leer. Daher das `available`-Muster (s. u.) — ein Fehler darf nie wie „nichts
+> passiert" aussehen.
 
 Filter in der URL: `tab`, `range`/`von`/`bis`, `g` (Granularität, auf allen Tabs — auch der Funnel bucketet), `users`, `quelle` (Setting/Funnel; Wertebereich = `filterable` in der Kanal-Registry, §4), `reife` (nur LinkedIn), `listen` (nur LinkedIn, kommaseparierte `lists.id`, syntaktisch UUID-geprüft und zusätzlich gegen die real sichtbaren Listen abgeglichen), `modus` (nur Funnel, Default `kohorte`). Beim Tabwechsel werden die Parameter gelöscht, die auf dem Zieltab nichts bewegen — ein Filter ohne Bedienelement filterte sonst unsichtbar weiter. Einen Parameter `min` (Mindest-DMs) gibt es **nicht**: Die Grenze für das Listen-Ranking steht fest bei 10 DMs (`MIN_LIST_DMS`) — bei 3 von 5 DMs steht in der Antwortquote 60 %, und ein Regler, mit dem man Rauschen einschalten kann, hilft niemandem. Der Auf-/Zuklapp-Zustand der Filterleiste steht bewusst **nicht** in der URL (er ändert keine Zahl), sondern im localStorage; die aktiven Filter stehen als Satz im zugeklappten Kopf. Parsing ausschließlich in `parseAnalyseParams` (`src/lib/analyse.ts`), Datenbeschaffung ausschließlich in `src/lib/analyseData.ts` — dort läuft **jede** Abfrage über `fetchAllRows`, weil PostgREST sonst still bei 1000 Zeilen abschneidet. Drei Stellen daneben, alle ebenfalls über `fetchAllRows`: die Auswahlliste des Listen-Filters (`analyse/page.tsx`), die Termin→Liste-Brücke (`LinkedInTab.tsx`) und das Anruf-Log (`src/lib/phoneAttemptsData.ts`, eigene Datei — es ist die einzige EREIGNIS-Quelle und fällt bei fehlender Migration 0028 auf `available: false` zurück, statt den Telefon-Tab abzuräumen).
 
-**Drei Loader mit `available`-Rückfall** folgen inzwischen demselben Muster — sie geben `{ rows, available }` zurück, statt einen Fehler zu `[]` einzuebnen, weil sonst eine fehlende Migration genauso aussieht wie „nichts passiert": `loadCallAttempts` (0028), `loadReminderTouches` (0032) und `loadRecycleData` (0033). Zwei Eigenheiten von `loadRecycleData`, die man beim Nachrechnen kennen muss: Es lädt **ohne Zeitraumfilter** — die Sektion trägt zwei Zeitachsen (`recycle_last_contacted_at` für die Kohorte, `recycle_excluded_at` für die Sperren) und braucht zusätzlich den ältesten Versuch als Anker gegen die Deploy-Datum-Falle. Und `pipeline_settings.max_attempts` hängt an einem **eigenen** Zweig: Ein Fehler dort kostet die Kachel „Am Deckel", nicht die Sektion.
+**Zwei Loader mit `available`-Rückfall** folgen demselben Muster — sie geben `{ rows, available }` zurück, statt einen Fehler zu `[]` einzuebnen, weil sonst eine fehlende Migration genauso aussieht wie „nichts passiert": `loadCallAttempts` (0028) und `loadRecycleData` (0033). Der dritte, `loadReminderTouches` (0032), ist mit der „Erinnerungs-Disziplin" gefallen. Zwei Eigenheiten von `loadRecycleData`, die man beim Nachrechnen kennen muss: Es lädt **ohne Zeitraumfilter** — die Sektion trägt zwei Zeitachsen (`recycle_last_contacted_at` für die Kohorte, `recycle_excluded_at` für die Sperren) und braucht zusätzlich den ältesten Versuch als Anker gegen die Deploy-Datum-Falle. Und `pipeline_settings.max_attempts` wird dort **nicht mehr geladen** — mit der Kachel „Am Deckel" ist auch ihr eigener Abfragezweig entfallen.
 
 Der LinkedIn-Tab rechnet **nicht** über `rpc_owner_day_metrics`, sondern über `loadContacts`: die RPC kennt keinen Listen-Parameter, ihre Zahlen wären bei aktivem Listen-Filter ungefiltert. **Termine** zählen dort als *gelegt* (`setting_calls.created_at` im Zeitraum, `source_type='linkedin'`), nicht als Kohorte — Zähler und Nenner der Terminquote sind damit bewusst verschiedene Mengen. Das Listen-Ranking bleibt dagegen auf der Pitch-Kohorte (`contacts.appointment_set`).
 
@@ -780,9 +1114,11 @@ from setting_calls sc
 join profiles p on p.user_id = coalesce(sc.assigned_user_id, sc.created_by_user_id)
 group by 1 order by 2 desc;
 
--- Erinnerungs-Disziplin von Hand (dieselbe Zählweise wie der Analyse-Block,
--- §5.1). Gruppiert über cascade_kind + step_no, NICHT über die Stufennummer
--- allein — Nachrichten- und Mail-Spur tragen beide eine "Stufe 1".
+-- HISTORISCH: Erinnerungs-Disziplin von Hand. Der Analyse-Block dazu ist mit
+-- dem Rueckbau gefallen, die Tabelle steht noch und wächst nicht mehr (§3) —
+-- diese Abfrage beschreibt also einen abgeschlossenen Bestand, keinen Betrieb.
+-- Gruppiert über cascade_kind + step_no, NICHT über die Stufennummer allein —
+-- Nachrichten- und Mail-Spur tragen beide eine "Stufe 1".
 -- Superseded, aber erledigte Touches zählen mit — eine Neuterminierung darf
 -- die Quote nicht drücken.
 select rt.cascade_kind, rt.step_no,
@@ -827,10 +1163,28 @@ from closing_calls
 where (recycle_last_contacted_at at time zone 'Europe/Berlin')::date
       between '2026-07-01' and '2026-07-31';
 
+-- „Am Deckel" — die Kennzahl, die im Analyse-Bereich FEHLT (§5). Sie fehlt
+-- dort, weil der Loader recycle_attempt_count nicht mehr lädt und max_attempts
+-- eine zweite Abfrage kostete; der Deckel selbst WIRKT unverändert:
+-- recycle_attempt() (0033) nullt beim Erreichen next_recycle_at, der Lead
+-- verschwindet endgültig aus der Wiedervorlage. Genau deshalb lohnt die Zahl.
+-- Join auf pipeline_settings, nicht gegen eine feste 2: Der Deckel ist je
+-- Organisation einstellbar (/settings, 1-5).
+select count(*) as am_deckel
+from closing_calls cc
+join pipeline_settings ps on ps.workspace_id = cc.workspace_id
+where cc.recycle_attempt_count >= ps.max_attempts
+  and cc.recycle_responded_at is null
+  and cc.recycle_excluded_at is null;
+
 -- Fälligkeit aus nachfassen_tasks: due_at ist timestamptz, trägt aber
 -- überwiegend TAGE (§6). Ein gecastetes `date` steht auf 02:00 Berlin — roh
 -- gegen now() verglichen wäre ab zwei Uhr morgens alles überfällig. Nur der
 -- Telefon-Zweig trägt eine echte Uhrzeit.
+-- ACHTUNG seit dem Rückbau: KEIN Zweig dieser RPC steht noch auf einer Seite
+-- (§5). Sie liefert weiter korrekt; ihr Ergebnis ist aber die Frage "was WÄRE
+-- fällig", nicht "was steht auf dem Bildschirm". Die Arbeitsmenge der
+-- Terminliste hat eine ganz andere Definition (§1).
 select source, count(*) filter (
          where case when source = 'telefon' then due_at < now()
                     else (due_at at time zone 'Europe/Berlin')::date
@@ -838,6 +1192,20 @@ select source, count(*) filter (
        ) as ueberfaellig, count(*) as faellig
 from nachfassen_tasks('<workspace>', current_date, now())
 group by 1 order by 3 desc;
+
+-- Nachfass-Disziplin der Arbeitsliste (Migration 0041). Der Stempel hält NUR
+-- den letzten Kontakt — es gibt keine Historie und keine Quote, nur "wie viele
+-- offene Vorgänge hat heute schon jemand angefasst".
+-- follow_up_last_contacted_by_user_id ist ein AUDIT-Feld: Es sagt, WER geklickt
+-- hat, nicht wem der Termin gehört. Für jede Personenachse gilt weiter
+-- coalesce(assigned_user_id, created_by_user_id) — §2.
+select count(*) filter (
+         where (follow_up_last_contacted_at at time zone 'Europe/Berlin')::date
+               = (now() at time zone 'Europe/Berlin')::date
+       ) as heute_gestempelt,
+       count(*) filter (where follow_up_last_contacted_at is null) as nie_kontaktiert,
+       count(*) as termine
+from setting_calls;
 ```
 
 ### 5.2 Serienvergleich (`/analyse/vergleich`)
@@ -949,26 +1317,45 @@ zwar ohne den Riegel, der sie im Dossier harmlos macht.
   Warnungen (blockiert, WhatsApp verweigert, dauerhaft gesperrt) · Zuletzt kontaktiert ·
   Kontaktwege (zum Kopieren) · Steckbrief · Belegt zusammengehörig (+ Vermutungskasten) ·
   Steht an · Verlauf · Notizen & Gesprächsinhalte.
-- **Sechs Ereignisquellen** in der Zeitleiste (`DossierEventSource`): `linkedin` · `telefon` ·
-  `setting` · `closing` · `erinnerung` · `recycling`. Geschätzte Zeitpunkte tragen ein
+- **Fünf Ereignisquellen** in der Zeitleiste (`DossierEventSource`): `linkedin` · `telefon` ·
+  `setting` · `closing` · `recycling`. Geschätzte Zeitpunkte tragen ein
   sichtbares `≈` — vor allem die FU-Stufen, für die es **kein** Ereignis-Log gibt (§5.1);
   eine geratene Uhrzeit als Tatsache darzustellen wäre hier besonders teuer, weil daneben
   echte Zeitstempel stehen.
+- **Die sechste Quelle `erinnerung` ist gefallen — und an ihre Stelle tritt „Nachgefasst".**
+  `reminder_touches` wird vom Dossier **nicht mehr gelesen**: Eine Zeitleiste, die aus einer
+  eingefrorenen Tabelle liest, zeigte zuerst dauerhaft dasselbe und dann dauerhaft nichts.
+  Ersatz ist der Nachfass-Stempel (`follow_up_last_contacted_at`, Migration 0041) als Ereignis
+  **„Nachgefasst"** an der Setting- bzw. Closing-Zeile, mit `contactedLead: true` — ohne das
+  zeigte „Zuletzt kontaktiert" bei einem täglich bearbeiteten Lead das Datum seines letzten
+  Termins, also ein Datum von vor Wochen. Es ist im neuen Ablauf der **häufigste** Kontakt
+  überhaupt. **Nur der letzte:** Die Spalte hält einen Zeitpunkt, keine Historie — wer dreimal
+  nachgefasst hat, hinterlässt eine Zeile, nicht drei. Die Karte sagt das dazu („frühere
+  Nachfass-Kontakte hält die App nicht fest"), statt einen einzelnen Eintrag wie den
+  vollständigen Verlauf aussehen zu lassen.
 - **Doppelzählung vermieden:** Der „Erstkontakt" aus `phone_leads.first_call_at` erscheint nur,
   wenn das Anruf-Log für diesen Lead leer ist — sonst stünde derselbe erste Wählversuch zweimal
-  in der Leiste. Superseded, nie erledigte Touches fallen raus.
-- **Fail-soft in Stufen:** Vier Abfragerunden, höchstens acht Abfragen. Runde 4
-  (`phone_call_attempts`, `reminder_touches`, `profiles`) darf scheitern, ohne die Seite
-  mitzunehmen — die Zeitleiste wird dann dünner, nicht die Seite weiß. Fehlt eine ganze
-  Migration, unterscheidet die Leerseite ausdrücklich „Dossier nicht verfügbar" von „Kein Lead
-  unter dieser Adresse".
+  in der Leiste.
+- **Fail-soft in Stufen:** Vier Abfragerunden. Runde 4 (`phone_call_attempts`, `profiles`) darf
+  scheitern, ohne die Seite mitzunehmen — die Zeitleiste wird dann dünner, nicht die Seite
+  weiß. Fehlt eine ganze Migration, unterscheidet die Leerseite ausdrücklich „Dossier nicht
+  verfügbar" von „Kein Lead unter dieser Adresse". `profiles` wird in derselben Abfrage für
+  **zwei Rollen** geholt: die zuständige Person eines Termins UND wer zuletzt gestempelt hat —
+  das kann derselbe sein, muss aber nicht; in einem Dreier-Team hakt ab, wer gerade Zeit hat.
+- **⚠ Das Dossier hängt hart an Migration 0041.** `SETTING_COLUMNS`/`CLOSING_COLUMNS`
+  (`src/app/actions/leadDossier.ts`) selektieren die beiden Stempel-Spalten **namentlich**;
+  fehlt eine, weist PostgREST die ganze Abfrage ab und die Seite meldet „Dossier nicht
+  verfügbar" (Muster 0029/0032, §7). Das ist bewusst so gewählt statt einer eigenen,
+  fail-soft nachgeladenen Abfrage: Die kostete eine Runde mehr für zwei Spalten, die ohnehin
+  an Zeilen hängen, die hier schon gelesen werden. **Die Terminliste macht es genau umgekehrt**
+  und lädt mit `select("*")` — dort wäre eine leere Seite der teurere Fehler (§7).
 - **Bekannte Grenze:** Das Dossier benutzt **kein** `fetchAllRows` (§5.1). Der
   Firmennamen-Vorfilter läuft als `ilike` gegen `contacts` und `phone_leads` und unterliegt
   damit der PostgREST-Standardgrenze — bei einem sehr häufigen Firmennamen kann die
   **Vermutungsliste** still unvollständig sein. Der Kern ist davon nicht betroffen (er wird
   über IDs geladen), und weil Vermutetes ohnehin nirgends mitzählt, kostet das eine Anregung,
   keine Zahl.
-- **Erreichbar** ist es aus `/ablage`, `/erinnerungen` und `/nachfassen` — jeweils als Overlay
+- **Erreichbar** ist es aus `/ablage` und `/nachfassen` — jeweils als Overlay
   (`LeadDossierSheet`), nicht als Absprung, damit die Arbeitsliste nicht verloren geht. **Auf
   dem Bildschirm heißt es „Details"**, nicht „Dossier" (Knopf `LeadDossierLink`, Overlay-Titel
   „Details zum Lead") — „Dossier" ist der Name im Code und in diesem Dokument, im Board
@@ -978,12 +1365,36 @@ zwar ohne den Riegel, der sie im Dossier harmlos macht.
 
 ### 5.4 Navigations-Zähler (`src/lib/navCounts.ts`)
 
-Drei Zähler — für `/erinnerungen`, `/nachfassen` und `/ablage`. Jeder trägt `{ total, overdue }`;
-überfällige Einträge färben das Badge amber.
+**Ein** Zähler, an `/nachfassen`. Er trägt `{ total, overdue }`; überfällige Einträge färben das
+Badge amber.
 
-**Seit dem 10. September 2026 stehen sie an drei Orten**, alle aus derselben Quelle: an der
+**Aus drei wurden zwei wurden einer** — und die Reihenfolge, in der sie fielen, ist die
+Geschichte des Rückbaus im Kleinen:
+
+| Badge | wann | warum |
+|---|---|---|
+| `/erinnerungen` | Welle 1 | Ein Zähler auf `reminder_touches` zählte danach eine Tabelle, die keine Oberfläche mehr füllt: erst dauerhaft dieselbe Zahl, dann dauerhaft 0 — beides ist eine Aussage über nichts |
+| `/ablage` | Nachbesserung | Er zählte `dropout_lists('ersatztermin_offen')` — die eine Ablage-Liste mit offener Handlung. Genau die hat der Rückbau aus der Ablage entfernt (§1): Ein Lead, der abgesagt hat und noch keinen Ersatz trägt, ist kein Archiv-Eintrag, sondern der Normalfall der Arbeitsliste. Das Badge zeigte damit eine Zahl aus einer Menge, die es in der Oberfläche nicht mehr gab, und führte auf eine **disjunkte** Ansicht |
+| `/nachfassen` | — | bleibt |
+
+**Umgehängt wurde der Ablage-Zähler nicht, sondern gestrichen.** Beide verbliebenen
+Ablage-Ansichten sind Aktenschränke, die über Monate wachsen und nie auf null gehen — „ein
+Badge auf einem Archiv, das nie auf null geht, ist eine Mahnung ohne Adressat".
+
+**Und `/termine` hat bewusst KEINEN bekommen**, obwohl dort seit dem Rückbau die meiste Arbeit
+liegt. Sein Gold ist aus Zustand, Absage, Nachfass-Stempel und Berliner Tagesgrenze
+**abgeleitet** (§1). Die Navigation müsste dafür entweder dieselben Zeilen laden, die die Seite
+lädt — auf **jeder** Seite —, und oberhalb des 500er-Fensters trotzdem schweigen, oder die
+Regel ein zweites Mal als PostgREST-Filter formulieren. Genau dagegen gibt es
+`src/lib/dranRegel.ts`. Dazu kommt das Argument, das den Ausschlag gibt: `/termine` ist die
+Fläche, die man ohnehin öffnet; ein Badge spricht für eine Seite, die man sonst nicht aufmacht.
+
+**Die Zahl steht an drei Orten**, alle aus derselben Quelle: an der
 Zeile in der Seitenleiste, als Summe am zugeklappten Blockkopf (s. u.) und auf den
-**Quicklink-Kacheln des Dashboards** (`src/components/QuickLinks.tsx`). Der Anlass war, dass
+**Quicklink-Kacheln des Dashboards** (`src/components/dashboard/QuickLinks.tsx` — drei Kacheln
+für den Block „Meine Arbeit": Termine · Nachfassen · Ablage, davon trägt **eine** ein Badge;
+„Termine" steht seit dem Rückbau an erster Stelle, weil die Terminliste die zentrale
+Arbeitsfläche ist). Der Anlass war, dass
 die Seitenleiste seither vollständig zugeklappt startet — ohne die Kacheln wäre der Überblick
 über offene Arbeit hinter zwei Klicks verschwunden. Geladen wird trotzdem **einmal**:
 `getNavCounts()` (`src/lib/navCountsData.ts`) ist eine argumentlose, per React `cache()`
@@ -995,81 +1406,115 @@ zwei Einträge und keinen Gewinn. Eigene Datei deshalb, weil `navCounts.ts` von 
 Nebeneffekt, der genauso zählt: `dueRefNow()` ist eine echte Uhr — zwei getrennte Läufe könnten
 auf zwei gleichzeitig sichtbaren Flächen zwei verschiedene Zahlen zeigen.
 
-**Seit der Neugliederung der Seitenleiste** (fünf benannte Blöcke, die drei Seiten stehen
-zusammen mit `/termine` im Block „Meine Arbeit") gibt es die Zahlen an **zwei** Stellen:
+**Seit der Neugliederung der Seitenleiste** (fünf benannte Blöcke; `/termine`, `/nachfassen`
+und `/ablage` stehen zusammen im Block „Meine Arbeit") gibt es die Zahl an **zwei** Stellen:
 an der einzelnen Zeile wie bisher, und als Summe am **zugeklappten Blockkopf**. Die Summe
 bildet `sumNavCounts()` (`src/components/Sidebar.tsx`) — dieselbe Funktion, die auf Mobil
 den Punkt am Menü-Knopf des `MobileHeader` speist. Ihre `null`-Regel ist bewusst eine
-Stufe weicher als die der Einzelzähler: `null` bleibt `null`, solange **kein** Zweig eine
+Stufe weicher als die des Einzelzählers: `null` bleibt `null`, solange **kein** Zweig eine
 Zahl hat; liefert nur ein Teil, wird die **Teilsumme** gezeigt. Das ist kein Bruch mit der
 Doktrin unten, sondern ihre Anwendung auf eine andere Frage — an der Zeile hieße eine
 Teilzahl „so viel liegt dort an" und wäre falsch, am Blockkopf heißt sie „hier liegt
-etwas an", und welcher Zweig schweigt, steht aufgeklappt eine Zeile darunter.
+etwas an", und welcher Zweig schweigt, steht aufgeklappt eine Zeile darunter. Die
+Bündel-Form `NavCounts` bleibt aus demselben Grund, obwohl nur ein Zweig darin steht:
+Seitenleiste, Quicklink-Streifen und mobiler Menü-Punkt nehmen sie entgegen, und der nächste
+Zähler soll sich einhängen können, ohne drei Signaturen zu drehen.
 
-Drei Eigenschaften, die man kennen muss, bevor man eine Badge-Zahl gegen eine Seite hält:
+Drei Eigenschaften, die man kennen muss, bevor man die Badge-Zahl gegen die Seite hält:
 
-- **`null` heißt „nicht ermittelbar", nicht „null Aufgaben".** Schlägt eine der Abfragen fehl
-  (fehlende Migration, RLS), verschwindet das Badge — es behauptet keine beruhigende 0. Bei
-  `/nachfassen` gilt das für beide RPCs gemeinsam: ein halbes Badge wäre schlimmer als keins.
-- **Die Zähler sind strikt persönlich** (`effective_user_id ?? user.id`), auch für einen Owner
-  mit Team-Sicht — mit einer Ausnahme: **`/ablage` zählt org-weit**, wenn keine Datensicht
-  aktiv ist, genau wie die Seite selbst. Gezählt wird dort nur die eine Liste mit offener
-  Handlung („Abgesagt, Ersatztermin steht aus"), nicht die Summe aller sechs: Ein Badge auf
-  einem Archiv, das nie auf null geht, ist eine Mahnung ohne Adressat.
-- **Nur noch EINES der drei weicht von seiner Seite ab** — früher waren es zwei:
+- **`null` heißt „nicht ermittelbar", nicht „null Aufgaben".** Schlägt die Abfrage fehl
+  (fehlende Migration, RLS) oder fehlt die exakte Zahl, verschwindet das Badge — es behauptet
+  keine beruhigende 0. Ein `(count ?? 0)` hätte die fehlende Auskunft stillschweigend als
+  „nichts fällig" verbucht: genau die halbe Wahrheit, gegen die schon der Fehlerfall steht.
+- **Der Zähler ist strikt persönlich** (`effective_user_id ?? user.id`), auch für einen Owner
+  mit Team-Sicht — dieselbe Regel, nach der die Terminliste ihre Vorgabe-Menge schneidet (§1).
+  Die frühere Ausnahme („`/ablage` zählt org-weit") ist mit dem Ablage-Badge entfallen.
+- **✔ Badge und Seite sind deckungsgleich — und das ist neu.** Beide lesen **dieselbe** RPC
+  (`recycle_tasks`), mit denselben Parametern, und beide legen **denselben** Altlasten-Schnitt
+  darüber (`isStaleDue("recycling", …)`, §5.5).
 
-| Badge | Verhältnis zur Seite |
-|---|---|
-| **Ablage** | **deckungsgleich** — dieselbe RPC, dieselben Parameter wie der Tab-Zähler |
-| **Nachfassen** | **deckungsgleich** — dieselben zwei RPCs *und* dieselben zwei Schnitte wie die Seite: der LinkedIn-Zweig wird verworfen (§5), die Altlasten fallen über `isStaleDue()` heraus (§5.5). Beides läuft über **dieselben Funktionen** wie die Server-Action, nicht über nachgebaute Kopien |
-| **Erinnerungen** | **zählt anders in beide Richtungen**: nur **heute** statt des vollen `reminder_horizon_days`-Fensters und nur unerledigte Touches (ein 7-Tage-Badge ginge nie auf null und mahnte an, was noch gar nicht fällig ist) — dafür zählt es **Touches**, während die Seite mehrere Stufen desselben Termins zu EINER Karte bündelt. Das Badge kann die Kartenzahl deshalb überschreiten |
-
-> **Warum das Nachfassen-Badge die Regel gewechselt hat.** Bis zum LinkedIn-Schnitt galt hier
-> ausdrücklich „das Badge zählt mehr, die Seite erklärt die Differenz". Diese Regel trägt nur,
-> solange die Differenz klein und auflösbar ist. Beide neuen Schnitte verletzen genau das: Ein
-> Badge, das die LinkedIn-Follow-ups mitzählt, behauptet dreistellige Arbeit für ein Board mit
-> einer Handvoll Karten — und zwar Arbeit, die man dort **nicht finden kann**. Und die
-> Altlasten wären als Differenz genau die Zahl, deretwegen der Schnitt eingeführt wurde: eine
-> Mahnung ohne Adressat.
+> **Das war eine bewusste Abkehr von der alten Regel — und die Begründung gehört dazu.**
+> Bis hierher galt: „Das Badge zählt mehr, die Seite erklärt die Differenz in derselben Zeile."
+> Diese Regel war vertretbar, solange die Differenz genau **eine** benannte Menge war
+> (ausgeblendete LinkedIn-Altlasten). Nach Welle 2 war sie es nicht mehr: Der Zähler las
+> weiterhin **beide** RPCs, während die Seite drei ihrer Zweige an die Terminliste abgegeben
+> hatte — das Badge zeigte 14, die Seite darunter zwei Karten. Eine Zahl, die sich nur noch
+> mit einem Absatz erklären lässt, ist keine Zahl mehr, sondern genau die Mahnung ohne
+> Adressat, über die sich der Auftraggeber beschwert hat.
 >
-> **Der Preis dafür ist ein neuer `null`-Fall, und er ist bewusst gewählt.** Der 500er-Deckel
-> (`ROW_CAP`) und die Schnitte vertragen sich nicht: `count: 'exact'` ist exakt, das
-> Zeilenfenster ist es nicht — und weil aufsteigend nach Fälligkeit sortiert wird, stehen
-> ausgerechnet die ÄLTESTEN, also die wegzuschneidenden Zeilen **vorn**. Wurde abgeschnitten
-> (`count > rows.length` bei einer der beiden RPCs), lässt sich die gefilterte Zahl gar nicht
-> mehr ermitteln. Dann gibt es **kein Badge** statt einer zu kleinen Zahl — dieselbe Doktrin
-> wie oben: `null` heißt „nicht ermittelbar", und eine zu niedrige Zahl wäre schlimmer als
-> keine, weil sie glaubwürdig aussieht.
+> **Daraus folgt die Pflicht für den nächsten Umbau, und sie gilt in BEIDE Richtungen:** Die
+> Quellenliste des Zählers ist an die der Seite gebunden. Ein Badge, das weniger zählt als die
+> Seite darunter, ist genauso falsch wie eines, das mehr zählt — nur fällt es später auf.
+> `src/lib/navCounts.ts` schreibt diese Pflicht ausdrücklich in den Code.
+>
+> **Der 500er-Deckel bleibt der Grund für einen eigenen `null`-Fall:** `count: 'exact'` ist
+> exakt, das Zeilenfenster (`ROW_CAP`) ist es nicht, und weil aufsteigend nach Fälligkeit
+> sortiert wird, stehen ausgerechnet die ÄLTESTEN — also die wegzuschneidenden — Zeilen
+> **vorn**. Wurde abgeschnitten (`count > rows.length`), lässt sich die gefilterte Zahl gar
+> nicht mehr ermitteln; dann gibt es **kein Badge** statt einer zu kleinen Zahl. Eine zu
+> niedrige Zahl wäre schlimmer als keine, weil sie glaubwürdig aussieht. Unterhalb des Deckels
+> ist die gefilterte Liste die Wahrheit, und `total` kommt aus ihrer Länge, nicht aus `count`.
 
 **Was Badge und Seite garantiert teilen, ist die Überfällig-Regel** — sie steht einmal in
 `src/lib/dueState.ts` und wird von beiden gelesen (§6). Genau dafür wurde die Datei angelegt:
 Eine Navigation, die eine Dringlichkeit behauptet, die die Seite daneben nicht kennt, ist
-schlimmer als gar kein Badge.
+schlimmer als gar kein Badge. Gerechnet wird ausnahmslos auf **Tages**-Körnung:
+`next_recycle_at` ist eine `date`-Spalte, nach ihrem Datentyp gelesen wäre ab 02:00 Berliner
+Zeit alles überfällig — und weil die RPC ohnehin nur Fälliges liefert, wäre schlicht **alles**
+überfällig (§6).
 
-Betriebsverhalten: kein Caching (die Zähler laufen bei jedem Seitenaufruf im bestehenden
+Betriebsverhalten: kein Caching über die Anfrage hinaus (der Zähler läuft im bestehenden
 `Promise.all` des Layouts mit), aber eine harte **Frist von 1,5 s** — was länger braucht,
 liefert `null` und damit kein Badge, statt das Layout aufzuhalten. Der Überfällig-Anteil wird
 über höchstens 500 Zeilen ermittelt (nach Fälligkeit aufsteigend sortiert, überfällige stehen
-also vorn). Bei **Erinnerungen** und **Ablage** kommt `total` aus `count: 'exact'` und ist von
-dieser Grenze **nicht** betroffen; bei **Nachfassen** ist das seit den beiden Schnitten anders
-— dort ist die gefilterte Zeilenliste die Wahrheit, und ein angeschnittenes Fenster liefert
-statt einer Zahl gar kein Badge (Kasten oben). Eine „99+"-Kappung gibt es nicht.
+also vorn). Eine „99+"-Kappung gibt es nicht.
 
 ### 5.5 Der Altlasten-Schnitt (`src/lib/staleTasks.ts`)
 
-Der zweite der beiden Schnitte, die zwischen `nachfassen_tasks`/`recycle_tasks` und dem
-Bildschirm liegen (der erste ist der LinkedIn-Zweig, §1/§5). Er blendet Aufgaben aus, deren
-Fälligkeit so lange vorbei ist, dass sie niemand mehr abarbeitet.
+Der Schnitt, der zwischen einer Aufgabenquelle und dem Bildschirm liegt. Er blendet Aufgaben
+aus, deren letztes maßgebliches Datum so lange zurückliegt, dass sie niemand mehr abarbeitet.
 
-**Das Problem, das er löst.** `/nachfassen` beantwortet „was ist heute fällig?" und lieferte
-dafür alles aus, was jemals fällig geworden und nie abgehakt worden ist — am ersten
-produktiven Tag 425 Aufgaben. Das ist keine Arbeitsliste mehr, sondern ein Archiv: Der
-überfällige Rückruf von gestern, um den es wirklich geht, liegt zwischen zweihundert
-Karteileichen. **Und der Bestand wächst monoton**, denn keiner der drei verbliebenen Status
-läuft je von allein ab: Ein Erstgespräch bleibt `unqualifiziert`, ein Closing bleibt
-`nachfassen`, ein Lead bleibt `rueckruf` — bis jemand von Hand etwas anderes einträgt. Ohne
-Schnitt ist das Board nicht heute wieder voll, sondern in einem halben Jahr, und dann mit
-denselben 400 Karten.
+**Alle vier Grenzen haben einen Leser** — nach dem Rückbau wieder, und jede auf ihrer eigenen
+Fläche: `recycling` auf `/nachfassen`, `telefon` im Rückruf-Reiter der Terminliste,
+`setting`/`closing` in deren Arbeitsliste. Zwischenzeitlich hingen drei von ihnen nur noch am
+Navigations-Zähler; mit dessen Zusammenzug (§5.4) wären sie tote Konstanten geworden — dass
+sie es nicht sind, liegt daran, dass die Terminliste **denselben** Schnitt braucht.
+
+**Das Problem, das er löst — zweimal dasselbe.** `/nachfassen` beantwortete „was ist heute
+fällig?" und lieferte dafür alles aus, was jemals fällig geworden und nie abgehakt worden ist
+— am ersten produktiven Tag 425 Aufgaben. Das ist keine Arbeitsliste mehr, sondern ein Archiv:
+Der überfällige Versuch von gestern, um den es wirklich geht, liegt zwischen zweihundert
+Karteileichen. Ein Board, das alles zeigt, zeigt nichts.
+
+**Dieselbe Falle stellt die Termin-Arbeitsliste, und zwar unverdünnt:** „Zu tun" schneidet nur
+nach ZUSTAND, nicht nach Zeit — bei 173 Erstgesprächen und 50 Closings landet dort am ersten
+Tag jede jemals angelegte Zeile ohne Ergebnis, alle gleichzeitig gold. **Zweihundert goldene
+Zeilen sind dasselbe wie keine.**
+
+> **Warum das der Ansage „wer offen ist, wird JEDEN TAG kontaktiert — ohne Ausnahme, ohne
+> Intervall-Logik" nicht widerspricht.** Der Schnitt ist **kein Intervall**. Er verzögert
+> niemanden und lässt niemanden aussetzen; er nimmt Zeilen heraus, an denen seit einem Monat
+> nichts passiert ist. Entscheidend ist, dass er sich **selbst auflöst**: Jeder Klick auf
+> „Genervt" erneuert das Lebenszeichen, ein täglich bearbeiteter Lead kann also nie zur Altlast
+> werden. Wer herausfällt, ist genau der, den niemand bearbeitet — und er wird gezählt,
+> benannt und ist einen Klick entfernt, nicht gelöscht.
+>
+> **Der Anker ist deshalb das JÜNGSTE Lebenszeichen, nicht der Termin allein**
+> (`letztesLebenszeichen([appointment_at, follow_up_last_contacted_at])`). Ohne den
+> Nachfass-Stempel wäre der Schnitt doch ein Intervall: Ein Lead, den das Team seit sechs
+> Wochen täglich nervt, dessen Termin aber im März war, verschwände mitten aus der Arbeit
+> heraus. Solange 0041 nicht eingespielt ist, kommt der Stempel gar nicht mit und der Anker ist
+> allein der Termin — unschädlich, weil in diesem Zustand auch der Knopf „Genervt" nicht
+> schreiben kann und es also keine täglich bearbeitete Zeile zu schützen gibt.
+>
+> **Der Schnitt trifft nur die Arbeitsmenge.** „Verlegt" und die Ergebnis-Zustände fasst er
+> nicht an, und der Kalender blendet weiterhin **nichts** aus (§1).
+
+**Warum der Schnitt bleibt, obwohl dort nur noch das Recycling steht.** Ein Recycling-Datum
+läuft nie von allein ab: `next_recycle_at` bleibt stehen, bis jemand „Nochmal versucht",
+„Reagiert" oder „Endgültig raus" drückt — der Bestand wächst also monoton mit der
+Nutzungsdauer. Ohne Schnitt ist das Board nicht heute wieder voll, sondern in einem halben
+Jahr, und dann mit denselben 400 Karten.
 
 **Was er ausdrücklich NICHT tut: Überfälliges ausblenden.** Überfällige Aufgaben sind der
 Zweck der Seite. Jede Grenze liegt weit hinter dem Punkt, an dem eine Aufgabe überfällig wird.
@@ -1078,16 +1523,25 @@ Zweck der Seite. Jede Grenze liegt weit hinter dem Punkt, an dem eine Aufgabe ü
 die eine Quelle zu scharf und für die andere wirkungslos, weil die Quellen in völlig
 verschiedenen Kadenzen ticken (§1):
 
-| Quelle | Grenze | Warum gerade diese |
-|---|---|---|
-| **Telefon-Rückruf** | **14 Tage** | Der einzige Wert des Boards mit einer *mit dem Lead verabredeten Uhrzeit* (`callback_at`, Körnung `moment`, §6). Zwei Wochen nach dem zugesagten Zeitpunkt ist die Verabredung kein Versprechen mehr, sondern eine Notiz — anrufen darf man weiter, nur eben nicht mehr „weil wir das so ausgemacht hatten" |
-| **Setting-Wiedervorlage** | **30 Tage** | Wiedervorlagen werden in 7-Tage-Schritten weitergeschoben (`FOLLOW_UP_PUSH_DAYS`). Wer **vier** solche Schritte hat verstreichen lassen, hat den Vorgang nicht verschoben, sondern liegen gelassen — er gehört in die Ablage, nicht in den Vormittag |
-| **Closing-Wiedervorlage** | **30 Tage** | dieselbe Begründung, derselbe Schrittabstand |
-| **Recycling** | **90 Tage** | Die Wartezeiten selbst liegen zwischen 28 und 270 Tagen (`pipeline_settings`, §5). Auf dieser Kadenz sind 30 Tage Verzug nichts; ein Schnitt in der Größenordnung der anderen Quellen erwischte reihenweise Leads, die **planmäßig** warten |
+| Quelle | Grenze | Gemessen ab | Warum gerade diese |
+|---|---|---|---|
+| **Telefon-Rückruf** (`telefon`) | **14 Tage** | `callback_at` (Fälligkeit) | Der einzige Wert mit einer *mit dem Lead verabredeten Uhrzeit* (Körnung `moment`, §6). Zwei Wochen nach dem zugesagten Zeitpunkt ist die Verabredung kein Versprechen mehr, sondern eine Notiz — anrufen darf man weiter, nur eben nicht mehr „weil wir das so ausgemacht hatten". Wirkt im **Rückruf-Reiter** der Terminliste |
+| **Erstgespräch** (`setting`) | **30 Tage** | **jüngstes Lebenszeichen** | Eine Fälligkeit gibt es hier nicht mehr, seit „wer offen ist, wird jeden Tag kontaktiert" die Wiedervorlage ersetzt hat. Die Frage lautet nicht „wie lange ist es überfällig", sondern „wie lange hat niemand mehr hingesehen". Wirkt in der **Arbeitsliste** |
+| **Closing** (`closing`) | **30 Tage** | **jüngstes Lebenszeichen** | dieselbe Begründung, dieselbe Fläche |
+| **Recycling** (`recycling`) | **90 Tage** | `next_recycle_at` (Fälligkeit) | Die Wartezeiten selbst liegen zwischen 28 und 270 Tagen (`pipeline_settings`, §5). Auf dieser Kadenz sind 30 Tage Verzug nichts; ein Schnitt in der Größenordnung der anderen Quellen erwischte reihenweise Leads, die **planmäßig** warten. Wirkt auf `/nachfassen` |
 
-**LinkedIn steht bewusst nicht in dieser Tabelle.** `staleSourceOf("linkedin")` liefert `null`:
-Der Wert kommt aus der RPC weiterhin an, aber eine Grenze für ihn wäre eine Aussage über
-etwas, das die Seite gar nicht zeigt.
+Die Spalte „Gemessen ab" ist der Unterschied, den man kennen muss: Bei `telefon` und
+`recycling` ist der Anker eine **Fälligkeit**, bei `setting`/`closing` das jüngste
+**Lebenszeichen** (Termin oder Nachfass-Stempel, je nachdem welches jünger ist). Die Zahl ist in
+beiden Lesarten dieselbe Aussage — so lange darf ein Vorgang liegen, bevor er als aufgegeben
+gilt —, aber eine SQL-Nachrechnung, die überall dieselbe Spalte nimmt, bekommt zwei verschiedene
+Mengen.
+
+**LinkedIn hat bewusst KEINEN Eintrag.** Die Quelle steht auf keiner Seite — eine Grenze dafür
+wäre eine Aussage über etwas, das niemand sieht. Die Übersetzungsfunktion `staleSourceOf()`, die
+früher die `source`-Spalte von `nachfassen_tasks` auf einen dieser vier Schlüssel abbildete, ist
+mit dem Zusammenzug des Navigations-Zählers gefallen: Alle heutigen Aufrufer kennen ihre Quelle
+statisch.
 
 Mechanik und Fallstricke:
 
@@ -1098,33 +1552,57 @@ Mechanik und Fallstricke:
   und zwei Aufgaben mit derselben Fälligkeit fielen verschieden aus.
 - **Ohne Fälligkeitswert keine Aussage.** Fehlt `due_at`, bleibt die Aufgabe sichtbar —
   dieselbe Regel wie überall: Wo die Seite nichts über das Alter weiß, behauptet sie nichts.
-- **Die Zahl steht auf dem Bildschirm und ist auflösbar.** Was ausgeblendet wurde, zählt
-  `getNachfassenTasks()` in `hiddenStale` mit und das Board nennt es je Quelle samt Grenze
-  („12 Rückrufe (über 14 Tage überfällig)", `staleParts()`). **`?alle=1`** lädt sie zurück
-  (`includeOlder`) — der Schnitt versteckt also nichts, er räumt nur den Vormittag frei.
+- **Die Zahl steht auf dem Bildschirm und ist auflösbar — auf beiden Flächen, aber unter
+  verschiedenen Parametern.** Was ausgeblendet wurde, wird gezählt, samt Grenze benannt und ist
+  einen Klick entfernt:
+  - `/nachfassen`: `getNachfassenTasks()` zählt es in `hiddenStale`, das Board nennt es („12
+    lange überfällige Versuche ausgeblendet (über 90 Tage überfällig)"), **`?alle=1`** lädt sie
+    zurück (`includeOlder`).
+  - `/termine`: **`?altlasten=1`**, bewusst **nicht** `?alle=1` — diese Seite trägt bereits
+    einen Schalter `?wer=alle` (Personenachse, §1), und zwei Parameter mit demselben Wort für
+    zwei verschiedene Mengen wären die Sorte Doppeldeutigkeit, die man erst bemerkt, wenn ein
+    geteilter Link etwas anderes zeigt als beim Teilen.
+
+  Der Schnitt versteckt also nichts, er räumt nur den Vormittag frei. Die frühere Aufzählung je
+  Quelle (`staleParts()`, `STALE_LABELS`) ist gefallen: Auf einer Liste mit genau einer Quelle
+  ist „12 Rückrufe, 3 Closing-Wiedervorlagen" eine Beschriftung ohne Gegenstand — bei einer
+  Quelle ist es eine Zahl.
 - **Die Zahlen stehen an EINER Stelle.** Server-Action, Navigations-Zähler (§5.4) und die
   Beschriftung des Boards lesen alle `STALE_AFTER_DAYS` bzw. `isStaleDue()`. Drei Kopien einer
   Zahl, die Aufgaben verschwinden lässt, laufen auseinander — und dann nennt die Seite eine
   andere Grenze, als sie anwendet.
+- **Berlin, auf beiden Seiten.** Der Referenztag der Server-Action kommt aus
+  `berlinDateISO(now)` und nicht aus `localDateISO()`: Auf Vercel läuft der Server in UTC, und
+  zwischen Mitternacht und 02:00 Berliner Zeit läge der lokale Tag einen zurück. Der
+  Navigations-Zähler rechnet ohnehin in Berlin — liefen die beiden auseinander, unterschieden
+  sich Badge und Seite jede Nacht um genau die Aufgaben auf der Grenze.
 
-**Für Auswertungen heißt das:** Der Schnitt ist reine Anzeige. In `nachfassen_tasks` und
-`recycle_tasks` steht weiterhin alles; wer per SQL zählt, bekommt die Altlasten mit. Die
-Differenz zwischen „was die RPC liefert" und „was auf dem Board steht" ist damit vollständig
-erklärt durch diese beiden Schritte: **LinkedIn-Zweig verworfen** (§5) und
-**Altlasten geschnitten** (hier).
+**Für Auswertungen heißt das:** Der Schnitt ist reine Anzeige. In `recycle_tasks` (und in
+`nachfassen_tasks`) steht weiterhin alles; wer per SQL zählt, bekommt die Altlasten mit. Die
+Differenz zwischen „was die Datenbank liefert" und „was auf dem Bildschirm steht" ist damit
+vollständig erklärt und hat auf jeder Fläche genau zwei Teile:
+- `/nachfassen` = `recycle_tasks` **minus** Altlasten über 90 Tage.
+- Arbeitsliste = abgeleitete Arbeitsmenge (§1) **minus** Altlasten über 30 Tage ohne
+  Lebenszeichen.
+- Rückruf-Reiter = fällige Rückrufe **minus** Altlasten über 14 Tage.
+
+Der Navigations-Zähler fährt denselben Schnitt wie `/nachfassen` (§5.4) — das ist keine
+Nebensache, sondern der Grund, warum Badge und Seite dieselbe Zahl zeigen.
 
 ## 6. Zeit & Zeitzonen (Fallstricke für Auswertungen)
 
 - **`date`-Spalten** (reine Kalendertage, kein TZ-Thema): `pitched_at`, `next_follow_up_at`, `first_call_at`, `setting_calls.call_at`, `follow_up_due`, `contract_start`, `closing_calls.onboarding_at` (Migration 0032 — der Onboarding-Tag hat keine Uhrzeit), `next_recycle_at` (contacts/phone_leads/setting_calls/closing_calls, Migration 0033 — Recycling ist Wochen/Monate-Kadenz, keine Uhrzeit-Präzision).
-- **`timestamptz`-Spalten** (UTC in DB): `appointment_at` (contacts/phone_leads/setting_calls), `callback_at`, `closing_at`, `closing_calls.call_at`, `phone_call_attempts.called_at`, `wa_consent_at`/`wa_refused_at` (setting_calls, Migration 0032), `follow_up_due_at` (closing_calls, Migration 0032), der Termin-Lebenszyklus aus 0032 (`cancelled_at`, `last_reschedule_at`, `revived_at` auf beiden Termin-Tabellen), die beiden Recycling-Zeitstempel aus 0033 (`recycle_excluded_at`, `recycle_last_contacted_at`, `recycle_responded_at` auf allen vier Ursprungstabellen), `reminder_touches.due_at`/`appointment_at`/`done_at`/`superseded_at`/`snoozed_until` (Migration 0032 — anders als die übrigen `_at`-Termin-Spalten hier UHRZEIT-präzise, weil die Kaskade genau darauf rechnet), alle `created_at`/`updated_at`.
+- **`timestamptz`-Spalten** (UTC in DB): `appointment_at` (contacts/phone_leads/setting_calls), `callback_at`, `closing_at`, `closing_calls.call_at`, `phone_call_attempts.called_at`, `wa_consent_at`/`wa_refused_at` (setting_calls, Migration 0032), `follow_up_due_at` (closing_calls, Migration 0032), der Termin-Lebenszyklus aus 0032 (`cancelled_at`, `last_reschedule_at`, `revived_at` auf beiden Termin-Tabellen), die drei Recycling-Zeitstempel aus 0033 (`recycle_excluded_at`, `recycle_last_contacted_at`, `recycle_responded_at` auf allen vier Ursprungstabellen), **`follow_up_last_contacted_at`** (Migration 0041, beide Termin-Tabellen — `timestamptz` und nicht `date`, weil die Arbeitsliste „habe ich den **heute schon** genervt?" beantwortet, also eine Frage *innerhalb* eines Tages; gebucketet wird trotzdem über den Berliner Kalendertag, das ist Sache der Anzeige), `reminder_touches.due_at`/`appointment_at`/`done_at`/`superseded_at`/`snoozed_until` (Migration 0032 — anders als die übrigen `_at`-Termin-Spalten hier UHRZEIT-präzise, weil die Kaskade genau darauf rechnete), alle `created_at`/`updated_at`.
 - **Alle Termin-Spalten enthalten echtes UTC** — seit Migration `20260404000021_appointment_timezone_fix.sql`. Vorher schrieben die Terminpfade den rohen `datetime-local`-String (Berlin-Wandzeit) direkt in die `timestamptz`-Spalte, wodurch Termine um den UTC-Offset zu spät erschienen; `closing_calls.call_at` war die einzige Ausnahme mit korrektem UTC. Die Migration hat `setting_calls.appointment_at`/`closing_at`, `contacts.appointment_at`, `phone_leads.appointment_at`/`callback_at` DST-genau korrigiert (Sicherung liegt in `public._appt_tz_backup_20260727`).
 - **Einzige Konvertierungsstelle im Code: `src/lib/apptTime.ts`** (`berlinInputToIso` / `isoToBerlinInput` / `berlinDateISO` / `toBerlinSlot` / `slotToIso` / `formatTermin`). Der Offset kommt aus `Intl` mit fester Zone `Europe/Berlin` und hängt damit **nicht** von der Server-Zeitzone ab (Vercel = UTC, lokal = Berlin) — genau daran war die alte Speicherung zerbrochen. Neue Schreibpfade müssen `berlinInputToIso()` verwenden, nie `new Date(input).toISOString()`.
 - Die Analyse-Tabs **und** die Vergleichsseite bucketen über den **Berlin-Kalendertag** (`berlinDateISO`, `src/lib/analyse.ts`); die frühere UTC-Slice-Inkonsistenz an der Tagesgrenze ist damit weg. `rpc_appointments_booked` macht dasselbe in SQL (`(created_at at time zone 'Europe/Berlin')::date`) — sonst rutschte ein abends gebuchter Termin in den Vortag. Auch die Kachel „Termine gelegt" im LinkedIn-Tab rechnet über `berlinDateISO(created_at)`.
 - **Zeitraumfilter auf `timestamptz` brauchen einen Tagespuffer.** PostgREST kann nicht in Berlin-Zeit schneiden, deshalb das Muster aus `loadCallAttempts` (`src/lib/phoneAttemptsData.ts`): in SQL grob mit einem Tag Luft nach beiden Seiten filtern (`gte from-1`, `lt to+2`), danach in JS exakt über `berlinDateISO` nachfiltern. Ohne den Puffer fehlten Randanrufe, ohne den Nachfilter lägen sie im falschen Tag — und der Rest des Tabs bucketet bereits nach Berlin.
-- **`nachfassen_tasks.due_at` ist ein `timestamptz`, trägt aber überwiegend TAGE.** Die RPC presst fünf Quellen in eine Spalte, und vier davon sind in Wahrheit `date`-Werte, die sie nur castet. Ein `date` wird dabei zu Mitternacht UTC — in Berlin also **02:00 desselben Tages**. Wer die Spalte nach ihrem Datentyp liest, hält jedes Follow-up ab zwei Uhr morgens für überfällig; und weil die RPC ohnehin nur Fälliges liefert, wäre schlicht **alles** überfällig. Eine Dringlichkeit, die immer gilt, ist keine. Maßgeblich ist deshalb die **Körnung der Quelle**, nicht die Schreibweise des Werts: Nur der Telefon-Rückruf (`callback_at`) trägt eine verabredete Uhrzeit (`moment`), LinkedIn-Follow-up, Setting-/Closing-Wiedervorlage und Recycling haben den ganzen Tag Zeit (`day`) und werden erst am **Folgetag** überfällig. Die Regel steht an genau einer Stelle — `isOverdue(value, granularity, ref)` in `src/lib/dueState.ts` —, gelesen von der Seite *und* vom Navigations-Zähler (§5.4). Für SQL heißt das: `due_at` nie roh gegen `now()` halten, sondern gegen `(now() at time zone 'Europe/Berlin')::date`, außer beim Telefon-Zweig.
-- **Die dritte Fälligkeits-Variante: der Sofort-Touch misst gegen seinen TERMIN, nicht gegen sich selbst.** Neben den beiden Körnungen oben (`day`/`moment`) kennt `src/lib/dueState.ts` einen dritten Fall — `reminder_touches` mit `touch_kind='sofort'` (§4). Seine `due_at` ist der Zeitpunkt seiner **Entstehung**: Er entsteht ja gerade deshalb, weil der Termin so kurzfristig gebucht wurde, dass keine geplante Stufe mehr davor lag. Jede wertbasierte Regel hielte ihn eine Minute später für überfällig, obwohl niemand etwas versäumt hat. Maßgeblich ist deshalb der **Termin**: Bis dahin ist eine Bestätigung sinnvoll und nichts versäumt, danach ist sie sinnlos. Technisch trägt das der Typ `DueSpec` (`{ granularity: 'sofort', appointmentAt }` statt eines blanken Körnungs-Worts), gebaut von `reminderDueSpec(touch)`; ohne `appointment_at` bleibt der Touch ruhig, statt eine Dringlichkeit ohne Endpunkt zu behaupten. Gelesen wird die Regel an **drei** Stellen, die sonst auseinanderliefen: dem Board `/erinnerungen`, dem Navigations-Zähler in der Seitenleiste (§5.4) und dem Kaskaden-Panel am Termin selbst (`CascadePanel.tsx`) — dieselbe Karte darf nicht in der Seitenleiste mahnen und auf dem Termin ruhig aussehen. Für SQL heißt das: `reminder_touches.due_at` bei `touch_kind='sofort'` nie roh gegen `now()` halten, sondern `appointment_at < now()` prüfen.
-- **Kontaktfrequenz: der Auslöser ist ein rollendes 72-Stunden-Fenster, die Beschriftung ein Kalendertag.** `CONTACT_GAP_WARN_DAYS = 3` entscheidet als reine Millisekunden-Differenz (`now − last < 3 · 86 400 000`), ob die Warnung erscheint; `contactAgeDays()` / `lastContactLabel()` (`src/lib/contactGap.ts`) rechnen für den Text dagegen in **Berliner Kalendertagen** — „gestern 23:00" ist gestern, auch wenn es zwei Stunden her ist. Beide Zahlen sind absichtlich verschieden gemeint (Schwelle vs. Sprechweise); sie sind nur dann inkonsistent, wenn man sie füreinander hält.
-- **Kaskaden-Offsets rechnen in Berliner WANDZEIT, nicht in Millisekunden** (`shiftBerlinMinutes()`, `src/lib/cascadeEngine.ts`). „1 Tag vorher" heißt für einen Menschen dieselbe Uhrzeit einen Tag früher; auf dem UTC-Zeitstempel gerechnet läge die Fälligkeit am Umstellungswochenende eine Stunde daneben. Der Weg ist immer: ISO → Berliner Wandzeit → Kalenderarithmetik auf den Ziffern → `berlinInputToIso()` zurück nach UTC. Dieselbe Zone benutzt `schedule_recycle()` in SQL für „heute" (`(now() at time zone 'Europe/Berlin')::date`). **Die Buchungstag-Regel (§1) rechnet aus demselben Grund in Kalendertagen** (`berlinLeadDays()`, Differenz zweier Berliner Kalendertage als UTC-Mitternacht): Am Umstellungswochenende ist ein Tag 23 bzw. 25 Stunden lang — „24 Stunden entfernt" und „am nächsten Kalendertag" sind dort zwei verschiedene Aussagen, und nur die zweite meint der Mensch, der den Termin gebucht hat.
+- **`nachfassen_tasks.due_at` ist ein `timestamptz`, trägt aber überwiegend TAGE.** Die RPC presst fünf Quellen in eine Spalte, und vier davon sind in Wahrheit `date`-Werte, die sie nur castet. Ein `date` wird dabei zu Mitternacht UTC — in Berlin also **02:00 desselben Tages**. Wer die Spalte nach ihrem Datentyp liest, hält jedes Follow-up ab zwei Uhr morgens für überfällig; und weil die RPC ohnehin nur Fälliges liefert, wäre schlicht **alles** überfällig. Eine Dringlichkeit, die immer gilt, ist keine. Maßgeblich ist deshalb die **Körnung der Quelle**, nicht die Schreibweise des Werts: Nur der Telefon-Rückruf (`callback_at`) trägt eine verabredete Uhrzeit (`moment`), LinkedIn-Follow-up, Setting-/Closing-Wiedervorlage und Recycling haben den ganzen Tag Zeit (`day`) und werden erst am **Folgetag** überfällig. Die Regel steht an genau einer Stelle — `isOverdue(value, granularity, ref)` in `src/lib/dueState.ts` —, gelesen von der Seite *und* vom Navigations-Zähler (§5.4). Für SQL heißt das: `due_at` nie roh gegen `now()` halten, sondern gegen `(now() at time zone 'Europe/Berlin')::date`, außer beim Telefon-Zweig. **Seit dem Rückbau liest die RPC niemand mehr** (§5), und die beiden Körnungen liegen jetzt auf zwei getrennten Flächen: der Tages-Fall auf `/nachfassen` (`next_recycle_at`, ebenfalls eine `date`-Spalte — dieselbe Falle) und in der Arbeitsliste, der Minuten-Fall im Rückruf-Reiter (`callback_at`). Die Regel selbst ist unverändert.
+- **Es gibt nur noch ZWEI Fälligkeits-Varianten — die dritte ist mit der Kaskade gefallen.** `src/lib/dueState.ts` kannte einen dritten Fall: den Sofort-Touch (`touch_kind='sofort'`), dessen `due_at` der Zeitpunkt seiner **Entstehung** war. Er entstand ja gerade deshalb, weil der Termin so kurzfristig gebucht wurde, dass keine geplante Stufe mehr davor lag; jede wertbasierte Regel hielt ihn eine Minute später für überfällig, obwohl niemand etwas versäumt hatte — maßgeblich war deshalb der **Termin** (Typ `DueSpec`, `reminderDueSpec(touch)`). Beides ist entfernt. **Seither gibt es keine Fälligkeit mehr, die sich nicht aus ihrem eigenen Wert beantworten ließe**, und `isOverdue(value, granularity, ref)` nimmt wieder ein blankes Körnungs-Wort. Wer den Bestand in `reminder_touches` per SQL auswertet, muss die alte Regel trotzdem kennen: `due_at` bei `touch_kind='sofort'` nie roh gegen `now()` halten, sondern `appointment_at` prüfen.
+- **Die Arbeitsliste rechnet auf Berliner Kalendertagen, nicht auf Minuten.** Beide Fragen, aus denen sie besteht, sind Tagesfragen: „Steht ein Termin?" (`terminZustand`, Vergleich `Berlin-Tag(appointment_at) >= heute`) und „Habe ich den heute schon genervt?" (`istHeuteKontaktiert`, `berlinDateISO(stempel) === heute`). Ein Termin, der heute um 10:00 war, soll nicht ab 10:01 golden mahnen — dafür gibt es den No-Show-Eintrag. **Die einzige Ausnahme ist der Rückruf-Reiter:** Er entscheidet auf die Minute (`callback_at`, Körnung `moment`), weil dort eine mit dem Lead verabredete Uhrzeit steht.
+- **Und dieses „heute" kommt vom SERVER, nicht aus dem Browser.** Die Terminliste ist eine Client Component, holt sich ihren Tag aber nicht selbst: `today` wird als Prop durchgereicht und ist der Berliner Kalendertag, den die Server-Seite über `berlinDateISO()` gebildet hat. Ein `localDateISO()` im Browser wäre gleich zwei Fehler in einem — der Server läuft auf Vercel in UTC und lieferte abends einen anderen Tag als der Client (Hydrations-Unterschied), und wer selbst nicht in Berlin sitzt, bekäme eine dritte Antwort. Beides schlüge unmittelbar auf die Gold-Regel durch, weil die den Nachfass-Stempel über Berlin bucketet. Dieselbe Vorschrift gilt für `isStaleDue()` und `letztesLebenszeichen()` (§5.5): Der Referenztag kommt immer vom Aufrufer, nie aus `new Date()` — ein Board voller Karten würde sonst mitten im Durchlauf den Tag wechseln, und zwei Zeilen mit demselben Datum fielen verschieden aus.
+- **Kontaktfrequenz: der Auslöser ist weg, die Sprechweise geblieben.** `CONTACT_GAP_WARN_DAYS = 3` entschied als reine Millisekunden-Differenz (`now − last < 3 · 86 400 000`), ob die Warnung erschien; die Warnung selbst ist mit der Kaskade gefallen (§1). `dayDiff()` / `lastContactLabel()` (`src/lib/contactGap.ts`) rechnen für den **Text** unverändert in **Berliner Kalendertagen** — „gestern 23:00" ist gestern, auch wenn es zwei Stunden her ist — und beschriften jetzt die Unterzeile der Arbeitsliste und „Zuletzt kontaktiert" im Dossier. Die beiden Zahlen waren absichtlich verschieden gemeint (Schwelle vs. Sprechweise); übrig ist die zweite.
+- **Historisch: Kaskaden-Offsets rechneten in Berliner WANDZEIT, nicht in Millisekunden** (`shiftBerlinMinutes()`, `src/lib/cascadeEngine.ts` — Datei gelöscht). „1 Tag vorher" heißt für einen Menschen dieselbe Uhrzeit einen Tag früher; auf dem UTC-Zeitstempel gerechnet läge die Fälligkeit am Umstellungswochenende eine Stunde daneben. Der Weg war immer: ISO → Berliner Wandzeit → Kalenderarithmetik auf den Ziffern → `berlinInputToIso()` zurück nach UTC. Dieselbe Zone benutzt **`schedule_recycle()` unverändert** in SQL für „heute" (`(now() at time zone 'Europe/Berlin')::date`) — das ist der einzige Teil dieser Regel, der noch läuft. Die Buchungstag-Regel rechnete aus demselben Grund in Kalendertagen (`berlinLeadDays()`): Am Umstellungswochenende ist ein Tag 23 bzw. 25 Stunden lang — „24 Stunden entfernt" und „am nächsten Kalendertag" sind dort zwei verschiedene Aussagen, und nur die zweite meint der Mensch, der den Termin gebucht hat. Dieselbe Überlegung trägt heute den Tagesvergleich der Arbeitsliste.
 - **Empfehlung für SQL:** `(spalte at time zone 'Europe/Berlin')::date` für die Tageszuordnung von `timestamptz`-Spalten. ISO-Wochen (Montag-basiert) mit `date_trunc('week', …)`.
 
 **`Europe/Berlin` ist eine Produktgrenze, keine Einstellung.** Es gibt bewusst **keine
@@ -1132,13 +1610,14 @@ Zeitzone je Organisation und keine je Nutzer** — die Zone steht als Konstante 
 Stelle (`src/lib/apptTime.ts`), in `rpc_appointments_booked`, in `schedule_recycle()` und in
 jeder SQL-Empfehlung dieses Dokuments. Das ist eine Entscheidung, keine Auslassung: Sobald
 zwei Organisationen in verschiedenen Zonen lägen, wären „Tag", „Woche" und damit *jede* Zahl
-in §5 mandantenabhängig — Wochenduell, Consistency, Fortschritts-Kurven und die
-Kaskaden-Fälligkeiten müssten alle dieselbe zusätzliche Achse tragen, und ein Vergleich über
+in §5 mandantenabhängig — Wochenduell, Consistency, Fortschritts-Kurven und der Tagesvergleich
+der Arbeitsliste müssten alle dieselbe zusätzliche Achse tragen, und ein Vergleich über
 Organisationen hinweg (Plattform-Admin-Sicht) verlöre seine gemeinsame Grundlage. Solange
 alle Kunden im DACH-Raum arbeiten, kostet die feste Zone nichts und spart genau diese Achse.
 **Die Software ist damit auf den DACH-Raum begrenzt.** Ein Kunde in einer anderen Zone ist
 kein Konfigurations-, sondern ein Umbaufall: Er berührt jede Bucket-Funktion, beide
-Termin-Definitionen aus §5, die Kaskaden-Engine und die Tagesgrenzen sämtlicher RPCs.
+Termin-Definitionen aus §5, die Gold-Regel der Arbeitsliste und die Tagesgrenzen sämtlicher
+RPCs.
 
 ## 7. Schema-Drift-Warnung
 
@@ -1152,17 +1631,78 @@ Der Migrationsordner ist fast, aber nicht 100 % vollständig:
 - `lists.owner_name` — wird überall benutzt (RPCs, RLS-Backfill, UI). Nachgezogen in Migration `…0024_schema_reconcile.sql`.
 - `profiles.is_super_admin` — verwaist, von keiner Zeile Code gelesen. Bewusst **nicht** in den Migrationsordner übernommen (eine frische DB soll sie nicht bekommen); Migration 0025 friert sie per Trigger ein. Siehe §2.
 
-**Seit dem Nachfassen-Umbau kommen fünf Tabellen dazu** — `template_catalog`, `message_templates` (0031), `pipeline_settings`, `cascade_steps`, `reminder_touches` (0032). Sie stammen unmittelbar aus den Migrationen; geprüft wurden sie nach dem Einspielen über die Verifikationsblöcke am Ende jeder Datei (Katalog 31 Zeilen, je Organisation 21 Kaskadenstufen). Ein vollständiger Abgleich des Live-Schemas gegen den Migrationsordner steht seither aus. **0035–0040 legen keine Tabelle und keine Spalte an** — sie fassen ausschließlich Funktionen, Trigger und Ausführungsrechte an; der Tabellenstand ist mit 0033 abgeschlossen.
+**Seit dem Nachfassen-Umbau kommen fünf Tabellen dazu** — `template_catalog`, `message_templates` (0031), `pipeline_settings`, `cascade_steps`, `reminder_touches` (0032). Sie stammen unmittelbar aus den Migrationen; geprüft wurden sie nach dem Einspielen über die Verifikationsblöcke am Ende jeder Datei (Katalog 31 Zeilen, je Organisation 21 Kaskadenstufen). Ein vollständiger Abgleich des Live-Schemas gegen den Migrationsordner steht seither aus. **0035–0040 legen keine Tabelle und keine Spalte an** — sie fassen ausschließlich Funktionen, Trigger und Ausführungsrechte an. **0041 legt keine Tabelle, aber vier Spalten an**: `follow_up_last_contacted_at` und `follow_up_last_contacted_by_user_id`, je zweimal (`setting_calls`, `closing_calls`). Der **Tabellen**stand ist damit weiterhin mit 0033 abgeschlossen, der **Spalten**stand nicht.
 
 Konsequenz: Bei Unsicherheit über existierende Spalten das Live-Schema per MCP prüfen (`list_tables`), statt allein den Migrationen zu vertrauen.
 
 **Nullable-Fallen bei Boolean-Filtern:** `contacts.answered` und `contacts.appointment_set` sind `boolean | null`, und **NULL ist der Normalfall** (frisch gepitcht = noch nichts passiert). Ein `= false` verliert damit die Mehrheit der Zeilen. Die gesamte App liest „nicht true" als Nein — so auch `isDueFollowUp` (`ListBoardV2`), der `nachfassen_tasks`-RPC und `viewFilterOps` (`src/lib/listViews.ts`). In SQL entsprechend `is not true` statt `= false`.
 
-**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes), `…0023` (`list_views`), `…0024` (Schema-Abgleich), `…0025` (`platform_admins`), `…0026` (Nutzer-Umzug), `…0027` (Organisation löschen), `…0028` (`fundament`: Zuweisung, Anruf-Log, RPC-Korrekturen), `…0029` (`analyse_umbau`: Quellen, Termin-Rufnummer, Verlustgrund-Codes, Telefon-Skripte), `…0030` (`script_label_snapshot`), `…0031` (`message_templates`), `…0032` (`reminder_cascade`), `…0033` (`lead_recycling`), `…0034` (`tenant_lifecycle`), `…0036` (`tenant_lifecycle_nachtrag`), `…0037` (`rpc_zugriffspruefung`), `…0038` (`umzug_anruflog`), `…0039` (`apply_touches_pruefung`) und `…0040` (`schreibpfad_mandantengrenzen`) laufen nicht automatisch — sie mussten im Supabase-SQL-Editor ausgeführt werden. **Alle sind eingespielt und damit eingefroren.** Der Ablauf im Einzelnen: 0031 bis 0034 am **8. September 2026** (Verifikation bestanden: Katalog 31 Einträge, je Organisation eine `pipeline_settings`-Zeile und 21 `cascade_steps`, davon 16 aktiv), 0036 und 0037 kurz darauf, **0035, 0038, 0039 und 0040 am 10. September 2026 zusammen mit dem Deploy** des Nachfassen-Umbaus auf `main`. Seither sind Code und Schema in Sync; das Verifikationsfenster, in dem die Datenbank dem ausgelieferten Stand bewusst voraus war, ist geschlossen. **Die nächste Schema-Änderung braucht die Nummer 0041** — an keiner der Dateien 0031–0040 darf noch etwas geändert werden, auch nicht an einer, die „nur" eine Funktion neu schreibt: Wer sie ein zweites Mal einspielt, spielt dann etwas anderes ein, als beim ersten Mal lief.
+**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes), `…0023` (`list_views`), `…0024` (Schema-Abgleich), `…0025` (`platform_admins`), `…0026` (Nutzer-Umzug), `…0027` (Organisation löschen), `…0028` (`fundament`: Zuweisung, Anruf-Log, RPC-Korrekturen), `…0029` (`analyse_umbau`: Quellen, Termin-Rufnummer, Verlustgrund-Codes, Telefon-Skripte), `…0030` (`script_label_snapshot`), `…0031` (`message_templates`), `…0032` (`reminder_cascade`), `…0033` (`lead_recycling`), `…0034` (`tenant_lifecycle`), `…0036` (`tenant_lifecycle_nachtrag`), `…0037` (`rpc_zugriffspruefung`), `…0038` (`umzug_anruflog`), `…0039` (`apply_touches_pruefung`) `…0040` (`schreibpfad_mandantengrenzen`) und `…0041` (`rueckbau_pflichtfelder_und_nachfass_stempel`) laufen nicht automatisch — sie müssen im Supabase-SQL-Editor ausgeführt werden. **Alles bis einschließlich 0040 ist eingespielt und damit eingefroren; 0041 ist es NICHT.** Der Ablauf im Einzelnen: 0031 bis 0034 am **8. September 2026** (Verifikation bestanden: Katalog 31 Einträge, je Organisation eine `pipeline_settings`-Zeile und 21 `cascade_steps`, davon 16 aktiv), 0036 und 0037 kurz darauf, **0035, 0038, 0039 und 0040 am 10. September 2026 zusammen mit dem Deploy** des Nachfassen-Umbaus auf `main`. **Die nächste Schema-Änderung nach 0041 braucht die Nummer 0042** — an keiner der Dateien 0031–0040 darf noch etwas geändert werden, auch nicht an einer, die „nur" eine Funktion neu schreibt: Wer sie ein zweites Mal einspielt, spielt dann etwas anderes ein, als beim ersten Mal lief. 0041 darf noch geändert werden, solange sie nirgends gelaufen ist — danach gilt für sie dasselbe.
 
-Dass 0036 und 0037 vor 0035 eingespielt wurden, obwohl 0035 dazwischen liegt, war **kein Versehen**: Die drei sind voneinander unabhängig (keine berührt eine Tabelle), und 0035 war die einzige, die auf den Deploy warten musste — sie hätte die damals produktive App zerbrochen (s. u.). Die Nummer ist eine Reihenfolge im Ordner, keine Zwangsfolge beim Ausführen. Für 0041 gilt dasselbe: Sie muss nicht warten, nur weil sie die höchste Nummer trägt — sie muss zu dem Code passen, der zu ihr gehört.
+Dass 0036 und 0037 vor 0035 eingespielt wurden, obwohl 0035 dazwischen liegt, war **kein Versehen**: Die drei sind voneinander unabhängig (keine berührt eine Tabelle), und 0035 war die einzige, die auf den Deploy warten musste — sie hätte die damals produktive App zerbrochen (s. u.). Die Nummer ist eine Reihenfolge im Ordner, keine Zwangsfolge beim Ausführen. Für 0041 gilt dasselbe, nur mit umgekehrtem Vorzeichen: Sie muss **vor** dem Code laufen, der zu ihr gehört.
 
 Beim Einspielen zu beachten — **das gilt für 0041 genauso wie für alles davor**: Die Supabase-Konsole fährt ein ganzes Skript in einer Transaktion, ein Abbruch rollt die Datei also zurück. **Wird sie aber in Teilen ausgeführt (markierter Text im Editor), entsteht ein Halbzustand — ohne Fehlermeldung;** genau das ist bei 0031 einmal passiert. Deshalb: nichts markieren, „Run" auf die ganze Datei, danach den Verifikationsblock am Dateiende fahren.
+
+### 0041 — offen, und die einzige Migration mit einem laufenden Deploy-Risiko
+
+`…0041` (`rueckbau_pflichtfelder_und_nachfass_stempel`) begleitet den Rückbau und tut genau
+zwei Dinge. Sie ist **beliebig oft ausführbar** (drei `drop trigger if exists`, zwei Kommentare
+hinter einer Existenzprüfung, `add column if not exists`, `comment on column`) — kein
+`drop function`, kein Backfill, keine Datenbewegung, keine Zeile wird umgedeutet.
+
+**Teil 1 — die drei Pflichtfeld-Trigger aus 0035 fallen** (`setting_calls_require_cancel_reason`,
+`closing_calls_require_cancel_reason`, `setting_calls_require_disqualify_reason`). Grundlage
+für sie war „Code = Statistik, Freitext = Gedächtnis" (§4) — und die entfällt, wo der
+Grundkatalog aus der Oberfläche verschwindet: Der Knopf „Tot" der Arbeitsliste beendet einen
+Vorgang ohne jeden Grundcode. Ein Pflichtfeld, das kein Formular mehr anbietet, ist kein
+Qualitätsanspruch, sondern eine Sperre gegen die eigene App. **Die beiden Triggerfunktionen
+bleiben stehen** und bekommen einen `STILLGELEGT mit 0041`-Vermerk (§4) — der ist gleichzeitig
+der Nachweis, dass die Datei ganz durchgelaufen ist und nicht nur bis zu den drei `drop`s.
+**Was damit ausdrücklich aufhört:** Neue Absagen und Disqualifizierungen dürfen wieder ohne
+Grund entstehen, und die drei Nachpflege-Zählungen in §8 dürfen wieder wachsen. Bestandszeilen
+MIT Grund behalten ihn — kein `update`, kein Nullen.
+
+**Teil 2 — der Nachfass-Stempel** (§3): `follow_up_last_contacted_at` + `_by_user_id` je
+Termin-Tabelle. Vorbild ist `recycle_last_contacted_at` (0033): `timestamptz`, nullable, ohne
+Default, ohne Backfill — ein Default `now()` behauptete für jeden Bestandstermin, er sei heute
+nachgefasst worden, und die ganze Liste wäre am ersten Tag abgehakt. `on delete set null` auf
+der Person, **kein Index** (der Stempel wird geschrieben und angezeigt, aber nicht gefiltert;
+ein Index, den keine Abfrage benutzt, kostet bei jedem Schreiben — und ausgerechnet geschrieben
+wird diese Spalte oft), **kein Paar-CHECK** (Begründung in §3).
+
+> **⚠ WANN EINSPIELEN — die Regel ist einseitig: zu früh kostet nichts, zu spät zerbricht
+> etwas.**
+>
+> **Teil 1 darf beliebig früh laufen.** Die produktive App schickt die Grundcodes ohnehin mit
+> (`cancelAppointment` schreibt `cancelled_at` und `cancel_reason_code` in einem Statement,
+> `setSettingOutcome` Status und Disqualifikationsgrund ebenso); ein entfernter Trigger nimmt
+> ihr nichts weg, er hört nur auf, etwas zu verlangen, das sie freiwillig liefert. **Zu spät**
+> zerbricht dagegen jeder Pfad, der aufhört, einen Grund mitzuschicken — nicht schleichend,
+> sondern beim nächsten Klick, für alle.
+>
+> **Teil 2 muss vor dem Deploy gelaufen sein.** Solange die vier Spalten fehlen, gilt (Stand
+> heute, siehe Kopf des Dokuments):
+> * **Der Knopf „Genervt" schreibt nicht.** `markFollowUpContacted` erkennt den PGRST204 an der
+>   Fehlermeldung und antwortet mit einem eigenen Satz („Der Nachfass-Stempel fehlt in der
+>   Datenbank — Migration 0041 ist noch nicht eingespielt.") statt mit einer rohen
+>   Postgres-Meldung. Jede Zeile der Liste leuchtet dauerhaft, weil „noch nie kontaktiert" die
+>   einzig mögliche Antwort ist.
+> * **Die Arbeitsliste selbst funktioniert trotzdem.** Sie lädt mit `select("*")` und bekommt
+>   dann schlicht zwei Felder weniger; `undefined` heißt „noch nie nachgefasst". **Deshalb darf
+>   die Termine-Seite NIE auf eine namentliche Spaltenliste umgestellt werden**, solange 0041
+>   nicht überall läuft — eine fehlende benannte Spalte lässt PostgREST die *gesamte* Abfrage
+>   abweisen (Muster 0029/0032), und die Seite wäre leer statt unvollständig.
+> * **Das Lead-Dossier ist ganz aus.** Es selektiert die beiden Spalten **namentlich** und
+>   meldet „Dossier nicht verfügbar" (§5.3). Das ist der teuerste der drei Effekte und der
+>   Grund, 0041 nicht liegen zu lassen.
+>
+> **Die Verifikation hat eine eigene Falle**, die im Dateikopf ausgeschrieben steht: Weil diese
+> Migration etwas WEGNIMMT, lautet die naheliegende Probe „das verbotene Statement läuft jetzt
+> durch" — und ein UPDATE, dessen WHERE keine Zeile trifft, läuft ebenfalls durch. Ein Erfolg
+> aus Untätigkeit ist von einem echten nicht zu unterscheiden. Deshalb endet dort jede
+> dynamische Probe auf `returning` und muss **genau eine Zeile** liefern, jede hat eine
+> Gegenprobe, die weiterhin scheitern muss (der Paar-CHECK aus 0032), und alles läuft in
+> `begin; … rollback;`. Dieselbe Falle hatte 0037 in anderer Gestalt (§ unten).
 
 **Zuletzt eingespielt, am 10. September 2026 zusammen mit dem Deploy — vier Dateien:**
 - **`…0035`** (`pflichtfelder`) erzwingt per Trigger zwei Regeln, die bis dahin nur die Oberfläche einhielt: ein abgesagter Termin braucht einen `cancel_reason_code`, ein Erstgespräch mit `status='unqualifiziert'` einen `disqualify_reason_code`. **Warum sie als einzige auf den Deploy warten musste** (die Datei trägt die Warnung als Kopfblock und prüft beim Start per `raise exception`, dass 0032 vorhanden ist): Die davor produktive App schrieb `unqualifiziert` ohne Grundcode und wäre beim nächsten Klick an einer DB-Exception zerbrochen. Diese Vorbedingung ist mit dem Deploy erfüllt — `setSettingOutcome` schreibt Status und Grund in EINEM UPDATE (§4). Trigger statt CHECK, weil ein CHECK bei JEDEM Update der Zeile greift und damit jede Bestandszeile ohne Grund dauerhaft unbearbeitbar machte — ausgerechnet die, die nachgepflegt werden müssen (dieselbe Falle wie bei den `source_type`-CHECKs, §4). Die Trigger vergleichen deshalb OLD/NEW und werfen nur, wenn der schlechte Zustand **in diesem Statement neu entsteht**; sie hängen zudem an `update of <spaltenliste>`, ein Update auf Notizen oder Zuweisung löst sie gar nicht erst aus. Drei Trigger (`setting_calls_require_cancel_reason`, `closing_calls_require_cancel_reason`, `setting_calls_require_disqualify_reason`), zwei Funktionen, **kein Backfill** — die Bestandszeilen ohne Grund bleiben also stehen und bleiben nachpflegbar (§8). Nachgepflegt wird bewusst über die Oberfläche (`/ablage`), weil ein rohes `UPDATE` die Folgen des Grundes überspringt (Kontaktverbot bei `keine_zusammenarbeit`, Räumen eines geplanten Recycling-Datums bei `falsche_zielgruppe`).
@@ -1187,9 +1727,29 @@ Beim Einspielen zu beachten — **das gilt für 0041 genauso wie für alles davo
 
 ## 8. Invarianten (nach jedem Nutzer-Umzug und nach jedem Backfill prüfen)
 
-Alle Abfragen müssen `0` bzw. eine leere Menge liefern — mit **sechs benannten Ausnahmen**, die etwas anderes erwarten: Kaskadenstufen je Organisation (21/16/3), Katalogumfang (31), die Zugriffsprüfung aus 0037 (genau 2 Funktionen), die Pflichtfeld-Trigger aus 0035 (genau 3), die INSERT-Guards aus 0039/0040 (genau 3) und der Altbestand `phone_call_attempts` aus Umzügen vor 0038. Sie decken genau die Fehler ab, die ein unvollständiger Umzug hinterlässt — die beiden Zuweisungs-Blöcke zusätzlich die eines unvollständigen Backfills aus 0028, die beiden Testarm-Blöcke die aus 0030 (dort mit einer benannten Altbestands-Ausnahme), die Kaskaden- und Recycling-Blöcke die aus 0032–0034, die letzten Blöcke die aus 0036–0040.
+Alle Abfragen müssen `0` bzw. eine leere Menge liefern — mit **acht benannten Ausnahmen**, die etwas anderes erwarten: Kaskadenstufen je Organisation (21/16/3), Katalogumfang (31), die Zugriffsprüfung aus 0037 (genau 2 Funktionen), die Pflichtfeld-Trigger aus 0035 (**vor 0041 genau 3, nach 0041 genau 0** — s. u.), die beiden stillgelegten Triggerfunktionen (nach 0041 genau 2) und der Nachfass-Stempel (nach 0041 genau 2 Spalten), die INSERT-Guards aus 0039/0040 (genau 3) und der Altbestand `phone_call_attempts` aus Umzügen vor 0038. Sie decken genau die Fehler ab, die ein unvollständiger Umzug hinterlässt — die beiden Zuweisungs-Blöcke zusätzlich die eines unvollständigen Backfills aus 0028, die beiden Testarm-Blöcke die aus 0030 (dort mit einer benannten Altbestands-Ausnahme), die Kaskaden- und Recycling-Blöcke die aus 0032–0034, die letzten Blöcke die aus 0036–0040.
 
 **Seit dem 10. September 2026 ist der zweite Zweck der wichtigere.** Umgezogen wird selten; eingespielt wurde zuletzt viel — und weil die Supabase-Konsole markierten Text ausführt und dabei **lautlos** Halbzustände hinterlässt (§7), sind mehrere dieser Abfragen in erster Linie **Einspiel-Kontrolle**. Sie sind jetzt zu fahren, nicht irgendwann: Alle Migrationen bis 0040 liegen live, und ein Halbzustand fällt sonst erst im Ernstfall auf (bei 0027 hat er ein halbes Jahr unbemerkt dagelegen).
+
+> **⚠ Nach dem Rückbau: Ein Teil dieser Abfragen prüft nichts mehr, was noch entstehen kann.**
+> Die Blöcke zu `reminder_touches` und `cascade_steps` beschreiben Tabellen, die **niemand mehr
+> füllt** (§3). Ein Treffer dort kann seither nur noch zwei Ursachen haben: ein direkter
+> SQL-Eingriff, oder ein Nutzer-Umzug, der Bestandszeilen zurückgelassen hat. **Sie bleiben
+> trotzdem stehen, und zwar aus drei Gründen:**
+> 1. Der Nutzer-Umzug (`admin_move_user_to_workspace()`, 0036) **stempelt `reminder_touches`
+>    weiterhin um** — die Funktion ist eingefroren und weiß nichts vom Rückbau. Ein Umzug kann
+>    hier also weiterhin einen Fehler erzeugen, und dann ist die Abfrage die einzige Stelle,
+>    an der er auffällt.
+> 2. Der Seeding-Trigger legt weiterhin 21 `cascade_steps` je neuer Organisation an (§2). Die
+>    Verteilungs-Abfrage ist damit **Einspiel-Kontrolle für 0034**, nicht mehr Funktionsprüfung
+>    für die Kaskade — sie wird rot, wenn der Trigger nicht greift, und das wäre weiterhin ein
+>    echter Befund über eine kaputte Organisation.
+> 3. Sie halten den **Bestand** lesbar. Löschte man sie, wüsste in einem halben Jahr niemand
+>    mehr, welche Zusicherungen für die Zeilen in `reminder_touches` gelten.
+>
+> Jeder betroffene Block trägt unten den Vermerk **HISTORISCH**. Wer eine Nachpflege plant:
+> Ein `delete` auf diesen Tabellen ist ausdrücklich **nicht** gemeint — die Zeilen sind Daten
+> (§3), keine Karteileichen.
 
 ```sql
 -- Keine Doppelmitgliedschaft (sperrt den Nutzer sonst aus, siehe §2)
@@ -1257,21 +1817,30 @@ select count(*) from phone_leads pl
   join phone_lists l on l.id = pl.list_id
  where l.list_kind = 'akquise' and l.script_label is not null and pl.script_label is null;
 
--- Erinnerungs-Kaskade (Migration 0032): jeder aktive Touch hat eine
--- zuständige Person — die Erzeugung snapshotet immer assigned_user_id ??
+-- ── HISTORISCH ab hier: reminder_touches und cascade_steps ────────────────
+-- Diese Tabellen füllt seit dem Rückbau NIEMAND mehr (§3). Ein Treffer kann
+-- nur noch zwei Ursachen haben: ein direkter SQL-Eingriff, oder ein
+-- Nutzer-Umzug, der Bestandszeilen zurückgelassen hat — admin_move_user_to_
+-- workspace() (0036) ist eingefroren, stempelt weiter um und weiß nichts vom
+-- Rückbau. Die Abfragen bleiben deshalb stehen; sie halten außerdem lesbar,
+-- welche Zusicherungen für den Bestand gelten. Ein `delete` auf diesen
+-- Tabellen ist NICHT gemeint — die Zeilen sind Daten, keine Karteileichen.
+
+-- HISTORISCH — Erinnerungs-Kaskade (Migration 0032): jeder aktive Touch hat
+-- eine zuständige Person — die Erzeugung snapshotete immer assigned_user_id ??
 -- created_by_user_id des Eltern-Termins (§3). Der Insert-Trigger
 -- reminder_touches_require_assignee hält das für NEUE Zeilen fest; ein
 -- Treffer hier heißt also: nachträglich genullt (gelöschter Nutzer).
 select count(*) from reminder_touches where superseded_at is null and assigned_user_id is null;
 
--- Ein Touch zeigt auf GENAU EINEN Termin, passend zu seinem entity_type.
--- Die CHECKs aus 0032 halten das fest; die Abfrage findet, was ein direkter
--- SQL-Eingriff daran vorbei angelegt hat.
+-- HISTORISCH — Ein Touch zeigt auf GENAU EINEN Termin, passend zu seinem
+-- entity_type. Die CHECKs aus 0032 halten das fest; die Abfrage findet, was
+-- ein direkter SQL-Eingriff daran vorbei angelegt hat.
 select count(*) from reminder_touches
  where (entity_type = 'setting') <> (setting_call_id is not null)
     or (entity_type in ('closing','closing_followup')) <> (closing_call_id is not null);
 
--- Der Touch liegt in derselben Organisation wie sein Termin. Der Guard
+-- HISTORISCH — Der Touch liegt in derselben Organisation wie sein Termin. Der Guard
 -- reminder_touches_ws_guard greift bei 'update of workspace_id,
 -- assigned_user_id' (und seit 0039 zusätzlich beim INSERT) — beim
 -- Nutzer-Umzug ZURÜCKBLEIBENDE Zeilen fasst er
@@ -1285,19 +1854,27 @@ select count(*) from reminder_touches rt
   join closing_calls cc on cc.id = rt.closing_call_id
  where rt.workspace_id <> cc.workspace_id;
 
--- assigned_user_id eines aktiven Touches zeigt nur auf Mitglieder DERSELBEN
--- Organisation — dieselbe Regel wie bei setting_calls/closing_calls oben.
+-- HISTORISCH — assigned_user_id eines aktiven Touches zeigt nur auf Mitglieder
+-- DERSELBEN Organisation — dieselbe Regel wie bei setting_calls/closing_calls oben.
 select count(*) from reminder_touches rt where rt.superseded_at is null
   and rt.assigned_user_id is not null
   and not exists (select 1 from workspace_members wm
                    where wm.user_id = rt.assigned_user_id and wm.workspace_id = rt.workspace_id);
 
--- Jede Organisation hat Konfiguration UND Kaskadenstufen (Migration 0034).
--- Ein Treffer heißt: Der Seeding-Trigger hat nicht gegriffen — die Folge wäre
--- eine Organisation, in der schedule_recycle() immer NULL liefert und gar
--- keine Erinnerung entsteht.
+-- Jede Organisation hat eine Konfigurationszeile (Migration 0034). NICHT
+-- historisch: pipeline_settings ist lebendig (§3). Ein Treffer heißt, der
+-- Seeding-Trigger hat nicht gegriffen — die Folge wäre eine Organisation, in
+-- der schedule_recycle() immer NULL liefert, in der es also gar kein Recycling
+-- gibt, und in der das Verschiebe-Kontingent auf die Spalten-Defaults fällt.
 select count(*) from workspaces w
  where not exists (select 1 from pipeline_settings ps where ps.workspace_id = w.id);
+
+-- HISTORISCH (aber weiterhin zu fahren) — dieselbe Frage für die
+-- Kaskadenstufen. Sie liest niemand mehr, der Trigger legt sie trotzdem
+-- weiter an (§2). Die Abfrage ist damit **Einspiel-Kontrolle für 0034** und
+-- keine Funktionsprüfung mehr: Sie wird rot, wenn der Trigger nicht greift —
+-- und das wäre weiterhin ein echter Befund über eine kaputte Organisation,
+-- weil derselbe Trigger die pipeline_settings-Zeile darüber anlegt.
 select count(*) from workspaces w
  where not exists (select 1 from cascade_steps cs where cs.workspace_id = w.id);
 -- Erwartete Verteilung je Organisation: 21 Stufen, davon 16 aktiv, davon
@@ -1308,8 +1885,8 @@ select workspace_id,
        count(*) filter (where requires_no_response) as nur_ohne_antwort
   from cascade_steps group by 1;
 
--- Eine geplante Stufe hängt vor dem Termin, alles andere reagiert auf ein
--- Ereignis und liegt danach (CHECK aus 0032).
+-- HISTORISCH — Eine geplante Stufe hängt vor dem Termin, alles andere
+-- reagiert auf ein Ereignis und liegt danach (CHECK aus 0032).
 select count(*) from cascade_steps
  where (trigger_event = 'scheduled') <> (anchor = 'before_appointment');
 
@@ -1347,18 +1924,22 @@ select count(*) from setting_calls
 select count(*) from closing_calls cc join pipeline_settings ps on ps.workspace_id = cc.workspace_id
  where cc.next_recycle_at is not null and cc.recycle_attempt_count >= ps.max_attempts;
 
--- Vorlagen (Migration 0031): jeder template_key zeigt in den Katalog, und
--- beide Ebenen sind eindeutig (Org-Standard = user_id is null).
+-- HISTORISCH — Vorlagen (Migration 0031): jeder template_key zeigt in den
+-- Katalog, und beide Ebenen sind eindeutig (Org-Standard = user_id is null).
+-- Die Katalog-Zeile bleibt trotzdem eine echte Einspiel-Kontrolle für 0031:
+-- Bei genau dieser Migration ist der Halbzustand aus dem Editor schon einmal
+-- passiert (§7) — template_catalog entstand, message_templates nicht.
 select count(*) from message_templates mt
  where not exists (select 1 from template_catalog tc where tc.template_key = mt.template_key);
 select workspace_id, template_key, count(*) from message_templates
  where user_id is null group by 1,2 having count(*) > 1;
 select count(*) from template_catalog;  -- erwartet: 31
 
--- Eine PERSÖNLICHE Vorlage liegt nur in einer Organisation, in der ihr
--- Besitzer Mitglied ist (Migration 0036). Ein Treffer heißt: beim Umzug
--- zurückgeblieben — und das fällt niemandem auf, weil die Vorrangkette den
--- fehlenden Text lautlos durch den Org-Standard ersetzt (§2).
+-- HISTORISCH — Eine PERSÖNLICHE Vorlage liegt nur in einer Organisation, in
+-- der ihr Besitzer Mitglied ist (Migration 0036). Ein Treffer hieß: beim Umzug
+-- zurückgeblieben — und das fiel niemandem auf, weil die Vorrangkette den
+-- fehlenden Text lautlos durch den Org-Standard ersetzte (§2). Die
+-- Vorrangkette gibt es nicht mehr; der Umzug stempelt aber weiter um.
 select count(*) from message_templates mt where mt.user_id is not null
   and not exists (select 1 from workspace_members wm
                    where wm.user_id = mt.user_id and wm.workspace_id = mt.workspace_id);
@@ -1407,12 +1988,40 @@ select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
 -- teuer: Er sieht aus wie „alles in Ordnung", nimmt aber genau die Prüfung
 -- weg, derentwegen die Datei geschrieben wurde.
 
--- Pflichtfeld-Trigger (0035). Erwartet: genau 3.
+-- Pflichtfeld-Trigger (0035). Erwartet: VOR 0041 genau 3, NACH 0041 genau 0.
+-- Die Erwartung dreht sich mit dem Einspielen von 0041 um — das ist Teil 1
+-- jener Datei, und die Zahl 0 ist danach das BESTANDENE Ergebnis, nicht ein
+-- verlorener Trigger.
 select tgname from pg_trigger
  where not tgisinternal
    and tgname in ('setting_calls_require_cancel_reason',
                   'closing_calls_require_cancel_reason',
                   'setting_calls_require_disqualify_reason');
+
+-- DIE GEGENPROBE ZU 0041, ohne die die 0 oben nichts beweist: Wären die beiden
+-- Triggerfunktionen gelöscht, lieferte die Abfrage darüber ebenfalls 0 — aus
+-- dem falschen Grund. 0041 lässt sie ausdrücklich stehen (in ihnen steckt die
+-- Bauart, die Bestandszeilen verschont) und vermerkt das am Funktionskörper.
+-- Erwartet NACH 0041: genau 2 Zeilen, beide mit `t`.
+select p.proname,
+       obj_description(p.oid, 'pg_proc') like 'STILLGELEGT mit 0041%' as vermerkt
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public'
+   and p.proname in ('require_cancel_reason', 'require_disqualify_reason');
+
+-- Der Nachfass-Stempel (0041, Teil 2). Erwartet NACH 0041: genau 2 Zeilen,
+-- je `timestamp with time zone` / `YES`. Verglichen wird gegen das VORBILD
+-- recycle_last_contacted_at derselben Tabelle — die Konvention ist der Punkt,
+-- nicht das bloße Vorhandensein (Migration 0041, Verifikation A3/A4).
+select f.table_name, f.data_type, f.is_nullable
+  from information_schema.columns f
+  join information_schema.columns r
+    on r.table_schema = f.table_schema and r.table_name = f.table_name
+   and r.column_name = 'recycle_last_contacted_at'
+ where f.table_schema = 'public'
+   and f.table_name in ('setting_calls', 'closing_calls')
+   and f.column_name = 'follow_up_last_contacted_at'
+   and (f.data_type, f.is_nullable) = (r.data_type, r.is_nullable);
 
 -- Die INSERT-Guards, die als reine UPDATE-Trigger nur den Nutzer-Umzug
 -- abdeckten (0039 für die Erinnerungen, 0040 für die Zuweisung). Erwartet:
@@ -1440,22 +2049,36 @@ select acl.eintrag from pg_proc p
    and (acl.eintrag::text like '=%' or acl.eintrag::text like 'authenticated=%');
 ```
 
-**Zwei Regeln, drei Nachpflege-Zählungen — und sie dürfen weiterhin NICHT null sein.** Sie
-messen eine To-do-Liste, keinen Defekt. Das war schon vor Migration 0035 so und ist es
-danach immer noch, nur aus einem anderen Grund: **Die Trigger aus 0035 sind eingespielt
-(§7), aber sie vergleichen OLD und NEW und werfen nur, wenn der schlechte Zustand in diesem
-Statement NEU entsteht.** Neue Fehlzustände kann es deshalb nicht mehr geben; die
-Bestandszeilen bleiben stehen — und sind bewusst weiterhin **bearbeitbar**. Genau dafür sind
-es Trigger und kein CHECK: Ein CHECK griffe bei jedem Update der Zeile und machte ausgerechnet
-die Zeilen dauerhaft unbearbeitbar, die nachgepflegt werden müssen.
+**Zwei Regeln, drei Zählungen — und sie dürfen NICHT null sein. Was sie messen, ändert sich
+mit 0041.** Sie waren nie ein Defekt-Test, aber ihre Bedeutung dreht sich:
 
-Die Zahlen sind also eine **Arbeitsliste, die nur nach unten geht**. Zuletzt gemessen:
-**52 unqualifizierte Erstgespräche ohne `disqualify_reason_code`.** Für Auswertungen heißt
-das: Eine Aufschlüsselung nach Disqualifikationsgrund beschreibt heute nur den Teil der
-Erstgespräche, der nach dem 10. September entstanden oder von Hand nachgepflegt worden ist —
+| | vor 0041 | nach 0041 |
+|---|---|---|
+| Was die Zahl ist | eine **Arbeitsliste, die nur nach unten geht** | eine **Auskunft**: wie oft niemand einen Grund angegeben hat |
+| Kann sie wachsen? | **nein** — die Trigger aus 0035 verhindern jeden neuen Fehlzustand | **ja**, und das ist die Entscheidung, nicht ihr Nebenschaden |
+
+**Vor 0041** galt: Die Trigger aus 0035 sind eingespielt (§7), aber sie vergleichen OLD und NEW
+und werfen nur, wenn der schlechte Zustand in diesem Statement NEU entsteht. Neue Fehlzustände
+kann es deshalb nicht geben; die Bestandszeilen bleiben stehen — und sind bewusst weiterhin
+**bearbeitbar**. Genau dafür sind es Trigger und kein CHECK: Ein CHECK griffe bei jedem Update
+der Zeile und machte ausgerechnet die Zeilen dauerhaft unbearbeitbar, die nachgepflegt werden
+müssen.
+
+**Nach 0041** fallen die drei Trigger (§7), und damit dürfen die Zahlen wieder wachsen. Das ist
+ausdrücklich gewollt: Der Knopf „Tot" der Arbeitsliste beendet einen Vorgang ohne jeden
+Grundcode, und ein Pflichtfeld, dessen Formular verschwunden ist, wäre eine Sperre gegen die
+eigene App. **Die drei Zahlen sollten deshalb unmittelbar vor dem Einspielen von 0041 einmal
+notiert werden** — sonst hält später jemand den Anstieg für einen Defekt. Migration 0041 sagt
+das in ihrem Verifikationsblock (Abschnitt D) ebenfalls.
+
+Zuletzt gemessen (vor 0041): **52 unqualifizierte Erstgespräche ohne `disqualify_reason_code`.**
+Für Auswertungen heißt das in beiden Zuständen dasselbe: Eine Aufschlüsselung nach
+Disqualifikationsgrund beschreibt nur den Teil der Erstgespräche, der zwischen dem
+10. September und dem Einspielen von 0041 entstanden oder von Hand nachgepflegt worden ist —
 dieselbe Vorsicht wie bei `lost_reason_code`, wo Migration 0029 alle Bestandszeilen auf
-`sonstiges` gesetzt hat (§4). Wer die Verteilung zeigt, muss die Zeilen ohne Code getrennt
-als „Ohne Angabe" führen, nicht unter `sonstiges` verbuchen.
+`sonstiges` gesetzt hat (§4), und dieselbe wie beim Listen-Knopf „Tot", der beim Closing
+strukturell `sonstiges` erzeugt (§4, Fallstrick 2). Wer die Verteilung zeigt, muss die Zeilen
+ohne Code getrennt als „Ohne Angabe" führen, nicht unter `sonstiges` verbuchen.
 
 ```sql
 select count(*) from setting_calls where cancelled_at is not null and cancel_reason_code is null;
@@ -1467,7 +2090,7 @@ Nachpflegen bitte **über die Oberfläche** (`/ablage`), nicht per rohem `UPDATE
 Statement überspringt die Folgen des Grundes — das Kontaktverbot bei `keine_zusammenarbeit`
 und das Räumen eines bereits geplanten Recycling-Datums bei `falsche_zielgruppe` (§4).
 
-Zusätzlich als UI-Gegenprobe in der eigenen Organisation: `/team` zeigt nur eigene Mitglieder · Datensicht-Auswahl ohne fremde Namen · `/termine` ohne fremde Termine · Suche nach einem fremden Lead liefert 0 Treffer · Sidebar ohne fremde Listen · `/erinnerungen` ohne fremde Karten. **Die Ablage-Sperrliste ist dabei die eine bewusste Ausnahme**: Sie zeigt auch gesperrte Vorgänge fremder Personen derselben Organisation (nie einer fremden Organisation) — wer dort nur die eigenen sieht, hat den `v_user := null`-Zweig in `dropout_lists()` verloren.
+Zusätzlich als UI-Gegenprobe in der eigenen Organisation: `/team` zeigt nur eigene Mitglieder · Datensicht-Auswahl ohne fremde Namen · `/termine` ohne fremde Termine (in **beiden** Reitern — Arbeitsliste und Kalender — und in der Vorgabe `?wer=mein` zusätzlich ohne die Termine der Kollegen) · Suche nach einem fremden Lead liefert 0 Treffer · Sidebar ohne fremde Listen · `/nachfassen` ohne fremde Recycling-Karten. Die frühere Zeile „`/erinnerungen` ohne fremde Karten" ist entfallen: Die Route leitet nach `/termine` um (§1). **Die Ablage-Sperrliste ist dabei die eine bewusste Ausnahme**: Sie zeigt auch gesperrte Vorgänge fremder Personen derselben Organisation (nie einer fremden Organisation) — wer dort nur die eigenen sieht, hat den `v_user := null`-Zweig in `dropout_lists()` verloren.
 
 ## 9. Datenauswertung per MCP
 

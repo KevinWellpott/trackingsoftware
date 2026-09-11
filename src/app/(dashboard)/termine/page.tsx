@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { TermineBoard } from "@/components/termine/TermineBoard";
+import { TerminBuchenAktion } from "@/components/termine/TerminBuchenAktion";
 import { getAccessContext, listDataViewUsers, matchesOwnScope } from "@/lib/access";
 import { berlinDateISO } from "@/lib/apptTime";
 import { ownerUserIdOfList } from "@/lib/personResolution";
@@ -318,16 +319,21 @@ export default async function TerminePage() {
           </span>
         }
         meta="Wer liegt in der Luft, wer ist versorgt · Setting 30 min · Closing 60 min"
-        actions={
-          // Bewusst NUR die Gesamtzahl. Die frühere Kachel zählte zusätzlich
-          // „offen" über `status='offen'` — und genau dieser Wert heißt in der
-          // neuen Sprache das Gegenteil (er bedeutet „Termin steht, Ergebnis
-          // fehlt", docs §4). Eine Zahl, die dem Reiter darunter widerspricht,
-          // ist schlimmer als keine; was zu tun ist, sagt die Liste selbst.
-          <span className="badge badge-gray tnum">
-            {(settings.length + closings.length).toLocaleString("de-DE")} Termine
-          </span>
-        }
+        // ── HIER STAND EINE ZAHL, UND SIE WIDERSPRACH DER FLÄCHE DARUNTER ──
+        // „N Termine" zählte `settings.length + closings.length`, also JEDEN je
+        // angelegten Termin. Der Vorgabe-Ausschnitt darunter ist „Zu tun" und
+        // zeigt nur die Arbeitsmenge, zusätzlich um Altlasten beschnitten:
+        // morgens stand über vierzehn Zeilen die Zahl 223. Dasselbe Argument,
+        // mit dem an dieser Stelle schon die frühere „offen"-Zahl gefallen ist
+        // — eine Zahl, die dem Reiter darunter widerspricht, ist schlimmer als
+        // keine. Ehrlich zählen ließe sie sich hier gar nicht: Wer, Suche,
+        // Ausschnitt und Altlast-Schnitt entscheiden erst im Client.
+        //
+        // Im Aktionsbereich steht deshalb, was dort hingehört: der eine
+        // Primär-CTA dieser View (DESIGN.md §3.8). Er lag bis hierher als
+        // handgebauter Gradient-Knopf in einer eigenen Zeile über der
+        // Filterleiste.
+        actions={<TerminBuchenAktion />}
       />
 
       <TermineBoard

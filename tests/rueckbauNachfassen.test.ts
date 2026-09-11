@@ -361,7 +361,22 @@ describe("4 · Der Knopf-Stapel und die vier Ursprünge", () => {
   test("genau EIN Hauptknopf, die Zweitaktion ungefüllt, „Endgültig raus\" abgesetzt", () => {
     // Zwei gefüllte Knöpfe übereinander hätten gar keinen Hauptknopf mehr —
     // dann liest man wieder jeden einzeln, dreißigmal am Vormittag.
-    assert.equal(countOf(BOARD, 'variant="primary"'), 1, "„Nochmal versucht“ ist der eine CTA.");
+    //
+    // ── WARUM DER HAUPTKNOPF SEKUNDÄR IST UND NICHT PRIMÄR ────────────────
+    // Hier stand bis zur Design-Runde `variant="primary"` mit der Begründung
+    // „genau EIN CTA je Karte". Die Regel zählt aber je VIEW, nicht je Karte
+    // (COMPONENTS.md §2.1: „genau einer pro View · nie in Tabellenzeilen oder
+    // Listen"): Die Karten stehen in einem `auto-fill`-Raster, bei zwölf
+    // Aufgaben standen zwölf Signature-Pills gleichzeitig auf dem Schirm — und
+    // damit hatte die SEITE keinen Hauptknopf mehr, was dieser Test für die
+    // Karte verhindern soll. Die Aussage bleibt unverändert: genau EIN
+    // gefüllter Knopf je Karte, die beiden anderen als Hairline.
+    assert.equal(countOf(BOARD, 'variant="primary"'), 0, "Kein Marken-CTA in einem Kartenraster.");
+    assert.match(
+      slice(BOARD, "{!doneEntry && (", "Nochmal versucht"),
+      /variant="secondary"/,
+      "„Nochmal versucht“ ist der eine gefüllte Knopf der Karte.",
+    );
     assert.equal(countOf(BOARD, 'variant="success"'), 1, "„Reagiert“ ist die Ausnahme daneben.");
     assert.equal(countOf(BOARD, 'variant="danger"'), 1, "„Endgültig raus“ ist der einzige Danger-Knopf.");
     assert.doesNotMatch(slice(BOARD, "Nochmal versucht", "Rohmeldung nur im"), /var\(--success-bg\)/, "Keine gefüllte Fläche für die Zweitaktion.");
@@ -451,11 +466,25 @@ describe("5 · Keine neue Farbe, kein neues Maß", () => {
     assert.doesNotMatch(meta, /color:|bg:|stage:/, "Der Ursprungs-Katalog trägt Wort und Symbol, keine Farbe.");
   });
 
-  test("Dringlichkeit bleibt farbig — sonst wäre die Umstellung ein Verlust", () => {
+  test("Dringlichkeit bleibt farbig — und zwar GOLD, wie überall sonst", () => {
     // Die Gegenprobe zum Rest dieses Blocks: „neutral" gilt für KATEGORIEN.
     // Überfällig ist keine Kategorie, sondern eine Dringlichkeit.
-    assert.match(BOARD, /borderLeft: overdue \? "3px solid var\(--color-error-text\)"/);
-    assert.match(BOARD, /color: overdue \? "var\(--color-error-text\)" : "var\(--text-secondary\)"/);
+    //
+    // Die FARBE hat die Design-Runde korrigiert: Sie war hier Rot
+    // (`--color-error-text`), in der Termin- und der LinkedIn-Liste dagegen
+    // Gold. Dieselbe Aussage in zwei Farben — und Rot heißt in dieser App
+    // „verloren/nicht erschienen" (DESIGN.md §3.6), ausgerechnet auf einer
+    // Karte, die fragt, ob der Lead noch einen Versuch wert ist. COMPONENTS.md
+    // §4.5 sagt es wörtlich: „Überfällig" → `--warning-bg`/`--warning-fg`.
+    // Gelesen wird deshalb `DRAN_TONE` — dieselbe geteilte Definition wie in
+    // den beiden Arbeitslisten, damit es nicht ein drittes Mal auseinanderläuft.
+    assert.match(BOARD, /import \{ DRAN_TONE \} from "@\/lib\/dranRegel";/);
+    // 2px-Rail als Inset statt einer 3px-Kante: Das System kennt genau eine
+    // Rail-Breite (DESIGN.md §12), und als box-shadow verschiebt sie die Karte
+    // nicht gegenüber ihren nicht überfälligen Nachbarn.
+    assert.match(BOARD, /boxShadow: overdue \? `inset 2px 0 0 \$\{DRAN_TONE\.border\}` : undefined/);
+    assert.match(BOARD, /color: overdue \? DRAN_TONE\.fg : "var\(--text-secondary\)"/);
+    assert.doesNotMatch(BOARD, /overdue \? "3px solid/, "Die 3px-Kante ist zurück.");
   });
 
   test("keine unbekannten Farbwerte", () => {

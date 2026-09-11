@@ -2,13 +2,12 @@
 
 import { moveSettingAppointment } from "@/app/actions/settingCalls";
 import { updateClosingCall } from "@/app/actions/closingCalls";
-import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { slotToIso } from "@/lib/apptTime";
 import { istInArbeitsmenge } from "@/lib/dranRegel";
 import { isStaleDue, letztesLebenszeichen, STALE_AFTER_DAYS } from "@/lib/staleTasks";
 import { buildEvents, type RueckrufAufgabe, type TerminEvent, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
-import { History, Plus } from "lucide-react";
+import { History } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { CalendarMonth } from "./CalendarMonth";
@@ -16,7 +15,7 @@ import { CalendarTimeGrid, type TimeGridHandle } from "./CalendarTimeGrid";
 import { EventChip } from "./EventChip";
 import { EventPopover } from "./EventPopover";
 import { RueckrufListe } from "./RueckrufListe";
-import { TermineFilterBar, type Member } from "./TermineFilterBar";
+import { TermineFilterBar, TermineTabs, type Member } from "./TermineFilterBar";
 import { TermineList } from "./TermineList";
 import { useDragReschedule, type DragGeometry, type DragTarget } from "./useDragReschedule";
 import {
@@ -101,7 +100,6 @@ export function TermineBoard({
   const zeigeAltlasten = sp.get("altlasten") === "1";
 
   const [popover, setPopover] = useState<{ event: TerminEvent; anchor: DOMRect } | null>(null);
-  const [showManual, setShowManual] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [geometry, setGeometry] = useState<TimeGridHandle>({ pxPerMin: 0.9, colWidth: 120 });
   /** Optimistisch verschobene Termine: Event-ID → { dayISO, startMin }. */
@@ -347,35 +345,16 @@ export function TermineBoard({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }}>
-        <button
-          type="button"
-          onClick={() => setShowManual(true)}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            padding: "0.45rem 0.875rem",
-            borderRadius: "var(--r-full)",
-            border: "none",
-            background: "var(--grad-cta)",
-            color: "var(--text-on-accent)",
-            boxShadow: "var(--shadow-btn-primary)",
-            fontSize: "0.8125rem",
-            fontWeight: 600,
-            fontFamily: "inherit",
-            cursor: "pointer",
-          }}
-        >
-          <Plus size={15} /> Termin manuell
-        </button>
-      </div>
-
-      <ManualAppointmentModal
-        open={showManual}
-        onClose={() => setShowManual(false)}
-        onSaved={() => router.refresh()}
-      />
+      {/* ── Die drei Ansichten als TEXTREITER, links unter dem Titel ──
+          Sie standen bis hierher als dritte orange gefüllte Segmented-Pille
+          ganz rechts außen hinter dem Suchfeld — optisch nicht von den beiden
+          FILTERN daneben zu unterscheiden, obwohl sie die ganze Seite
+          wechseln. Für Ansichts-Untergliederung ist die Tab-Leiste zuständig
+          (COMPONENTS.md §10.3: Text + 2px-Unterstrich); /ablage benutzt für
+          dieselbe Aufgabe bereits genau diese. Die Segmented-Controls bleiben
+          den beiden Filtern — damit trägt die View wieder nur EINE
+          Orange-Fläche pro Bedeutung. */}
+      <TermineTabs tab={tab} onTab={handleTab} />
 
       <TermineFilterBar
         view={params.view}
@@ -388,7 +367,6 @@ export function TermineBoard({
         onSearch={(q) => setParam("q", q.trim() ? q : null)}
         onZeit={(z) => setParam("zeit", z === "zu_tun" ? null : z)}
         onWer={(w) => setParam("wer", w === "mein" ? null : w)}
-        onTab={handleTab}
         onView={(v: TerminView) => setParam("view", v)}
         onStep={(dir) => setParam("date", stepDate(params.view, params.date, dir))}
         onToday={() => setParam("date", today)}

@@ -3,6 +3,15 @@
 Stand: August 2026, Branch `main` — nach dem Feedback-Umbau (Personen-Zuordnung,
 Analyse-Neubau, Anruf-Log) und der Entschlackung des Analyse-Bereichs.
 
+> **⚠ Diese Liste ist älter als der Rückbau des Nachfass-Systems (11. September 2026).**
+> Nachgezogen sind nur die Punkte, die sonst in die Irre führten — der Migrationsstand
+> (Abschnitt 0), die Terminliste (Abschnitt 4) und die Verlustgründe. **Nicht** enthalten sind
+> Prüfpunkte für die neuen Flächen: die Arbeitsliste unter `/termine` mit ihren drei Reitern und
+> den drei Knöpfen je Zeile, der Nachfass-Stempel, die zwei Ablage-Ansichten und der eine
+> verbliebene Navigations-Zähler. Wer vor einem Release prüft, nimmt dafür `docs/data-model.md`
+> §1 und §5.4 zur Hand. Was in dieser Liste über Kaskaden, Erinnerungen oder Vorlagen stünde,
+> stünde falsch — sie enthält dazu nichts, weil sie älter ist als beides.
+
 Durchführen mit `npm run dev`, auf **Desktop und Mobil** (DevTools 360×800 oder
 echtes Gerät). Die App ist **dark-only** — es gibt keinen Hell/Dunkel-Umschalter
 mehr; wo diese Checkliste früher zwei Themes verlangte, ist das erledigt, nicht
@@ -15,12 +24,19 @@ mit den ersten drei Abschnitten das Wesentliche geprüft.
 
 ## 0. Voraussetzungen
 
-- [ ] Migrationen `0019`–`0030` im **Supabase-SQL-Editor** ausgeführt (sie laufen
+- [ ] Migrationen `0019`–`0041` im **Supabase-SQL-Editor** ausgeführt (sie laufen
       **nicht** automatisch, siehe `docs/data-model.md` §7). Reihenfolge zwingend;
-      `0030` setzt `0029` voraus, `0029` muss **vor** dem Deploy des Codes laufen —
-      `analyseData.ts` selektiert die neuen Spalten namentlich, und eine fehlende
-      Spalte lässt PostgREST die *gesamte* Abfrage abweisen (leerer Analyse-Bereich
-      statt unvollständigem).
+      `0030` setzt `0029` voraus, `0032` setzt `0031` voraus, `0033` setzt `0032`
+      voraus und `0034` beide. `0029` und `0032` müssen **vor** dem Deploy des Codes
+      laufen — `analyseData.ts` selektiert die neuen Spalten namentlich, und eine
+      fehlende Spalte lässt PostgREST die *gesamte* Abfrage abweisen (leerer
+      Analyse-Bereich statt unvollständigem).
+- [ ] **`0041` ist die einzige, die noch offen sein kann** — sie muss **vor** dem
+      Deploy laufen. Fehlt sie, schreibt der Knopf „Genervt" der Arbeitsliste nicht,
+      jede Zeile leuchtet dauerhaft, und das Lead-Dossier meldet „nicht verfügbar"
+      (es selektiert die beiden Stempel-Spalten namentlich). Gegenprobe nach dem
+      Einspielen: der Verifikationsblock am Ende der Datei — er hat eine eigene Falle
+      (ein UPDATE ohne Treffer sieht aus wie ein bestandener Test).
 - [ ] Invarianten aus `docs/data-model.md` §8 durchlaufen — alle liefern `0`
       bzw. eine leere Menge. Besonders: keine `assigned_user_id is null`, keine
       Zuweisung über eine Org-Grenze, kein Lead ohne Testarm in einer
@@ -90,16 +106,26 @@ Termine und Umsatz zwischen Personen. Das ist gewollt und der wahrscheinlichste
 
 ## 4. Termin-Funnel
 
-- [ ] `/termine`: Monat/Woche/Tag; **nichts wird ausgeblendet** — auch
-      `dead`/`unqualifiziert` stehen da. Füllung = Typ, Rahmen = Status.
+- [ ] `/termine` öffnet in der **Arbeitsliste**, nicht im Kalender. Drei Reiter:
+      Liste · Kalender · Rückrufe; Monat/Woche/Tag erscheint **nur** im Kalender.
+- [ ] Im **Kalender** wird **nichts ausgeblendet** — auch `dead`/`unqualifiziert`
+      stehen da. Füllung = Typ, Rahmen = Status, Absage als eigener Pill.
+- [ ] In der **Liste** leuchtet gold, wer in der Arbeitsmenge liegt und heute noch
+      nicht gestempelt ist. Gegenprobe: „Genervt" klicken → das Gold geht für heute
+      weg, die Zeile bleibt stehen. Ein abgesagter Termin **ohne Aussicht** und ein
+      No-Show **ohne Antwort** dürfen dort **nicht** stehen — sie gehören in die
+      Ablage, und beide sind schon einmal an beiden Stellen gleichzeitig gelandet.
 - [ ] Termin anlegen mit Art „Telefon" → Rufnummer ist Pflicht; mit „Link" →
       Meet-Link ist Pflicht.
 - [ ] Termin speichern und erneut öffnen → **dieselbe Uhrzeit** (kein Versatz um
       den UTC-Offset). Gegenprobe im Sommer *und* mit einem Winter-Datum.
 - [ ] Setting-Outcome: „Qualifiziert" legt sofort das Closing an und setzt
       `closing_gelegt`; Closing löschen → Setting fällt auf `offen` zurück.
-- [ ] Closing „Verloren" erzwingt einen **Verlustgrund-Code** (neun Werte), der
-      Freitext daneben ist optional.
+- [ ] Closing „Verloren" **auf der Detailseite** erzwingt einen **Verlustgrund-Code**
+      (zehn Werte seit `0032`), der Freitext daneben ist optional. Der Knopf „Tot"
+      der Arbeitsliste fragt dagegen **keinen** Grund ab und schreibt `sonstiges` —
+      das ist gewollt (der Grundkatalog ist mit dem Rückbau gefallen), verschiebt
+      aber die Verlustgrund-Verteilung; siehe `docs/data-model.md` §4, Fallstrick 2.
 - [ ] Closing mit Ergebnis, ohne gesetztes `show_status` → wird auf `show`
       abgeleitet; ein bewusst gesetztes `no_show` bleibt stehen.
 

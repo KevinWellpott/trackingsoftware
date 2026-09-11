@@ -91,10 +91,14 @@ export function RueckrufListe({
   return (
     <div
       className="table-scroll"
+      // Wie in der Arbeitsliste daneben: `overflowX: "auto"` statt
+      // `overflow: "hidden"`. Der Inline-Stil schlug die einzige
+      // `.table-scroll`-Regel, und damit war auf schmalen Fenstern die
+      // Rufnummer — der eine Handgriff dieser Tabelle — nicht erreichbar.
       style={{
         border: "1px solid var(--border)",
         borderRadius: "var(--radius-md)",
-        overflow: "hidden",
+        overflowX: "auto",
         background: "var(--surface-100)",
       }}
     >

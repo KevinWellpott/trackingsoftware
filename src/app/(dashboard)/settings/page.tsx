@@ -296,8 +296,15 @@ export default async function SettingsPage({
               color: "var(--info-fg)",
             }}
           >
-            Pipeline-Einstellungen sind noch nicht verfügbar — Migration 0032 ist auf dieser Datenbank
-            nicht eingespielt.
+            {/* Derselbe Satzbau wie die beiden anderen „das Schema fehlt"-Flächen
+                (/nachfassen, /ablage): Zustand · was es NICHT heißt · Nummer
+                zuletzt. Die Handlungsaufforderung fehlt hier als einziger der
+                drei bewusst — diese Karte sieht nur, wer `can_manage_org_settings`
+                hat: „einem Administrator Bescheid geben" hieße, sich selbst zu
+                rufen. */}
+            Die Pipeline-Einstellungen lassen sich gerade nicht anzeigen — der Datenbank fehlt dafür noch
+            ein Stück. Das ist nicht dasselbe wie &bdquo;nichts eingestellt&ldquo;: Das Verschiebe-Kontingent
+            gilt weiter mit seinem Vorgabewert, ändern lässt es sich hier erst nach Migration 0032.
           </div>
         )
       )}

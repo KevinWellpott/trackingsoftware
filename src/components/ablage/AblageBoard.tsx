@@ -36,6 +36,7 @@ import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
 import { ReviveDialog } from "@/components/ablage/ReviveDialog";
 import { Badge, StageBadge, type StageKey } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 import { ownerColor } from "@/lib/ownerColor";
@@ -134,22 +135,34 @@ const ENTITY_META: Record<
   },
 };
 
-const ghostBtn: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--sp-3)",
-  height: 26,
-  padding: "0 var(--sp-5)",
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--border-default)",
-  background: "var(--surface-1)",
+/* ── Die Knopfzeile der Karte ──────────────────────────────────────────
+   Bis zur Design-Runde waren das fünf handgebaute Pillen mit `height: 26` —
+   ein Maß, das die Größenskala nicht kennt (COMPONENTS.md §2.6: 28/32/40) —
+   und ohne `.ui-btn`. Damit griff auf dem Telefon auch der Touch-Bump auf
+   44px nicht (globals.css, `@media (pointer: coarse)`): fünf 26-Pixel-Ziele
+   nebeneinander.
+
+   Der eigentliche Fehler saß aber in der Farbe: „Endgültig sperren" — die
+   einzige Aktion mit einem dauerhaften Kontaktverbot als Folge — trug
+   `--text-muted` und war damit der LEISESTE der fünf. Destruktiv heißt in
+   diesem System Danger-Hairline (COMPONENTS.md §2.4), nie stiller als der
+   Nachbar.
+
+   Jetzt kommen alle fünf aus der Button-Familie; nur der Ursprungs-Link
+   bleibt ein `<a>` mit `.ui-btn` (an Next' `<Link>` ist `data-variant` kein
+   zulässiges Attribut) — dieselbe Lösung wie in den Wegen von /nachfassen.
+   Höhe und Seitenluft sind deshalb wörtlich `SIZE_STYLES.sm` aus
+   ui/Button.tsx: Der Link steht in DERSELBEN Zeile wie vier echte Buttons,
+   und ein eigenes Maß daneben sähe aus wie ein Fehler. */
+const jumpLinkStyle: React.CSSProperties = {
+  minHeight: 28,
+  padding: "0 14px",
+  background: "transparent",
+  border: "1px solid transparent",
   color: "var(--text-secondary)",
-  fontSize: "var(--fs-xs)",
+  fontSize: "var(--fs-sm)",
   fontWeight: 500,
-  fontFamily: "inherit",
   textDecoration: "none",
-  cursor: "pointer",
-  transition: "background var(--transition-fast), border-color var(--transition-fast)",
 };
 
 /** Datum de-DE (Europe/Berlin). Verträgt Datum-only (`next_recycle_at`) und
@@ -543,8 +556,8 @@ function DropoutCard({
             Hinweisen. Verloren geht dabei nichts: Zum Lead selbst führte er bei
             diesen beiden Ursprüngen ohnehin nie, das tut das Dossier daneben. */}
         {href && (
-          <Link href={href} style={ghostBtn}>
-            {meta.linkLabel} <ArrowUpRight size={12} />
+          <Link href={href} className="ui-btn" style={jumpLinkStyle}>
+            {meta.linkLabel} <ArrowUpRight size={13} />
           </Link>
         )}
 
@@ -557,45 +570,54 @@ function DropoutCard({
             Beschriftet ist er „Details" und nicht „Dossier": Das war ein Wort
             aus dem Code, das dem Vertrieb nicht sagte, was passiert. Dieselbe
             Beschriftung tragen die Knöpfe in /nachfassen und /erinnerungen. */}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setDossierOpen(true)}
-          style={ghostBtn}
+          icon={<FileText size={13} />}
           title="Alles zu diesem Lead — Verlauf, Kontaktwege, Notizen"
         >
-          <FileText size={12} /> Details
-        </button>
+          Details
+        </Button>
 
         {/* Nicht mögliche Aktionen werden WEGGELASSEN, nicht ausgegraut. In der
             Sperrliste wäre sonst auf jeder einzelnen Karte derselbe tote Knopf
             zu sehen, und der Grund dafür steht ohnehin einmal am Fuß des Boards
             bzw. — wenn er an dieser Zeile hängt — als Satz unter den Aktionen. */}
         {!blocked && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={isPending}
             onClick={pullForward}
             title="Wiedervorlage auf heute setzen — der Vorgang erscheint dann in der Recycling-Sektion von Nachfassen."
-            style={{ ...ghostBtn, cursor: isPending ? "default" : "pointer" }}
+            icon={<ChevronsRight size={13} />}
           >
-            <ChevronsRight size={12} /> Jetzt wieder anschreiben
-          </button>
+            Jetzt wieder anschreiben
+          </Button>
         )}
 
         {/* Ist die Zeile gesperrt, trägt der Badge „Gesperrt" oben die Aussage
             — ein Knopf daneben, der dasselbe noch einmal sagt, ist nur Fläche.
             Eine Sonderregel für die Sperrliste braucht es dafür nicht: Dort ist
-            jede Zeile gesperrt, `dropout_lists()` liefert gar keine andere. */}
+            jede Zeile gesperrt, `dropout_lists()` liefert gar keine andere.
+
+            Danger-Hairline statt `--text-muted`: Die Folge ist ein dauerhaftes
+            Kontaktverbot, das die Oberfläche nicht zurücknehmen kann — der
+            Knopf darf nicht leiser sein als „Zur Liste" daneben
+            (COMPONENTS.md §2.4). Gefüllt wird die Fläche erst im
+            Bestätigungs-Dialog. */}
         {!row.excluded && (
-          <button
-            type="button"
+          <Button
+            variant="danger"
+            size="sm"
             disabled={isPending}
             onClick={block}
             title="Dauerhaftes Kontaktverbot: kein Recycling mehr, org-weit sichtbar in der Sperrliste."
-            style={{ ...ghostBtn, color: "var(--text-muted)", cursor: isPending ? "default" : "pointer" }}
+            icon={<Ban size={13} />}
           >
-            <Ban size={12} /> Endgültig sperren
-          </button>
+            Endgültig sperren
+          </Button>
         )}
 
         {/* „Neuen Termin ansetzen" statt „Zurückholen": Der Unterschied zum
@@ -604,15 +626,16 @@ function DropoutCard({
             nicht zu erfahren — und ein Fehlgriff legt einen Termin an, den
             niemand wollte. */}
         {!row.revive_blocked && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={isPending}
             onClick={() => setReviveOpen(true)}
             title="Neues Setting für diesen Lead anlegen. Der alte Vorgang bleibt abgeschlossen stehen."
-            style={{ ...ghostBtn, cursor: isPending ? "default" : "pointer" }}
+            icon={<RotateCcw size={13} />}
           >
-            <RotateCcw size={12} /> Neuen Termin ansetzen
-          </button>
+            Neuen Termin ansetzen
+          </Button>
         )}
 
         {error && (
@@ -732,6 +755,12 @@ export function AblageBoard({
           <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--danger-fg)" }}>
             Die Ablage ist nicht verfügbar
           </div>
+          {/* Wortgleicher Satzbau wie in /nachfassen: Zustand · was es NICHT
+              heißt · was zu tun ist. Vorher endete der Absatz mit einer
+              Arbeitsanweisung an jemanden, der gar nicht mitliest („Ein
+              Administrator spielt die Migration im Supabase-SQL-Editor ein")
+              — der Leser dieser Karte ist in aller Regel der Vertrieb. Die
+              Nummer bleibt: Sie macht Satz drei erst brauchbar. */}
           <p
             style={{
               margin: "var(--sp-3) 0 0",
@@ -740,10 +769,10 @@ export function AblageBoard({
               maxWidth: "62ch",
             }}
           >
-            Der Datenbank fehlt die Abfrage, aus der die Ablage entsteht &mdash; Migration 0033 ist noch nicht
-            eingespielt. Das ist ausdrücklich <strong>nicht</strong> dasselbe wie &bdquo;die Liste ist leer&ldquo;:
-            Es liegen möglicherweise ausgeschiedene Vorgänge da, die hier gerade niemand sieht. Ein Administrator
-            spielt die Migration im Supabase-SQL-Editor ein.
+            Ausgeschiedene Vorgänge lassen sich gerade <strong>nicht</strong> auflisten — der Datenbank fehlt dafür
+            noch ein Stück. Das ist ausdrücklich nicht dasselbe wie &bdquo;die Liste ist leer&ldquo;: Es liegen
+            möglicherweise Vorgänge da, die hier niemand sieht. Bitte einem Administrator Bescheid geben
+            (Migration 0033).
           </p>
         </div>
       </div>

@@ -169,10 +169,18 @@ export function TermineList({
   return (
     <div
       className="table-scroll"
+      // `overflowX: "auto"` wie in jeder anderen Tabelle der App (z. B.
+      // AnalyseTables). Hier stand `overflow: "hidden"` — ein Inline-Stil, der
+      // die einzige `.table-scroll`-Regel (globals.css, unter 768px) schlägt.
+      // Die Spalten summieren sich auf gut 860 Pixel; auf dem Telefon wurde
+      // damit ausgerechnet die Spalte „Aktion" abgeschnitten, ohne dass man
+      // hinscrollen konnte — und sie trägt die drei einzigen Handgriffe, mit
+      // denen sich eine Zeile abhaken lässt. Geklippt (und damit rund) bleibt
+      // der Rahmen trotzdem: `auto` schneidet wie `hidden`, nur mit Weg.
       style={{
         border: "1px solid var(--border)",
         borderRadius: "var(--radius-md)",
-        overflow: "hidden",
+        overflowX: "auto",
         background: "var(--surface-100)",
       }}
     >
@@ -507,9 +515,14 @@ function EmptyState({ zeit }: { zeit: TerminZeit }) {
           {zeit === "zu_tun" ? "Nichts zu tun" : "Keine Termine"}
         </div>
         <p style={{ maxWidth: 420 }}>
+          {/* Der Leerzustand zeigt auf die EINE Aktion dieser Seite — und die
+              steht seit der Design-Runde oben rechts im Seitenkopf, nicht mehr
+              „in der Navigation". Ein Leerzustand, der woandershin verweist,
+              schickt auf die Suche nach einem Knopf, der 40 Pixel darüber
+              steht (COMPONENTS.md §14.1). */}
           {zeit === "zu_tun"
             ? "Niemand liegt in der Luft: Jeder offene Vorgang hat entweder einen Termin oder ist abgeschlossen."
-            : "Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder über „Termin buchen“ in der Navigation."}
+            : "Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder oben rechts über „Termin buchen“."}
         </p>
       </div>
     </div>

@@ -18,6 +18,12 @@ import { excludeFromRecycle } from "@/app/actions/recycle";
 // Grund-Familien ab (und zeigt einen unbekannten Code roh, statt ihn still zu
 // verbuchen) — dieselbe Funktion, mit der die Ablage denselben Code beschriftet.
 import { dropoutReasonLabel } from "@/lib/dropoutLists";
+// Dieselbe Farbe wie in der Termin- und der LinkedIn-Liste: „da muss jemand
+// ran" heißt in dieser App Gold, und zwar überall (DESIGN.md §3.6, COMPONENTS
+// §4.5). Vorher war Überfällig hier ROT — dieselbe Aussage in zwei Farben, und
+// Rot heißt sonst „verloren/nicht erschienen": ausgerechnet auf einer Karte,
+// die fragt, ob der Lead noch einen Versuch wert ist.
+import { DRAN_TONE } from "@/lib/dranRegel";
 import { isOverdue } from "@/lib/dueState";
 import { STALE_AFTER_DAYS } from "@/lib/staleTasks";
 import type { RecycleOrigin } from "@/lib/recycleCadence";
@@ -188,7 +194,9 @@ function dueSortKey(t: RecycleTask): number {
    Bildschirm anders aus, und ein Ziel von 28 Pixeln Höhe und wechselnder
    Breite trifft man auf dem Touchgerät schlecht.
 
-     1. AKTIONEN — vollbreit, gestapelt. GENAU EIN Primär-Knopf je Karte.
+     1. AKTIONEN — vollbreit, gestapelt. GENAU EIN gefüllter Knopf je Karte;
+        die Markenfüllung bleibt dem einen CTA je VIEW vorbehalten und steht
+        deshalb in keiner Karte dieses Rasters (COMPONENTS.md §2.1).
      2. Hairline, dann die WEGE — Ghost-Pillen in EINER Zeile. Sie schreiben
         nichts, sie führen nur woandershin.
      3. Hairline, dann „ENDGÜLTIG RAUS" allein, rechts, in Inhaltsbreite.
@@ -345,12 +353,17 @@ function TaskCard({ task, done }: { task: RecycleTask; done: DoneApi }) {
       style={{
         background: "var(--surface-100)",
         border: "1px solid var(--border)",
-        borderLeft: overdue ? "3px solid var(--color-error-text)" : "1px solid var(--border)",
+        // 2px-Rail als Inset statt einer 3px-Kante: Das System kennt genau
+        // eine Rail-Breite (DESIGN.md §12, COMPONENTS §13.4), und als
+        // `box-shadow` verschiebt sie die Karte nicht um einen Pixel gegenüber
+        // ihren nicht überfälligen Nachbarn. Wortgleich das Rezept, mit dem
+        // Termin- und LinkedIn-Liste ihr Gold setzen.
+        boxShadow: overdue ? `inset 2px 0 0 ${DRAN_TONE.border}` : undefined,
         borderRadius: "var(--radius-md)",
-        padding: "0.75rem",
+        padding: "var(--sp-5)",
         display: "flex",
         flexDirection: "column",
-        gap: "0.5rem",
+        gap: "var(--sp-4)",
         minWidth: 0,
         // Erledigt sieht aus wie „gerade in Arbeit" — dieselbe Abblendung. Die
         // Karte ist dann fertig, aber noch da.
@@ -359,13 +372,18 @@ function TaskCard({ task, done }: { task: RecycleTask; done: DoneApi }) {
       }}
     >
       {/* ── Kopfzeile: Lead + Firma + Ursprung + Grund ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--sp-4)" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* 600, nicht 650: Geladen sind 400/500/600 (app/layout.tsx), und
+              „nie 700" ist eine Systemregel (DESIGN.md §6.2). 650 war die
+              einzige Fundstelle im ganzen Repo — im Fallback-Stack hätte sie
+              synthetischen Fettdruck erzeugt. Größen und Abstände kommen aus
+              den Tokens, nicht aus rem-Literalen (§6.3, §8). */}
           <div
             style={{
-              fontSize: "0.875rem",
-              fontWeight: 650,
-              letterSpacing: "-0.01em",
+              fontSize: "var(--fs-base)",
+              fontWeight: 600,
+              letterSpacing: "var(--ls-tight)",
               color: "var(--text-primary)",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -377,7 +395,7 @@ function TaskCard({ task, done }: { task: RecycleTask; done: DoneApi }) {
           {task.company && (
             <div
               style={{
-                fontSize: "0.75rem",
+                fontSize: "var(--fs-xs)",
                 color: "var(--text-muted)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -421,10 +439,10 @@ function TaskCard({ task, done }: { task: RecycleTask; done: DoneApi }) {
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: "0.3rem",
-            fontSize: "0.6875rem",
+            gap: "var(--sp-3)",
+            fontSize: "var(--fs-2xs)",
             fontWeight: 600,
-            color: overdue ? "var(--color-error-text)" : "var(--text-secondary)",
+            color: overdue ? DRAN_TONE.fg : "var(--text-secondary)",
           }}
         >
           {overdue ? (
@@ -444,7 +462,7 @@ function TaskCard({ task, done }: { task: RecycleTask; done: DoneApi }) {
           der Zeile). Fehlt sie, war dies der erste Anlauf; dann steht bewusst
           nichts da statt „noch nie".                                        */}
       {task.last_contacted_at && (
-        <span style={{ fontSize: "0.6875rem", color: "var(--text-muted)" }}>
+        <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-muted)" }}>
           Zuletzt versucht {formatShort(task.last_contacted_at)}
         </span>
       )}
@@ -490,14 +508,25 @@ function TaskCard({ task, done }: { task: RecycleTask; done: DoneApi }) {
 
         {/* Die beiden schreibenden Aktionen, gestapelt.
             „Nochmal versucht" ist der erwartete Schritt und trägt deshalb als
-            einziges den CTA; „Reagiert" ist die Ausnahme und bleibt darunter —
-            als Danger-Pendant eine reine Hairline in der Erfolgsfarbe, nicht
-            als gefüllte grüne Fläche: zwei gefüllte Knöpfe übereinander hätten
-            keinen Hauptknopf mehr. */}
+            einziges eine FLÄCHE; „Reagiert" ist die Ausnahme und bleibt
+            darunter — als Danger-Pendant eine reine Hairline in der
+            Erfolgsfarbe: zwei gefüllte Knöpfe übereinander hätten keinen
+            Hauptknopf mehr.
+
+            ── WARUM SEKUNDÄR UND NICHT PRIMÄR ──────────────────────────────
+            Die Karten stehen in einem `auto-fill`-Raster; bei zwölf Aufgaben
+            standen zwölf Signature-Pills auf dem Schirm. Die Regel zählt aber
+            je VIEW, nicht je Karte (COMPONENTS.md §2.1: „genau einer pro View
+            · nie in Tabellenzeilen oder Listen"; DESIGN.md §5.1: „Bekommt
+            jeder Button einen farbigen Verlauf, schreit alles gleich laut und
+            der CTA verschwindet in der Menge"). Die Hierarchie INNERHALB der
+            Karte trägt weiterhin der Unterschied Fläche/Hairline und die
+            Stapelreihenfolge — der Surface-Verlauf ist dieselbe Form und
+            dasselbe Licht, nur nicht dieselbe Lautstärke. */}
         {!doneEntry && (
           <>
             <Button
-              variant="primary"
+              variant="secondary"
               fullWidth
               disabled={isPending}
               onClick={() =>
@@ -730,11 +759,15 @@ export function NachfassenBoard({ tasks, hiddenStale, showingAll, recyclingAvail
 
   return (
     <div>
+      {/* EIN Satzbau für „das Schema fehlt", überall gleich: Zustand · was es
+          NICHT heißt · was zu tun ist. Dieselben drei Teile stehen in der
+          Ablage und in den Einstellungen; die Migrationsnummer steht hinten,
+          weil sie nur dem weiterhilft, den man laut Satz drei holen soll. */}
       {!recyclingAvailable && (
         <UnavailableNotice title="Recycling ist nicht verfügbar">
           Verlorene Closings und tote Leads werden gerade <strong>nicht</strong> wiedervorgelegt — der Datenbank fehlt
           dafür noch ein Stück. Das ist ausdrücklich nicht dasselbe wie &bdquo;kein Lead ist wieder dran&ldquo;. Bitte
-          einem Administrator Bescheid geben.
+          einem Administrator Bescheid geben (Migration 0033).
         </UnavailableNotice>
       )}
 

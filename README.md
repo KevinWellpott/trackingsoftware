@@ -1,6 +1,10 @@
 # Pitch-Tracker
 
-Next.js-App für den Vertriebs-Funnel eines Teams: zwei Akquise-Kanäle (LinkedIn-Pitches und Telefon-Kaltakquise), die in einen gemeinsamen Termin-Funnel münden (Setting → Closing → Umsatz), dazu zentrale Wiedervorlage, Kalender und ein mehrstufiger Analyse-Bereich. Mandantenfähig: ein Workspace = eine Organisation. Daten liegen in **Supabase** (Postgres + Auth + Row Level Security), Deployment auf **Vercel**.
+Next.js-App für den Vertriebs-Funnel eines Teams: zwei Akquise-Kanäle (LinkedIn-Pitches und Telefon-Kaltakquise), die in einen gemeinsamen Termin-Funnel münden (Setting → Closing → Umsatz), dazu eine tägliche Arbeitsliste, Kalender und ein mehrstufiger Analyse-Bereich. Mandantenfähig: ein Workspace = eine Organisation. Daten liegen in **Supabase** (Postgres + Auth + Row Level Security), Deployment auf **Vercel**.
+
+Die tägliche Arbeitsfläche ist **`/termine`** mit drei Reitern — **Liste** (Vorgabe) · **Kalender** · **Rückrufe**. Die Liste beantwortet „wen muss ich heute nerven": Jeder Setting- und Closing-Vorgang trägt genau einen **abgeleiteten** Zustand, und wer keinen stehenden Termin hat, leuchtet gold, bis jemand ihn abhakt. Daneben steht **`/nachfassen`** für das Recycling toter Leads (Wochen- bis Monats-Kadenz) und **`/ablage`** für alles, was aus dem Funnel gefallen ist.
+
+> **⚠ Eine Falle, die man vor der ersten Auswertung kennen muss:** Der angezeigte Zustand „Offen" bedeutet das **Gegenteil** des gespeicherten `setting_calls.status='offen'`. Gespeichert heißt er „Termin steht, Ergebnis fehlt", angezeigt heißt er „es steht **kein** Termin". Details in [`docs/data-model.md`](./docs/data-model.md) §1. Die Geschichte dazu — das Nachfass-System war einmal deutlich größer und wurde am 11. September 2026 bewusst zurückgebaut — steht in [`docs/nachfassen-umbau/ENTSCHEIDUNGEN.md`](./docs/nachfassen-umbau/ENTSCHEIDUNGEN.md), Nachtrag „Der Rückbau". Wer dort vier Tabellen ohne Leser findet (`template_catalog`, `message_templates`, `cascade_steps`, `reminder_touches`): Das ist Absicht, nicht Schlamperei.
 
 **Wer hier Code oder Auswertungen schreibt, liest zuerst [`docs/data-model.md`](./docs/data-model.md)** — dort stehen die maßgeblichen Kennzahl-Definitionen (u. a. die drei verschiedenen Bedeutungen von „Termin"), die Zeitzonen-Fallstricke und die Invarianten. Vor einem Release: [`docs/QA-2.0.md`](./docs/QA-2.0.md).
 
@@ -14,7 +18,13 @@ Next.js-App für den Vertriebs-Funnel eines Teams: zwei Akquise-Kanäle (LinkedI
 
 1. Im [Supabase Dashboard](https://supabase.com/dashboard) ein neues Projekt anlegen.
 2. **SQL Editor**: Inhalt von [`supabase/migrations/20260404000000_init.sql`](./supabase/migrations/20260404000000_init.sql) ausführen (einmalig).
-3. **Ebenfalls im SQL-Editor**: die Migrationen `…0019` bis `…0040` in numerischer Reihenfolge nachziehen. Sie laufen **nicht** automatisch — welche was tut und worauf zu achten ist, steht in [`docs/data-model.md`](./docs/data-model.md) §7. Vier Reihenfolge- und Deploy-Regeln: `0030` setzt `0029` voraus; `0032` setzt `0031` voraus, `0033` setzt `0032` voraus und `0034` beide; `0029` und `0032` müssen **vor** dem Deploy des zugehörigen Codes laufen (`analyseData.ts` selektiert die neuen Spalten namentlich — fehlt eine, weist PostgREST die *gesamte* Abfrage ab und der Analyse-Bereich ist leer statt unvollständig); `0035` und `0039` dagegen erst **nach** dem Deploy, weil sie Regeln erzwingen, die erst die neue App einhält. `0035`, `0038`, `0039` und `0040` sind auf der Produktions-DB noch **nicht** eingespielt — bei einer frischen Datenbank spielt das keine Rolle, dort laufen alle der Reihe nach durch.
+3. **Ebenfalls im SQL-Editor**: die Migrationen `…0019` bis `…0041` in numerischer Reihenfolge nachziehen. Sie laufen **nicht** automatisch — welche was tut und worauf zu achten ist, steht in [`docs/data-model.md`](./docs/data-model.md) §7. Die Reihenfolge- und Deploy-Regeln:
+   - **Abhängigkeiten:** `0030` setzt `0029` voraus; `0032` setzt `0031` voraus, `0033` setzt `0032` voraus, `0034` beide.
+   - **Vor dem Deploy:** `0029` und `0032` (`analyseData.ts` selektiert die neuen Spalten namentlich — fehlt eine, weist PostgREST die *gesamte* Abfrage ab und der Analyse-Bereich ist leer statt unvollständig) sowie **`0041`** (ohne sie schreibt der Knopf „Genervt" der Arbeitsliste nicht und das Lead-Dossier meldet „nicht verfügbar").
+   - **Nach dem Deploy:** `0035` und `0039` — sie erzwingen Regeln, die erst die neue App einhält. Für `0035` gilt das allerdings nur historisch: Ihre drei Trigger nimmt `0041` wieder weg, weil die Arbeitsliste einen Vorgang ohne Grundcode beendet.
+   - **Beim Ausführen nichts markieren.** Die Konsole fährt ein Skript in einer Transaktion, führt bei markiertem Text aber **nur die Markierung** aus und hinterlässt einen Halbzustand ohne Fehlermeldung — genau das ist bei `0031` schon passiert. Danach den Verifikationsblock am Dateiende fahren.
+
+   **Stand der Produktions-DB: alles bis `…0040` ist eingespielt und damit eingefroren; `…0041` ist es NICHT.** Bei einer frischen Datenbank spielt das keine Rolle — dort laufen alle der Reihe nach durch.
 4. **Authentication → Providers**: E-Mail (Magic Link) aktivieren; optional Google o. Ä.
 5. **Authentication → URL configuration**:
    - **Site URL**: `http://localhost:3000` für lokale Entwicklung.

@@ -88,10 +88,27 @@ describe("Ziele", () => {
     // öffnet in der ARBEITSLISTE, der Kalender ist der zweite Reiter. Ein
     // Hinweis, der die falsche Sache verspricht, ist schlimmer als keiner —
     // ausgerechnet auf der Kachel, die morgens als erste angeklickt wird.
-    for (const hint of ["Heute fällig", "Wer liegt in der Luft", "Aus dem Funnel gefallen"]) {
+    //
+    // Aus demselben Grund ist „Heute fällig" gefallen: Die Kachel führt auf
+    // das RECYCLING, und dessen Wartezeiten liegen bei 14 bis 270 Tagen
+    // (`pipeline_settings`, docs §5). „Heute fällig" versprach die tägliche
+    // Arbeit — die steht in der Terminliste, also auf der Kachel daneben.
+    for (const hint of ["Zweiter Anlauf fällig", "Wer liegt in der Luft", "Aus dem Funnel gefallen"]) {
       assert.ok(QUICKLINKS.includes(`hint: "${hint}"`), `Der Hinweis „${hint}" fehlt`);
     }
     assert.doesNotMatch(QUICKLINKS, /hint: "Kalender"/, "die Kachel verspricht wieder den Kalender");
+    assert.doesNotMatch(QUICKLINKS, /hint: "Heute fällig"/, "die Kachel verspricht wieder Tagesarbeit");
+  });
+
+  test("die Kachel heißt wie die Seite, auf die sie führt", () => {
+    // „Nachfassen" war die Sammelbezeichnung für DREI Mechanismen; zwei davon
+    // stehen seit dem Rückbau in der Terminliste, und die Seite unter
+    // /nachfassen heißt seither „Recycling" (tests/rueckbauTexteUndDeckel).
+    // Solange Kachel und Seitenleiste das alte Wort trugen, klickte man auf
+    // „Nachfassen" und landete bei „Recycling" — die ROUTE bleibt, der NAME
+    // wandert mit der Seite.
+    assert.ok(QUICKLINKS.includes('label: "Recycling"'), "Die Kachel heißt wieder „Nachfassen“.");
+    assert.doesNotMatch(QUICKLINKS, /label: "Nachfassen"/);
   });
 
   test("die eine Anlege-Aktion ist dabei — und es bleibt bei einer", () => {

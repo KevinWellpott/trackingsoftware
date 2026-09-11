@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { TerminTab, TerminView, TermineWer, TerminZeit } from "./viewState";
 
-// Kopfleiste des Termine-Bereichs — EINE Zeile.
+// Kopfleiste des Termine-Bereichs — EINE Zeile, plus die Reiter darüber.
 //
 // ── Die Umkehrung des Rückbaus ────────────────────────────────────────────
 // Bis hierher war der Kalender die Seite und die Arbeitsliste ein
@@ -14,6 +14,20 @@ import type { TerminTab, TerminView, TermineWer, TerminZeit } from "./viewState"
 // Ansichten als gleichrangige Reiter nebeneinander — Liste zuerst —, und die
 // Monat/Woche/Tag-Auswahl ist das, was sie immer war: eine Frage INNERHALB des
 // Kalenders. Sie erscheint nur, wenn der Kalender offen ist.
+//
+// ── WARUM DIE REITER KEINE SEGMENTED-PILLE MEHR SIND ──────────────────────
+// Sie waren eine: dieselbe orange gefüllte Pille wie das Zeitfenster und der
+// Personenschalter, nur ganz rechts außen hinter dem Suchfeld. Drei optisch
+// gleiche Bedienelemente in einer Zeile, von denen eines die SEITE wechselt
+// und zwei nur filtern — dazu der Primär-CTA daneben, macht bis zu vier
+// orange Flächen in einem Viewport (DESIGN.md §3.8: „Ein Primär-CTA pro View
+// … Orange-Flächen nur als Tint").
+//
+// Für Ansichts-Untergliederung ist die Tab-Leiste zuständig (COMPONENTS.md
+// §10.3: Text 14px/500, aktiver Reiter mit 2px-Unterstrich in --orange-500),
+// und /ablage löst dieselbe Aufgabe längst genau so (`AblageNav`). Die
+// Segmented-Controls bleiben den beiden FILTERN — dort sind sie richtig
+// (COMPONENTS.md §3.6).
 //
 // Der Personenschalter daneben ist die zweite Vorgabe des Auftraggebers: „Eine
 // Liste pro Person." Er zeigt sich nur, wenn es etwas zu schalten gibt — bei
@@ -26,6 +40,39 @@ const TAB_OPTIONS = [
   { value: "kalender", label: "Kalender" },
   { value: "rueckruf", label: "Rückrufe" },
 ] as const;
+
+/**
+ * Die drei Ansichten als Textreiter — Optik und Klassen wortgleich zu
+ * `AblageNav` (`.tab-scroller`/`.ui-tab`, COMPONENTS.md §10.3).
+ *
+ * Knöpfe statt `Link`s, anders als in der Ablage: Dort hängt genau EIN
+ * URL-Parameter an der Auswahl, hier räumt der Wechsel zusätzlich die
+ * Kalenderstufe auf (`handleTab` im Board setzt `view` auf `woche`, wenn man
+ * in den Kalender geht). Ein `href` müsste diese Regel ein zweites Mal
+ * formulieren.
+ */
+export function TermineTabs({ tab, onTab }: { tab: TerminTab; onTab: (t: TerminTab) => void }) {
+  return (
+    <nav className="tab-scroller" aria-label="Ansicht" style={{ marginBottom: "var(--sp-5)" }}>
+      {TAB_OPTIONS.map((o) => {
+        const active = o.value === tab;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            className="ui-tab"
+            data-active={active}
+            aria-current={active ? "page" : undefined}
+            onClick={() => onTab(o.value)}
+            style={{ flexShrink: 0, whiteSpace: "nowrap" }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
 
 const KALENDER_OPTIONS = [
   { value: "monat", label: "Monat" },
@@ -41,9 +88,14 @@ const ZEIT_OPTIONS = [
   { value: "alle", label: "Alle" },
 ] as const;
 
+// „Alle Personen" statt schlicht „Alle": In derselben Leiste steht beim
+// Zeitfenster ebenfalls ein „Alle", und es bedeutet etwas anderes (alle
+// Zustände statt aller Personen). Zwei gleich beschriftete Pillen
+// nebeneinander, die Verschiedenes tun, kosten beim ersten Fehlgriff mehr als
+// das eine Wort an Platz.
 const WER_OPTIONS = [
   { value: "mein", label: "Meine" },
-  { value: "alle", label: "Alle" },
+  { value: "alle", label: "Alle Personen" },
 ] as const;
 
 const navBtn: React.CSSProperties = {
@@ -70,12 +122,12 @@ export function TermineFilterBar({
   onSearch,
   onZeit,
   onWer,
-  onTab,
   onView,
   onStep,
   onToday,
 }: {
   view: TerminView;
+  /** Nur zur Frage „was steht links?" — umgeschaltet wird über `TermineTabs`. */
   tab: TerminTab;
   periodLabel: string;
   search: string;
@@ -86,7 +138,6 @@ export function TermineFilterBar({
   onSearch: (q: string) => void;
   onZeit: (z: TerminZeit) => void;
   onWer: (w: TermineWer) => void;
-  onTab: (t: TerminTab) => void;
   onView: (v: TerminView) => void;
   onStep: (dir: -1 | 1) => void;
   onToday: () => void;
@@ -204,7 +255,6 @@ export function TermineFilterBar({
         {canSeeAll && (
           <Segmented options={WER_OPTIONS} value={wer} onChange={(w) => onWer(w)} ariaLabel="Wessen Termine" />
         )}
-        <Segmented options={TAB_OPTIONS} value={tab} onChange={(t) => onTab(t)} ariaLabel="Ansicht" />
       </div>
     </div>
   );

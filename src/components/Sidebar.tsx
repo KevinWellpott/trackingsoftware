@@ -1306,10 +1306,17 @@ export function SidebarContent({
               wenn sich eine Seite aendert — der Nachfassen-Tooltip nannte nach
               dem Wegfall des LinkedIn-Zweigs monatelang eine Quelle, die es
               dort nicht mehr gibt. */}
+          {/* „Recycling", nicht „Nachfassen" — die Seite selbst heißt so, seit
+              drei der vier Quellen in die Terminliste gewandert sind (die
+              Begründung steht vollständig im Kopf von
+              src/app/(dashboard)/nachfassen/page.tsx). Wer auf „Nachfassen"
+              klickte, suchte die tägliche Arbeit und fand tote Leads vom
+              Frühjahr. Die ROUTE bleibt `/nachfassen`: Lesezeichen und der
+              Rückweg der Detailseiten (`?from=nachfassen`) hängen daran. */}
           <NavLink
             href="/nachfassen"
             icon={Clock}
-            label="Nachfassen"
+            label="Recycling"
             onClick={onClose}
             title="Fällige Recycling-Versuche: Leads, die schon einmal aus dem Funnel gefallen sind — verlorene Closings, tote Telefon- und Erstgespräch-Leads, LinkedIn-Kontakte ohne Antwort. Telefon-Rückrufe sowie Setting- und Closing-Wiedervorlagen stehen in der Terminliste, LinkedIn-Follow-ups erledigt das Listen-Board."
             count={navCounts?.nachfassen}

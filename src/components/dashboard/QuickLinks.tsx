@@ -149,8 +149,13 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
     },
     {
       href: "/nachfassen",
-      label: "Nachfassen",
-      hint: "Heute fällig",
+      // „Recycling" wie die Seite und wie die Seitenleiste. „Nachfassen" war
+      // die Sammelbezeichnung für DREI Mechanismen; zwei davon stehen seit dem
+      // Rückbau in der Terminliste, und der Name versprach hier weiter deren
+      // Inhalt. Und „Heute fällig" versprach Tagesarbeit — die Wartezeiten des
+      // Recyclings liegen bei 14 bis 270 Tagen (docs §5, `pipeline_settings`).
+      label: "Recycling",
+      hint: "Zweiter Anlauf fällig",
       icon: Clock,
       count: counts?.nachfassen ?? null,
       countLabel: ["Aufgabe fällig", "Aufgaben fällig"],
