@@ -5,8 +5,9 @@ import { updateClosingCall } from "@/app/actions/closingCalls";
 import { slotToIso } from "@/lib/apptTime";
 import { buildEvents, type RueckrufAufgabe, type TerminEvent, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
+import { istZuTun } from "@/lib/dranRegel";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { CalendarMonth } from "./CalendarMonth";
 import { CalendarTimeGrid, type TimeGridHandle } from "./CalendarTimeGrid";
 import { EventChip } from "./EventChip";
@@ -122,9 +123,29 @@ export function TermineBoard({
     [members],
   );
 
+  /**
+   * „Jetzt" für die zwei Erinnerungen vor einem Termin — Muster `RueckrufListe`
+   * in derselben Mappe.
+   *
+   * Ein `Date.now()` im Render-Körper wäre unrein (react-hooks/purity) und auf
+   * dem Server ohnehin eine andere Zahl als im Browser — das Ergebnis wäre ein
+   * Hydrations-Unterschied an genau der Stelle, die eine Zeile golden färbt.
+   * Stattdessen beginnt die Uhr bei `null` (keine Zeile behauptet eine
+   * Erinnerung) und wird per Effekt nachgeführt. Der Takt ist eine halbe Minute:
+   * Die Stunden-Marke ist minutengenau, und wer erst eine Minute später davon
+   * erfährt, hat die Minute verloren, die er am dringendsten braucht.
+   */
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const { events: allEvents, ohneTermin: allOhneTermin } = useMemo(
-    () => buildEvents(settings, closings, usernameById, today),
-    [settings, closings, usernameById, today],
+    () => buildEvents(settings, closings, usernameById, today, nowMs),
+    [settings, closings, usernameById, today, nowMs],
   );
 
   /** Optimistische Verschiebungen einrechnen, bevor gefiltert wird. */
@@ -179,6 +200,30 @@ export function TermineBoard({
     [allOhneTermin, matchesSearch, matchesWer],
   );
 
+  /**
+   * Die Zahl an jedem der drei Ausschnitte.
+   *
+   * Sie wird aus DERSELBEN Menge gebildet, die `TermineList` gleich sortiert und
+   * anzeigt (`[...filtered, ...ohneTermin]`, danach derselbe Prädikat-Satz) —
+   * Suche und Personenachse sind also schon drin. Eine Zahl über einer Liste,
+   * die anders schneidet als die Liste darunter, ist der Fehler, an dem an
+   * dieser Stelle schon einmal eine Zahl gefallen ist: Über vierzehn Zeilen
+   * stand „223 Termine" (siehe den Block im Seitenkopf, app/(dashboard)/termine).
+   *
+   * „Zu tun" und „Termin steht" überschneiden sich dabei bewusst (ein Termin
+   * morgen, der heute angekündigt werden muss, ist beides) — die drei Zahlen
+   * addieren sich deshalb nicht zu „Alle". Das taten sie auch vorher nicht, weil
+   * die abgeschlossenen Vorgänge nur unter „Alle" stehen.
+   */
+  const zeitCounts = useMemo(() => {
+    const pool = [...filtered, ...ohneTermin];
+    return {
+      zu_tun: pool.filter((e) => istZuTun(e.zustand, e.erinnerung)).length,
+      verlegt: pool.filter((e) => e.zustand === "verlegt").length,
+      alle: pool.length,
+    };
+  }, [filtered, ohneTermin]);
+
   /* ── HIER STAND EIN ALTLAST-SCHNITT, UND ER IST GEFALLEN ──────────────────
      Über der Arbeitsliste lag ein zweiter Filter: Wer in der Arbeitsmenge stand,
      dessen jüngstes Lebenszeichen aber über 30 Tage zurücklag (Termin oder
@@ -194,9 +239,15 @@ export function TermineBoard({
      NICHT bearbeitet, ist also genau der Fall, für den die Liste da ist.
 
      Was eine Zeile weiterhin herausnimmt, steht ausschließlich in
-     `lib/dranRegel.ts`: ein neuer Termin („Verlegt") oder ein Ergebnis. Der
-     Ausschnitt „Zu tun · Verlegt · Alle" und die Personenachse bleiben — sie
-     schneiden nach Zustand und Zuständigkeit, nicht nach Zeit.               */
+     `lib/dranRegel.ts`: ein neuer Termin („Termin steht") oder ein Ergebnis.
+     Der Ausschnitt „Zu tun · Termin steht · Alle" und die Personenachse bleiben
+     — sie schneiden nach Zustand und Zuständigkeit, nicht nach Zeit.
+
+     Der erste Ausschnitt hat seither eine zweite Tür: ein Termin, dessen
+     Erinnerung fällig ist, steht zusätzlich unter „Zu tun" (`istZuTun`). Das
+     ist kein Zeitschnitt in die Gegenrichtung — es nimmt nichts heraus, es
+     holt etwas herein, und zwar genau für die Stunden, in denen etwas zu tun
+     ist.                                                                     */
 
   /**
    * Rückrufe folgen derselben Personenachse — aber über den LISTEN-Owner
@@ -325,6 +376,7 @@ export function TermineBoard({
         periodLabel={periodLabel(params.view, params.date)}
         search={params.search}
         zeit={params.zeit}
+        zeitCounts={zeitCounts}
         wer={params.wer}
         canSeeAll={canSeeAll}
         onSearch={(q) => setParam("q", q.trim() ? q : null)}

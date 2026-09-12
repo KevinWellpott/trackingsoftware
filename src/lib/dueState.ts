@@ -15,6 +15,22 @@
 // behauptet die Navigation eine Dringlichkeit, die die Seite daneben nicht
 // kennt.
 //
+// ── UND EIN FALL, DER BEWUSST NICHT HIERHER GEHÖRT ──────────────────────────
+// Die zwei festen Erinnerungen vor einem Termin (`offeneErinnerung`,
+// src/lib/dranRegel.ts) sind minutengenaue Zeitpunkte und sähen damit wie ein
+// `moment`-Fall aus. Die RECHNUNG wäre auch dieselbe — `marke < now` —, aber die
+// VOKABEL ist die falsche: „Überfällig" ist ein Urteil („du hast es
+// versäumt"), eine erreichte Erinnerungs-Marke ist nur eine Ansage („jetzt geht
+// die Bestätigung raus").
+//
+// Der Unterschied ist nicht akademisch, er ist der gemeldete Fehler: Wer heute
+// um 14:00 einen Termin für heute 18:00 anlegt, hat die Vortags-Marke im Moment
+// des Buchens schon überschritten. Über `isOverdue` gelesen wäre diese Zeile in
+// derselben Sekunde rot, in der sie entsteht — genau das hat das alte System
+// getan, und genau daran ist es zurückgewiesen worden. Es gibt für eine
+// Erinnerung deshalb nur zwei Zustände: noch nicht dran, oder dran (Gold).
+// Wer hier einen dritten einführt, baut den Vorwurf wieder ein.
+//
 // HIER STAND EIN ZWEITER FALL: der Sofort-Touch der Erinnerungs-Kaskade, dessen
 // Fälligkeit sein eigener Entstehungszeitpunkt war und der deshalb gegen den
 // TERMIN statt gegen sich selbst gemessen werden musste (`DueSpec`,

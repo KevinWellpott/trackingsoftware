@@ -3,7 +3,7 @@
 import { Segmented } from "@/components/ui/Segmented";
 import { Input } from "@/components/ui/Input";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { TerminTab, TerminView, TermineWer, TerminZeit } from "./viewState";
 
 // Kopfleiste des Termine-Bereichs — EINE Zeile, plus die Reiter darüber.
@@ -80,11 +80,22 @@ const KALENDER_OPTIONS = [
   { value: "tag", label: "Tag" },
 ] as const;
 
-// Zeitfenster der Arbeitsliste. In den Kalenderansichten setzt der Zeitraum
+// Ausschnitt der Arbeitsliste. In den Kalenderansichten setzt der Zeitraum
 // bereits die Grenze — dort steht an dieser Stelle die Datums-Navigation.
+//
+// ── „VERLEGT" HIESS DER MITTLERE, UND DAS WAR EIN FEHLGRIFF ───────────────
+// Der Auftraggeber suchte dort seine Termine der nächsten Woche und fand sie
+// nicht: „Verlegt" liest sich als „wurde verschoben", der Ausschnitt enthält
+// aber JEDEN Termin mit einem Datum in der Zukunft — die allermeisten davon nie
+// verschoben. Er heißt deshalb „Termin steht", wie der Status-Pill derselben
+// Zeile (`TERMIN_ZUSTAND_LABEL`, src/lib/dranRegel.ts). Der URL-Wert bleibt
+// `verlegt`: Er beschreibt die Datenlage korrekt und steckt in geteilten Links.
+//
+// DIE ZAHL DANEBEN ist die der Zeilen, die der Ausschnitt wirklich zeigt —
+// gebildet über dieselbe Menge, die die Liste rendert (`zeitCounts` im Board).
 const ZEIT_OPTIONS = [
   { value: "zu_tun", label: "Zu tun" },
-  { value: "verlegt", label: "Verlegt" },
+  { value: "verlegt", label: "Termin steht" },
   { value: "alle", label: "Alle" },
 ] as const;
 
@@ -117,6 +128,7 @@ export function TermineFilterBar({
   periodLabel,
   search,
   zeit,
+  zeitCounts,
   wer,
   canSeeAll,
   onSearch,
@@ -132,6 +144,8 @@ export function TermineFilterBar({
   periodLabel: string;
   search: string;
   zeit: TerminZeit;
+  /** Zeilenzahl je Ausschnitt, aus derselben Menge wie die Liste darunter. */
+  zeitCounts: Record<TerminZeit, number>;
   wer: TermineWer;
   /** Owner mit Team-Sicht: nur er darf über die eigene Liste hinaussehen. */
   canSeeAll: boolean;
@@ -143,6 +157,15 @@ export function TermineFilterBar({
   onToday: () => void;
 }) {
   const isKalender = tab === "kalender";
+
+  // Die Zahl steht IM Segment-Label, nicht als zweite Pille daneben: Das
+  // Badge-Budget erlaubt ein farbiges Element je Zeile (DESIGN.md §3.6), und
+  // eine Zähl-Pille auf einem Segment wäre genau das zweite. Kein neues
+  // Bauteil, keine neue Farbe — derselbe Trenner „·" wie in jeder Meta-Zeile.
+  const zeitOptions = useMemo(
+    () => ZEIT_OPTIONS.map((o) => ({ value: o.value, label: `${o.label} · ${zeitCounts[o.value]}` })),
+    [zeitCounts],
+  );
 
   // Eingabe lokal puffern und verzoegert in die URL schreiben. setParam macht
   // ein router.replace — pro Tastendruck waere das ein Server-Roundtrip.
@@ -180,8 +203,8 @@ export function TermineFilterBar({
       }}
     >
       {/* Links: was den Ausschnitt steuert. Im Kalender die Datums-Navigation,
-          in der Liste das Zeitfenster, bei den Rückrufen nichts — dort ist die
-          Fälligkeit der Ausschnitt. */}
+          in der Liste der Ausschnitt samt seiner Zahl, bei den Rückrufen nichts
+          — dort ist die Fälligkeit der Ausschnitt. */}
       {isKalender ? (
         <>
           <button type="button" onClick={() => onStep(-1)} aria-label="Zurück" style={navBtn}>
@@ -212,7 +235,7 @@ export function TermineFilterBar({
           />
         </>
       ) : tab === "liste" ? (
-        <Segmented options={ZEIT_OPTIONS} value={zeit} onChange={(z) => onZeit(z)} ariaLabel="Zeitfenster" />
+        <Segmented options={zeitOptions} value={zeit} onChange={(z) => onZeit(z)} ariaLabel="Ausschnitt" />
       ) : null}
 
       <span

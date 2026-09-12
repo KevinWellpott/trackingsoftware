@@ -74,6 +74,19 @@ const HEUTE = "2026-09-15";
 const MORGEN = "2026-09-16T08:00:00.000Z";
 const GESTERN = "2026-09-14T08:00:00.000Z";
 
+/**
+ * Ein FESTES „jetzt", 08:00 Berliner Zeit am 15.09.
+ *
+ * `buildEvents` verlangt es seit den zwei festen Erinnerungen (`nowMs`,
+ * src/lib/dranRegel.ts): Die Marken „1 Tag vorher" und „1 Stunde vorher"
+ * entscheiden sich auf die MINUTE, nicht auf den Kalendertag. Der Wert liegt
+ * bewusst VOR der Vortags-Marke von `MORGEN` (10:00 Berliner Zeit), damit die
+ * Zusicherungen dieser Datei unverändert das prüfen, was sie prüfen sollen —
+ * den abgeleiteten Zustand und den Tages-Stempel. Die Erinnerungen selbst haben
+ * ihre eigene Datei (tests/terminErinnerungen.test.ts).
+ */
+const JETZT = Date.parse("2026-09-15T06:00:00.000Z");
+
 function zustand(patch: Partial<TerminZustandInput>): TerminZustand {
   return terminZustand(
     {
@@ -297,13 +310,17 @@ describe("3 · buildEvents reicht Zustand und Gold an die Oberfläche durch", ()
   }
 
   function event(patch: Partial<WithCancellation<SettingCall>> = {}) {
-    const { events, ohneTermin } = buildEvents([setting(patch)], [], NAMEN, HEUTE);
+    const { events, ohneTermin } = buildEvents([setting(patch)], [], NAMEN, HEUTE, JETZT);
     return [...events, ...ohneTermin][0];
   }
 
   test("der Pill zeigt den abgeleiteten Zustand, nicht den Rohwert", () => {
     assert.equal(event({ appointment_at: null }).statusPill.label, "Offen");
-    assert.equal(event({ appointment_at: MORGEN }).statusPill.label, "Verlegt");
+    // Der SCHLÜSSEL heißt weiterhin `verlegt` (er steckt in geteilten Links),
+    // das WORT auf dem Bildschirm nicht mehr: Der Auftraggeber suchte seine
+    // Termine der nächsten Woche im gleichnamigen Ausschnitt und fand sie nicht,
+    // weil „Verlegt" nach „wurde verschoben" klingt.
+    assert.equal(event({ appointment_at: MORGEN }).statusPill.label, "Termin steht");
     assert.equal(event({ status: "dead" }).statusPill.label, "Tot");
   });
 
@@ -384,7 +401,10 @@ describe("4 · Die Arbeitsliste ist der erste Reiter, der Kalender der zweite", 
     assert.equal(parseTermineParams({ zeit: "verlegt" }, HEUTE).zeit, "verlegt");
     // Alte Links fallen auf die Vorgabe zurück, statt still etwas anderes zu zeigen.
     assert.equal(parseTermineParams({ zeit: "anstehend" }, HEUTE).zeit, "zu_tun");
-    assert.match(TERMINE_LIST, /zeit === "zu_tun"[\s\S]{0,120}istInArbeitsmenge/);
+    // `istZuTun` = Arbeitsmenge ODER offene Erinnerung — die zweite Tür ist
+    // ausdrücklich KEIN Zeitschnitt: Sie nimmt nichts heraus, sie holt einen
+    // anstehenden Termin für die Stunden herein, in denen anzukündigen ist.
+    assert.match(TERMINE_LIST, /zeit === "zu_tun"[\s\S]{0,320}istZuTun\(e\.zustand, e\.erinnerung\)/);
   });
 });
 

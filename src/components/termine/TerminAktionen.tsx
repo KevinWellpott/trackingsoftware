@@ -84,9 +84,18 @@ export function TerminAktionen({
         disabled={pending}
         onClick={onGenervt}
         title={
-          event.dran
-            ? "Heute kontaktiert — die Zeile wird ruhig und leuchtet morgen wieder."
-            : "Nochmal als kontaktiert eintragen."
+          // Bei einer offenen Erinnerung sagt der Knopf, was der Klick WIRKLICH
+          // tut: Er schließt genau die fällige Erinnerung. Die zweite geht
+          // später von allein wieder auf — das ist der ganze Mechanismus
+          // (src/lib/dranRegel.ts), und wer ihn nicht kennt, hält den Stempel
+          // für ein Stummschalten bis zum Termin.
+          event.erinnerung === "stunde"
+            ? "Erinnert — die Zeile wird ruhig. Der Termin ist in weniger als einer Stunde, danach kommt nichts mehr."
+            : event.erinnerung === "vortag"
+              ? "Erinnert — die Zeile wird ruhig. Eine Stunde vor dem Termin meldet sie sich noch einmal."
+              : event.dran
+                ? "Heute kontaktiert — die Zeile wird ruhig und leuchtet morgen wieder."
+                : "Nochmal als kontaktiert eintragen."
         }
       >
         <Check size={13} /> Genervt

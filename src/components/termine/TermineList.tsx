@@ -4,7 +4,7 @@ import { markFollowUpContacted, markTerminDead, setNeuerTermin } from "@/app/act
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { formatTerminParts } from "@/lib/apptTime";
 import { dayDiff, lastContactLabel } from "@/lib/contactGap";
-import { DRAN_TONE, istInArbeitsmenge } from "@/lib/dranRegel";
+import { DRAN_TONE, erinnerungText, istZuTun } from "@/lib/dranRegel";
 import { dueDayOf } from "@/lib/dueState";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { TerminEvent } from "@/lib/termine";
@@ -27,6 +27,11 @@ import type { SortDir, TerminSort, TerminZeit } from "./viewState";
 // keiner (dann liegt er in der Luft). Die Regel dafür steht nicht hier, sondern
 // in src/lib/dranRegel.ts, gemeinsam mit der der LinkedIn-Liste — zwei
 // Definitionen von „du bist dran" waren der Fehler, den dieser Umbau behebt.
+//
+// Ein DRITTER Fall leuchtet seit den zwei festen Erinnerungen mit: ein Termin,
+// der morgen bzw. in weniger als einer Stunde ansteht und noch nicht angekündigt
+// wurde. Er ist keine Ausnahme von „Gold heißt du bist dran", sondern ein Fall
+// davon — und die Zeile SAGT ihn, statt ihn nur zu färben (`anlass` unten).
 //
 // Was die Liste NICHT mehr tut: nur lesen. Jede Zeile trägt die drei Handgriffe
 // aus dem Zielbild (genervt · neuer Termin · tot), alle ohne Seitenwechsel.
@@ -97,9 +102,13 @@ export function TermineList({
     // Termine ohne Zeitpunkt sind per Definition in der Arbeitsmenge und gehören
     // deshalb in denselben Topf — ohne die Liste hätten sie gar keinen Ort.
     const all = [...events, ...ohneTermin];
+    // `istZuTun` = Arbeitsmenge ODER offene Erinnerung (src/lib/dranRegel.ts).
+    // Ein Termin, der morgen ansteht und heute angekündigt werden muss, steht
+    // deshalb in BEIDEN Ausschnitten — er ist versorgt und trotzdem heute
+    // anzufassen.
     const pool =
       zeit === "zu_tun"
-        ? all.filter((e) => istInArbeitsmenge(e.zustand))
+        ? all.filter((e) => istZuTun(e.zustand, e.erinnerung))
         : zeit === "verlegt"
           ? all.filter((e) => e.zustand === "verlegt")
           : all;
@@ -256,7 +265,16 @@ function Row({
   onTot: () => void;
 }) {
   const termin = formatTerminParts(event.at);
-  const imFluss = istInArbeitsmenge(event.zustand);
+  // „Ist an dieser Zeile heute etwas zu tun?" — dieselbe Frage wie beim
+  // Ausschnitt oben, deshalb dieselbe Funktion. Ein Termin mit offener
+  // Erinnerung bekommt damit auch die drei Knöpfe: „Genervt" IST hier der
+  // Handgriff, der die Erinnerung schließt.
+  const imFluss = istZuTun(event.zustand, event.erinnerung);
+  // Warum die Zeile leuchtet, in Worten. Steht vor dem letzten Kontakt, weil es
+  // der Grund ist und der Kontakt nur die Begleitauskunft: Ohne diesen Satz
+  // sähe man eine goldene Zeile mit einem Termin in der Zukunft und wüsste
+  // nicht, was zu tun ist.
+  const anlass = event.erinnerung ? erinnerungText(event.erinnerung, event.dayISO, today) : null;
   // Gegen `today` gerechnet, nicht gegen ein selbst geholtes „jetzt": Ein
   // `new Date()` im Render-Körper wäre unrein (react-hooks/purity), und die
   // Zeile soll dieselbe Tagesgrenze benutzen wie das Gold daneben.
@@ -267,9 +285,11 @@ function Row({
   return (
     <tr>
       {/* ── Termin — DAS EINE GOLDENE FELD ──
-             Gold heißt ausnahmslos „du bist dran": Der Vorgang liegt in der
-             Arbeitsmenge UND heute war noch niemand an ihm. Ein Klick auf
-             „Genervt" nimmt das Gold für heute weg; morgen ist es wieder da. */}
+             Gold heißt ausnahmslos „du bist dran", und zwar aus einem von zwei
+             Gründen: Der Vorgang liegt in der Arbeitsmenge und heute war noch
+             niemand an ihm — oder eine seiner zwei Erinnerungen ist offen. Ein
+             Klick auf „Genervt" nimmt das Gold; im ersten Fall bis morgen, im
+             zweiten bis zur nächsten Marke (src/lib/dranRegel.ts). */}
       <td
         style={
           event.dran
@@ -314,10 +334,15 @@ function Row({
           {/* Zweite Zeile nur, solange der Vorgang Arbeit ist. Bei einem
               abgeschlossenen wäre „noch nie genervt" eine Mahnung ohne Adressat.
               Der NAME steht dabei: „Hast du den angerufen oder ich?" ist die
-              Frage, für die es die zweite Spalte aus Migration 0041 gibt. */}
+              Frage, für die es die zweite Spalte aus Migration 0041 gibt.
+
+              Bei einer offenen Erinnerung steht der Anlass davor — und zwar in
+              derselben stillen Farbe: Gold gehört dem Feld, nicht dem Text
+              darin (DESIGN.md §3.6, ein farbiges Element je Zeile). */}
           {imFluss && (
             <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-muted)" }}>
               {event.cancelled && "abgesagt · "}
+              {anlass ? `${anlass} · ` : ""}
               {lastContactLabel(genervtVor)}
               {event.lastContactedBy ? ` · ${event.lastContactedBy}` : ""}
             </span>
@@ -521,7 +546,7 @@ function EmptyState({ zeit }: { zeit: TerminZeit }) {
               schickt auf die Suche nach einem Knopf, der 40 Pixel darüber
               steht (COMPONENTS.md §14.1). */}
           {zeit === "zu_tun"
-            ? "Niemand liegt in der Luft: Jeder offene Vorgang hat entweder einen Termin oder ist abgeschlossen."
+            ? "Niemand liegt in der Luft: Jeder offene Vorgang hat entweder einen Termin oder ist abgeschlossen — und kein Termin steht so nah bevor, dass daran zu erinnern wäre."
             : "Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder oben rechts über „Termin buchen“."}
         </p>
       </div>

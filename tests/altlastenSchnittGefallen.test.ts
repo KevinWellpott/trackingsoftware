@@ -258,12 +258,18 @@ describe("D · Die drei anderen Schnitte stehen weiter", () => {
     assert.match(TERMINE, /r\.ownerUserId !== scopeUserId/);
   });
 
-  test("der Ausschnitt „Zu tun · Verlegt · Alle“ bleibt", () => {
+  test("der Ausschnitt „Zu tun · Termin steht · Alle“ bleibt", () => {
     // Er schneidet nach ZUSTAND, nicht nach Zeit — das ist genau die
     // Unterscheidung aus dem Satz des Auftraggebers („neu terminiert oder tot").
+    //
+    // Der mittlere heißt seit der Erinnerungs-Runde „Termin steht" (der
+    // URL-Wert bleibt `verlegt`), und der erste hat eine zweite Tür bekommen:
+    // `istZuTun` = Arbeitsmenge ODER offene Erinnerung. Das ist kein Zeitschnitt
+    // in der Gegenrichtung — er nimmt nichts heraus, er holt einen anstehenden
+    // Termin für die Stunden herein, in denen anzukündigen ist.
     assert.match(TERMINE, /onZeit=\{\(z\) => setParam\("zeit", z === "zu_tun" \? null : z\)\}/);
     const liste = read("src/components/termine/TermineList.tsx");
-    assert.match(liste, /istInArbeitsmenge\(e\.zustand\)/);
+    assert.match(liste, /istZuTun\(e\.zustand, e\.erinnerung\)/);
   });
 
   test("und der Kalender blendet weiterhin nichts aus", () => {

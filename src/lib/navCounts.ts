@@ -129,6 +129,17 @@ function tally(dueAts: (string | null)[], exact: number | null): NavCount {
  * formulieren. Genau dagegen gibt es dranRegel.ts. Dazu kommt: /termine ist die
  * Fläche, die man ohnehin öffnet; ein Badge spricht für eine Seite, die man
  * sonst nicht aufmacht.
+ *
+ * ── DIE ZWEI ERINNERUNGEN ÄNDERN DARAN NICHTS, SIE SCHÄRFEN ES ────────────
+ * Seit den zwei festen Erinnerungen (`offeneErinnerung`, lib/dranRegel.ts) kommen
+ * Zeilen auf die Arbeitsliste, die kein Feld der Datenbank als fällig markiert:
+ * Ihre Fälligkeit wird aus `appointment_at`/`call_at` MINUTENGENAU gegen „jetzt"
+ * gerechnet. Ein Badge dafür bräuchte entweder eine zweite Formulierung dieser
+ * Rechnung in SQL (zwei Definitionen von „du bist dran" — der Fehler, den
+ * dranRegel.ts gerade behebt) oder einen Serverwert, der in der Minute nach dem
+ * Rendern schon falsch ist. Die Pflicht aus §5.4 gilt unverändert und ist
+ * erfüllt: Es gibt nichts zu koordinieren, weil es kein Badge gibt. Der eine
+ * Zähler unten zählt `recycle_tasks` und wird von den Erinnerungen nicht berührt.
  */
 async function countNachfassen(supabase: Supabase, access: AccessContext): Promise<NavCount | null> {
   const today = berlinDateISO(new Date().toISOString());

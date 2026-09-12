@@ -60,6 +60,14 @@ const NAMES = new Map([["u1", "kevin"]]);
  */
 const HEUTE = "2026-09-15";
 
+/**
+ * Und ein festes „jetzt", 08:00 Berliner Zeit. `buildEvents` verlangt es seit
+ * den zwei festen Erinnerungen vor einem Termin — sie entscheiden sich auf die
+ * Minute (src/lib/dranRegel.ts). Der Wert liegt weit vor der Vortags-Marke der
+ * Termin-Fixture (20.09.), diese Datei prüft also unverändert nur die Riegel.
+ */
+const JETZT = Date.parse("2026-09-15T06:00:00.000Z");
+
 /** Nur die Felder, die `fromSetting`/`fromClosing` wirklich anfassen. */
 function setting(patch: Partial<WithCancellation<SettingCall>> = {}): WithCancellation<SettingCall> {
   return {
@@ -97,13 +105,13 @@ function closing(patch: Partial<WithCancellation<ClosingCall>> = {}): WithCancel
 }
 
 function settingEvent(patch: Partial<WithCancellation<SettingCall>> = {}) {
-  const { events } = buildEvents([setting(patch)], [], NAMES, HEUTE);
+  const { events } = buildEvents([setting(patch)], [], NAMES, HEUTE, JETZT);
   assert.equal(events.length, 1, "Termin ist aus dem Kalender verschwunden");
   return events[0];
 }
 
 function closingEvent(patch: Partial<WithCancellation<ClosingCall>> = {}) {
-  const { events } = buildEvents([], [closing(patch)], NAMES, HEUTE);
+  const { events } = buildEvents([], [closing(patch)], NAMES, HEUTE, JETZT);
   assert.equal(events.length, 1, "Termin ist aus dem Kalender verschwunden");
   return events[0];
 }
@@ -161,7 +169,7 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
   test("ein abgesagter Termin bleibt SICHTBAR", () => {
     // Ausgeblendet wird im Kalender nichts (docs §1) — das war die Falle des
     // alten „Versteckt"-Schalters. Es geht ums Verschieben, nicht ums Anzeigen.
-    const { events, ohneTermin } = buildEvents([setting({ cancelled_at: "2026-09-10T09:00:00.000Z" })], [], NAMES, HEUTE);
+    const { events, ohneTermin } = buildEvents([setting({ cancelled_at: "2026-09-10T09:00:00.000Z" })], [], NAMES, HEUTE, JETZT);
     assert.equal(events.length, 1);
     assert.equal(ohneTermin.length, 0);
   });
@@ -195,7 +203,7 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
 
     // Die Gegenprobe, die es vorher gar nicht geben konnte: Derselbe Termin
     // OHNE Absage steht in der Zukunft und ist damit versorgt.
-    assert.equal(settingEvent().statusPill.label, "Verlegt");
+    assert.equal(settingEvent().statusPill.label, "Termin steht");
     assert.equal(settingEvent().dran, false);
     // … und die Absage kippt ihn in die Arbeitsmenge zurück.
     assert.equal(settingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" }).dran, true);

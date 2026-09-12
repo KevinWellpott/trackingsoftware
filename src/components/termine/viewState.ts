@@ -46,10 +46,19 @@ export type TermineWer = "mein" | "alle";
  *
  * Jetzt schneidet sie entlang der einzigen Unterscheidung, auf die es dem
  * Auftraggeber ankommt:
- *  · `zu_tun`  — die Arbeitsmenge. „Darauf stehen die Namen, die genervt werden
- *                müssen. Fertig." Das ist die Vorgabe.
- *  · `verlegt` — versorgt: ein Termin steht.
+ *  · `zu_tun`  — die Arbeitsmenge, plus die Termine mit offener Erinnerung
+ *                (`istZuTun`, src/lib/dranRegel.ts). „Darauf stehen die Namen,
+ *                die genervt werden müssen. Fertig." Das ist die Vorgabe.
+ *  · `verlegt` — versorgt: ein Termin steht. Auf dem Bildschirm heißt dieser
+ *                Ausschnitt „Termin steht" — der SCHLÜSSEL bleibt `verlegt`,
+ *                weil er in geteilten Links steckt und die Datenlage korrekt
+ *                beschreibt; das WORT ist gegangen, weil der Auftraggeber seine
+ *                Termine der nächsten Woche darunter nicht gesucht hat.
  *  · `alle`    — zusätzlich die abgeschlossenen Vorgänge (tot, kein Close …).
+ *
+ * Die ersten beiden Ausschnitte sind seit den Erinnerungen nicht mehr disjunkt:
+ * Ein Termin, der morgen ansteht und heute angekündigt werden muss, steht in
+ * beiden. Das ist Absicht — er ist versorgt UND heute anzufassen.
  *
  * Alte Links mit `?zeit=anstehend` fallen auf `zu_tun` zurück; die Werte sind
  * bewusst neu benannt statt umgedeutet, damit ein geteilter Link nicht

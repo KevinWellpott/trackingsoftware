@@ -13,6 +13,12 @@
 //   Eine Zeile leuchtet GOLD, wenn sie in der Arbeitsmenge liegt und heute noch
 //   niemand an ihr war. Gold heißt ausnahmslos „du bist dran" — nichts anderes.
 //
+// Seit der Erinnerungs-Runde steht hier eine zweite Frage daneben: WANN vor
+// einem Termin muss angekündigt werden? Zwei feste Zeitpunkte, aus dem Termin
+// gerechnet (Abschnitt „Die zwei festen Erinnerungen"). Sie steht hier, weil sie
+// dieselbe Antwort färbt — auch ein Termin mit offener Erinnerung leuchtet Gold,
+// und Gold darf nur an einer Stelle definiert sein.
+//
 // Was NICHT geteilt werden kann, ist die Bedingung selbst: Ein LinkedIn-Kontakt
 // steht über seine Fälligkeit in der Arbeitsmenge (der Erledigt-Klick schiebt
 // sie weiter, die Zeile beruhigt sich also von selbst), ein Termin über seinen
@@ -21,7 +27,7 @@
 // gemeinsamer Union-Typ über zwei so verschiedene Quellen wäre genau die Sorte
 // Überbau, gegen die sich dieser Rückbau richtet.
 
-import { berlinDateISO } from "@/lib/apptTime";
+import { berlinDateISO, berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 
 /**
  * Der Gold-Ton. EINE Definition für beide Listen — sonst „leuchtet" die eine
@@ -89,6 +95,18 @@ export function istKontaktDran(c: FollowUpKontakt, today: string): boolean {
  * Die Unterscheidung, auf die es dem Auftraggeber ankommt, ist die zwischen
  * `offen` und `verlegt`: „Bei Offen liegt jemand in der Luft. Bei Verlegt ist
  * er versorgt."
+ *
+ * ── DER SCHLÜSSEL `verlegt` BLEIBT, SEINE BESCHRIFTUNG NICHT ──────────────
+ * Auf dem Bildschirm heißt dieser Zustand seit der Erinnerungs-Runde „Termin
+ * steht". Grund war ein konkreter Fehlgriff: Der Auftraggeber suchte seine
+ * Termine der nächsten Woche im gleichnamigen Ausschnitt und fand sie nicht,
+ * weil „Verlegt" nach „wurde verschoben" klingt — tatsächlich steht dort JEDER
+ * Termin mit einem Datum in der Zukunft, auch ein nie verschobener.
+ *
+ * Der SCHLÜSSEL wandert bewusst nicht mit: Er beschreibt die Datenlage korrekt
+ * („ein Termin ist gelegt"), steht in geteilten Links (`?zeit=verlegt`) und in
+ * jeder Invarianten-Prüfung. Ein Schlüssel, den niemand sieht, gewinnt nichts
+ * durch eine schönere Schreibweise — kostet aber jeden alten Link.
  */
 export type TerminZustand =
   | "verlegt"
@@ -102,9 +120,16 @@ export type TerminZustand =
   | "close"
   | "kein_close";
 
-/** Beschriftung — wörtlich die Liste des Auftraggebers, acht beim Setting, sechs beim Closing. */
+/**
+ * Beschriftung — wörtlich die Liste des Auftraggebers, acht beim Setting, sechs
+ * beim Closing. Einzige Abweichung: `verlegt` heißt auf dem Bildschirm „Termin
+ * steht" (Begründung am Typ oben). Das Wort steht damit an BEIDEN Stellen
+ * gleich — im Ausschnitt der Filterleiste und im Status-Pill derselben Zeile;
+ * zwei Wörter für dieselbe Aussage wären genau die Verwechslung, die den
+ * Auftraggeber seine Termine hat suchen lassen.
+ */
 export const TERMIN_ZUSTAND_LABEL: Record<TerminZustand, string> = {
-  verlegt: "Verlegt",
+  verlegt: "Termin steht",
   offen: "Offen",
   show: "Show",
   no_show: "No-Show",
@@ -131,6 +156,13 @@ export const TERMIN_ZUSTAND_LABEL: Record<TerminZustand, string> = {
  * `verlegt` ist bewusst NICHT dabei (er ist versorgt), und die sechs
  * Ergebnis-Zustände sind es ebenso wenig — die beenden den Vorgang oder
  * schieben ihn eine Stufe weiter, wo er seine eigene Zeile hat.
+ *
+ * ── EINE ZWEITE TÜR IN DIE ARBEITSLISTE, UND ZWAR NUR EINE ───────────────
+ * Seit den zwei festen Erinnerungen (unten) kommt ein `verlegt` auf die Liste
+ * zurück, solange eine seiner beiden Erinnerungen offen ist. Das ist KEIN
+ * weiterer Zustand und keine Aufweichung der Menge hier: Der Zustand bleibt
+ * `verlegt` — ein Termin steht ja —, die Erinnerung liegt als eigene Frage
+ * QUER darüber. Wer beides zusammen braucht, fragt `istZuTun()`.
  *
  * DIE GRENZE ZUR ABLAGE LIEGT NICHT IM STATUS. Zwei Endzustände des
  * Termin-Lebenszyklus (Migration 0032) lassen `status` unangetastet und wären
@@ -303,14 +335,215 @@ export function istHeuteKontaktiert(stempel: string | null | undefined, today: s
   return berlinDateISO(stempel) === today;
 }
 
+/* ------------------------------------------------------------------ *
+ * Die zwei festen Erinnerungen vor einem Termin
+ * ------------------------------------------------------------------ */
+
+/**
+ * „Leute die einen Termin in Zukunft haben sollen mindestens 2 mal daran
+ * erinnert werden! 1 Tag vorher und 1 Stunde vorher! Egal ob Closing oder
+ * Setting!"
+ *
+ * ── DAS IST KEINE KASKADE, UND DAS IST DER PUNKT ─────────────────────────
+ * Bis zum Rückbau gab es dafür neun benannte Kaskaden, eine Stufentabelle je
+ * Organisation, einen Vorlagen-Katalog, eine Kanal-Auflösung, eine eigene Seite
+ * und eine eigene Tabelle für die erzeugten Fälligkeiten. Der Geschäftspartner
+ * hat das zurückgewiesen („ein Produkt für eine Firma mit zwanzig Settern, wir
+ * sind zu dritt"). Was hier steht, ist bewusst etwas anderes: ZWEI ZEITPUNKTE,
+ * aus dem Termin gerechnet, für Erstgespräch und Closing gleich.
+ *
+ * Keine Tabelle, keine Migration, keine Stufennummern, keine Texte, keine
+ * Kanäle — und keine Einstellung. Die beiden Zahlen stehen als Konstanten im
+ * Code, wie es `CONTACT_GAP_WARN_DAYS` vorgemacht hat: Was nichts blockiert und
+ * für alle gleich gilt, hat nichts zu konfigurieren.
+ */
+export type TerminErinnerung = "vortag" | "stunde";
+
+/**
+ * „1 Tag vorher" heißt DIESELBE UHRZEIT AM VORTAG — nicht 24 Stunden.
+ *
+ * Der Auftraggeber sagt „1 Tag vorher", und das ist für einen Menschen eine
+ * WANDZEIT-Aussage: Der Termin am Sonntag um 10:00 wird am Samstag um 10:00
+ * angekündigt. An den beiden Umstellungswochenenden ist ein Tag 23 bzw. 25
+ * Stunden lang; eine Millisekunden-Rechnung landete dort auf 09:00 bzw. 11:00 —
+ * eine Uhrzeit, die niemand gemeint hat, ausgerechnet an dem Wochenende, an dem
+ * ohnehin alle durcheinanderkommen. Gerechnet wird deshalb über die Ziffern der
+ * Berliner Wandzeit und zurück durch `berlinInputToIso()` (docs §6: dieselbe
+ * Überlegung trug schon die Kaskaden-Engine und trägt heute den Tagesvergleich
+ * der Arbeitsliste).
+ *
+ * „1 Stunde vorher" ist dagegen eine DAUER und bleibt eine: Eine Stunde ist
+ * sechzig Minuten, auch am Umstellungssonntag. Wollte man sie als Wandzeit
+ * rechnen, müsste man im Frühjahr eine Uhrzeit bilden, die es nicht gibt
+ * (02:30). Die beiden Zahlen sind also absichtlich verschieden gemeint — und
+ * genau deshalb stehen ihre Einheiten in den Namen.
+ */
+export const ERINNERUNG_VORTAG_TAGE = 1;
+export const ERINNERUNG_KURZ_MINUTEN = 60;
+
+const MINUTE_MS = 60_000;
+
+/** Die beiden Marken eines Termins, als Zeitpunkte (ms) neben dem Termin selbst. */
+export type ErinnerungsZeitpunkte = { termin: number; vortag: number; stunde: number };
+
+/**
+ * Wann die beiden Erinnerungen dieses Termins erreicht sind.
+ *
+ * REIHENFOLGE IST ZUGESICHERT: `vortag` liegt 23 bis 25 Stunden vor dem Termin,
+ * `stunde` genau eine — die Marken können sich also nie überholen. Darauf ruht
+ * der ganze Mechanismus eine Ebene tiefer (`offeneErinnerung`): Weil sie
+ * hintereinander liegen, schließt EIN Stempel genau die gerade fällige
+ * Erinnerung und lässt die spätere unberührt.
+ */
+export function erinnerungsZeitpunkte(at: string | null | undefined): ErinnerungsZeitpunkte | null {
+  if (!at) return null;
+  const termin = Date.parse(at);
+  if (Number.isNaN(termin)) return null;
+
+  // ISO → Berliner Wandzeit → Kalenderarithmetik auf den Ziffern → zurück nach
+  // UTC. Der Umweg über `Date.UTC` ist reine Ziffernrechnung auf dem
+  // TAGESSTRING (Monats- und Jahreswechsel inklusive) und fasst keine Zeitzone
+  // an; die einzige Zonen-Umrechnung macht `berlinInputToIso()`.
+  const wandzeit = isoToBerlinInput(at);
+  const [tag, uhrzeit] = wandzeit.split("T");
+  if (!tag || !uhrzeit) return null;
+  const [jahr, monat, tagZahl] = tag.split("-").map(Number);
+  const vortagsTag = new Date(Date.UTC(jahr, monat - 1, tagZahl - ERINNERUNG_VORTAG_TAGE))
+    .toISOString()
+    .slice(0, 10);
+  const vortagIso = berlinInputToIso(`${vortagsTag}T${uhrzeit}`);
+  if (!vortagIso) return null;
+
+  return {
+    termin,
+    vortag: Date.parse(vortagIso),
+    stunde: termin - ERINNERUNG_KURZ_MINUTEN * MINUTE_MS,
+  };
+}
+
+/**
+ * Welche der beiden Erinnerungen ist gerade offen? — `null` heißt „keine".
+ *
+ * ── DIE BEDINGUNG ────────────────────────────────────────────────────────
+ * Eine Erinnerung ist offen, wenn ihr Zeitpunkt ERREICHT ist und der
+ * Nachfass-Stempel älter ist als dieser Zeitpunkt (oder fehlt). Gefragt wird
+ * die spätere zuerst: Liegt der Termin in einer halben Stunde, ist „1 Stunde
+ * vorher" die Aussage, die zählt — die Vortags-Marke ist dann längst Geschichte.
+ *
+ * ── EIN STEMPEL, ZWEI ERINNERUNGEN ───────────────────────────────────────
+ * Das trägt, weil die Marken hintereinander liegen (s. o.) und der Stempel
+ * gegen die MARKE geprüft wird, nicht gegen den Kalendertag. Wer am Vortag auf
+ * „Genervt" klickt, stempelt auf jetzt — jetzt ist größer als die Vortags-Marke
+ * (sie war ja erreicht) und kleiner als die Stunden-Marke (die liegt frühestens
+ * 22 Stunden später). Genau die fällige Erinnerung ist damit geschlossen, die
+ * nächste geht von allein wieder auf.
+ *
+ * DESHALB GILT HIER `istHeuteKontaktiert()` NICHT. Ein Stempel von heute früh
+ * schließt die Erinnerung eine Stunde vor dem Termin von heute Abend NICHT —
+ * sonst könnte man die zweite Erinnerung dadurch verlieren, dass man die erste
+ * am selben Tag erledigt hat. Der Kalendertag ist die richtige Körnung für „wer
+ * liegt in der Luft"; für einen Zeitpunkt ist er es nicht.
+ *
+ * ── WAS KEINE ERINNERUNG BEKOMMT ─────────────────────────────────────────
+ * Alles, was nicht `verlegt` ist — und das ist kein Kurzschluss, sondern
+ * derselbe Riegel, den `terminZustand()` ohnehin zieht: Abgesagt (ohne
+ * `revived_at`), abgesagt ohne Aussicht, tot, unqualifiziert, gewonnen,
+ * verloren, ins Closing weitergeschoben, No-Show ohne Antwort und „es steht gar
+ * kein Termin" führen alle NICHT auf `verlegt`. Eine zweite Prüfung derselben
+ * Fälle wäre eine zweite Definition von „der Termin findet statt" — und die
+ * liefe beim nächsten Lebenszyklus-Feld auseinander.
+ *
+ * Dazu der Termin selbst: Ab seinem Zeitpunkt gibt es nichts mehr anzukündigen.
+ * `verlegt` reicht dafür nicht, weil es auf Kalendertage schaut — ein Termin von
+ * heute 10:00 ist um 14:00 noch immer `verlegt` (docs §6), aber erinnern kann
+ * man an ihn nicht mehr.
+ *
+ * `nowMs === null` heißt „die Uhr steht noch nicht" (die Oberfläche führt sie
+ * per Effekt nach, Muster `RueckrufListe`) und liefert bewusst keine Erinnerung:
+ * lieber eine Sekunde ohne Gold als eine falsche.
+ */
+export function offeneErinnerung(
+  zustand: TerminZustand,
+  at: string | null,
+  stempel: string | null | undefined,
+  nowMs: number | null,
+): TerminErinnerung | null {
+  if (nowMs == null || zustand !== "verlegt") return null;
+  const marken = erinnerungsZeitpunkte(at);
+  if (!marken || nowMs >= marken.termin) return null;
+
+  const gestempelt = stempel ? Date.parse(stempel) : Number.NaN;
+  // `!(gestempelt >= marke)` statt `gestempelt < marke`: Ohne Stempel ist der
+  // Wert NaN, und JEDER Vergleich mit NaN ist falsch — `<` läse „schon
+  // erledigt", die Verneinung von `>=` liest „noch offen". Das ist der richtige
+  // Rückfall: kein Stempel heißt, es war noch niemand dran.
+  const offen = (marke: number) => nowMs >= marke && !(gestempelt >= marke);
+
+  if (offen(marken.stunde)) return "stunde";
+  if (offen(marken.vortag)) return "vortag";
+  return null;
+}
+
+/**
+ * Was die Zeile sagt, wenn sie wegen einer Erinnerung leuchtet.
+ *
+ * ── JEDER SATZ IST ZUM ZEITPUNKT SEINER ANZEIGE WAHR ─────────────────────
+ * Naheliegend wäre gewesen, die Marke zu benennen („1 Tag vorher"). Das wäre
+ * bei kurzfristig gebuchten Terminen gelogen: Wer heute um 14:00 einen Termin
+ * für heute 18:00 anlegt, hat die Vortags-Marke längst überschritten — „1 Tag
+ * vorher" stünde dann über einem Termin in vier Stunden. Beschriftet wird
+ * deshalb die LAGE, nicht die Stufe, und die Vortags-Marke liegt höchstens 25
+ * Stunden vor dem Termin: Er ist damit zwingend heute oder morgen.
+ *
+ * ── UND KEIN SATZ IST EIN VORWURF ────────────────────────────────────────
+ * Hier steht bewusst kein „überfällig" und kein „seit … offen" (siehe die
+ * Anmerkung in src/lib/dueState.ts). Eine Erinnerung, deren Marke beim Buchen
+ * schon vorbei war, ist kein Versäumnis — sie ist eine Bestätigung, die jetzt
+ * rausgeht.
+ */
+export function erinnerungText(
+  erinnerung: TerminErinnerung,
+  /** Berliner Kalendertag des Termins (`TerminEvent.dayISO`). */
+  terminTag: string | null,
+  today: string,
+): string {
+  if (erinnerung === "stunde") return "Termin in weniger als einer Stunde";
+  return terminTag === today ? "Termin heute" : "Termin morgen";
+}
+
+/* ------------------------------------------------------------------ *
+ * Gold und Ausschnitt
+ * ------------------------------------------------------------------ */
+
+/**
+ * Steht die Zeile im Ausschnitt „Zu tun"? — die Arbeitsmenge PLUS die Termine
+ * mit offener Erinnerung.
+ *
+ * Die beiden Ausschnitte „Zu tun" und „Termin steht" überschneiden sich damit
+ * an genau einer Stelle, und das ist gewollt: Ein Termin, der morgen ansteht
+ * und heute angekündigt werden muss, ist beides — versorgt UND heute
+ * anzufassen. Ihn aus „Termin steht" zu nehmen hieße, ihn genau dort
+ * verschwinden zu lassen, wo der Auftraggeber ihn zuletzt gesucht hat.
+ */
+export function istZuTun(zustand: TerminZustand, erinnerung: TerminErinnerung | null): boolean {
+  return istInArbeitsmenge(zustand) || erinnerung !== null;
+}
+
 /**
  * Die Gold-Regel für einen Termin: in der Arbeitsmenge UND heute noch nicht
  * angefasst. „Die Zeile wird ruhig und leuchtet morgen wieder."
+ *
+ * Eine offene Erinnerung schlägt beides: Sie hat ihre eigene, schärfere
+ * Stempel-Prüfung (gegen die Marke statt gegen den Kalendertag, siehe
+ * `offeneErinnerung`) — der Tagesvergleich hier würde sie nur wieder
+ * aufweichen.
  */
 export function istTerminDran(
   zustand: TerminZustand,
   stempel: string | null | undefined,
   today: string,
+  erinnerung: TerminErinnerung | null = null,
 ): boolean {
+  if (erinnerung !== null) return true;
   return istInArbeitsmenge(zustand) && !istHeuteKontaktiert(stempel, today);
 }

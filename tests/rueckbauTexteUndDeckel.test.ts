@@ -76,8 +76,12 @@ describe("Kein sichtbarer Text verspricht Erinnerungen", () => {
     // mehr dasteht. Beide Stellen benennen jetzt den abgeleiteten Zustand aus
     // src/lib/dranRegel.ts — das ist die Folge, die der Nutzer als Nächstes
     // sieht.
-    assert.match(LIFECYCLE_BAR, /gilt der Lead als verlegt/);
-    assert.match(LIFECYCLE_BAR, /„Verlegt“/);
+    // Das Wort selbst ist seit der Erinnerungs-Runde ein anderes: „Verlegt"
+    // klang nach „wurde verschoben", der Zustand meint aber „ein Termin steht"
+    // (src/lib/dranRegel.ts). Die Zusicherung ist dieselbe geblieben — die
+    // Leiste benennt den abgeleiteten Zustand, statt eine Kaskade zu erklären.
+    assert.match(LIFECYCLE_BAR, /gilt der Lead als versorgt/);
+    assert.match(LIFECYCLE_BAR, /„Termin steht“/);
   });
 
   test("der Blockieren-Dialog der LinkedIn-Liste nennt nur noch das Follow-up", () => {

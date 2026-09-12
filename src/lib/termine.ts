@@ -7,7 +7,13 @@
 // Zeitzonen-Arithmetik mehr — Sommer-/Winterzeit kann nirgends durchschlagen.
 
 import { toBerlinSlot } from "@/lib/apptTime";
-import { istTerminDran, terminZustand, type TerminZustand } from "@/lib/dranRegel";
+import {
+  istTerminDran,
+  offeneErinnerung,
+  terminZustand,
+  type TerminErinnerung,
+  type TerminZustand,
+} from "@/lib/dranRegel";
 import { personOf, type AssignableRow } from "@/lib/personResolution";
 import {
   moveLockReason,
@@ -112,9 +118,20 @@ export type TerminEvent = {
   statusPill: Pill;
   /**
    * „Du bist dran" — die Zeile liegt in der Arbeitsmenge und heute war noch
-   * niemand an ihr. Die eine Eigenschaft, die in der Liste GOLD leuchtet.
+   * niemand an ihr, ODER eine ihrer zwei Erinnerungen ist offen. Die eine
+   * Eigenschaft, die in der Liste GOLD leuchtet.
    */
   dran: boolean;
+  /**
+   * Welche der zwei festen Erinnerungen vor diesem Termin gerade offen ist —
+   * `null` heißt „keine" (src/lib/dranRegel.ts).
+   *
+   * Sie steht neben `zustand` und nicht darin: Der Zustand bleibt `verlegt` (es
+   * steht ja ein Termin), die Erinnerung ist eine Frage QUER dazu. Sie hängt
+   * zudem an der Uhr und nicht nur an der Zeile — vor dem ersten Uhr-Tick der
+   * Oberfläche ist sie deshalb immer `null`.
+   */
+  erinnerung: TerminErinnerung | null;
   /** Migration 0041: wann zuletzt genervt wurde; `null` = noch nie (oder Spalte fehlt). */
   lastContactedAt: string | null;
   /**
@@ -177,7 +194,12 @@ function resolveUsername(userId: string | null | undefined, names: UsernameById)
   return names.get(userId) ?? UNKNOWN_USERNAME;
 }
 
-function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById, today: string): TerminEvent {
+function fromSetting(
+  c: WithCancellation<SettingCall>,
+  names: UsernameById,
+  today: string,
+  nowMs: number | null,
+): TerminEvent {
   const slot = c.appointment_at ? toBerlinSlot(c.appointment_at) : null;
   const cancelled = Boolean(c.cancelled_at);
   const zustand = terminZustand(
@@ -194,6 +216,7 @@ function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById, toda
     today,
   );
   const lastContactedAt = c.follow_up_last_contacted_at ?? null;
+  const erinnerung = offeneErinnerung(zustand, c.appointment_at, lastContactedAt, nowMs);
   return {
     id: `s:${c.id}`,
     kind: "setting",
@@ -207,7 +230,8 @@ function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById, toda
     status: c.status,
     zustand,
     statusPill: zustandPill(zustand),
-    dran: istTerminDran(zustand, lastContactedAt, today),
+    dran: istTerminDran(zustand, lastContactedAt, today, erinnerung),
+    erinnerung,
     lastContactedAt,
     lastContactedBy: resolveUsername(c.follow_up_last_contacted_by_user_id, names),
     outline: outlineFor("setting", c.status, c.show_status, cancelled),
@@ -226,7 +250,12 @@ function fromSetting(c: WithCancellation<SettingCall>, names: UsernameById, toda
   };
 }
 
-function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById, today: string): TerminEvent {
+function fromClosing(
+  c: WithCancellation<ClosingCall>,
+  names: UsernameById,
+  today: string,
+  nowMs: number | null,
+): TerminEvent {
   const slot = c.call_at ? toBerlinSlot(c.call_at) : null;
   const cancelled = Boolean(c.cancelled_at);
   const zustand = terminZustand(
@@ -243,6 +272,9 @@ function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById, toda
     today,
   );
   const lastContactedAt = c.follow_up_last_contacted_at ?? null;
+  // Dieselben zwei Marken wie beim Erstgespräch — „egal ob Closing oder
+  // Setting". Der einzige Unterschied ist die Spalte, in der der Termin steht.
+  const erinnerung = offeneErinnerung(zustand, c.call_at, lastContactedAt, nowMs);
   return {
     id: `c:${c.id}`,
     kind: "closing",
@@ -256,7 +288,8 @@ function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById, toda
     status: c.status,
     zustand,
     statusPill: zustandPill(zustand),
-    dran: istTerminDran(zustand, lastContactedAt, today),
+    dran: istTerminDran(zustand, lastContactedAt, today, erinnerung),
+    erinnerung,
     lastContactedAt,
     lastContactedBy: resolveUsername(c.follow_up_last_contacted_by_user_id, names),
     outline: outlineFor("closing", c.status, c.show_status, cancelled),
@@ -284,16 +317,24 @@ function fromClosing(c: WithCancellation<ClosingCall>, names: UsernameById, toda
  * Gold-Regel hängen daran, und eine Funktion, die sich ihr „heute" selbst holt,
  * liefert je nach Aufrufzeitpunkt ein anderes Ergebnis — im Test wie im
  * Server-Render.
+ *
+ * `nowMs` ist aus demselben Grund Pflicht, beantwortet aber eine andere Frage:
+ * Die zwei Erinnerungen vor einem Termin entscheiden sich auf die MINUTE, nicht
+ * auf den Tag. `null` heißt „die Uhr steht noch nicht" — die Oberfläche führt
+ * sie per Effekt nach (Muster `RueckrufListe`), und bis dahin behauptet keine
+ * Zeile eine Erinnerung. Ein Vorgabewert `Date.now()` wäre genau die Falle, vor
+ * der der Absatz darüber warnt, nur eine Größenordnung feiner.
  */
 export function buildEvents(
   settings: WithCancellation<SettingCall>[],
   closings: WithCancellation<ClosingCall>[],
   names: UsernameById,
   today: string,
+  nowMs: number | null,
 ): { events: TerminEvent[]; ohneTermin: TerminEvent[] } {
   const all = [
-    ...settings.map((c) => fromSetting(c, names, today)),
-    ...closings.map((c) => fromClosing(c, names, today)),
+    ...settings.map((c) => fromSetting(c, names, today, nowMs)),
+    ...closings.map((c) => fromClosing(c, names, today, nowMs)),
   ];
   const events: TerminEvent[] = [];
   const ohneTermin: TerminEvent[] = [];
