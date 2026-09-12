@@ -41,19 +41,19 @@ import { PageHeader } from "@/components/ui/PageHeader";
 // Bildschirm — sie umzubenennen kostet jedes Lesezeichen und jeden
 // `?from=nachfassen`-Rückweg und gewinnt nichts.
 
-export default async function NachfassenPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ alle?: string }>;
-}) {
-  const sp = await searchParams;
-  // `?alle=1` hat genau einen Zweck: die Altlasten mitladen — Versuche, deren
-  // Fälligkeit über ein Vierteljahr zurückliegt (lib/staleTasks.ts).
-  const showingAll = sp.alle === "1";
+// ── DIE SEITE HAT KEINEN SCHALTER MEHR ─────────────────────────────────────
+// Sie nahm einen URL-Parameter entgegen und lud damit die „Altlasten" mit —
+// Versuche, deren Fälligkeit über ein Vierteljahr zurücklag und die sie sonst
+// versteckte. Der Auftraggeber hat diesen Schnitt gestrichen („ohne Ausnahme,
+// ohne Intervall-Logik"), und damit fällt auch sein Ausweg: Ein Schalter, der
+// einschaltet, was ohnehin schon zu sehen ist, ist ein Bedienelement ohne
+// Wirkung. Die Begründung steht bei `getNachfassenTasks`.
+
+export default async function NachfassenPage() {
   // Bewusst als Ganzes durchgereicht statt Feld für Feld: Neben den Aufgaben
-  // trägt das Ergebnis die Verfügbarkeits-Flagge und den Altlast-Zähler, und
-  // eine hier vergessene Flagge sähe im Board exakt wie „nichts zu tun" aus.
-  const result = await getNachfassenTasks({ includeOlder: showingAll });
+  // trägt das Ergebnis die Verfügbarkeits-Flagge, und eine hier vergessene
+  // Flagge sähe im Board exakt wie „nichts zu tun" aus.
+  const result = await getNachfassenTasks();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
@@ -71,16 +71,16 @@ export default async function NachfassenPage({
             <InfoPopover label="Recycling: was hier steht" width={380}>
               Welcher tote Lead ist wieder einen Versuch wert? Verlorene Closings, tote Telefon- und
               Erstgespräch-Leads und LinkedIn-Kontakte ohne Antwort — jeder mit dem Grund, aus dem er damals
-              herausgefallen ist. Wartezeit und Anzahl der Versuche stehen in den Einstellungen unter
-              „Pipeline“; ist die Zahl der Versuche erreicht, kommt der Lead nicht mehr von selbst hoch und
-              bleibt in der Ablage. Was heute ansteht und was in der Luft liegt, steht dagegen in der
-              Terminliste.
+              herausgefallen ist. Die Wartezeit bis zum nächsten Anlauf steht in den Einstellungen unter
+              „Pipeline“. Die Zahl der Versuche je Lead ist dagegen fest eingestellt — ist sie erreicht,
+              kommt der Lead nicht mehr von selbst hoch und bleibt in der Ablage; wie viele es sind, steht
+              dort an der Karte. Was heute ansteht und was in der Luft liegt, steht in der Terminliste.
             </InfoPopover>
           </span>
         }
       />
 
-      <NachfassenBoard {...result} showingAll={showingAll} />
+      <NachfassenBoard {...result} />
     </div>
   );
 }

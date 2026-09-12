@@ -322,12 +322,11 @@ export default async function TerminePage() {
         // ── HIER STAND EINE ZAHL, UND SIE WIDERSPRACH DER FLÄCHE DARUNTER ──
         // „N Termine" zählte `settings.length + closings.length`, also JEDEN je
         // angelegten Termin. Der Vorgabe-Ausschnitt darunter ist „Zu tun" und
-        // zeigt nur die Arbeitsmenge, zusätzlich um Altlasten beschnitten:
-        // morgens stand über vierzehn Zeilen die Zahl 223. Dasselbe Argument,
-        // mit dem an dieser Stelle schon die frühere „offen"-Zahl gefallen ist
-        // — eine Zahl, die dem Reiter darunter widerspricht, ist schlimmer als
-        // keine. Ehrlich zählen ließe sie sich hier gar nicht: Wer, Suche,
-        // Ausschnitt und Altlast-Schnitt entscheiden erst im Client.
+        // zeigt nur die Arbeitsmenge: morgens stand über vierzehn Zeilen die
+        // Zahl 223. Dasselbe Argument, mit dem an dieser Stelle schon die
+        // frühere „offen"-Zahl gefallen ist — eine Zahl, die dem Reiter darunter
+        // widerspricht, ist schlimmer als keine. Ehrlich zählen ließe sie sich
+        // hier gar nicht: Wer, Suche und Ausschnitt entscheiden erst im Client.
         //
         // Im Aktionsbereich steht deshalb, was dort hingehört: der eine
         // Primär-CTA dieser View (DESIGN.md §3.8). Er lag bis hierher als

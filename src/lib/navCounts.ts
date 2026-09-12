@@ -27,7 +27,6 @@
 import type { AccessContext } from "@/lib/access";
 import { berlinDateISO } from "@/lib/apptTime";
 import { dueRefNow, isOverdue } from "@/lib/dueState";
-import { isStaleDue } from "@/lib/staleTasks";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -79,11 +78,20 @@ function tally(dueAts: (string | null)[], exact: number | null): NavCount {
  * Die fälligen Aufgaben von /nachfassen: dieselbe RPC, die die Seite liest, nur
  * auf die Fälligkeitsspalte reduziert.
  *
- * DER ZÄHLER FÄHRT DIESELBEN SCHNITTE WIE DIE SEITE — eine bewusste Abkehr von
- * der früheren Regel („das Badge zählt mehr, die Seite erklärt die Differenz",
- * docs §5.4). Die Altlasten (lib/staleTasks.ts) blendet die Seite aus, nennt sie
- * aber in derselben Zeile; als Differenz im Badge wären sie genau die Zahl,
- * über die sich der Auftraggeber beschwert hat: eine Mahnung ohne Adressat.
+ * DER ZÄHLER FÄHRT DIESELBEN SCHNITTE WIE DIE SEITE — und seit dem Fall des
+ * Altlasten-Schnitts sind das GAR KEINE mehr: Die Seite zeigt jede fällige
+ * Wiedervorlage, also zählt dieser Zweig jede fällige Wiedervorlage. Badge und
+ * Liste sind damit nicht mehr nur deckungsgleich, sondern trivialerweise
+ * dieselbe Menge (docs §5.4).
+ *
+ * WAS HIER STAND UND WARUM ES FIEL: eine zweite Filterschleife, die Zeilen mit
+ * lange zurückliegender Fälligkeit verwarf, dazu ein eigener `null`-Fall für
+ * den Fall, dass das 500er-Fenster abgeschnitten hatte (`count` zählt vor dem
+ * Fenster, der Schnitt wirkte danach — oberhalb des Deckels war die gefilterte
+ * Zahl nicht mehr zu ermitteln). Der Auftraggeber hat den Schnitt gestrichen:
+ * „Wer offen ist, wird jeden Tag kontaktiert. Ohne Ausnahme, ohne
+ * Intervall-Logik." Damit ist `count` wieder die Wahrheit, und das Badge kann
+ * sie auch oberhalb von 500 nennen.
  *
  * ── WARUM HIER NUR NOCH `recycle_tasks` STEHT ─────────────────────────────
  * Bis zum Rückbau las dieser Zähler BEIDE Nachfassen-RPCs und filterte aus
@@ -148,23 +156,13 @@ async function countNachfassen(supabase: Supabase, access: AccessContext): Promi
 
   const rows = (recycle.data ?? []) as unknown as { due_at: string | null }[];
 
-  // Der Deckel und der Schnitt vertragen sich nicht: `count` ist exakt, das
-  // Fenster ist es nicht — und weil aufsteigend nach Fälligkeit sortiert wird,
-  // stehen ausgerechnet die ÄLTESTEN (also die wegzuschneidenden) Zeilen vorn.
-  // Wurde abgeschnitten, lässt sich die gefilterte Zahl nicht mehr ermitteln,
-  // und dann gibt es hier kein Badge statt einer zu kleinen Zahl (docs §5.4:
-  // `null` heißt „nicht ermittelbar", nicht „nichts fällig").
-  if (recycle.count > rows.length) return null;
-
-  const due: (string | null)[] = [];
-  for (const r of rows) {
-    if (isStaleDue("recycling", r.due_at, today)) continue;
-    due.push(r.due_at);
-  }
-  // `due.length` statt `count`: Nach dem Schnitt oben ist die gefilterte Liste
-  // die Wahrheit, und dass sie vollständig ist, hat die Deckel-Prüfung gerade
-  // festgestellt.
-  return tally(due, due.length);
+  // Die Gesamtzahl kommt aus `count` (exakt, zählt vor dem Fenster), der
+  // Überfällig-Anteil aus höchstens `ROW_CAP` Zeilen. Das ist die einzige
+  // Stelle, an der die beiden Zahlen verschieden weit sehen — und sie ist
+  // ungefährlich, weil aufsteigend nach Fälligkeit sortiert wird: Die
+  // überfälligen Zeilen stehen vorn, der Deckel greift also erst, wenn jemand
+  // mehr als 500 davon mit sich herumträgt.
+  return tally(rows.map((r) => r.due_at), recycle.count);
 }
 
 /**

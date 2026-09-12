@@ -203,7 +203,7 @@ describe("2 · Ein Ausfall sieht nicht aus wie Feierabend", () => {
     // Ohne Anmeldung gibt es keine Aussage über das Schema — dort ist `true`
     // die ehrliche Antwort, sonst behauptete die leere Seite eine fehlende
     // Migration.
-    assert.match(ACTION, /if \(!access\) return \{ tasks: \[\], hiddenStale: 0, recyclingAvailable: true \};/);
+    assert.match(ACTION, /if \(!access\) return \{ tasks: \[\], recyclingAvailable: true \};/);
   });
 
   test("das Board zeigt dafür den roten Kasten statt des grünen Leerzustands", () => {

@@ -507,7 +507,11 @@ export function recycleBlockedReason(gate: RecycleGate): string | null {
     // das Wiedervorlage-Datum ab, der Lead kommt nie wieder von selbst hoch.
     // Ohne den Zusatz stand hier eine Grenze ohne Adresse, und genau so hat sie
     // den ganzen Rückbau über unsichtbar weitergewirkt.
-    return `Der Deckel von ${gate.maxAttempts} Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.`;
+    // Kein Verweis auf die Einstellungen mehr: Die Zahl ist dort seit dem
+    // Rueckbau nicht mehr zu sehen — sie wirkt, ist aber nicht einstellbar.
+    // Ein Hinweis auf einen Ort, an dem nichts steht, schickt den Leser
+    // suchen; die Zahl selbst steht ohnehin unmittelbar daneben an der Karte.
+    return `Der Deckel von ${gate.maxAttempts} Versuchen ist erreicht.`;
   }
   if (!gate.inRecycleBranch) {
     return "Dieser Vorgang speist keinen Zweig des Recyclings — eine Wiedervorlage bliebe unsichtbar.";

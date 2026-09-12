@@ -132,25 +132,88 @@ describe("Rückbau: PipelineSettingsCard", () => {
     assert.doesNotMatch(CARD, /reminder_horizon_days/);
   });
 
-  test("der Versuchs-Deckel ist wieder da — weil er nie weg war", () => {
-    // NACHGEZOGEN. Hier stand `assert.doesNotMatch(CARD, /max_attempts/)`, und
-    // das hat einen Fehler festgeschrieben statt einen Rückbau: Die Bedienung
-    // fiel, der Deckel selbst nicht. `recycle_attempt()` (Migration 0033,
-    // EINGEFROREN) nullt bei `recycle_attempt_count >= max_attempts` das
-    // `next_recycle_at`, `recycleBlockedReason` sperrt daraufhin „Jetzt wieder
-    // anschreiben", und die Ablage zeigt „1 von 2". Ergebnis war eine Grenze,
-    // die wirkt, die niemand sieht und die niemand verstellen kann.
+  test("der Versuchs-Deckel ist NICHT mehr einstellbar — der Wert bleibt trotzdem", () => {
+    // NACHGEZOGEN, und zwar zum zweiten Mal an derselben Zeile. Die Geschichte
+    // gehört dazu, sonst dreht sie die nächste Runde noch einmal:
     //
-    // Abschalten geht nicht ohne Migration: Der CHECK aus 0032 klemmt
-    // `max_attempts` zwischen 1 und 5. Also sichtbar machen — was wirkt, muss
-    // man stellen können.
-    assert.match(CARD, /"max_attempts"/);
-    assert.match(CARD, /Recycling — Versuche je Lead/);
-    // Die Grenzen wörtlich wie der CHECK. Ein Feld, das 0 oder 99 anbietet,
-    // liefe in eine rohe Postgres-Meldung.
-    const block = CARD.slice(CARD.indexOf("const ATTEMPTS_FIELD"), CARD.indexOf("};", CARD.indexOf("const ATTEMPTS_FIELD")));
-    assert.match(block, /min: 1/);
-    assert.match(block, /max: 5/);
+    //  1. Der Rückbau nahm das Feld heraus. Hier stand
+    //     `assert.doesNotMatch(CARD, /max_attempts/)`.
+    //  2. Eine adversarische Prüfung befand das als Fehler: Der Deckel WIRKT
+    //     weiter (`recycle_attempt()`, Migration 0033, EINGEFROREN, nullt bei
+    //     `recycle_attempt_count >= max_attempts` das `next_recycle_at`), war
+    //     aber unsichtbar und unverstellbar. Also kam das Feld zurück.
+    //  3. Der Auftraggeber hat es wieder weggenommen — und zwar mit Ansage: Der
+    //     Wert soll bleiben, wie er ist, die Zahl ist nur nichts, was jemand
+    //     stellen soll. Drei Zahlen in den Einstellungen waren eine zu viel.
+    //
+    // Punkt 2 bleibt trotzdem gültig und ist der Grund für den nächsten Test:
+    // Was verschwindet, ist das BEDIENELEMENT, nicht der Deckel — und schon gar
+    // nicht der gespeicherte Wert.
+    assert.doesNotMatch(CARD, /"max_attempts"/);
+    assert.doesNotMatch(CARD, /ATTEMPTS_FIELD/);
+    assert.doesNotMatch(CARD, /Versuche je Lead/);
+  });
+
+  test("… und die Karte behauptet nirgends, es gebe keinen Deckel", () => {
+    // Die eine Formulierung, die hier nie stehen darf. Genau sie stand schon
+    // einmal im Analyse-Bereich und war falsch (tests/rueckbauTexteUndDeckel).
+    // Eine Oberfläche, die eine wirkende Grenze verschweigt, ist ärgerlich; eine,
+    // die ihr Gegenteil behauptet, schickt jemanden auf die Suche nach einem
+    // Fehler, den es nicht gibt.
+    assert.doesNotMatch(CARD, /kein(en)? (Versuchs-)?Deckel/i);
+    assert.doesNotMatch(CARD, /unbegrenzt/i);
+    // Gegenprobe: Der Kopf sagt, dass es ihn gibt und wo er wirkt.
+    assert.match(CARD, /recycle_attempt\(\)/);
+    assert.match(CARD, /Ablage/);
+  });
+
+  test("GEGENRICHTUNG: der gespeicherte Deckel überlebt jedes Speichern", () => {
+    // DER TEUERSTE FEHLER, DEN DIESE ÄNDERUNG HABEN KÖNNTE. `updatePipelineSettings`
+    // schreibt per `upsert` die GANZE Zeile: `{...current.settings, ...clean}`.
+    // `current.settings` ist aber nicht die Datenbankzeile, sondern
+    // `{...PIPELINE_DEFAULTS, ...row}` — eine Spalte, die der SELECT nicht holt,
+    // kommt dort mit ihrem AUSLIEFERUNGSWERT an und wird genau so
+    // zurückgeschrieben. Fiele `max_attempts` aus der Spaltenliste (die
+    // naheliegende „Aufräumarbeit", nachdem das Feld weg ist), setzte das
+    // nächste Speichern der Recycling-Frist den Deckel einer Organisation von 4
+    // still auf 2 zurück — sichtbar wäre das nirgends, weil die Zahl keine
+    // Oberfläche mehr hat.
+    const ACTION = read("src/app/actions/pipelineSettings.ts");
+
+    // 1. Der Typ und die Auslieferungswerte führen die Spalte weiter.
+    assert.match(ACTION, /max_attempts: number;/);
+    assert.match(ACTION, /max_attempts: 2,/);
+
+    // 2. Die Spaltenliste des SELECT wird aus den Auslieferungswerten ABGELEITET
+    //    — nicht abgeschrieben. Nur so kann sie gar nicht erst unvollständig
+    //    werden.
+    assert.match(ACTION, /const SETTINGS_COLUMNS = Object\.keys\(PIPELINE_DEFAULTS\)\.join\(", "\);/);
+    assert.match(ACTION, /\.select\(SETTINGS_COLUMNS\)/);
+
+    // 3. Und der gelesene Stand steht im Upsert VOR dem Patch: Was niemand
+    //    ändert, wird unverändert zurückgeschrieben.
+    const upsert = ACTION.slice(ACTION.indexOf('.from("pipeline_settings").upsert('), ACTION.indexOf("if (error) return { error: error.message };"));
+    assert.ok(
+      upsert.indexOf("...current.settings") < upsert.indexOf("...clean"),
+      "der Patch muss NACH dem gelesenen Stand stehen, sonst überschreibt der Stand den Patch",
+    );
+
+    // 4. Gegenprobe an der Grundgesamtheit: JEDE Spalte des Typs steht in den
+    //    Auslieferungswerten — sonst holt der SELECT sie nicht, und Punkt 3
+    //    schriebe eine `undefined`-Lücke bzw. einen geratenen Wert.
+    const typ = ACTION.slice(
+      ACTION.indexOf("export type PipelineSettings = {"),
+      ACTION.indexOf("};", ACTION.indexOf("export type PipelineSettings = {")),
+    );
+    const defaults = ACTION.slice(
+      ACTION.indexOf("const PIPELINE_DEFAULTS: PipelineSettings = {"),
+      ACTION.indexOf("};", ACTION.indexOf("const PIPELINE_DEFAULTS: PipelineSettings = {")),
+    );
+    const spalten = [...typ.matchAll(/^\s*([a-z_]+):/gm)].map((m) => m[1]);
+    assert.ok(spalten.includes("max_attempts"), "der Typ führt max_attempts nicht mehr");
+    for (const spalte of spalten) {
+      assert.ok(defaults.includes(`${spalte}:`), `${spalte} fehlt in PIPELINE_DEFAULTS — der SELECT holt sie nicht`);
+    }
   });
 
   test("die eine Frist schreibt JEDE Wartezeit-Spalte — sonst wäre sie eine Behauptung", () => {

@@ -46,9 +46,14 @@ import { Footnote, MetricTable, StatRow, type MetricRow } from "@/components/ana
 // (Migration 0033, eingefroren) nullt bei `recycle_attempt_count >=
 // max_attempts` das `next_recycle_at`, `recycleBlockedReason` sperrt daraufhin
 // „Jetzt wieder anschreiben", und die Ablage zeigt „1 von 2". Der Deckel wirkt
-// also — er war nur unsichtbar, und diese Sektion behauptete ausgerechnet als
-// einzige mögliche Messstelle, es gebe ihn nicht. Verstellbar ist er seit dem
-// Rückbau der Rückbau-Karte wieder (`/settings`, `max_attempts`).
+// also — er ist nur unsichtbar, und diese Sektion behauptete ausgerechnet als
+// einzige mögliche Messstelle, es gebe ihn nicht.
+//
+// EINSTELLBAR IST ER NICHT. Er hatte zwischenzeitlich ein Feld unter
+// `/settings`; der Auftraggeber hat es wieder herausgenommen, der Wert bleibt
+// (ausgeliefert zwei Versuche). Für diese Sektion ändert das nichts — sie hat
+// die Zahl nie gezeigt —, wohl aber für den Satz darüber: Wer den Deckel sucht,
+// findet ihn an der Ablage-Karte, nicht in den Einstellungen.
 //
 // Die KENNZAHL dazu ist trotzdem nicht zurück, und der Grund ist mechanisch:
 // `loadRecycleData` (src/lib/analyseData.ts) lädt `recycle_attempt_count` nicht

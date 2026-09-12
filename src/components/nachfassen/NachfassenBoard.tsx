@@ -25,7 +25,6 @@ import { dropoutReasonLabel } from "@/lib/dropoutLists";
 // die fragt, ob der Lead noch einen Versuch wert ist.
 import { DRAN_TONE } from "@/lib/dranRegel";
 import { isOverdue } from "@/lib/dueState";
-import { STALE_AFTER_DAYS } from "@/lib/staleTasks";
 import type { RecycleOrigin } from "@/lib/recycleCadence";
 import type { DossierEntityKind } from "@/lib/leadDossier";
 import { LeadDossierSheet } from "@/components/lead/LeadDossierSheet";
@@ -42,7 +41,6 @@ import {
   Database,
   FileText,
   Handshake,
-  History,
   Phone,
   RefreshCw,
   Undo2,
@@ -76,16 +74,17 @@ import { useMemo, useRef, useState, useTransition } from "react";
 //    Angabe auf der Karte: wann zuletzt versucht wurde.
 //
 // Was NICHT gefallen ist, weil es mit dem Überbau nichts zu tun hatte: der
-// Rückweg nach einem Fehlklick, die Nennung der verborgenen Altlasten samt
-// Schalter, der rote Kasten bei fehlendem Schema und die Rückfrage vor dem
-// endgültigen Sperren.
+// Rückweg nach einem Fehlklick, der rote Kasten bei fehlendem Schema und die
+// Rückfrage vor dem endgültigen Sperren.
+//
+// SPÄTER GEFALLEN: die Hinweiszeile über die verborgenen Altlasten samt ihrem
+// Schalter. Sie war die Bedingung, unter der ein Altersschnitt überhaupt
+// vertretbar war — Zahl, Grenze und Ausweg in einer Zeile. Der Schnitt selbst
+// ist gestrichen („ohne Ausnahme, ohne Intervall-Logik", actions/nachfassen.ts),
+// und eine Zeile, die nichts mehr versteckt, erklärt nur noch sich selbst.
 
 type Props = {
   tasks: RecycleTask[];
-  /** Ausgeblendete Altlasten (Grenze: lib/staleTasks.ts). */
-  hiddenStale: number;
-  /** true, wenn ?alle=1 aktiv ist und auch die Altlasten geladen wurden. */
-  showingAll: boolean;
   /** false = Recycling-Schema fehlt (Migration 0033). NICHT „nichts fällig". */
   recyclingAvailable: boolean;
 };
@@ -700,7 +699,7 @@ function UnavailableNotice({ title, children }: { title: string; children: React
   );
 }
 
-export function NachfassenBoard({ tasks, hiddenStale, showingAll, recyclingAvailable }: Props) {
+export function NachfassenBoard({ tasks, recyclingAvailable }: Props) {
   /* ── Erledigte Karten mit offenem Rückweg ───────────────────────────
      Sie liegen HIER und nicht in der Karte: Der Server liefert die erledigte
      Aufgabe nach dem Refresh nicht mehr — die Karte würde im selben Moment
@@ -771,33 +770,11 @@ export function NachfassenBoard({ tasks, hiddenStale, showingAll, recyclingAvail
         </UnavailableNotice>
       )}
 
-      {/* ── Hinweiszeile: was diese Seite ausblendet ────────────────
-          GENAU EINE Sache wird hier versteckt, und sie wird genannt: Versuche,
-          deren Fälligkeit so lange vorbei ist, dass sie niemand mehr abarbeitet
-          (Grenze in lib/staleTasks.ts). Die Zahl steht sichtbar da, die Grenze
-          daneben, und der Schalter holt alles zurück. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)", marginBottom: "var(--sp-7)" }}>
-        {showingAll ? (
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-            <History size={12} style={{ flexShrink: 0 }} />
-            <span>Auch Altlasten werden angezeigt — längst überfällige Versuche stehen mit in der Liste</span>
-            <Link href="?" style={{ color: "var(--orange-300)", fontWeight: 500, textDecoration: "none" }}>
-              Nur aktuelle Aufgaben
-            </Link>
-          </div>
-        ) : hiddenStale > 0 ? (
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-            <History size={12} style={{ flexShrink: 0 }} />
-            <span>
-              {hiddenStale} {hiddenStale === 1 ? "lange überfälliger Versuch" : "lange überfällige Versuche"}{" "}
-              ausgeblendet (über {STALE_AFTER_DAYS.recycling} Tage überfällig)
-            </span>
-            <Link href="?alle=1" style={{ color: "var(--orange-300)", fontWeight: 500, textDecoration: "none" }}>
-              Trotzdem anzeigen
-            </Link>
-          </div>
-        ) : null}
-      </div>
+      {/* HIER STAND DIE HINWEISZEILE über die verborgenen Altlasten — die Zahl,
+          die Grenze und der Schalter, der sie zurückholte. Sie war die
+          Bedingung, unter der der Altlasten-Schnitt vertretbar war; der Schnitt
+          ist gefallen, also gibt es nichts mehr zu nennen. Diese Liste versteckt
+          NICHTS: Was die RPC als fällig liefert, steht hier. */}
 
       {/* ── Karten / Leerzustand ──────────────────────────────────────────
           Der grüne Leerzustand ist eine BEHAUPTUNG und darf deshalb nur fallen,

@@ -3,10 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
-import { berlinDateISO } from "@/lib/apptTime";
-import { localDateISO } from "@/lib/dates";
 import { loadRecycleTasks, markRecycleContacted, markRecycleResponded } from "@/app/actions/recycle";
-import { isStaleDue } from "@/lib/staleTasks";
 import type { RecycleOrigin } from "@/lib/recycleCadence";
 
 // /nachfassen nach dem Rückbau: NUR NOCH RECYCLING.
@@ -87,16 +84,6 @@ export type RecycleTask = {
 export type NachfassenResult = {
   tasks: RecycleTask[];
   /**
-   * Ausgeblendete ALTLASTEN — Versuche, deren Fälligkeit so lange vorbei ist,
-   * dass sie niemand mehr abarbeitet (Grenze und Begründung in
-   * `lib/staleTasks.ts`). Die EINE Menge, die diese Seite versteckt; sie wird
-   * im Board sichtbar genannt und ist per `?alle=1` zurückzuholen.
-   *
-   * Früher war das eine Aufschlüsselung je Quelle. Bei einer Quelle ist es
-   * eine Zahl.
-   */
-  hiddenStale: number;
-  /**
    * false = das Recycling-Schema fehlt (Migration 0033). Muss bis in die
    * Oberfläche durchgereicht werden: sonst sieht eine fehlende Migration
    * genauso aus wie „nichts fällig" — und niemand erfährt, dass gerade gar
@@ -145,35 +132,29 @@ type LeadRow = { id: string; list_id: string; phone: string | null };
  * Fällige Wiedervorlagen
  * ------------------------------------------------------------------ */
 
-export async function getNachfassenTasks(options?: {
-  includeOlder?: boolean;
-}): Promise<NachfassenResult> {
+export async function getNachfassenTasks(): Promise<NachfassenResult> {
   const access = await getAccessContext();
   // Ohne Anmeldung gibt es keine Aussage über das Schema — hier ist `true` die
   // ehrliche Antwort, sonst behauptete die leere Seite eine fehlende Migration.
-  if (!access) return { tasks: [], hiddenStale: 0, recyclingAvailable: true };
+  if (!access) return { tasks: [], recyclingAvailable: true };
 
   const supabase = await createClient();
-  // Der Altlast-Schnitt rechnet auf dem BERLINER Kalendertag, nicht auf dem des
-  // Servers: Auf Vercel läuft der in UTC, und zwischen Mitternacht und 02:00
-  // Berliner Zeit läge `localDateISO()` einen Tag zurück. Der Navigations-
-  // Zähler fährt denselben Schnitt und benutzt dort schon immer Berlin — liefen
-  // die beiden auseinander, unterschieden sich Badge und Seite jede Nacht um
-  // genau die Aufgaben auf der Grenze.
-  const staleToday = berlinDateISO(new Date().toISOString()) || localDateISO();
 
   const recycle = await loadRecycleTasks();
 
-  /* ── Altlast-Schnitt: GANZ VORN ──────────────────────────────────────
-     Eine Aufgabe, die niemand zu sehen bekommt, braucht auch keinen
-     Nachschlag auf ihre Liste.                                          */
-  let hiddenStale = 0;
-  const due = recycle.tasks.filter((r) => {
-    if (options?.includeOlder) return true;
-    if (!isStaleDue("recycling", r.due_at, staleToday)) return true;
-    hiddenStale++;
-    return false;
-  });
+  /* ── HIER STAND EIN ALTLAST-SCHNITT, UND ER IST GEFALLEN ─────────────
+     Versuche, deren Fälligkeit über ein Vierteljahr zurücklag, wurden
+     versteckt, gezählt und über einen URL-Parameter wieder hereingeholt. Der
+     Auftraggeber hat das gestrichen: „Wer offen ist, wird JEDEN TAG
+     kontaktiert. Ohne Ausnahme, ohne Intervall-Logik. Er verschwindet von
+     der Liste, wenn er entweder neu terminiert ist oder als tot markiert
+     wird. Nichts anderes nimmt ihn da runter."
+
+     „Nichts anderes" schließt ein Alter ein. Was einen Lead hier herausnimmt,
+     steht ausschließlich in `recycle_tasks` (Status-Riegel je Zweig, docs §5)
+     und in den drei Knöpfen der Karte — nicht in einer Zahl, die die Software
+     sich selbst gibt.                                                    */
+  const due = [...recycle.tasks];
 
   // Stabile Reihenfolge: das Älteste zuerst. Die RPC hat kein ORDER BY, und
   // eine Liste, deren Reihenfolge sich bei jedem Aufruf ändert, kann man nicht
@@ -222,7 +203,7 @@ export async function getNachfassenTasks(options?: {
     };
   });
 
-  return { tasks, hiddenStale, recyclingAvailable: recycle.available };
+  return { tasks, recyclingAvailable: recycle.available };
 }
 
 /* ------------------------------------------------------------------ *

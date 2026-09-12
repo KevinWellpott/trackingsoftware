@@ -3,11 +3,8 @@
 import { moveSettingAppointment } from "@/app/actions/settingCalls";
 import { updateClosingCall } from "@/app/actions/closingCalls";
 import { slotToIso } from "@/lib/apptTime";
-import { istInArbeitsmenge } from "@/lib/dranRegel";
-import { isStaleDue, letztesLebenszeichen, STALE_AFTER_DAYS } from "@/lib/staleTasks";
 import { buildEvents, type RueckrufAufgabe, type TerminEvent, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
-import { History } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { CalendarMonth } from "./CalendarMonth";
@@ -89,15 +86,6 @@ export function TermineBoard({
 
   const params = useMemo(() => parseTermineParams(sp, today), [sp, today]);
   const tab = tabForView(params.view);
-  /**
-   * `?altlasten=1` — der Ausweg aus dem Altlast-Schnitt (Muster /nachfassen).
-   *
-   * Bewusst NICHT `?alle=1` wie dort: Diese Seite trägt bereits einen Schalter
-   * „Alle" für den Zustands-Ausschnitt (`zeit=alle`). Zwei Bedienelemente, die
-   * beide „alles" heißen und Verschiedenes tun, machen eines von beiden
-   * unauffindbar.
-   */
-  const zeigeAltlasten = sp.get("altlasten") === "1";
 
   const [popover, setPopover] = useState<{ event: TerminEvent; anchor: DOMRect } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -191,40 +179,24 @@ export function TermineBoard({
     [allOhneTermin, matchesSearch, matchesWer],
   );
 
-  /**
-   * ── DER ALTLAST-SCHNITT DER ARBEITSLISTE ─────────────────────────────────
-   *
-   * „Zu tun" schnitt bis hierher ausschließlich nach ZUSTAND. Damit stand am
-   * ersten Tag jede jemals angelegte Zeile ohne Ergebnis in der Liste — bei 173
-   * Erstgesprächen und 50 Closings zweihundert gleichzeitig goldene Zeilen, und
-   * das ist dasselbe wie keine. Genau diesen Fehler hatte /nachfassen mit 425
-   * Aufgaben schon einmal (lib/staleTasks.ts).
-   *
-   * Er widerspricht „wer offen ist, wird JEDEN TAG kontaktiert" nicht, weil er
-   * kein Intervall ist: Er verzögert niemanden, sondern nimmt heraus, woran seit
-   * einem Monat niemand mehr war. Jeder „Genervt"-Klick erneuert das
-   * Lebenszeichen — eine bearbeitete Zeile kann gar nicht zur Altlast werden.
-   *
-   * Er trifft NUR die Arbeitsmenge und NUR die Liste: Der Kalender blendet
-   * weiterhin nichts aus (docs §1), und „Verlegt" ist ohnehin versorgt.
-   */
-  const istAltlast = useCallback(
-    (e: TerminEvent) =>
-      istInArbeitsmenge(e.zustand) &&
-      isStaleDue(e.kind, letztesLebenszeichen([e.at, e.lastContactedAt]), today),
-    [today],
-  );
+  /* ── HIER STAND EIN ALTLAST-SCHNITT, UND ER IST GEFALLEN ──────────────────
+     Über der Arbeitsliste lag ein zweiter Filter: Wer in der Arbeitsmenge stand,
+     dessen jüngstes Lebenszeichen aber über 30 Tage zurücklag (Termin oder
+     Nachfass-Stempel), wurde versteckt, gezählt und war über einen eigenen
+     URL-Parameter wiederzuholen. Das Argument dafür war, dass zweihundert
+     gleichzeitig goldene Zeilen dasselbe sind wie keine.
 
-  const liste = useMemo(() => {
-    if (zeigeAltlasten) return { events: filtered, ohneTermin, versteckt: 0 };
-    let versteckt = 0;
-    const behalten = (e: TerminEvent) => {
-      if (!istAltlast(e)) return true;
-      versteckt++;
-      return false;
-    };
-    return { events: filtered.filter(behalten), ohneTermin: ohneTermin.filter(behalten), versteckt };
-  }, [filtered, ohneTermin, zeigeAltlasten, istAltlast]);
+     Der Auftraggeber hat anders entschieden, und zwar wörtlich: „Wer offen ist,
+     wird JEDEN TAG kontaktiert. Ohne Ausnahme, ohne Intervall-Logik. Er
+     verschwindet von der Liste, wenn er entweder neu terminiert ist oder als tot
+     markiert wird. Nichts anderes nimmt ihn da runter." „Nichts anderes"
+     schließt ein Alter ein — und wer die Grenze streift, hat den Lead ja gerade
+     NICHT bearbeitet, ist also genau der Fall, für den die Liste da ist.
+
+     Was eine Zeile weiterhin herausnimmt, steht ausschließlich in
+     `lib/dranRegel.ts`: ein neuer Termin („Verlegt") oder ein Ergebnis. Der
+     Ausschnitt „Zu tun · Verlegt · Alle" und die Personenachse bleiben — sie
+     schneiden nach Zustand und Zuständigkeit, nicht nach Zeit.               */
 
   /**
    * Rückrufe folgen derselben Personenachse — aber über den LISTEN-Owner
@@ -241,19 +213,10 @@ export function TermineBoard({
     });
   }, [rueckrufe, params.search, params.wer, scopeUserId]);
 
-  /**
-   * Derselbe Schnitt für die Rückrufe, mit der Grenze ihrer eigenen Kadenz (14
-   * Tage). Der Reiter lud bis hierher JEDEN Lead im Status `rueckruf` mit einem
-   * Datum, egal wie alt — ein verabredeter Rückruf vom Februar ist kein Rückruf
-   * mehr. Hier ist der Anker die Fälligkeit selbst: Anders als bei einem Termin
-   * gibt es eine verabredete Uhrzeit, und die ist entweder eingehalten oder
-   * vorbei.
-   */
-  const rueckrufListe = useMemo(() => {
-    if (zeigeAltlasten) return { aufgaben: rueckrufeGefiltert, versteckt: 0 };
-    const aufgaben = rueckrufeGefiltert.filter((r) => !isStaleDue("telefon", r.callbackAt, today));
-    return { aufgaben, versteckt: rueckrufeGefiltert.length - aufgaben.length };
-  }, [rueckrufeGefiltert, zeigeAltlasten, today]);
+  // Der Rückruf-Reiter trug denselben Schnitt mit der Grenze seiner eigenen
+  // Kadenz (14 Tage ab `callback_at`) und ist mit ihm gefallen. Ein verabredeter
+  // Rückruf vom Februar sieht zwar nicht mehr nach Verabredung aus — er steht
+  // aber genau deshalb noch offen, weil ihn niemand erledigt hat.
 
   // Auf den sichtbaren Zeitraum eingrenzen (Liste und Rückrufe zeigen alles).
   const range = rangeForView(params.view, params.date);
@@ -388,39 +351,16 @@ export function TermineBoard({
         </div>
       )}
 
-      {/* Was diese Seite ausblendet, steht ÜBER dem, was sie zeigt — mit Zahl,
-          Grenze und Ausweg. Der Kalender bekommt keine Zeile: Er blendet
-          nichts aus.
-          Nicht im Ausschnitt „Verlegt": Dort steht ohnehin nur Versorgtes, und
-          der Schnitt trifft ausschließlich die Arbeitsmenge — die Zeile nennte
-          dort eine Zahl, die in dieser Ansicht gar nichts weggenommen hat. */}
-      {tab === "liste" && params.zeit !== "verlegt" && (
-        <AltlastHinweis
-          versteckt={liste.versteckt}
-          zeigt={zeigeAltlasten}
-          grenzeTage={STALE_AFTER_DAYS.setting}
-          einzahl="Vorgang ohne Lebenszeichen ausgeblendet"
-          mehrzahl="Vorgänge ohne Lebenszeichen ausgeblendet"
-          alleText="Auch Aufgegebenes wird angezeigt — Vorgänge ohne Lebenszeichen stehen mit in der Liste"
-          onToggle={(an) => setParam("altlasten", an ? "1" : null)}
-        />
-      )}
-      {tab === "rueckruf" && (
-        <AltlastHinweis
-          versteckt={rueckrufListe.versteckt}
-          zeigt={zeigeAltlasten}
-          grenzeTage={STALE_AFTER_DAYS.telefon}
-          einzahl="lange überfälliger Rückruf ausgeblendet"
-          mehrzahl="lange überfällige Rückrufe ausgeblendet"
-          alleText="Auch Altlasten werden angezeigt — längst überfällige Rückrufe stehen mit in der Liste"
-          onToggle={(an) => setParam("altlasten", an ? "1" : null)}
-        />
-      )}
+      {/* HIER STANDEN ZWEI HINWEISZEILEN — eine über der Arbeitsliste, eine
+          über den Rückrufen: die Zahl der versteckten Vorgänge, die Grenze und
+          der Schalter, der sie zurückholte. Sie waren die Bedingung, unter der
+          der Altlasten-Schnitt vertretbar war. Ohne Schnitt gibt es nichts zu
+          nennen: Diese Seite versteckt in KEINER Ansicht mehr etwas. */}
 
       {tab === "liste" ? (
         <TermineList
-          events={liste.events}
-          ohneTermin={liste.ohneTermin}
+          events={filtered}
+          ohneTermin={ohneTermin}
           zeit={params.zeit}
           today={today}
           sort={params.sort}
@@ -429,7 +369,7 @@ export function TermineBoard({
           onError={setError}
         />
       ) : tab === "rueckruf" ? (
-        <RueckrufListe aufgaben={rueckrufListe.aufgaben} verfuegbar={rueckrufeVerfuegbar} />
+        <RueckrufListe aufgaben={rueckrufeGefiltert} verfuegbar={rueckrufeVerfuegbar} />
       ) : params.view === "monat" ? (
         <CalendarMonth
           year={ay}
@@ -471,77 +411,9 @@ export function TermineBoard({
   );
 }
 
-/**
- * Die Hinweiszeile über einer Liste, die etwas versteckt.
- *
- * Sie ist die BEDINGUNG, unter der ein Schnitt überhaupt vertretbar ist: Die
- * Zahl steht sichtbar da, die Grenze daneben, der Ausweg in derselben Zeile.
- * Ohne sie wäre der Schnitt ein lautloses Verschwinden — und der Nutzer suchte
- * nach einem Lead, den die Software ihm ohne Ansage weggenommen hat.
- *
- * Zurückgeschaltet wird über den URL-Parameter statt über einen lokalen
- * Zustand: Der Zustand „ich sehe gerade auch die Altlasten" gehört in einen
- * teilbaren Link, genau wie jeder andere Filter dieser Seite.
- */
-function AltlastHinweis({
-  versteckt,
-  zeigt,
-  grenzeTage,
-  einzahl,
-  mehrzahl,
-  alleText,
-  onToggle,
-}: {
-  versteckt: number;
-  /** true = `?altlasten=1`, es wird gerade nichts versteckt. */
-  zeigt: boolean;
-  grenzeTage: number;
-  einzahl: string;
-  mehrzahl: string;
-  alleText: string;
-  onToggle: (an: boolean) => void;
-}) {
-  if (!zeigt && versteckt === 0) return null;
-
-  const zeile: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--sp-4)",
-    flexWrap: "wrap",
-    fontSize: "var(--fs-xs)",
-    color: "var(--text-muted)",
-    marginBottom: "var(--sp-6)",
-  };
-  const schalter: React.CSSProperties = {
-    border: "none",
-    background: "none",
-    padding: 0,
-    font: "inherit",
-    color: "var(--orange-300)",
-    fontWeight: 500,
-    cursor: "pointer",
-  };
-
-  return (
-    <div style={zeile}>
-      <History size={12} style={{ flexShrink: 0 }} aria-hidden />
-      {zeigt ? (
-        <>
-          <span>{alleText}</span>
-          <button type="button" style={schalter} onClick={() => onToggle(false)}>
-            Nur aktuelle Arbeit
-          </button>
-        </>
-      ) : (
-        <>
-          <span>
-            {versteckt} {versteckt === 1 ? einzahl : mehrzahl} (seit über {grenzeTage} Tagen)
-          </span>
-          <button type="button" style={schalter} onClick={() => onToggle(true)}>
-            Trotzdem anzeigen
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
+// HIER STAND DIE HINWEISZEILE über einer Liste, die etwas versteckt (Zahl,
+// Grenze, Ausweg in einer Zeile). Sie hatte genau zwei Verwender, beide oben,
+// und beide sind mit dem Altlasten-Schnitt gefallen. Der
+// Baustein bleibt nicht „für später" stehen: Eine Komponente ohne Verwender
+// sieht wie geltende Konvention aus und ist die Vorlage, aus der jemand das
+// nächste lautlose Verschwinden baut.

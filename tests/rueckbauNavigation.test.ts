@@ -139,10 +139,18 @@ describe("Kein Erinnerungs-Zähler mehr", () => {
     assert.doesNotMatch(code(NAVCOUNTS), /dropout_lists/);
     assert.doesNotMatch(code(NAVCOUNTS), /ersatztermin_offen/);
 
-    // Die Alles-oder-nichts-Regel bleibt: Ein abgeschnittenes Fenster ergibt
-    // lieber gar keine Zahl als eine zu kleine.
+    // Die Alles-oder-nichts-Regel bleibt, wo sie etwas trägt: Fällt die Abfrage
+    // aus, gibt es kein Badge statt einer 0.
     assert.match(NAVCOUNTS, /if \(recycle\.error\) return null;/);
-    assert.match(NAVCOUNTS, /if \(recycle\.count > rows\.length\) return null;/);
+
+    // NACHGEZOGEN. Hier stand zusätzlich `if (recycle.count > rows.length)
+    // return null;` — der Fall „das 500er-Fenster wurde abgeschnitten". Er hing
+    // AM ALTLASTEN-SCHNITT: `count` zählt vor dem Fenster, geschnitten wurde
+    // danach, oberhalb des Deckels war die gefilterte Zahl also nicht mehr zu
+    // ermitteln. Der Schnitt ist gestrichen (tests/altlastenSchnittGefallen),
+    // damit ist `count` wieder exakt und das Badge kann die Zahl nennen.
+    // Gedeckelt bleibt nur der Überfällig-Anteil.
+    assert.doesNotMatch(code(NAVCOUNTS), /recycle\.count > rows\.length/);
   });
 });
 

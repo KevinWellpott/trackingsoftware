@@ -26,6 +26,12 @@
 //  4. DIE BEIDEN NEUEN ARBEITSFLÄCHEN HATTEN KEINEN ALTLAST-SCHNITT. „Zu tun"
 //     schnitt nur nach Zustand — am ersten Tag stünde dort jede jemals angelegte
 //     Zeile ohne Ergebnis, alle gleichzeitig gold.
+//     ⚠ DIESER BEFUND IST ZURÜCKGENOMMEN. Der eingebaute Schnitt ist wieder
+//     gefallen — der Auftraggeber hat entschieden, dass nichts außer „neu
+//     terminiert" oder „tot" eine Zeile von der Liste nimmt. Die Prüfungen dazu
+//     stehen jetzt als Abwesenheit in tests/altlastenSchnittGefallen.test.ts;
+//     Abschnitt 3 unten hält nur noch fest, was der Schnitt NICHT angefasst hat
+//     und was deshalb weiterhin gilt.
 //
 // Zwei Prüfarten, wie in rueckbauArbeitsflaeche.test.ts begründet: Was eine
 // reine Funktion entscheidet, wird am VERHALTEN geprüft. Was eine Verdrahtung
@@ -45,7 +51,6 @@ import {
   type TerminZustand,
   type TerminZustandInput,
 } from "@/lib/dranRegel";
-import { isStaleDue, letztesLebenszeichen, STALE_AFTER_DAYS } from "@/lib/staleTasks";
 
 function read(relative: string): string {
   // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
@@ -61,7 +66,6 @@ function code(source: string): string {
 const BOARD = read("src/components/termine/TermineBoard.tsx");
 const SEITE = read("src/app/(dashboard)/termine/page.tsx");
 const SIDEBAR = read("src/components/Sidebar.tsx");
-const STALE = read("src/lib/staleTasks.ts");
 
 const HEUTE = "2026-09-15";
 const MORGEN = "2026-09-16T08:00:00.000Z";
@@ -231,51 +235,27 @@ describe("2 · Eine Uhr, eine Zeitzone", () => {
  * 3 — Der Altlast-Schnitt der beiden Arbeitsflächen
  * ------------------------------------------------------------------ */
 
-describe("3 · Zweihundert gleichzeitig goldene Zeilen sind keine Arbeitsliste", () => {
-  test("der Anker ist das JÜNGSTE Lebenszeichen, nicht der Termin allein", () => {
-    // Das ist der Unterschied zwischen einem Schnitt und einem Intervall: Ein
-    // Lead, dessen Termin im März war, den das Team aber seit Wochen täglich
-    // nervt, bleibt stehen — der Nachfass-Stempel ist jünger. Ohne diesen
-    // Vorrang verschwände er mitten aus der Arbeit heraus.
-    assert.equal(letztesLebenszeichen(["2026-03-01T08:00:00.000Z", "2026-09-14T08:00:00.000Z"]), "2026-09-14");
-    assert.equal(letztesLebenszeichen(["2026-09-14T08:00:00.000Z", "2026-03-01T08:00:00.000Z"]), "2026-09-14");
-    // Reihenfolge egal, `null`/`undefined` werden übergangen.
-    assert.equal(letztesLebenszeichen([null, "2026-09-14T08:00:00.000Z", undefined]), "2026-09-14");
-  });
+describe("3 · Was eine Zeile von der Liste nimmt — und was nicht", () => {
+  // WAS HIER STAND UND WARUM ES FIEL: fünf Prüfungen auf den Altlast-Schnitt
+  // der Arbeitsliste (30 Tage ab dem jüngsten Lebenszeichen) und des
+  // Rückruf-Reiters (14 Tage ab `callback_at`), dazu das Verhalten von
+  // `letztesLebenszeichen()`. Der Auftraggeber hat den Schnitt gestrichen — „er
+  // verschwindet von der Liste, wenn er entweder neu terminiert ist oder als tot
+  // markiert wird, nichts anderes nimmt ihn da runter" —, also gibt es weder die
+  // Grenzen noch den Anker noch die Bibliothek dahinter. Die Abwesenheit prüft
+  // tests/altlastenSchnittGefallen.test.ts.
+  //
+  // Übrig bleibt hier die Gegenrichtung, und sie war von Anfang an der
+  // wertvollere Teil: Die Liste zeigt die abgeleitete Arbeitsmenge, der Kalender
+  // zeigt alles — beides unverändert.
 
-  test("ohne jedes Lebenszeichen wird nichts ausgeblendet", () => {
-    // Wo die Seite über das Alter nichts weiß, behauptet sie auch nichts
-    // (docs §5.4) — ein Termin ohne Datum und ohne Stempel bleibt sichtbar.
-    assert.equal(letztesLebenszeichen([null, undefined, ""]), null);
-    assert.equal(isStaleDue("setting", null, HEUTE), false);
-  });
-
-  test("die Grenze der Arbeitsliste liegt bei 30 Tagen, die der Rückrufe bei 14", () => {
-    // Die Staffelung IST die Begründung: Ein verabredeter Rückruf hat eine
-    // Uhrzeit und ist nach zwei Wochen keiner mehr; ein Termin-Vorgang darf
-    // länger liegen, bevor er als aufgegeben gilt.
-    assert.equal(STALE_AFTER_DAYS.setting, 30);
-    assert.equal(STALE_AFTER_DAYS.closing, 30);
-    assert.equal(STALE_AFTER_DAYS.telefon, 14);
-    // Der Tag AUF der Grenze zählt noch als Arbeit, der Tag danach nicht mehr.
-    assert.equal(isStaleDue("setting", "2026-08-16", HEUTE), false, "30 Tage: noch Arbeit");
-    assert.equal(isStaleDue("setting", "2026-08-15", HEUTE), true, "31 Tage: Altlast");
-  });
-
-  test("der Schnitt trifft NUR die Arbeitsmenge, und er hängt am jüngsten Lebenszeichen", () => {
-    // Verdrahtung im Board: `istInArbeitsmenge` UND `isStaleDue` — ein
-    // „Verlegt" wird nie ausgeblendet, es ist versorgt und steht im Kalender.
-    assert.match(
-      BOARD,
-      /istInArbeitsmenge\(e\.zustand\) &&\s*\n\s*isStaleDue\(e\.kind, letztesLebenszeichen\(\[e\.at, e\.lastContactedAt\]\), today\)/,
-    );
-  });
-
-  test("der Rückruf-Reiter schneidet mit SEINER Kadenz", () => {
-    // Er lud jeden Lead im Status `rueckruf` mit einem Datum, egal wie alt —
-    // ein verabredeter Rückruf vom Februar ist kein Rückruf mehr. Anker ist
-    // hier die Fälligkeit selbst: Sie ist eingehalten oder vorbei.
-    assert.match(BOARD, /isStaleDue\("telefon", r\.callbackAt, today\)/);
+  test("die Liste zeigt genau die gefilterte Menge — ohne zweiten Durchlauf", () => {
+    // Vorher lag zwischen `filtered` und der Liste ein zweiter Filter, der
+    // Zeilen zählte und wegnahm. Jetzt ist es dieselbe Menge; ein wieder
+    // eingezogener Zwischenschritt fiele hier auf.
+    assert.match(BOARD, /events=\{filtered\}/);
+    assert.match(BOARD, /ohneTermin=\{ohneTermin\}/);
+    assert.match(BOARD, /aufgaben=\{rueckrufeGefiltert\}/);
   });
 
   test("der Kalender blendet weiterhin NICHTS aus", () => {
@@ -283,40 +263,16 @@ describe("3 · Zweihundert gleichzeitig goldene Zeilen sind keine Arbeitsliste",
     // §1). Der Schnitt ist eine Frage der Arbeitsliste; ein Kalender mit
     // Löchern wäre eine andere und schlechtere Software.
     assert.match(BOARD, /const inRange = useMemo\(\s*\n?\s*\(\) => \(range \? filtered\.filter/);
-    assert.doesNotMatch(BOARD, /inRange = useMemo\([\s\S]{0,200}liste\.events/);
   });
 
-  test("die versteckte Zahl wird GENANNT, mit Grenze und Ausweg", () => {
-    // Die Bedingung, unter der ein Schnitt vertretbar ist. Ohne diese Zeile ist
-    // er ein lautloses Verschwinden — und der Nutzer sucht einen Lead, den die
-    // Software ihm ohne Ansage weggenommen hat.
-    assert.match(BOARD, /function AltlastHinweis\(/);
-    assert.match(BOARD, /\{versteckt\} \{versteckt === 1 \? einzahl : mehrzahl\} \(seit über \{grenzeTage\} Tagen\)/);
-    assert.match(BOARD, /Trotzdem anzeigen/);
-    assert.match(BOARD, /Nur aktuelle Arbeit/);
-    // Die Grenze kommt aus der Bibliothek, nicht als abgetippte 30 bzw. 14.
-    assert.match(BOARD, /grenzeTage=\{STALE_AFTER_DAYS\.setting\}/);
-    assert.match(BOARD, /grenzeTage=\{STALE_AFTER_DAYS\.telefon\}/);
-  });
-
-  test("der Ausweg steht in der URL — und heißt NICHT „alle“", () => {
-    // Diese Seite trägt bereits einen Schalter „Alle" für den
-    // Zustands-Ausschnitt (`zeit=alle`). Zwei Bedienelemente, die beide „alles"
-    // heißen und Verschiedenes tun, machen eines von beiden unauffindbar.
-    assert.match(BOARD, /const zeigeAltlasten = sp\.get\("altlasten"\) === "1";/);
-    assert.match(BOARD, /setParam\("altlasten", an \? "1" : null\)/);
-    // Und er wirkt auf BEIDE Flächen, sonst wäre er auf einer wirkungslos.
-    assert.match(BOARD, /if \(zeigeAltlasten\) return \{ events: filtered, ohneTermin, versteckt: 0 \};/);
-    assert.match(BOARD, /if \(zeigeAltlasten\) return \{ aufgaben: rueckrufeGefiltert, versteckt: 0 \};/);
-  });
-
-  test("die Begründung steht da, wo die Zahlen stehen", () => {
-    // Der Schnitt widerspricht „wer offen ist, wird JEDEN TAG kontaktiert" nur
-    // scheinbar. Wer die Zahl später ändern will, muss das Argument daneben
-    // finden — sonst wird aus der Grenze eine Meinung.
-    assert.match(STALE, /Intervall/);
-    assert.match(STALE, /Genervt/);
-    assert.match(STALE, /altlasten=1/);
+  test("und die Begründung des Rückbaus steht im Board, nicht nur im Diff", () => {
+    // Ein gestrichener Mechanismus, dessen Grund nur im Commit steht, wird beim
+    // nächsten „aber zweihundert goldene Zeilen sind doch keine Liste" wieder
+    // eingebaut. Der Satz des Auftraggebers steht deshalb an der Stelle, an der
+    // der Schnitt saß.
+    assert.match(BOARD, /GEFALLEN/);
+    assert.match(BOARD, /ohne Intervall-Logik/);
+    assert.match(BOARD, /dranRegel/);
   });
 });
 

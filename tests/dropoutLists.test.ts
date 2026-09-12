@@ -463,7 +463,7 @@ describe("recycleBlockedReason", () => {
         responded: false,
         reasonCode: "timing",
       }),
-      "Der Deckel von 2 Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.",
+      "Der Deckel von 2 Versuchen ist erreicht.",
     );
     assert.equal(
       recycleBlockedReason({
@@ -503,19 +503,23 @@ describe("recycleBlockedReason", () => {
   });
 
   test("der Versuchs-Deckel greift beim Erreichen, nicht erst beim Überschreiten", () => {
-    // Der Satz nennt seit dem Nachziehen zusätzlich den ORT der Zahl. Grund:
-    // Der Deckel wirkte den ganzen Rückbau über weiter (`recycle_attempt()`,
-    // Migration 0033 — eingefroren), war aber aus den Einstellungen
-    // verschwunden. Eine Sperre ohne Adresse ist eine Sackgasse; die Zahl steht
-    // wieder in `/settings`, und die Meldung sagt das.
+    // Zugesichert ist die GRENZE, nicht der Wortlaut: Der Deckel greift beim
+    // Erreichen, nicht erst beim Überschreiten.
+    //
+    // Der Satz nannte zwischenzeitlich den Ort der Zahl (`/settings`). Das ist
+    // entfallen, seit der Auftraggeber den Deckel wieder aus den Einstellungen
+    // genommen hat — ein Hinweis auf einen Ort, an dem nichts steht, schickt
+    // den Leser suchen; die Zahl selbst steht ohnehin an der Ablage-Karte
+    // daneben. Der Deckel WIRKT weiter (`recycle_attempt()`, Migration 0033 —
+    // eingefroren), er ist nur nicht mehr einstellbar.
     assert.equal(recycleBlockedReason(offen({ attemptCount: 1, maxAttempts: 2 })), null);
     assert.equal(
       recycleBlockedReason(offen({ attemptCount: 2, maxAttempts: 2 })),
-      "Der Deckel von 2 Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.",
+      "Der Deckel von 2 Versuchen ist erreicht.",
     );
     assert.equal(
       recycleBlockedReason(offen({ attemptCount: 3, maxAttempts: 2 })),
-      "Der Deckel von 2 Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.",
+      "Der Deckel von 2 Versuchen ist erreicht.",
     );
     // Der Deckel wird angezeigt, nicht geraten: Er kommt aus pipeline_settings.
     assert.equal(
@@ -524,7 +528,7 @@ describe("recycleBlockedReason", () => {
     );
     assert.equal(
       recycleBlockedReason(offen({ attemptCount: 5, maxAttempts: 5 })),
-      "Der Deckel von 5 Versuchen ist erreicht — die Zahl steht in den Einstellungen unter „Pipeline“.",
+      "Der Deckel von 5 Versuchen ist erreicht.",
     );
   });
 

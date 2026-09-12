@@ -16,7 +16,7 @@ import {
   SECTION_TITLE,
 } from "@/components/settings/settingsStyles";
 
-// Drei Zahlen — das ist die ganze Pipeline-Konfiguration.
+// Zwei Zahlen — das ist die ganze Pipeline-Konfiguration.
 //
 // Vorher standen hier sechzehn: fünf Ursprungs-Fristen, neun Wartezeiten je
 // Verlustgrund, ein Versuchs-Deckel und der Erinnerungs-Horizont, dazu die
@@ -27,22 +27,37 @@ import {
 //   * `max_reschedules` — die Grenze zwischen „liegt in der Luft" und „ist
 //     versorgt". Kein Kaskaden- und kein Recycling-Feld.
 //   * EINE Recycling-Frist für alle vier Ursprünge (siehe RECYCLE_COLUMNS).
-//   * `max_attempts` — der Versuchs-Deckel des Recyclings.
 //
-// ── Warum der Deckel WIEDER hier steht ──────────────────────────────────────
-// Er war mit dem flachen Recycling aus dieser Karte geflogen, aus der Analyse
-// ebenso. Nur aus der DATENBANK nicht: `recycle_attempt()` (Migration 0033,
-// EINGEFROREN) nullt beim Erreichen von `max_attempts` das `next_recycle_at`,
-// `recycleBlockedReason` (src/lib/dropoutLists.ts) sperrt daraufhin „Jetzt
-// wieder anschreiben", und die Ablage zeigt weiterhin „1 von 2". Der Deckel
-// wirkte also weiter — nach zwei Versuchen verschwand ein Lead endgültig aus
-// der Wiedervorlage —, war aber nirgends sichtbar und für niemanden
-// verstellbar.
+// ── Der Versuchs-Deckel steht hier NICHT, und das ist keine Auslassung ──────
+// `max_attempts` hatte hier zwischenzeitlich ein Feld, und die Begründung dafür
+// war gut: Der Deckel WIRKT, ob man ihn zeigt oder nicht. `recycle_attempt()`
+// (Migration 0033, EINGEFROREN) nullt beim Erreichen von `max_attempts` das
+// `next_recycle_at`, `recycleBlockedReason` (src/lib/dropoutLists.ts) sperrt
+// daraufhin „Jetzt wieder anschreiben", und ein Lead, der die Zahl erreicht hat,
+// kommt nie wieder von selbst hoch — er bleibt in der Ablage.
 //
-// Zwei Wege standen offen. Ihn faktisch abzuschalten geht NICHT ohne Migration:
-// Der CHECK aus 0032 klemmt `max_attempts` zwischen 1 und 5, ein „greift nie"-
-// Wert existiert dort nicht. Bleibt der ehrliche Weg — was wirkt, muss man
-// sehen und stellen können. Drei Felder sind immer noch drei, nicht sechzehn.
+// Der Auftraggeber hat trotzdem entschieden, ihn nicht stellbar zu machen: Die
+// Zahl soll bleiben, wie sie ist (ausgeliefert zwei Versuche). Drei Zahlen in
+// den Einstellungen waren eine zu viel, und diese eine beantwortet keine Frage,
+// die sich im Betrieb stellt.
+//
+// ZWEI DINGE FOLGEN DARAUS, und beide sind tragend:
+//
+//  1. Der gespeicherte Wert darf beim Speichern der ÜBRIGEN Zahlen nicht
+//     verlorengehen. `updatePipelineSettings` schreibt per `upsert` die ganze
+//     Zeile aus `{...current.settings, ...clean}`; `current.settings` ist
+//     `{...PIPELINE_DEFAULTS, ...row}`. Solange der SELECT dort jede Spalte holt
+//     (`SETTINGS_COLUMNS` wird aus `PIPELINE_DEFAULTS` abgeleitet), kommt
+//     `max_attempts` unverändert wieder heraus. Fiele die Spalte aus der Liste,
+//     setzte das nächste Speichern der Recycling-Frist einen Deckel von 4 still
+//     auf 2 zurück — unsichtbar, weil die Zahl keine Oberfläche mehr hat. Genau
+//     das hält tests/rueckbauEinstellungen.test.ts fest.
+//  2. Diese Karte darf den Deckel nirgends BESTREITEN. Sie zeigt ihn nicht, und
+//     genau deshalb darf sie sein Gegenteil erst recht nicht behaupten — eine
+//     Oberfläche, die eine wirkende Grenze abstreitet, schickt jemanden auf die
+//     Suche nach einem Fehler, den es nicht gibt. Sichtbar wird die Grenze dort,
+//     wo sie greift: an der Ablage-Karte („1 von 2") und im Satz, warum der
+//     Knopf „Jetzt wieder anschreiben" dort fehlt.
 //
 // Der Speicherpfad ist unverändert und der Grund, warum jedes Feld ein eigenes
 // useActionState hat: Die Vorgänger-Actions gaben `Promise<void>` zurück und
@@ -115,20 +130,6 @@ const RECYCLE_FIELD: FieldSpec = {
   label: "Recycling — Wartezeit (Tage)",
   min: DAY_MIN,
   max: DAY_MAX,
-};
-
-/**
- * Grenzen wörtlich aus dem CHECK in 0032 (`between 1 and 5`) — die Migration
- * ist eingefroren, hier ist also nichts zu wählen. Ausgerechnet diese
- * Obergrenze ist der Grund, warum der Deckel sichtbar sein MUSS statt
- * abgeschaltet: Ein Wert, der nie greift, ließe sich nicht speichern.
- */
-const ATTEMPTS_FIELD: FieldSpec = {
-  id: "pipeline-recycling-versuche",
-  columns: ["max_attempts"],
-  label: "Recycling — Versuche je Lead",
-  min: 1,
-  max: 5,
 };
 
 type FieldState = { error?: string; saved?: string };
@@ -273,16 +274,8 @@ export function PipelineSettingsCard({
                 : "Eine Frist für alle vier Ursprünge — LinkedIn, Telefon, Erstgespräch, Closing."
             }
           />
-          {/* Anders als das Verschiebe-Kontingent daneben ist das hier eine
-              harte Grenze, keine Warnung: Beim letzten erlaubten Versuch räumt
-              `recycle_attempt()` das Wiedervorlage-Datum ab, und der Lead
-              taucht nie wieder von selbst auf. Genau das muss der Hinweis
-              sagen — sonst liest sich die Zahl wie ein weiterer Ratschlag. */}
-          <NumberField
-            spec={ATTEMPTS_FIELD}
-            value={settings.max_attempts}
-            hint="Danach fällt der Lead endgültig aus der Wiedervorlage — er bleibt nur noch in der Ablage. Harte Grenze, keine Warnung."
-          />
+          {/* HIER STAND EIN DRITTES FELD für die Zahl der Recycling-Versuche
+              je Lead. Es ist heraus, der Wert bleibt (Kopf dieser Datei). */}
         </div>
       </div>
     </div>

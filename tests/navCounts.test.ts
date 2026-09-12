@@ -200,16 +200,20 @@ describe("Nachfassen-Zähler", () => {
     );
   });
 
-  test("der Zähler schneidet Altlasten weg — genau wie die Seite darunter", async (t) => {
-    // Das Badge zeigte am ersten produktiven Tag 425. Es schneidet über
-    // dieselbe Funktion wie die Seite (lib/staleTasks.ts), nicht über eine
-    // zweite Kopie der Grenze — sonst mahnt die Navigation Arbeit an, die auf
-    // dem Board gar nicht steht.
+  test("der Zähler schneidet NICHTS weg — genau wie die Seite darunter", async (t) => {
+    // NACHGEZOGEN, und zwar in der Gegenrichtung. Hier stand „der Zähler
+    // schneidet Altlasten weg": Eine Fälligkeit, die über 90 Tage zurücklag,
+    // fiel aus Badge UND Board. Der Auftraggeber hat diesen Schnitt gestrichen
+    // („wer offen ist, wird jeden Tag kontaktiert — ohne Ausnahme, ohne
+    // Intervall-Logik"), also zählt das Badge wieder beide Zeilen.
+    //
+    // Die Zusicherung dahinter ist unverändert und ist der Grund, warum der Test
+    // überhaupt hier steht: Badge und Seite zeigen dieselbe Menge. Sie hat sich
+    // nur von „beide schneiden gleich" zu „beide schneiden gar nicht" verschoben.
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const counts = await loadNavCounts(
       supabase(
         {
-          // Grenze 90 Tage: eine frische, eine uralte Fälligkeit.
           recycle_tasks: {
             data: [{ due_at: "2025-11-01T00:00:00+00:00" }, { due_at: "2026-08-20T00:00:00+00:00" }],
             count: 2,
@@ -220,24 +224,25 @@ describe("Nachfassen-Zähler", () => {
       zugriff(),
     );
 
-    // Übrig: der Versuch vom 20.8. — überfällig, und genau das darf das Badge
-    // weiterhin sagen.
-    assert.deepEqual(counts.nachfassen, { total: 1, overdue: 1 });
+    assert.deepEqual(counts.nachfassen, { total: 2, overdue: 2 });
   });
 
-  test("wurde das Fenster abgeschnitten, gibt es KEIN Badge statt einer zu kleinen Zahl", async (t) => {
-    // `count` ist exakt, das 500er-Fenster ist es nicht — und weil aufsteigend
-    // nach Fälligkeit sortiert wird, stehen ausgerechnet die
-    // wegzuschneidenden Zeilen vorn. Die gefilterte Gesamtzahl lässt sich dann
-    // nicht mehr ermitteln: `null` heißt „nicht ermittelbar", nicht „nichts
-    // fällig" (docs §5.4).
+  test("oberhalb des 500er-Fensters nennt das Badge wieder die exakte Zahl", async (t) => {
+    // NACHGEZOGEN. Hier stand „dann gibt es KEIN Badge statt einer zu kleinen
+    // Zahl" — richtig, solange geschnitten wurde: `count` zählt vor dem Fenster,
+    // der Schnitt wirkte danach, die gefilterte Gesamtzahl war oberhalb des
+    // Deckels nicht mehr zu ermitteln. Ohne Schnitt ist `count` die Wahrheit.
+    //
+    // Gedeckelt bleibt allein der ÜBERFÄLLIG-Anteil: Er wird über höchstens 500
+    // Zeilen ermittelt. Das ist ungefährlich, weil aufsteigend nach Fälligkeit
+    // sortiert wird — die überfälligen stehen vorn (docs §5.4).
     t.mock.timers.enable({ apis: ["Date"], now: JETZT });
     const counts = await loadNavCounts(
       supabase({ recycle_tasks: { data: [{ due_at: "2026-09-08T00:00:00+00:00" }], count: 812 } }, []),
       zugriff(),
     );
 
-    assert.equal(counts.nachfassen, null);
+    assert.deepEqual(counts.nachfassen, { total: 812, overdue: 0 });
   });
 
   test("fällt die Quelle aus, gibt es keinen Zähler statt einer 0", async (t) => {

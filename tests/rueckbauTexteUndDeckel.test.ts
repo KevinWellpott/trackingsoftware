@@ -131,7 +131,7 @@ describe("Kein sichtbarer Text nennt eine Ablage-Ansicht, die es nicht gibt", ()
  * 2 — Der Versuchs-Deckel
  * ------------------------------------------------------------------ */
 
-describe("Der Versuchs-Deckel ist sichtbar und einstellbar", () => {
+describe("Der Versuchs-Deckel wirkt — auch ohne Bedienelement", () => {
   test("er wirkt in der Datenbank — das ist die Tatsache, die alles entscheidet", () => {
     // Die Migrationen sind EINGEFROREN. Solange diese Zeile in 0033 steht, ist
     // der Deckel Realität, egal was die Oberfläche zeigt: `recycle_attempt()`
@@ -139,47 +139,64 @@ describe("Der Versuchs-Deckel ist sichtbar und einstellbar", () => {
     // von selbst hoch.
     assert.match(MIGRATION_0033, /v_attempts >= s\.max_attempts/);
     // Und er lässt sich nicht wegkonfigurieren: Der CHECK aus 0032 klemmt den
-    // Wert zwischen 1 und 5. Genau deshalb ist „sichtbar machen" der einzige
-    // Weg, der ohne neue Migration auskommt.
+    // Wert zwischen 1 und 5 — einen „greift nie"-Wert gibt es dort nicht.
     assert.match(MIGRATION_0032, /max_attempts smallint not null default 2 check \(max_attempts between 1 and 5\)/);
   });
 
-  test("die Pipeline-Karte trägt ein Feld dafür, mit den Grenzen des CHECKs", () => {
-    const feld = slice(PIPELINE_CARD, "const ATTEMPTS_FIELD", "};");
-    assert.match(feld, /columns: \["max_attempts"\]/);
-    assert.match(feld, /min: 1/);
-    assert.match(feld, /max: 5/);
-    assert.match(PIPELINE_CARD, /spec=\{ATTEMPTS_FIELD\}/);
-    assert.match(PIPELINE_CARD, /value=\{settings\.max_attempts\}/);
-  });
-
-  test("der Hinweis nennt die Folge, nicht nur die Zahl", () => {
-    // Anders als `max_reschedules` daneben ist das eine harte Grenze. Stünde
-    // dort derselbe Ton („warnt nur"), wäre die Zahl wieder unverständlich —
-    // nur diesmal sichtbar.
-    assert.match(PIPELINE_CARD, /endgültig aus der Wiedervorlage/);
-    assert.match(PIPELINE_CARD, /Harte Grenze, keine Warnung/);
-    // Gegenprobe: Das Verschiebe-Kontingent bleibt eine Warnung — die beiden
-    // Zahlen dürfen sich in ihrer Härte nicht angleichen.
+  test("die Pipeline-Karte trägt KEIN Feld mehr dafür", () => {
+    // NACHGEZOGEN. Hier stand „die Karte trägt ein Feld dafür, mit den Grenzen
+    // des CHECKs" — die Antwort auf den Befund „eine Grenze, die wirkt, die
+    // niemand sieht und niemand stellen kann".
+    //
+    // Der Auftraggeber hat sich für die dritte Möglichkeit entschieden, die in
+    // dieser Aufzählung fehlte: Die Grenze bleibt, wie sie ist, und wird nicht
+    // gestellt. Der Wert (standardmäßig zwei Versuche) wirkt unverändert weiter;
+    // was fällt, ist ausschließlich das Bedienelement. Dass der gespeicherte
+    // Wert das Speichern der übrigen Zahlen überlebt, prüft
+    // tests/rueckbauEinstellungen.test.ts.
+    assert.doesNotMatch(PIPELINE_CARD, /ATTEMPTS_FIELD/);
+    assert.doesNotMatch(PIPELINE_CARD, /value=\{settings\.max_attempts\}/);
+    // Und der Hinweistext dazu ist mit dem Feld gegangen — ein Satz ohne Feld
+    // erklärt eine Zahl, die nirgends steht.
+    assert.doesNotMatch(PIPELINE_CARD, /endgültig aus der Wiedervorlage/);
+    assert.doesNotMatch(PIPELINE_CARD, /Harte Grenze, keine Warnung/);
+    // Gegenprobe: Das Verschiebe-Kontingent daneben bleibt — es ist die Zahl,
+    // auf der die Arbeitsliste steht, und es ist eine Warnung, keine Sperre.
     assert.match(PIPELINE_CARD, /keine harte Sperre/);
+    assert.match(PIPELINE_CARD, /"max_reschedules"/);
   });
 
-  test("die Sperre im Ablage-Board sagt, wo die Zahl steht", () => {
-    // Eine Grenze ohne Adresse ist eine Sackgasse: Der Knopf „Jetzt wieder
-    // anschreiben" verschwindet, und niemand weiß, woran es liegt.
+  test("die Sperre im Ablage-Board bleibt die Stelle, an der die Grenze auffällt", () => {
+    // „1 von 2" an der einzelnen Karte und der Satz, warum „Jetzt wieder
+    // anschreiben" fehlt: Nach dem Wegfall des Feldes ist das die LETZTE Stelle,
+    // an der ein Mensch die Grenze überhaupt bemerkt — und sie steht dort am Ort
+    // der Handlung, nicht in einer Einstellung, die niemand aufmacht.
     const grund = slice(DROPOUT_LISTS, "export function recycleBlockedReason", "\n}");
     assert.match(grund, /Der Deckel von \$\{gate\.maxAttempts\} Versuchen ist erreicht/);
-    assert.match(grund, /Einstellungen unter „Pipeline“/);
+    const board = read("src/components/ablage/AblageBoard.tsx");
+    assert.match(board, /\$\{row\.recycle_attempt_count \?\? 0\} von \$\{maxAttempts\}/);
   });
 
-  test("die Analyse behauptet nicht mehr, es gebe keinen Deckel", () => {
-    // Der eigentliche Befund: Die einzige Auswertung, die den Deckel messen
+  test("keine Oberfläche behauptet, es gebe keinen Deckel", () => {
+    // Der ursprüngliche Befund: Die einzige Auswertung, die den Deckel messen
     // könnte, trug im Kopf die Behauptung „es gibt keinen". Die Kennzahl selbst
     // bleibt fort (der Loader lädt `recycle_attempt_count` nicht) — aber als
     // benannte Lücke, nicht als Tatsachenbehauptung.
-    assert.doesNotMatch(RECYCLE_SECTION, /kein Deckel/);
-    assert.doesNotMatch(RECYCLE_SECTION, /es gibt keinen\)/);
+    //
+    // Das gilt nach dem Wegfall des Bedienelements ERST RECHT: Die Oberfläche
+    // zeigt die Grenze fast nirgends mehr, also darf sie sie nirgends
+    // bestreiten. Geprüft an beiden Dateien, die überhaupt über sie sprechen.
+    for (const [name, quelle] of [
+      ["RecycleSection", RECYCLE_SECTION],
+      ["PipelineSettingsCard", PIPELINE_CARD],
+    ] as const) {
+      assert.doesNotMatch(quelle, /kein Deckel/, `${name} bestreitet den Deckel`);
+      assert.doesNotMatch(quelle, /es gibt keinen\)/, `${name} bestreitet den Deckel`);
+    }
     assert.match(RECYCLE_SECTION, /LÜCKE, keine Aussage/);
+    // Und die Analyse zeigt nicht mehr auf ein Feld in den Einstellungen, das
+    // es nicht mehr gibt: Wer die Zahl sucht, findet sie an der Ablage-Karte.
+    assert.doesNotMatch(RECYCLE_SECTION, /Verstellbar/);
   });
 });
 

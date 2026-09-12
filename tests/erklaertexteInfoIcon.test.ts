@@ -145,15 +145,20 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
     sichtbar("/ablage", ABLAGE, ["Die Ablage ist nicht verfügbar"]);
   });
 
-  test("die Ausblendungs-Zeile samt Schalter — Tatsache plus Handlung", () => {
-    // Sie nennt die EINE Menge, die diese Seite versteckt, und holt sie
-    // zurück. Hinter einem Icon wäre sie ein Geheimnis mit Ausweg.
-    sichtbar("/nachfassen", NACHFASSEN, [
-      "ausgeblendet",
-      "Trotzdem anzeigen",
-      "Nur aktuelle Aufgaben",
-      "Auch Altlasten werden angezeigt",
-    ]);
+  test("es gibt gar keine Ausblendungs-Zeile mehr — weil nichts mehr ausgeblendet wird", () => {
+    // HIER STAND das Gegenteil: Die Zeile „N lange überfällige Versuche
+    // ausgeblendet — Trotzdem anzeigen" musste ohne Klick sichtbar sein, weil
+    // sie die Bedingung war, unter der der Altlasten-Schnitt vertretbar blieb
+    // (Tatsache plus Handlung in einer Zeile).
+    //
+    // Der Auftraggeber hat den Schnitt gestrichen („ohne Ausnahme, ohne
+    // Intervall-Logik"). Damit dreht sich die Prüfung um: Eine Zeile, die etwas
+    // ankündigt, das nicht passiert, ist schlechter als keine — und sie wäre der
+    // Rest, aus dem der Schnitt zurückkommt. Die Regel selbst („was versteckt
+    // wird, steht ohne Klick da") bleibt gültig; sie hat hier nur keinen
+    // Gegenstand mehr.
+    assert.doesNotMatch(NACHFASSEN, /ausgeblendet/);
+    assert.doesNotMatch(NACHFASSEN, /Trotzdem anzeigen/);
   });
 
   test("Leerzustände sagen weiterhin ohne Klick, was als Nächstes passiert", () => {
