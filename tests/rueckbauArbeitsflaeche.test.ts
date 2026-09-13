@@ -398,9 +398,14 @@ describe("4 · Die Arbeitsliste ist der erste Reiter, der Kalender der zweite", 
     // beantwortete die falsche: Ein Termin von letzter Woche, bei dem niemand
     // nachgefasst hat, ist keine Vergangenheit, sondern Arbeit.
     assert.equal(parseTermineParams({}, HEUTE).zeit, "zu_tun");
-    assert.equal(parseTermineParams({ zeit: "verlegt" }, HEUTE).zeit, "verlegt");
-    // Alte Links fallen auf die Vorgabe zurück, statt still etwas anderes zu zeigen.
+    assert.equal(parseTermineParams({ zeit: "erinnerung_setting" }, HEUTE).zeit, "erinnerung_setting");
+    assert.equal(parseTermineParams({ zeit: "erinnerung_closing" }, HEUTE).zeit, "erinnerung_closing");
+    // Alte Links fallen auf die Vorgabe zurück, statt still etwas anderes zu zeigen
+    // — und `verlegt` ist seit der Aufteilung genau so ein alter Link: Der
+    // Schlüssel meinte BEIDE Termin-Arten und lässt sich nicht ohne Verlust auf
+    // eine der beiden Hälften abbilden.
     assert.equal(parseTermineParams({ zeit: "anstehend" }, HEUTE).zeit, "zu_tun");
+    assert.equal(parseTermineParams({ zeit: "verlegt" }, HEUTE).zeit, "zu_tun");
     // `istZuTun` = Arbeitsmenge ODER offene Erinnerung — die zweite Tür ist
     // ausdrücklich KEIN Zeitschnitt: Sie nimmt nichts heraus, sie holt einen
     // anstehenden Termin für die Stunden herein, in denen anzukündigen ist.

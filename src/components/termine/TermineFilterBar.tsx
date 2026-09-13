@@ -83,19 +83,24 @@ const KALENDER_OPTIONS = [
 // Ausschnitt der Arbeitsliste. In den Kalenderansichten setzt der Zeitraum
 // bereits die Grenze — dort steht an dieser Stelle die Datums-Navigation.
 //
-// ── „VERLEGT" HIESS DER MITTLERE, UND DAS WAR EIN FEHLGRIFF ───────────────
-// Der Auftraggeber suchte dort seine Termine der nächsten Woche und fand sie
-// nicht: „Verlegt" liest sich als „wurde verschoben", der Ausschnitt enthält
-// aber JEDEN Termin mit einem Datum in der Zukunft — die allermeisten davon nie
-// verschoben. Er heißt deshalb „Termin steht", wie der Status-Pill derselben
-// Zeile (`TERMIN_ZUSTAND_LABEL`, src/lib/dranRegel.ts). Der URL-Wert bleibt
-// `verlegt`: Er beschreibt die Datenlage korrekt und steckt in geteilten Links.
+// ── AUS DREI AUSSCHNITTEN WURDEN VIER ────────────────────────────────────
+// Der mittlere hieß „Termin steht" und führte Erstgespräche und Closings in
+// einer Liste. Der Auftraggeber hat beides beanstandet: Das Wort benennt einen
+// ZUSTAND, die Ansicht hat aber eine AUFGABE — dort werden die zwei
+// Erinnerungen vor dem Termin abgearbeitet. Und die beiden Termin-Arten
+// gehören getrennt, weil man sonst seine fünf Closings zwischen vierzig
+// Settings heraussucht.
+//
+// Der ZUSTAND heißt weiterhin „Termin steht" (`TERMIN_ZUSTAND_LABEL`,
+// src/lib/dranRegel.ts) — nur eben im Status-Pill, wo er hingehört. Hier stehen
+// die Aufgaben.
 //
 // DIE ZAHL DANEBEN ist die der Zeilen, die der Ausschnitt wirklich zeigt —
 // gebildet über dieselbe Menge, die die Liste rendert (`zeitCounts` im Board).
 const ZEIT_OPTIONS = [
   { value: "zu_tun", label: "Zu tun" },
-  { value: "verlegt", label: "Termin steht" },
+  { value: "erinnerung_setting", label: "Erinnerung Setting" },
+  { value: "erinnerung_closing", label: "Erinnerung Closing" },
   { value: "alle", label: "Alle" },
 ] as const;
 

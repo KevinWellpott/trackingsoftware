@@ -221,7 +221,7 @@ export function AppointmentLifecycleBar({
         title={
           cancelled
             ? "Der Termin ist abgesagt — ein Ersatztermin wird als neuer Termin angelegt."
-            : "Termin auf einen anderen Zeitpunkt legen. Liegt er in der Zukunft, gilt der Lead als versorgt und steht in der Terminliste unter „Termin steht“."
+            : "Termin auf einen anderen Zeitpunkt legen. Liegt er in der Zukunft, gilt der Lead als versorgt und trägt in der Terminliste den Status „Termin steht“."
         }
         style={barButton}
       >
@@ -272,7 +272,7 @@ export function AppointmentLifecycleBar({
         subtitle={
           limitWarn
             ? undefined
-            : "Status und Ergebnis bleiben, nur der Zeitpunkt wandert. In der Terminliste steht der Lead danach unter „Termin steht“, solange der neue Zeitpunkt nicht vorbei ist."
+            : "Status und Ergebnis bleiben, nur der Zeitpunkt wandert. In der Terminliste trägt der Lead danach den Status „Termin steht“, solange der neue Zeitpunkt nicht vorbei ist."
         }
       >
         {limitWarn ? (

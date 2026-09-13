@@ -32,8 +32,10 @@ import { describe, test } from "node:test";
 import {
   ERINNERUNG_KURZ_MINUTEN,
   ERINNERUNG_VORTAG_TAGE,
+  erinnerungsStand,
   erinnerungsZeitpunkte,
   erinnerungText,
+  istBearbeitbar,
   istHeuteKontaktiert,
   istInArbeitsmenge,
   istTerminDran,
@@ -41,6 +43,7 @@ import {
   offeneErinnerung,
   TERMIN_ZUSTAND_LABEL,
   terminZustand,
+  type ErinnerungsStand,
   type TerminZustand,
   type TerminZustandInput,
 } from "@/lib/dranRegel";
@@ -48,6 +51,7 @@ import { isOverdue, dueRefAt } from "@/lib/dueState";
 import { zustandPill } from "@/lib/terminMeta";
 import { buildEvents, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
+import { erinnerungsArt, periodLabel } from "@/components/termine/viewState";
 
 function read(relative: string): string {
   // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
@@ -515,38 +519,96 @@ describe("7 · Die Zeile sagt es, statt es nur zu färben", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 8 — „Verlegt“ heißt jetzt „Termin steht“
+ * 8 — Die Ansicht heißt „Termin-Erinnerung“, und es sind zwei
  * ------------------------------------------------------------------ */
 
-describe("8 · Der Ausschnitt heißt „Termin steht“ und trägt seine Zahl", () => {
-  test("das Wort ist weg, der Schlüssel bleibt", () => {
-    // Der Auftraggeber suchte dort seine Termine der nächsten Woche und fand sie
-    // nicht: „Verlegt" liest sich als „wurde verschoben", der Ausschnitt enthält
-    // aber JEDEN Termin mit einem Datum in der Zukunft. Der URL-Wert bleibt
-    // `verlegt` — er beschreibt die Datenlage korrekt und steckt in geteilten
-    // Links; ein Schlüssel, den niemand sieht, gewinnt nichts durch ein
-    // schöneres Wort.
+describe("8 · Zwei Erinnerungs-Ansichten, je eine Zahl", () => {
+  test("der Ausschnitt heißt nach seiner AUFGABE, der Pill nach dem ZUSTAND", () => {
+    // Zwei verschiedene Fragen, deshalb zwei verschiedene Wörter — und das ist
+    // die Umkehrung der letzten Runde, in der beide gleich heißen SOLLTEN:
+    //  · Der Pill beschreibt die Datenlage dieser einen Zeile: ein Termin steht.
+    //  · Der Ausschnitt beschreibt, was man dort TUT: erinnern, zweimal.
+    // Vorher waren das dieselbe Sache, weil es die Ansicht nur als Filter auf
+    // den Zustand gab. Seit sie eine eigene Spalte und eigene Handgriffe hat,
+    // ist sie eine Arbeitsfläche — und Arbeitsflächen heißen nach der Arbeit.
     assert.equal(TERMIN_ZUSTAND_LABEL.verlegt, "Termin steht");
-    assert.match(FILTER_BAR, /\{ value: "verlegt", label: "Termin steht" \}/);
+    assert.equal(zustandPill("verlegt").label, "Termin steht");
+    assert.match(FILTER_BAR, /\{ value: "erinnerung_setting", label: "Erinnerung Setting" \}/);
+    assert.match(FILTER_BAR, /\{ value: "erinnerung_closing", label: "Erinnerung Closing" \}/);
     assert.doesNotMatch(code(FILTER_BAR), /label: "Verlegt"/);
+    // Der alte, gemeinsame Ausschnitt ist weg — nicht umbenannt.
+    assert.doesNotMatch(code(FILTER_BAR), /value: "verlegt"/);
   });
 
-  test("Pill und Ausschnitt sagen dasselbe Wort", () => {
-    // Zwei Wörter für dieselbe Aussage in derselben Zeile wären genau die
-    // Verwechslung, die den Auftraggeber hat suchen lassen.
-    assert.equal(zustandPill("verlegt").label, "Termin steht");
+  test("Setting und Closing sind zwei Listen, nicht eine mit Filter im Kopf", () => {
+    // „einmal für Closing und einmal für Setting". Die Zuordnung steht an genau
+    // einer Stelle (`erinnerungsArt`) und entscheidet dort dreierlei zugleich:
+    // welche Zeilen, welche vierte Spalte, welcher Leerzustand.
+    assert.equal(erinnerungsArt("erinnerung_setting"), "setting");
+    assert.equal(erinnerungsArt("erinnerung_closing"), "closing");
+    assert.equal(erinnerungsArt("zu_tun"), null);
+    assert.equal(erinnerungsArt("alle"), null);
+    assert.match(TERMINE_LIST, /const art = erinnerungsArt\(zeit\)/);
+    assert.match(TERMINE_LIST, /all\.filter\(\(e\) => e\.zustand === "verlegt" && e\.kind === art\)/);
+  });
+
+  test("die Überschrift neben der Leiste nennt die Ansicht beim Namen", () => {
+    // In der Liste gibt es keinen Zeitraum zu benennen — dort steht, was man vor
+    // sich hat. WELCHE der beiden Hälften sagt das Segment daneben; hier steht
+    // nur der gemeinsame Name, sonst stünde dieselbe Auskunft zweimal.
+    assert.equal(periodLabel("liste", "2026-09-16", "erinnerung_setting"), "Termin-Erinnerung");
+    assert.equal(periodLabel("liste", "2026-09-16", "erinnerung_closing"), "Termin-Erinnerung");
+    assert.equal(periodLabel("liste", "2026-09-16", "zu_tun"), "Arbeitsliste");
+    assert.equal(periodLabel("liste", "2026-09-16"), "Arbeitsliste");
+    // Der Kalender bleibt unberührt: Dort IST die Beschriftung der Zeitraum.
+    assert.equal(periodLabel("tag", "2026-09-16", "erinnerung_setting"), periodLabel("tag", "2026-09-16"));
   });
 
   test("die Zahl kommt aus derselben Menge, die die Liste zeigt", () => {
     assert.match(BOARD, /const zeitCounts = useMemo\(/);
     assert.match(BOARD, /const pool = \[\.\.\.filtered, \.\.\.ohneTermin\]/);
     assert.match(BOARD, /zu_tun: pool\.filter\(\(e\) => istZuTun\(e\.zustand, e\.erinnerung\)\)\.length/);
-    assert.match(BOARD, /verlegt: pool\.filter\(\(e\) => e\.zustand === "verlegt"\)\.length/);
+    // Beide Erinnerungs-Zahlen aus DERSELBEN Zwischenmenge — zweimal dasselbe
+    // Prädikat nebeneinander wäre zwei Chancen, es verschieden zu schreiben.
+    assert.match(BOARD, /const steht = pool\.filter\(\(e\) => e\.zustand === "verlegt"\)/);
+    assert.match(BOARD, /erinnerung_setting: steht\.filter\(\(e\) => e\.kind === "setting"\)\.length/);
+    assert.match(BOARD, /erinnerung_closing: steht\.filter\(\(e\) => e\.kind === "closing"\)\.length/);
     assert.match(BOARD, /alle: pool\.length/);
     // Die Liste darunter schneidet wortgleich.
     assert.match(TERMINE_LIST, /istZuTun\(e\.zustand, e\.erinnerung\)/);
     // Und die Zahl steht IM Label, nicht als zweite Pille daneben (Badge-Budget).
     assert.match(FILTER_BAR, /label: `\$\{o\.label\} · \$\{zeitCounts\[o\.value\]\}`/);
+  });
+
+  test("die Zahl zählt ALLE stehenden Termine, nicht nur die gerade fälligen", () => {
+    // Der Unterschied ist der Sinn der Ansicht: „Zu tun" beantwortet „was muss
+    // ich jetzt tun", die Erinnerungs-Ansicht „bekommt jeder seine zwei". Die
+    // zweite Frage lässt sich nur an der vollständigen Liste beantworten —
+    // zählte sie nur das gerade Fällige, stünde dort die meiste Zeit eine 0.
+    assert.doesNotMatch(BOARD, /erinnerung_setting: [^\n]*erinnerung !== null/);
+    assert.doesNotMatch(BOARD, /erinnerung_setting: [^\n]*istZuTun/);
+  });
+
+  test("in beiden Ansichten stehen die drei Knöpfe", () => {
+    // „in beiden Ansichten brauche ich auch die Buttons Genervt Termin und Tot".
+    // Der Fehler davor: Die Spalte hing an `istZuTun` — also an „ist HEUTE etwas
+    // zu tun". Ein stehender Termin ist das per Definition nicht, und wer heute
+    // früh gestempelt hat, verlor die Knöpfe für den Rest des Tages. Dort stand
+    // dann ein Strich, obwohl genau in dieser Ansicht umterminiert und
+    // abgeschrieben wird.
+    assert.match(TERMINE_LIST, /const anfassbar = istBearbeitbar\(event\.zustand\)/);
+    assert.match(TERMINE_LIST, /\{anfassbar \? \(\s*<TerminAktionen/);
+
+    // Die Menge hängt AM ZUSTAND und an nichts sonst — sie kippt also nicht
+    // mitten am Tag um.
+    for (const z of ["verlegt", "offen", "no_show", "show"] as const) {
+      assert.equal(istBearbeitbar(z), true, z);
+    }
+    // Abgeschlossen bleibt ohne Knöpfe: Wer das wieder aufmachen will, tut es
+    // auf der Detailseite, wo die Folgen erklärt sind.
+    for (const z of ["tot", "close", "kein_close", "nicht_qualifiziert", "closing_gelegt", "qualifiziert"] as const) {
+      assert.equal(istBearbeitbar(z), false, z);
+    }
   });
 
   test("die Uhr tickt in der Oberfläche, nicht im Render-Körper", () => {
@@ -556,5 +618,196 @@ describe("8 · Der Ausschnitt heißt „Termin steht“ und trägt seine Zahl", 
     assert.match(BOARD, /const \[nowMs, setNowMs\] = useState<number \| null>\(null\)/);
     assert.match(BOARD, /setInterval\(tick, 30_000\)/);
     assert.match(BOARD, /buildEvents\(settings, closings, usernameById, today, nowMs\)/);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 9 — Die Zusage: JEDER wird ZWEIMAL erinnert
+ * ------------------------------------------------------------------ */
+
+describe("9 · Beide Stufen sind abzählbar, nicht nur die gerade fällige", () => {
+  // „Wichtig ist hier dass ich jeden 2 mal erinnere!"
+  //
+  // Bis hierher war die Erinnerung eine ZUSPITZUNG: `offeneErinnerung()` sagte,
+  // welche gerade dran ist, und sonst nichts. Damit ließ sich die Zusage nicht
+  // belegen — man sah entweder Gold oder nichts und wusste nie, ob die erste
+  // Erinnerung schon raus war oder die zweite noch kommt. `erinnerungsStand()`
+  // liefert beide Stufen mit ihrem Stand; `offeneErinnerung()` ist seither nur
+  // noch eine Frage an dieses Ergebnis, keine zweite Rechnung.
+
+  const heute = "2026-09-16";
+
+  /** Der Stand beider Stufen eines ganz normalen, anstehenden Termins. */
+  function stand(nowMs: number, stempel: string | null = null) {
+    const tag = new Date(nowMs).toISOString().slice(0, 10);
+    return erinnerungsStand(zustandVon({}, tag), TERMIN, stempel, nowMs);
+  }
+
+  const staende = (nowMs: number, stempel: string | null = null): ErinnerungsStand[] =>
+    (stand(nowMs, stempel) ?? []).map((s) => s.stand);
+
+  test("es sind genau zwei Stufen, fest nummeriert — 1 = Vortag, 2 = Stunde", () => {
+    const stufen = stand(berlin(heute, "15:00"));
+    assert.ok(stufen);
+    assert.equal(stufen.length, 2, "es gibt keine dritte und keine halbe Stufe");
+    assert.deepEqual(
+      stufen.map((s) => [s.nr, s.marke]),
+      [
+        [1, "vortag"],
+        [2, "stunde"],
+      ],
+    );
+    assert.equal(stufen[0].at, VORTAG_MS);
+    assert.equal(stufen[1].at, STUNDE_MS);
+  });
+
+  test("der Weg durch beide Erinnerungen — Stand für Stand", () => {
+    // Die ganze Zusage in einer Tabelle. Ohne Stempel bleibt Stufe 1 offen und
+    // Stufe 2 kommt dazu; mit je einem Klick wird jede für sich erledigt.
+    assert.deepEqual(staende(VORTAG_MS - MIN), ["ausstehend", "ausstehend"], "lange vorher: nichts zu tun");
+    assert.deepEqual(staende(VORTAG_MS), ["offen", "ausstehend"], "die erste ist dran");
+
+    const klick1 = iso(VORTAG_MS + 5 * MIN);
+    assert.deepEqual(staende(VORTAG_MS + 5 * MIN, klick1), ["erledigt", "ausstehend"], "erste raus, zweite kommt");
+    assert.deepEqual(staende(STUNDE_MS, klick1), ["erledigt", "offen"], "die zweite geht von allein auf");
+
+    const klick2 = iso(STUNDE_MS + MIN);
+    assert.deepEqual(staende(STUNDE_MS + MIN, klick2), ["erledigt", "erledigt"], "beide raus — die Zusage ist erfüllt");
+  });
+
+  test("ein Kontakt VOR der ersten Marke verbraucht keine der beiden", () => {
+    // Genau das behauptet der Knopf-Tooltip in der Erinnerungs-Ansicht, und es
+    // ist der naheliegendste Fehlverdacht: „Habe ich mir mit dem Anruf gestern
+    // die Terminbestätigung verbraucht?" Nein — geprüft wird gegen die MARKE.
+    const frueh = iso(VORTAG_MS - 6 * STD);
+    assert.deepEqual(staende(VORTAG_MS - 5 * STD, frueh), ["ausstehend", "ausstehend"]);
+    assert.deepEqual(staende(VORTAG_MS, frueh), ["offen", "ausstehend"]);
+    assert.match(
+      read("src/components/termine/TerminAktionen.tsx"),
+      /Die zwei Erinnerungen vor dem Termin bleiben davon unberührt/,
+    );
+  });
+
+  test("kurzfristig gebucht: Stufe 1 ist sofort fällig — und bleibt Stufe 1", () => {
+    // Wer um 14:00 für heute 18:00 bucht, hat die Vortags-Marke im Moment des
+    // Buchens überschritten. Die Stufe wird dadurch NICHT übersprungen und auch
+    // nicht umnummeriert: Sie ist fällig, die zweite kommt um 17:00. Zwei
+    // Erinnerungen, wie versprochen — nur eng beieinander.
+    const tag = "2026-09-17";
+    const gebucht = berlin(tag, "14:00");
+    const kurz = iso(berlin(tag, "18:00"));
+    const stufen = erinnerungsStand(zustandVon({ at: kurz }, tag), kurz, null, gebucht);
+    assert.ok(stufen);
+    assert.deepEqual(
+      stufen.map((s) => s.stand),
+      ["offen", "ausstehend"],
+    );
+    assert.equal(stufen[1].at, berlin(tag, "17:00"));
+  });
+
+  test("es gibt keinen Stand „versäumt“ — auch nicht für eine längst reife Marke", () => {
+    // Derselbe Grund wie überall in dieser Datei: Eine Erinnerung, deren Marke
+    // beim Buchen schon vorbei war, ist kein Versäumnis. Es gibt genau drei
+    // Stände, und der dritte heißt „erledigt", nicht „zu spät".
+    const alle = new Set(staende(STUNDE_MS + 30 * MIN).concat(staende(VORTAG_MS - MIN)));
+    for (const s of alle) assert.ok(["ausstehend", "offen", "erledigt"].includes(s), s);
+    assert.doesNotMatch(code(DRAN_REGEL), /versaeumt|versäumt|verpasst/i);
+  });
+
+  test("`offeneErinnerung` ist nur noch eine Frage an diesen Stand, keine zweite Rechnung", () => {
+    // Die Gegenprobe gegen genau den Fehler, den das Projekt an
+    // `nachfassen_tasks` vs. `isDueFollowUp` schon einmal bezahlt hat: zwei
+    // Formulierungen derselben Bedeutung, die auseinanderlaufen.
+    assert.match(code(DRAN_REGEL), /return offeneStufe\(erinnerungsStand\(zustand, at, stempel, nowMs\)\)/);
+    for (const [ms, stempel] of [
+      [VORTAG_MS - MIN, null],
+      [VORTAG_MS, null],
+      [STUNDE_MS, iso(VORTAG_MS + MIN)],
+      [STUNDE_MS + 30 * MIN, null],
+      [TERMIN_MS, null],
+    ] as const) {
+      const stufen = stand(ms, stempel);
+      const erwartet = [...(stufen ?? [])].reverse().find((s) => s.stand === "offen")?.marke ?? null;
+      assert.equal(offen(ms, stempel), erwartet, `${ms}`);
+    }
+  });
+
+  test("der Stand endet mit dem Termin — dann gibt es nichts mehr anzukündigen", () => {
+    assert.equal(stand(TERMIN_MS), null, "in der Minute des Termins");
+    assert.equal(stand(TERMIN_MS + 3 * STD), null, "und danach erst recht");
+    // Die Ansicht zeigt dort einen Strich statt zweier leerer Marken — „noch
+    // ausstehend" wäre über einem laufenden Gespräch schlicht falsch.
+    assert.match(TERMINE_LIST, /if \(!stufen\) \{/);
+  });
+
+  test("… und für alles, was gar keinen Termin hat", () => {
+    assert.equal(erinnerungsStand("offen", null, null, berlin(heute, "15:00")), null);
+    assert.equal(erinnerungsStand("tot", TERMIN, null, berlin(heute, "15:00")), null);
+    assert.equal(erinnerungsStand("verlegt", TERMIN, null, null), null, "ohne Uhr gar nichts");
+  });
+
+  test("die Spalte tritt AN DIE STELLE von „Status“, sie kommt nicht dazu", () => {
+    // In den Erinnerungs-Ansichten stünde in jeder Zeile derselbe Pill „Termin
+    // steht" — er ist ja die Bedingung der Ansicht. Eine Spalte, die für alle
+    // Zeilen dasselbe sagt, ist Rauschen und kostet die Breite, die die zwei
+    // Marken brauchen. Die Spaltenzahl bleibt dadurch in jeder Ansicht gleich.
+    assert.match(TERMINE_LIST, /const columns = art \? COLUMNS\.filter\(\(c\) => c\.key !== "status"\) : COLUMNS/);
+    assert.match(TERMINE_LIST, /\{art && <th style=\{\{ width: 132 \}\}>Erinnerung<\/th>\}/);
+    assert.match(TERMINE_LIST, /erinnerungsSpalte \? \(\s*<ErinnerungsZelle stufen=\{event\.erinnerungsStufen\} \/>/);
+  });
+
+  test("die Marke leuchtet in derselben Farbe wie das Feld daneben — Gold, nie Rot", () => {
+    // Gold heißt in dieser Software ausnahmslos „du bist dran". Eine zweite
+    // Farbe für dieselbe Aussage wäre eine zweite Sprache.
+    assert.match(TERMINE_LIST, /offen: \{ bg: DRAN_TONE\.bg, fg: DRAN_TONE\.fg, border: DRAN_TONE\.border \}/);
+    assert.doesNotMatch(code(TERMINE_LIST), /STUFEN_TON[\s\S]{0,400}danger/i);
+    assert.doesNotMatch(code(TERMINE_LIST), /STUFEN_TON[\s\S]{0,400}success/i);
+  });
+
+  test("das Event trägt beide Stufen bis in die Liste", () => {
+    const NAMEN = new Map([["u1", "kevin"]]);
+    const jetzt = berlin(heute, "15:00");
+    const setting = {
+      id: "s1",
+      status: "offen",
+      show_status: null,
+      appointment_at: TERMIN,
+      lead_name: "Meier",
+      company: null,
+      meet_link: null,
+      meeting_kind: null,
+      phone: null,
+      source_type: null,
+      source_detail: null,
+      assigned_user_id: "u1",
+      created_by_user_id: "u1",
+    } as unknown as WithCancellation<SettingCall>;
+    const closing = {
+      id: "c1",
+      status: "offen",
+      show_status: null,
+      call_at: TERMIN,
+      lead_name: "Meier",
+      company: null,
+      meet_link: null,
+      deal_volume: null,
+      assigned_user_id: "u1",
+      created_by_user_id: "u1",
+    } as unknown as WithCancellation<ClosingCall>;
+
+    // „egal ob Closing oder Setting" — beide Tabellen, dieselben zwei Stufen.
+    for (const e of [
+      buildEvents([setting], [], NAMEN, heute, jetzt).events[0],
+      buildEvents([], [closing], NAMEN, heute, jetzt).events[0],
+    ]) {
+      assert.equal(e.erinnerungsStufen?.length, 2, e.kind);
+      assert.deepEqual(
+        e.erinnerungsStufen?.map((s) => s.stand),
+        ["offen", "ausstehend"],
+        e.kind,
+      );
+      // Und die Zuspitzung daneben stimmt damit überein.
+      assert.equal(e.erinnerung, "vortag", e.kind);
+    }
   });
 });

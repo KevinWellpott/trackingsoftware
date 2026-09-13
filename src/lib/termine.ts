@@ -8,9 +8,11 @@
 
 import { toBerlinSlot } from "@/lib/apptTime";
 import {
+  erinnerungsStand,
   istTerminDran,
-  offeneErinnerung,
+  offeneStufe,
   terminZustand,
+  type ErinnerungsStufe,
   type TerminErinnerung,
   type TerminZustand,
 } from "@/lib/dranRegel";
@@ -132,6 +134,17 @@ export type TerminEvent = {
    * Oberfläche ist sie deshalb immer `null`.
    */
   erinnerung: TerminErinnerung | null;
+  /**
+   * BEIDE Erinnerungen mit ihrem Stand (ausstehend · offen · erledigt) —
+   * `null`, wenn es nichts anzukündigen gibt: kein stehender Termin, die Uhr
+   * steht noch, oder der Termin ist vorbei.
+   *
+   * `erinnerung` ist die Zuspitzung davon („welche ist gerade dran"), nicht
+   * eine zweite Rechnung: Beide kommen aus `erinnerungsStand()`. Die Ansicht
+   * „Termin-Erinnerung" braucht die volle Liste, weil sie die Zusicherung
+   * belegen muss, um die es dem Auftraggeber geht — jeder wird ZWEIMAL erinnert.
+   */
+  erinnerungsStufen: ErinnerungsStufe[] | null;
   /** Migration 0041: wann zuletzt genervt wurde; `null` = noch nie (oder Spalte fehlt). */
   lastContactedAt: string | null;
   /**
@@ -216,7 +229,8 @@ function fromSetting(
     today,
   );
   const lastContactedAt = c.follow_up_last_contacted_at ?? null;
-  const erinnerung = offeneErinnerung(zustand, c.appointment_at, lastContactedAt, nowMs);
+  const erinnerungsStufen = erinnerungsStand(zustand, c.appointment_at, lastContactedAt, nowMs);
+  const erinnerung = offeneStufe(erinnerungsStufen);
   return {
     id: `s:${c.id}`,
     kind: "setting",
@@ -232,6 +246,7 @@ function fromSetting(
     statusPill: zustandPill(zustand),
     dran: istTerminDran(zustand, lastContactedAt, today, erinnerung),
     erinnerung,
+    erinnerungsStufen,
     lastContactedAt,
     lastContactedBy: resolveUsername(c.follow_up_last_contacted_by_user_id, names),
     outline: outlineFor("setting", c.status, c.show_status, cancelled),
@@ -274,7 +289,8 @@ function fromClosing(
   const lastContactedAt = c.follow_up_last_contacted_at ?? null;
   // Dieselben zwei Marken wie beim Erstgespräch — „egal ob Closing oder
   // Setting". Der einzige Unterschied ist die Spalte, in der der Termin steht.
-  const erinnerung = offeneErinnerung(zustand, c.call_at, lastContactedAt, nowMs);
+  const erinnerungsStufen = erinnerungsStand(zustand, c.call_at, lastContactedAt, nowMs);
+  const erinnerung = offeneStufe(erinnerungsStufen);
   return {
     id: `c:${c.id}`,
     kind: "closing",
@@ -290,6 +306,7 @@ function fromClosing(
     statusPill: zustandPill(zustand),
     dran: istTerminDran(zustand, lastContactedAt, today, erinnerung),
     erinnerung,
+    erinnerungsStufen,
     lastContactedAt,
     lastContactedBy: resolveUsername(c.follow_up_last_contacted_by_user_id, names),
     outline: outlineFor("closing", c.status, c.show_status, cancelled),

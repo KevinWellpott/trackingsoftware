@@ -104,9 +104,17 @@ export function istKontaktDran(c: FollowUpKontakt, today: string): boolean {
  * Termin mit einem Datum in der Zukunft, auch ein nie verschobener.
  *
  * Der SCHLÜSSEL wandert bewusst nicht mit: Er beschreibt die Datenlage korrekt
- * („ein Termin ist gelegt"), steht in geteilten Links (`?zeit=verlegt`) und in
- * jeder Invarianten-Prüfung. Ein Schlüssel, den niemand sieht, gewinnt nichts
- * durch eine schönere Schreibweise — kostet aber jeden alten Link.
+ * („ein Termin ist gelegt") und steht in jeder Invarianten-Prüfung. Ein
+ * Schlüssel, den niemand sieht, gewinnt nichts durch eine schönere Schreibweise.
+ *
+ * ── ZUSTAND UND AUSSCHNITT SIND SEITHER ZWEIERLEI ────────────────────────
+ * Eine Runde lang waren sie dasselbe: Der Ausschnitt der Arbeitsliste hieß
+ * `verlegt` und trug das Wort dieses Zustands. Seit der Aufteilung in „Erinnerung
+ * Setting" und „Erinnerung Closing" heißt der Ausschnitt nach seiner AUFGABE
+ * (dort wird erinnert, zweimal), dieser Zustand weiter nach der DATENLAGE (ein
+ * Termin steht) — zwei Fragen, zwei Wörter. Die Ausschnitt-Schlüssel liegen
+ * ausschließlich in `components/termine/viewState.ts`; von diesem Typ hängen
+ * sie nicht mehr ab.
  */
 export type TerminZustand =
   | "verlegt"
@@ -123,10 +131,12 @@ export type TerminZustand =
 /**
  * Beschriftung — wörtlich die Liste des Auftraggebers, acht beim Setting, sechs
  * beim Closing. Einzige Abweichung: `verlegt` heißt auf dem Bildschirm „Termin
- * steht" (Begründung am Typ oben). Das Wort steht damit an BEIDEN Stellen
- * gleich — im Ausschnitt der Filterleiste und im Status-Pill derselben Zeile;
- * zwei Wörter für dieselbe Aussage wären genau die Verwechslung, die den
- * Auftraggeber seine Termine hat suchen lassen.
+ * steht" (Begründung am Typ oben).
+ *
+ * Diese Wörter beschreiben ZEILEN, nicht Ansichten. Die Ausschnitte der
+ * Arbeitsliste heißen nach ihrer Aufgabe und stehen in `viewState.ts`; sie aus
+ * dieser Tabelle zu speisen war eine Runde lang richtig und ist es seit der
+ * Aufteilung der Erinnerungs-Ansichten nicht mehr.
  */
 export const TERMIN_ZUSTAND_LABEL: Record<TerminZustand, string> = {
   verlegt: "Termin steht",
@@ -422,27 +432,50 @@ export function erinnerungsZeitpunkte(at: string | null | undefined): Erinnerung
 }
 
 /**
- * Welche der beiden Erinnerungen ist gerade offen? — `null` heißt „keine".
+ * Der Stand EINER der beiden Erinnerungen.
  *
- * ── DIE BEDINGUNG ────────────────────────────────────────────────────────
- * Eine Erinnerung ist offen, wenn ihr Zeitpunkt ERREICHT ist und der
- * Nachfass-Stempel älter ist als dieser Zeitpunkt (oder fehlt). Gefragt wird
- * die spätere zuerst: Liegt der Termin in einer halben Stunde, ist „1 Stunde
- * vorher" die Aussage, die zählt — die Vortags-Marke ist dann längst Geschichte.
+ *  · `ausstehend` — die Marke ist noch nicht erreicht. Nichts zu tun.
+ *  · `offen`      — die Marke ist erreicht und seither war niemand dran.
+ *  · `erledigt`   — der Nachfass-Stempel liegt auf oder hinter der Marke.
  *
- * ── EIN STEMPEL, ZWEI ERINNERUNGEN ───────────────────────────────────────
- * Das trägt, weil die Marken hintereinander liegen (s. o.) und der Stempel
- * gegen die MARKE geprüft wird, nicht gegen den Kalendertag. Wer am Vortag auf
- * „Genervt" klickt, stempelt auf jetzt — jetzt ist größer als die Vortags-Marke
- * (sie war ja erreicht) und kleiner als die Stunden-Marke (die liegt frühestens
- * 22 Stunden später). Genau die fällige Erinnerung ist damit geschlossen, die
- * nächste geht von allein wieder auf.
+ * EIN VIERTER WERT „VERSÄUMT" FEHLT MIT ABSICHT, und das ist dieselbe
+ * Entscheidung wie in `dueState.ts`: Es gibt keinen Zeitpunkt, an dem eine
+ * Erinnerung zu spät wäre und trotzdem noch etwas zu tun bliebe. Ab dem Termin
+ * verschwinden beide Stufen (s. u.); davor ist „offen" die richtige Aussage —
+ * auch dann, wenn die Marke schon im Moment des Buchens vorbei war. Genau daran
+ * ist das Vorgängersystem zurückgewiesen worden.
+ */
+export type ErinnerungsStand = "ausstehend" | "offen" | "erledigt";
+
+/**
+ * Eine der zwei Stufen mit Nummer, Marke und Stand.
  *
- * DESHALB GILT HIER `istHeuteKontaktiert()` NICHT. Ein Stempel von heute früh
- * schließt die Erinnerung eine Stunde vor dem Termin von heute Abend NICHT —
- * sonst könnte man die zweite Erinnerung dadurch verlieren, dass man die erste
- * am selben Tag erledigt hat. Der Kalendertag ist die richtige Körnung für „wer
- * liegt in der Luft"; für einen Zeitpunkt ist er es nicht.
+ * Die NUMMER ist die Zusicherung, die der Auftraggeber verlangt hat („wichtig
+ * ist, dass ich jeden 2 mal erinnere") — sie macht aus einer inneren Regel eine
+ * Zahl, die auf dem Bildschirm abzählbar ist. Sie ist bewusst nicht aus dem
+ * Zustand abgeleitet, sondern fest: Stufe 1 ist immer der Vortag, Stufe 2 immer
+ * die Stunde davor, auch wenn die erste bei einem kurzfristig gebuchten Termin
+ * im selben Moment fällig wird wie die Zeile entsteht.
+ */
+export type ErinnerungsStufe = {
+  /** 1 = am Vortag, 2 = eine Stunde vorher. */
+  nr: 1 | 2;
+  marke: TerminErinnerung;
+  /** Zeitpunkt der Marke (ms) — für die Beschriftung, nicht für die Regel. */
+  at: number;
+  stand: ErinnerungsStand;
+};
+
+/**
+ * Beide Erinnerungen dieses Termins mit ihrem Stand — `null` heißt „hier ist
+ * nichts anzukündigen".
+ *
+ * DIE EINE DEFINITION. `offeneErinnerung()` weiter unten ist nur noch die Frage
+ * „und welche davon ist gerade dran?" an dieses Ergebnis; die Bedingung steht
+ * kein zweites Mal da. Vorher gab es sie nur in der zugespitzten Form, und die
+ * Oberfläche konnte deshalb nicht zeigen, was der Auftraggeber sehen will:
+ * nicht bloß „jetzt leuchtet es", sondern „die erste ist raus, die zweite
+ * kommt noch".
  *
  * ── WAS KEINE ERINNERUNG BEKOMMT ─────────────────────────────────────────
  * Alles, was nicht `verlegt` ist — und das ist kein Kurzschluss, sondern
@@ -459,15 +492,15 @@ export function erinnerungsZeitpunkte(at: string | null | undefined): Erinnerung
  * man an ihn nicht mehr.
  *
  * `nowMs === null` heißt „die Uhr steht noch nicht" (die Oberfläche führt sie
- * per Effekt nach, Muster `RueckrufListe`) und liefert bewusst keine Erinnerung:
- * lieber eine Sekunde ohne Gold als eine falsche.
+ * per Effekt nach, Muster `RueckrufListe`) und liefert bewusst nichts: lieber
+ * eine Sekunde ohne Gold als eine falsche.
  */
-export function offeneErinnerung(
+export function erinnerungsStand(
   zustand: TerminZustand,
   at: string | null,
   stempel: string | null | undefined,
   nowMs: number | null,
-): TerminErinnerung | null {
+): ErinnerungsStufe[] | null {
   if (nowMs == null || zustand !== "verlegt") return null;
   const marken = erinnerungsZeitpunkte(at);
   if (!marken || nowMs >= marken.termin) return null;
@@ -477,11 +510,62 @@ export function offeneErinnerung(
   // Wert NaN, und JEDER Vergleich mit NaN ist falsch — `<` läse „schon
   // erledigt", die Verneinung von `>=` liest „noch offen". Das ist der richtige
   // Rückfall: kein Stempel heißt, es war noch niemand dran.
-  const offen = (marke: number) => nowMs >= marke && !(gestempelt >= marke);
+  const stand = (marke: number): ErinnerungsStand =>
+    nowMs < marke ? "ausstehend" : !(gestempelt >= marke) ? "offen" : "erledigt";
 
-  if (offen(marken.stunde)) return "stunde";
-  if (offen(marken.vortag)) return "vortag";
+  return [
+    { nr: 1, marke: "vortag", at: marken.vortag, stand: stand(marken.vortag) },
+    { nr: 2, marke: "stunde", at: marken.stunde, stand: stand(marken.stunde) },
+  ];
+}
+
+/**
+ * Welche Stufe ist gerade dran? — DIE SPÄTERE ZUERST.
+ *
+ * Liegt der Termin in einer halben Stunde und hat noch niemand angekündigt, ist
+ * „1 Stunde vorher" die Aussage, die zählt; die Vortags-Marke ist dann längst
+ * Geschichte. Rückwärts durch die Liste zu gehen ist deshalb kein Stilmittel,
+ * sondern die Fachlichkeit.
+ */
+export function offeneStufe(stufen: readonly ErinnerungsStufe[] | null): TerminErinnerung | null {
+  if (!stufen) return null;
+  for (let i = stufen.length - 1; i >= 0; i--) {
+    if (stufen[i].stand === "offen") return stufen[i].marke;
+  }
   return null;
+}
+
+/**
+ * Welche der beiden Erinnerungen ist gerade offen? — `null` heißt „keine".
+ *
+ * ── DIE BEDINGUNG ────────────────────────────────────────────────────────
+ * Eine Erinnerung ist offen, wenn ihr Zeitpunkt ERREICHT ist und der
+ * Nachfass-Stempel älter ist als dieser Zeitpunkt (oder fehlt).
+ *
+ * ── EIN STEMPEL, ZWEI ERINNERUNGEN ───────────────────────────────────────
+ * Das trägt, weil die Marken hintereinander liegen (s. o.) und der Stempel
+ * gegen die MARKE geprüft wird, nicht gegen den Kalendertag. Wer am Vortag auf
+ * „Genervt" klickt, stempelt auf jetzt — jetzt ist größer als die Vortags-Marke
+ * (sie war ja erreicht) und kleiner als die Stunden-Marke (die liegt frühestens
+ * 22 Stunden später). Genau die fällige Erinnerung ist damit geschlossen, die
+ * nächste geht von allein wieder auf.
+ *
+ * DESHALB GILT HIER `istHeuteKontaktiert()` NICHT. Ein Stempel von heute früh
+ * schließt die Erinnerung eine Stunde vor dem Termin von heute Abend NICHT —
+ * sonst könnte man die zweite Erinnerung dadurch verlieren, dass man die erste
+ * am selben Tag erledigt hat. Der Kalendertag ist die richtige Körnung für „wer
+ * liegt in der Luft"; für einen Zeitpunkt ist er es nicht.
+ *
+ * Wer beide Stufen samt Stand braucht (die Ansicht „Termin-Erinnerung" tut das),
+ * fragt `erinnerungsStand()` direkt und spart sich die zweite Rechnung.
+ */
+export function offeneErinnerung(
+  zustand: TerminZustand,
+  at: string | null,
+  stempel: string | null | undefined,
+  nowMs: number | null,
+): TerminErinnerung | null {
+  return offeneStufe(erinnerungsStand(zustand, at, stempel, nowMs));
 }
 
 /**
@@ -519,14 +603,35 @@ export function erinnerungText(
  * Steht die Zeile im Ausschnitt „Zu tun"? — die Arbeitsmenge PLUS die Termine
  * mit offener Erinnerung.
  *
- * Die beiden Ausschnitte „Zu tun" und „Termin steht" überschneiden sich damit
- * an genau einer Stelle, und das ist gewollt: Ein Termin, der morgen ansteht
- * und heute angekündigt werden muss, ist beides — versorgt UND heute
- * anzufassen. Ihn aus „Termin steht" zu nehmen hieße, ihn genau dort
- * verschwinden zu lassen, wo der Auftraggeber ihn zuletzt gesucht hat.
+ * „Zu tun" überschneidet sich damit mit den beiden Erinnerungs-Ausschnitten,
+ * und das ist gewollt: Ein Termin, der morgen ansteht und heute angekündigt
+ * werden muss, ist beides — versorgt UND heute anzufassen. Ihn aus seiner
+ * Erinnerungs-Ansicht zu nehmen hieße, ihn genau dort verschwinden zu lassen,
+ * wo man ihn abarbeitet.
  */
 export function istZuTun(zustand: TerminZustand, erinnerung: TerminErinnerung | null): boolean {
   return istInArbeitsmenge(zustand) || erinnerung !== null;
+}
+
+/**
+ * Trägt die Zeile die drei Handgriffe (genervt · Termin · tot)?
+ *
+ * ── WARUM DAS NICHT DIESELBE FRAGE IST WIE „LEUCHTET SIE?" ───────────────
+ * `istZuTun` beantwortet „ist HEUTE etwas zu tun" und wird deshalb im Laufe des
+ * Tages falsch: Wer morgens auf „Genervt" klickt, hat mittags eine Zeile ohne
+ * einen einzigen Knopf vor sich. Für die Arbeitsmenge war das hinnehmbar (sie
+ * leuchtet morgen wieder); für einen STEHENDEN Termin war es der Fehler, den der
+ * Auftraggeber gemeldet hat: In der Ansicht „Termin-Erinnerung" stand in der
+ * Spalte Aktion durchgehend ein Strich, obwohl genau dort umterminiert und
+ * abgeschrieben wird.
+ *
+ * Die Menge ist deshalb eine andere und hängt an NICHTS AUSSER DEM ZUSTAND:
+ * Arbeitsmenge plus jeder stehende Termin — also alles, was noch laufen kann.
+ * Draußen bleiben nur die sechs Ergebnis-Zustände; wer die wieder aufmachen
+ * will, tut das auf der Detailseite, wo die Folgen erklärt sind.
+ */
+export function istBearbeitbar(zustand: TerminZustand): boolean {
+  return istInArbeitsmenge(zustand) || zustand === "verlegt";
 }
 
 /**

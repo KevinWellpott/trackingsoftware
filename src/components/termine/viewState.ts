@@ -46,25 +46,59 @@ export type TermineWer = "mein" | "alle";
  *
  * Jetzt schneidet sie entlang der einzigen Unterscheidung, auf die es dem
  * Auftraggeber ankommt:
- *  · `zu_tun`  — die Arbeitsmenge, plus die Termine mit offener Erinnerung
- *                (`istZuTun`, src/lib/dranRegel.ts). „Darauf stehen die Namen,
- *                die genervt werden müssen. Fertig." Das ist die Vorgabe.
- *  · `verlegt` — versorgt: ein Termin steht. Auf dem Bildschirm heißt dieser
- *                Ausschnitt „Termin steht" — der SCHLÜSSEL bleibt `verlegt`,
- *                weil er in geteilten Links steckt und die Datenlage korrekt
- *                beschreibt; das WORT ist gegangen, weil der Auftraggeber seine
- *                Termine der nächsten Woche darunter nicht gesucht hat.
- *  · `alle`    — zusätzlich die abgeschlossenen Vorgänge (tot, kein Close …).
+ *  · `zu_tun`             — die Arbeitsmenge, plus die Termine mit offener
+ *                           Erinnerung (`istZuTun`, src/lib/dranRegel.ts).
+ *                           „Darauf stehen die Namen, die genervt werden müssen.
+ *                           Fertig." Das ist die Vorgabe.
+ *  · `erinnerung_setting` — die stehenden ERSTGESPRÄCHE mit ihren zwei
+ *  · `erinnerung_closing`   Erinnerungen, bzw. dieselbe Ansicht für die
+ *                           Closings (s. u.).
+ *  · `alle`               — zusätzlich die abgeschlossenen Vorgänge (tot, kein
+ *                           Close …).
  *
- * Die ersten beiden Ausschnitte sind seit den Erinnerungen nicht mehr disjunkt:
+ * ── AUS EINEM AUSSCHNITT WURDEN ZWEI, UND DAS WORT IST EIN DRITTES ───────
+ * Bis hierher stand hier EIN Ausschnitt `verlegt`, beschriftet „Termin steht".
+ * Der Auftraggeber hat beides beanstandet, und zwar in derselben Bewegung:
+ *
+ *  1. Das Wort benennt den ZUSTAND, die Ansicht hat aber eine AUFGABE — sie ist
+ *     die Stelle, an der die zwei Erinnerungen vor dem Termin abgearbeitet
+ *     werden. Sie heißt deshalb „Termin-Erinnerung".
+ *  2. Erstgespräch und Closing gehören getrennt. Es sind zwei verschiedene
+ *     Arbeitsvorgänge mit verschiedenen Gesprächspartnern; in einer gemischten
+ *     Liste sucht man sich seine fünf Closings zwischen vierzig Settings heraus.
+ *
+ * Der ZUSTAND heißt unverändert `verlegt` und auf dem Bildschirm weiterhin
+ * „Termin steht" — er beschreibt ja die Datenlage. Nur der Ausschnitt hat eigene
+ * Schlüssel bekommen, weil er jetzt etwas anderes ist als vorher.
+ *
+ * ── ÜBERSCHNEIDUNG MIT `zu_tun` IST GEWOLLT ──────────────────────────────
  * Ein Termin, der morgen ansteht und heute angekündigt werden muss, steht in
- * beiden. Das ist Absicht — er ist versorgt UND heute anzufassen.
+ * `zu_tun` UND in seiner Erinnerungs-Ansicht: Er ist versorgt und trotzdem heute
+ * anzufassen. Die Zahlen an den Ausschnitten addieren sich deshalb nicht.
  *
- * Alte Links mit `?zeit=anstehend` fallen auf `zu_tun` zurück; die Werte sind
- * bewusst neu benannt statt umgedeutet, damit ein geteilter Link nicht
- * unbemerkt etwas anderes zeigt als beim Teilen.
+ * Alte Links mit `?zeit=verlegt` (und `?zeit=anstehend`) fallen auf `zu_tun`
+ * zurück, statt auf eine der beiden neuen Hälften zu zeigen: Ein Schlüssel, der
+ * vorher BEIDE Termin-Arten meinte, lässt sich nicht ohne Verlust auf eine davon
+ * abbilden. Die Werte sind bewusst neu benannt statt umgedeutet, damit ein
+ * geteilter Link nicht unbemerkt etwas anderes zeigt als beim Teilen.
  */
-export type TerminZeit = "zu_tun" | "verlegt" | "alle";
+export type TerminZeit = "zu_tun" | "erinnerung_setting" | "erinnerung_closing" | "alle";
+
+/**
+ * Welche Termin-Art zeigt dieser Ausschnitt? — `null` heißt „beide" und damit
+ * zugleich „das hier ist keine Erinnerungs-Ansicht".
+ *
+ * Die eine Stelle, an der die Zuordnung Ausschnitt → Termin-Art steht. Sie
+ * entscheidet in `TermineList` DREIERLEI zugleich (welche Zeilen, welche
+ * Spalte, welcher Leerzustand); dreimal `zeit === "erinnerung_setting"` daneben
+ * wäre dreimal dieselbe Bedingung mit drei Chancen, sie beim nächsten Mal
+ * unterschiedlich zu schreiben.
+ */
+export function erinnerungsArt(zeit: TerminZeit): "setting" | "closing" | null {
+  if (zeit === "erinnerung_setting") return "setting";
+  if (zeit === "erinnerung_closing") return "closing";
+  return null;
+}
 
 /**
  * Sortierbare Spalten der Arbeitsliste.
@@ -79,7 +113,7 @@ export type TerminSort = "zeit" | "lead" | "person" | "status";
 export type SortDir = "asc" | "desc";
 
 const VIEWS: readonly TerminView[] = ["liste", "monat", "woche", "tag", "rueckruf"];
-const ZEITEN: readonly TerminZeit[] = ["zu_tun", "verlegt", "alle"];
+const ZEITEN: readonly TerminZeit[] = ["zu_tun", "erinnerung_setting", "erinnerung_closing", "alle"];
 const SORTS: readonly TerminSort[] = ["zeit", "lead", "person", "status"];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -196,9 +230,20 @@ const DAY_FMT = new Intl.DateTimeFormat("de-DE", {
   year: "numeric",
 });
 
-/** Beschriftung des Zeitraums über dem Kalender. */
-export function periodLabel(view: TerminView, date: string): string {
+/**
+ * Beschriftung neben der Steuerung — im Kalender der Zeitraum, in der Liste der
+ * NAME DER ANSICHT.
+ *
+ * In der Liste gibt es keinen Zeitraum zu benennen (`rangeForView` liefert dort
+ * `null`), also steht dort, was man gerade vor sich hat. Die beiden
+ * Erinnerungs-Ausschnitte heißen zusammen „Termin-Erinnerung" — welche der
+ * beiden es ist, sagt das Segment einen Zentimeter weiter links; es hier zu
+ * wiederholen hieße, dieselbe Auskunft zweimal und womöglich mit zwei
+ * verschiedenen Wörtern zu geben.
+ */
+export function periodLabel(view: TerminView, date: string, zeit?: TerminZeit): string {
   const [y, m, d] = date.split("-").map(Number);
+  if (view === "liste" && zeit && erinnerungsArt(zeit)) return "Termin-Erinnerung";
   if (view === "rueckruf") return "Rückrufe";
   if (view === "tag") return DAY_FMT.format(new Date(y, m - 1, d));
   if (view === "monat") return monthLabelDe(y, m);

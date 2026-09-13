@@ -4,18 +4,26 @@ import { markFollowUpContacted, markTerminDead, setNeuerTermin } from "@/app/act
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { formatTerminParts } from "@/lib/apptTime";
 import { dayDiff, lastContactLabel } from "@/lib/contactGap";
-import { DRAN_TONE, erinnerungText, istZuTun } from "@/lib/dranRegel";
+import {
+  DRAN_TONE,
+  erinnerungText,
+  istBearbeitbar,
+  istZuTun,
+  type ErinnerungsStand,
+  type ErinnerungsStufe,
+  type TerminErinnerung,
+} from "@/lib/dranRegel";
 import { dueDayOf } from "@/lib/dueState";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
-import type { TerminEvent } from "@/lib/termine";
+import type { TerminEvent, TerminKind } from "@/lib/termine";
 import { EUR_FMT } from "@/lib/terminMeta";
-import { ArrowDown, ArrowUp, CalendarClock, CalendarX2, Phone, Video } from "lucide-react";
+import { ArrowDown, ArrowUp, BellRing, CalendarClock, CalendarX2, Check, Phone, Video } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { kindLabel } from "./EventChip";
 import { TerminAktionen } from "./TerminAktionen";
-import type { SortDir, TerminSort, TerminZeit } from "./viewState";
+import { erinnerungsArt, type SortDir, type TerminSort, type TerminZeit } from "./viewState";
 
 // DIE ARBEITSFLÄCHE. „Eine Liste pro Person. Darauf stehen die Namen, die
 // genervt werden müssen. Fertig."
@@ -55,6 +63,85 @@ const COLUMNS: readonly Column[] = [
   { key: "person", label: "Person", width: 132 },
   { key: "status", label: "Status", width: 132 },
 ];
+
+/* ------------------------------------------------------------------ *
+ * Die Erinnerungs-Spalte
+ * ------------------------------------------------------------------ */
+
+/**
+ * In den beiden Erinnerungs-Ansichten TRITT DIESE SPALTE AN DIE STELLE VON
+ * „STATUS", statt neben sie.
+ *
+ * Grund: Dort steht in jeder einzelnen Zeile derselbe Pill — „Termin steht" ist
+ * ja die Bedingung, unter der die Zeile überhaupt in der Ansicht ist. Eine
+ * Spalte, die für alle Zeilen dasselbe sagt, ist reines Rauschen und kostet die
+ * Breite, die die Zusicherung braucht, um die es hier geht: jeder wird ZWEIMAL
+ * erinnert.
+ */
+const STUFEN_TON: Record<ErinnerungsStand, { bg: string; fg: string; border: string }> = {
+  // Erledigt ist ein Haken, keine Auszeichnung — dieselbe stille Grau-Kachel
+  // wie `.badge-gray`. Grün wäre hier ein Erfolg, und Erfolg ist der Abschluss,
+  // nicht das Verschicken einer Terminbestätigung.
+  erledigt: { bg: "var(--surface-3)", fg: "var(--text-secondary)", border: "var(--border-default)" },
+  // Gold heißt in dieser Software ausnahmslos „du bist dran" (DRAN_TONE) — und
+  // genau das ist eine offene Erinnerung. Dieselbe Farbe wie das Feld daneben.
+  offen: { bg: DRAN_TONE.bg, fg: DRAN_TONE.fg, border: DRAN_TONE.border },
+  // Noch nicht dran: sichtbar, aber ohne Gewicht. Bewusst nicht weggelassen —
+  // die leere zweite Stelle ist die Zusage, dass noch eine Erinnerung kommt.
+  ausstehend: { bg: "transparent", fg: "var(--text-disabled)", border: "var(--border-subtle)" },
+};
+
+const MARKE_WORT: Record<TerminErinnerung, string> = {
+  vortag: "am Vortag zur selben Uhrzeit",
+  stunde: "eine Stunde vor dem Termin",
+};
+
+// Kein „überfällig", kein „versäumt" — eine Erinnerung, deren Marke beim Buchen
+// schon vorbei war, ist kein Versäumnis (siehe die Anmerkung in lib/dueState.ts).
+const STAND_WORT: Record<ErinnerungsStand, string> = {
+  ausstehend: "steht noch aus",
+  offen: "jetzt fällig",
+  erledigt: "erinnert",
+};
+
+function stufenTitel(s: ErinnerungsStufe): string {
+  const wann = formatTerminParts(new Date(s.at).toISOString());
+  const zeitpunkt = wann ? ` (${wann.date}, ${wann.time})` : "";
+  return `${s.nr}. Erinnerung — ${MARKE_WORT[s.marke]}: ${STAND_WORT[s.stand]}${zeitpunkt}`;
+}
+
+/** Die zwei Stufen als abzählbare Marken. `null` = hier ist nichts anzukündigen. */
+function ErinnerungsZelle({ stufen }: { stufen: ErinnerungsStufe[] | null }) {
+  if (!stufen) {
+    return (
+      <span style={{ color: "var(--text-disabled)" }} title="Der Termin läuft gerade oder ist vorbei — anzukündigen gibt es nichts mehr.">
+        —
+      </span>
+    );
+  }
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
+      {stufen.map((s) => {
+        const ton = STUFEN_TON[s.stand];
+        return (
+          <span
+            key={s.nr}
+            className="badge"
+            title={stufenTitel(s)}
+            style={{ color: ton.fg, backgroundColor: ton.bg, border: `1px solid ${ton.border}` }}
+          >
+            {s.stand === "erledigt" ? (
+              <Check size={11} aria-hidden />
+            ) : s.stand === "offen" ? (
+              <BellRing size={11} aria-hidden />
+            ) : null}
+            {s.nr}.
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 /** Sortierschlüssel je Spalte — immer ein String, damit localeCompare reicht. */
 function sortKey(e: TerminEvent, sort: TerminSort): string {
@@ -98,6 +185,16 @@ export function TermineList({
   const [busyId, setBusyId] = useState<string | null>(null);
   const { confirm, dialog } = useConfirm();
 
+  /**
+   * Welche Termin-Art zeigt dieser Ausschnitt? `null` = keine
+   * Erinnerungs-Ansicht (src/components/termine/viewState.ts).
+   *
+   * Diese eine Variable entscheidet dreierlei — welche Zeilen, welche vierte
+   * Spalte und welcher Leerzustand —, damit die drei Antworten nicht
+   * auseinanderlaufen können.
+   */
+  const art = erinnerungsArt(zeit);
+
   const rows = useMemo(() => {
     // Termine ohne Zeitpunkt sind per Definition in der Arbeitsmenge und gehören
     // deshalb in denselben Topf — ohne die Liste hätten sie gar keinen Ort.
@@ -106,12 +203,17 @@ export function TermineList({
     // Ein Termin, der morgen ansteht und heute angekündigt werden muss, steht
     // deshalb in BEIDEN Ausschnitten — er ist versorgt und trotzdem heute
     // anzufassen.
-    const pool =
-      zeit === "zu_tun"
+    //
+    // Die Erinnerungs-Ansichten zeigen ALLE stehenden Termine ihrer Art, nicht
+    // nur die mit gerade offener Erinnerung: Die Frage dort ist nicht „was ist
+    // jetzt zu tun" (das steht in „Zu tun"), sondern „bekommt jeder seine zwei
+    // Erinnerungen" — und die lässt sich nur an der vollständigen Liste
+    // beantworten.
+    const pool = art
+      ? all.filter((e) => e.zustand === "verlegt" && e.kind === art)
+      : zeit === "zu_tun"
         ? all.filter((e) => istZuTun(e.zustand, e.erinnerung))
-        : zeit === "verlegt"
-          ? all.filter((e) => e.zustand === "verlegt")
-          : all;
+        : all;
 
     const factor = dir === "asc" ? 1 : -1;
     return [...pool].sort((a, b) => {
@@ -120,7 +222,7 @@ export function TermineList({
       // jedem Re-Render, weil Array.sort nicht garantiert stabil gefüllt wird.
       return cmp !== 0 ? cmp * factor : sortKey(a, "zeit").localeCompare(sortKey(b, "zeit"));
     });
-  }, [events, ohneTermin, zeit, sort, dir]);
+  }, [events, ohneTermin, art, zeit, sort, dir]);
 
   /**
    * Ein Handgriff, eine Server-Antwort, ein Neuladen.
@@ -173,7 +275,11 @@ export function TermineList({
     [confirm, run],
   );
 
-  if (rows.length === 0) return <EmptyState zeit={zeit} />;
+  if (rows.length === 0) return <EmptyState zeit={zeit} art={art} />;
+
+  // Die Erinnerungs-Spalte tritt AN DIE STELLE von „Status" (Begründung an
+  // `STUFEN_TON`), die Spaltenzahl bleibt damit in jeder Ansicht dieselbe.
+  const columns = art ? COLUMNS.filter((c) => c.key !== "status") : COLUMNS;
 
   return (
     <div
@@ -197,7 +303,7 @@ export function TermineList({
       <table className="data-table">
         <thead>
           <tr>
-            {COLUMNS.map((c) => {
+            {columns.map((c) => {
               const active = sort === c.key;
               const Arrow = dir === "asc" ? ArrowUp : ArrowDown;
               return (
@@ -225,8 +331,13 @@ export function TermineList({
                 </th>
               );
             })}
-            {/* Kontakt ist eine Mischspalte (Umsatz, Meet-Link, Rufnummer) und
-                Aktion trägt Knöpfe — beide sind bewusst nicht sortierbar. */}
+            {/* Erinnerung, Kontakt und Aktion sind bewusst nicht sortierbar:
+                Kontakt ist eine Mischspalte (Umsatz, Meet-Link, Rufnummer),
+                Aktion trägt Knöpfe — und die Erinnerungs-Marken hängen am
+                Termin, die Vorgabe-Sortierung nach Zeit ordnet sie also bereits
+                nach Dringlichkeit. Eine zweite Sortierung daneben ergäbe
+                dieselbe Reihenfolge unter anderem Namen. */}
+            {art && <th style={{ width: 132 }}>Erinnerung</th>}
             <th style={{ width: 150 }}>Kontakt</th>
             <th style={{ width: 268 }}>Aktion</th>
           </tr>
@@ -237,6 +348,7 @@ export function TermineList({
               key={e.id}
               event={e}
               today={today}
+              erinnerungsSpalte={art !== null}
               pending={pending && busyId === e.id}
               onGenervt={() => onGenervt(e)}
               onNeuerTermin={(input) => onNeuerTermin(e, input)}
@@ -252,6 +364,7 @@ export function TermineList({
 function Row({
   event,
   today,
+  erinnerungsSpalte,
   pending,
   onGenervt,
   onNeuerTermin,
@@ -259,6 +372,8 @@ function Row({
 }: {
   event: TerminEvent;
   today: string;
+  /** Steht an vierter Stelle die Erinnerung statt des Status? */
+  erinnerungsSpalte: boolean;
   pending: boolean;
   onGenervt: () => void;
   onNeuerTermin: (berlinInput: string) => void;
@@ -266,10 +381,15 @@ function Row({
 }) {
   const termin = formatTerminParts(event.at);
   // „Ist an dieser Zeile heute etwas zu tun?" — dieselbe Frage wie beim
-  // Ausschnitt oben, deshalb dieselbe Funktion. Ein Termin mit offener
-  // Erinnerung bekommt damit auch die drei Knöpfe: „Genervt" IST hier der
-  // Handgriff, der die Erinnerung schließt.
+  // Ausschnitt oben, deshalb dieselbe Funktion. Sie entscheidet, ob die
+  // Unterzeile mit Anlass und letztem Kontakt erscheint.
   const imFluss = istZuTun(event.zustand, event.erinnerung);
+  // Ob die Zeile ihre drei Knöpfe trägt, ist eine ANDERE Frage — sie hängt nur
+  // am Zustand und kippt deshalb nicht mitten am Tag um (siehe `istBearbeitbar`).
+  // Vorher hing beides an `imFluss`, und ein stehender Termin hatte in der
+  // Spalte Aktion einen Strich: kein Umterminieren, kein Abschreiben, obwohl
+  // genau dafür die Ansicht da ist.
+  const anfassbar = istBearbeitbar(event.zustand);
   // Warum die Zeile leuchtet, in Worten. Steht vor dem letzten Kontakt, weil es
   // der Grund ist und der Kontakt nur die Begleitauskunft: Ohne diesen Satz
   // sähe man eine goldene Zeile mit einem Termin in der Zukunft und wüsste
@@ -331,15 +451,22 @@ function Row({
             </span>
           )}
 
-          {/* Zweite Zeile nur, solange der Vorgang Arbeit ist. Bei einem
+          {/* Zweite Zeile, solange der Vorgang Arbeit ist — bei einem
               abgeschlossenen wäre „noch nie genervt" eine Mahnung ohne Adressat.
               Der NAME steht dabei: „Hast du den angerufen oder ich?" ist die
               Frage, für die es die zweite Spalte aus Migration 0041 gibt.
 
+              ODER sobald es einen Stempel gibt. Das ist der Fall, den die
+              Erinnerungs-Ansicht braucht: Ein stehender Termin ist keine
+              Arbeitsmenge, aber wer schon erinnert hat, muss dort mit Namen
+              stehen. Umgekehrt bleibt die Zeile bei einem noch fernen Termin
+              ohne Stempel still — „noch nie kontaktiert" unter einem Termin in
+              drei Wochen ist kein Befund, sondern Rauschen.
+
               Bei einer offenen Erinnerung steht der Anlass davor — und zwar in
               derselben stillen Farbe: Gold gehört dem Feld, nicht dem Text
               darin (DESIGN.md §3.6, ein farbiges Element je Zeile). */}
-          {imFluss && (
+          {(imFluss || event.lastContactedAt) && (
             <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-muted)" }}>
               {event.cancelled && "abgesagt · "}
               {anlass ? `${anlass} · ` : ""}
@@ -413,18 +540,26 @@ function Row({
         )}
       </td>
 
-      {/* ── Status: der abgeleitete Zustand, genau EINER je Zeile ── */}
+      {/* ── Vierte Spalte: Status ODER die zwei Erinnerungen ──
+             In den Erinnerungs-Ansichten stünde hier in JEDER Zeile derselbe
+             Pill „Termin steht" — er ist ja die Bedingung der Ansicht. Statt
+             ihn zu wiederholen, steht dort die Zusicherung, um die es geht:
+             beide Marken, abzählbar (Begründung an `STUFEN_TON`). */}
       <td>
-        <span
-          className="badge"
-          style={{
-            color: event.statusPill.color,
-            backgroundColor: event.statusPill.bg,
-            border: `1px solid ${event.statusPill.border}`,
-          }}
-        >
-          {event.statusPill.label}
-        </span>
+        {erinnerungsSpalte ? (
+          <ErinnerungsZelle stufen={event.erinnerungsStufen} />
+        ) : (
+          <span
+            className="badge"
+            style={{
+              color: event.statusPill.color,
+              backgroundColor: event.statusPill.bg,
+              border: `1px solid ${event.statusPill.border}`,
+            }}
+          >
+            {event.statusPill.label}
+          </span>
+        )}
       </td>
 
       {/* ── Kontakt: Umsatz, sonst der Weg zum Lead ── */}
@@ -472,11 +607,14 @@ function Row({
       </td>
 
       {/* ── Aktion: die drei Handgriffe, ohne Seitenwechsel ──
-             Nur solange der Vorgang Arbeit ist. Eine abgeschlossene Zeile
-             braucht keinen „Genervt"-Knopf; wer sie doch wieder aufmachen will,
-             tut das auf der Detailseite, wo die Folgen erklärt sind. */}
+             Solange der Vorgang laufen kann — Arbeitsmenge oder stehender
+             Termin. Eine ABGESCHLOSSENE Zeile bekommt keine Knöpfe; wer sie
+             wieder aufmachen will, tut das auf der Detailseite, wo die Folgen
+             erklärt sind. Ein stehender Termin dagegen behält sie den ganzen
+             Tag: „Genervt" schließt die fällige Erinnerung, „Termin" verlegt
+             ihn, „Tot" schreibt ihn ab. */}
       <td>
-        {imFluss ? (
+        {anfassbar ? (
           <TerminAktionen
             event={event}
             pending={pending}
@@ -531,24 +669,29 @@ function OwnerCell({ username }: { username: string }) {
   );
 }
 
-function EmptyState({ zeit }: { zeit: TerminZeit }) {
+function EmptyState({ zeit, art }: { zeit: TerminZeit; art: TerminKind | null }) {
+  const titel = art
+    ? `Kein ${art === "setting" ? "Erstgespräch" : "Closing"} steht an`
+    : zeit === "zu_tun"
+      ? "Nichts zu tun"
+      : "Keine Termine";
+
+  // Der Leerzustand zeigt auf die EINE Aktion dieser Seite — und die steht seit
+  // der Design-Runde oben rechts im Seitenkopf, nicht mehr „in der Navigation".
+  // Ein Leerzustand, der woandershin verweist, schickt auf die Suche nach einem
+  // Knopf, der 40 Pixel darüber steht (COMPONENTS.md §14.1).
+  const text = art
+    ? `Hier stehen alle ${art === "setting" ? "Erstgespräche" : "Closings"} mit einem Termin in der Zukunft — jedes mit seinen zwei Erinnerungen, einen Tag und eine Stunde vorher. Sobald ein Termin gebucht ist, erscheint er hier.`
+    : zeit === "zu_tun"
+      ? "Niemand liegt in der Luft: Jeder offene Vorgang hat entweder einen Termin oder ist abgeschlossen — und kein Termin steht so nah bevor, dass daran zu erinnern wäre."
+      : "Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder oben rechts über „Termin buchen“.";
+
   return (
     <div className="card dot-grid">
       <div className="empty-state">
         <CalendarClock size={24} aria-hidden />
-        <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>
-          {zeit === "zu_tun" ? "Nichts zu tun" : "Keine Termine"}
-        </div>
-        <p style={{ maxWidth: 420 }}>
-          {/* Der Leerzustand zeigt auf die EINE Aktion dieser Seite — und die
-              steht seit der Design-Runde oben rechts im Seitenkopf, nicht mehr
-              „in der Navigation". Ein Leerzustand, der woandershin verweist,
-              schickt auf die Suche nach einem Knopf, der 40 Pixel darüber
-              steht (COMPONENTS.md §14.1). */}
-          {zeit === "zu_tun"
-            ? "Niemand liegt in der Luft: Jeder offene Vorgang hat entweder einen Termin oder ist abgeschlossen — und kein Termin steht so nah bevor, dass daran zu erinnern wäre."
-            : "Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder oben rechts über „Termin buchen“."}
-        </p>
+        <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)" }}>{titel}</div>
+        <p style={{ maxWidth: 420 }}>{text}</p>
       </div>
     </div>
   );

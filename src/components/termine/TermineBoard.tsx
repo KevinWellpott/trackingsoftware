@@ -210,16 +210,24 @@ export function TermineBoard({
    * dieser Stelle schon einmal eine Zahl gefallen ist: Über vierzehn Zeilen
    * stand „223 Termine" (siehe den Block im Seitenkopf, app/(dashboard)/termine).
    *
-   * „Zu tun" und „Termin steht" überschneiden sich dabei bewusst (ein Termin
-   * morgen, der heute angekündigt werden muss, ist beides) — die drei Zahlen
-   * addieren sich deshalb nicht zu „Alle". Das taten sie auch vorher nicht, weil
-   * die abgeschlossenen Vorgänge nur unter „Alle" stehen.
+   * „Zu tun" und die beiden Erinnerungs-Ausschnitte überschneiden sich dabei
+   * bewusst (ein Termin morgen, der heute angekündigt werden muss, ist beides) —
+   * die vier Zahlen addieren sich deshalb nicht zu „Alle". Das taten sie auch
+   * vorher nicht, weil die abgeschlossenen Vorgänge nur unter „Alle" stehen.
+   *
+   * Die beiden Erinnerungs-Zahlen zählen ALLE stehenden Termine ihrer Art, nicht
+   * nur die mit gerade offener Erinnerung. Das ist der Unterschied zwischen
+   * „was muss ich jetzt tun" (das steht in `zu_tun`) und „bekommt jeder seine
+   * zwei Erinnerungen" — die zweite Frage lässt sich nur an der vollständigen
+   * Liste beantworten, und sie ist der Grund, warum es diese Ansicht gibt.
    */
   const zeitCounts = useMemo(() => {
     const pool = [...filtered, ...ohneTermin];
+    const steht = pool.filter((e) => e.zustand === "verlegt");
     return {
       zu_tun: pool.filter((e) => istZuTun(e.zustand, e.erinnerung)).length,
-      verlegt: pool.filter((e) => e.zustand === "verlegt").length,
+      erinnerung_setting: steht.filter((e) => e.kind === "setting").length,
+      erinnerung_closing: steht.filter((e) => e.kind === "closing").length,
       alle: pool.length,
     };
   }, [filtered, ohneTermin]);
@@ -373,7 +381,7 @@ export function TermineBoard({
       <TermineFilterBar
         view={params.view}
         tab={tab}
-        periodLabel={periodLabel(params.view, params.date)}
+        periodLabel={periodLabel(params.view, params.date, params.zeit)}
         search={params.search}
         zeit={params.zeit}
         zeitCounts={zeitCounts}

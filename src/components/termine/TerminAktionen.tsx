@@ -95,7 +95,14 @@ export function TerminAktionen({
               ? "Erinnert — die Zeile wird ruhig. Eine Stunde vor dem Termin meldet sie sich noch einmal."
               : event.dran
                 ? "Heute kontaktiert — die Zeile wird ruhig und leuchtet morgen wieder."
-                : "Nochmal als kontaktiert eintragen."
+                : event.zustand === "verlegt"
+                  ? // Ein Kontakt VOR der ersten Marke verbraucht keine der beiden
+                    // Erinnerungen: Der Stempel wird gegen die Marke geprüft, und
+                    // er liegt davor (src/lib/dranRegel.ts). Das steht hier, weil
+                    // der naheliegende Verdacht das Gegenteil ist — „habe ich mir
+                    // damit die Terminbestätigung verbraucht?"
+                    "Als kontaktiert eintragen. Die zwei Erinnerungen vor dem Termin bleiben davon unberührt."
+                  : "Nochmal als kontaktiert eintragen."
         }
       >
         <Check size={13} /> Genervt
