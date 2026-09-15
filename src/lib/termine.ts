@@ -16,7 +16,7 @@ import {
   type TerminErinnerung,
   type TerminZustand,
 } from "@/lib/dranRegel";
-import { personOf, type AssignableRow } from "@/lib/personResolution";
+import { erinnererOf, type AssignableRow } from "@/lib/personResolution";
 import {
   moveLockReason,
   outlineFor,
@@ -170,13 +170,22 @@ export type TerminEvent = {
   /** Ist der Lead erschienen? Fließt in `outline` ein, siehe terminMeta. */
   showStatus: ShowStatus;
   /**
-   * Die zuständige Person — genau EINE, aufgelöst über `personOf()`
-   * (Zuweisung, ersatzweise Ersteller). Ersetzt den früheren Avatar-Stack aus
-   * `call_assignees`; die Tabelle wird nicht mehr gelesen.
-   * `null` nur, wenn weder Zuweisung noch Ersteller existiert (gelöschter
-   * Nutzer, `on delete set null`).
+   * Wer diese Zeile abarbeitet — genau EINE Person, aufgelöst über
+   * `erinnererOf()` (src/lib/personResolution.ts): wer den Termin gelegt hat
+   * (Zuweisung, ersatzweise Ersteller), nach einem stattgefundenen Gespräch
+   * ohne Ergebnis aber wer es geführt hat. Danach filtert „Mein".
+   * Ersetzt den früheren Avatar-Stack aus `call_assignees`; die Tabelle wird
+   * nicht mehr gelesen.
+   * `null` nur, wenn niemand auflösbar ist (gelöschter Nutzer, `on delete set
+   * null`).
    */
   assignee: Assignee | null;
+  /**
+   * „Durchgeführt von" (Migration 0042) — wer das Gespräch geführt hat;
+   * `null` = noch nicht eingetragen (oder die Spalte fehlt noch). In der Liste
+   * reine Anzeige — wem die Zeile gehört, sagt `assignee`.
+   */
+  conductedBy: Assignee | null;
   /** Abgeschlossen → der Chip nimmt sich über `data-terminal` zurück. */
   terminal: boolean;
   /**
@@ -195,8 +204,20 @@ export type TerminEvent = {
   lockedReason: string | null;
 };
 
-function resolveAssignee(row: AssignableRow, names: UsernameById): Assignee | null {
-  const uid = personOf(row);
+/**
+ * Wer die Zeile abarbeitet — `erinnererOf()`: wer gelegt hat, nach einem
+ * stattgefundenen Gespräch ohne Ergebnis wer es geführt hat. Braucht deshalb den
+ * abgeleiteten Zustand; ihn hier nachzurechnen wäre eine zweite Ableitung.
+ */
+function resolveAssignee(row: AssignableRow, zustand: TerminZustand, names: UsernameById): Assignee | null {
+  const uid = erinnererOf(row, zustand);
+  if (!uid) return null;
+  return { user_id: uid, username: names.get(uid) ?? UNKNOWN_USERNAME };
+}
+
+/** „Durchgeführt von" als Anzeige — `null`, solange niemand eingetragen ist. */
+function resolveConductor(row: AssignableRow, names: UsernameById): Assignee | null {
+  const uid = row.conducted_by_user_id ?? null;
   if (!uid) return null;
   return { user_id: uid, username: names.get(uid) ?? UNKNOWN_USERNAME };
 }
@@ -258,7 +279,8 @@ function fromSetting(
     sourceDetail: c.source_detail,
     dealVolume: null,
     showStatus: c.show_status,
-    assignee: resolveAssignee(c, names),
+    assignee: resolveAssignee(c, zustand, names),
+    conductedBy: resolveConductor(c, names),
     terminal: TERMINAL_SETTING_STATUS.includes(c.status),
     cancelled,
     lockedReason: moveLockReason("setting", c.status, cancelled),
@@ -318,7 +340,8 @@ function fromClosing(
     sourceDetail: null,
     dealVolume: c.deal_volume,
     showStatus: c.show_status,
-    assignee: resolveAssignee(c, names),
+    assignee: resolveAssignee(c, zustand, names),
+    conductedBy: resolveConductor(c, names),
     terminal: TERMINAL_CLOSING_STATUS.includes(c.status),
     cancelled,
     lockedReason: moveLockReason("closing", c.status, cancelled),

@@ -572,7 +572,12 @@ export function ClosingCallEditor({
         }}
       >
         <Users size={15} />
-        <span className="eyebrow eyebrow-muted">Zuweisung</span>
+        <span
+          className="eyebrow eyebrow-muted"
+          title="Wer an das Closing erinnert und bei No-Show nervt."
+        >
+          Erinnert &amp; nervt
+        </span>
       </span>
       <div style={{ flex: "1 1 240px", minWidth: 0 }}>
         {canAssign ? (
@@ -587,6 +592,28 @@ export function ClosingCallEditor({
             {assignedName ?? creatorName ?? "—"}
           </span>
         )}
+      </div>
+
+      {/* „Durchgeführt von" (Migration 0042) — wer das Closing geführt hat.
+          Leer, bis es jemand einträgt, und von JEDEM eintragbar: Wer das
+          Gespräch geführt hat, trägt sich selbst ein (`setConductedBy`).
+          Bekommt Umsatz und Abschlussrate in der Analyse und einen erschienenen
+          Lead ohne Ergebnis (etwa „Nachfassen") in seine Arbeitsliste. */}
+      <span
+        className="eyebrow eyebrow-muted"
+        style={{ flexShrink: 0 }}
+        title="Wer das Closing geführt hat — bekommt Umsatz und Abschlussrate in der Analyse."
+      >
+        Durchgeführt von
+      </span>
+      <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+        <AssigneeSelect
+          field="conducted"
+          entityType="closing_call"
+          entityId={call.id}
+          users={users}
+          value={call.conducted_by_user_id ?? null}
+        />
       </div>
     </div>
   );

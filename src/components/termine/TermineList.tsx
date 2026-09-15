@@ -531,13 +531,29 @@ function Row({
         </Link>
       </td>
 
-      {/* ── Person ── */}
+      {/* ── Person ──
+             Oben, wer diese Zeile abarbeitet (`erinnererOf`,
+             src/lib/personResolution.ts). Darunter, wer das Gespräch geführt
+             hat — nur wenn das jemand anderes ist, sonst stünde derselbe Name
+             zweimal da. So beantwortet die Spalte beide Fragen, die zu mehreren
+             Settern täglich anfallen: „wer muss den nerven" und „wer hatte ihn
+             im Gespräch". */}
       <td>
-        {event.assignee ? (
-          <OwnerCell username={event.assignee.username} />
-        ) : (
-          <span style={{ color: "var(--text-disabled)" }}>—</span>
-        )}
+        <span style={{ display: "inline-flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+          {event.assignee ? (
+            <OwnerCell username={event.assignee.username} />
+          ) : (
+            <span style={{ color: "var(--text-disabled)" }}>—</span>
+          )}
+          {event.conductedBy && event.conductedBy.user_id !== event.assignee?.user_id && (
+            <span
+              style={{ fontSize: "var(--fs-2xs)", color: "var(--text-muted)" }}
+              title="Durchgeführt von — hat das Gespräch geführt"
+            >
+              Gespräch: {event.conductedBy.username}
+            </span>
+          )}
+        </span>
       </td>
 
       {/* ── Vierte Spalte: Status ODER die zwei Erinnerungen ──
@@ -607,10 +623,11 @@ function Row({
       </td>
 
       {/* ── Aktion: die drei Handgriffe, ohne Seitenwechsel ──
-             Solange der Vorgang laufen kann — Arbeitsmenge oder stehender
-             Termin. Eine ABGESCHLOSSENE Zeile bekommt keine Knöpfe; wer sie
-             wieder aufmachen will, tut das auf der Detailseite, wo die Folgen
-             erklärt sind. Ein stehender Termin dagegen behält sie den ganzen
+             Solange der Vorgang laufen kann — Arbeitsmenge, stehender Termin
+             oder „Nicht qualifiziert" (dort ist ein zweiter Anlauf der
+             Normalfall). Eine ABGESCHLOSSENE Zeile bekommt keine Knöpfe; wer
+             sie wieder aufmachen will, tut das auf der Detailseite, wo die
+             Folgen erklärt sind. Ein stehender Termin dagegen behält sie den ganzen
              Tag: „Genervt" schließt die fällige Erinnerung, „Termin" verlegt
              ihn, „Tot" schreibt ihn ab. */}
       <td>

@@ -10,7 +10,7 @@ import {
   NUM, bucketIndex, buildBuckets, bucketOf, closingEffDate, closingShowRate, eur, fmtPct, pct,
   settingEffDate, type Granularity,
 } from "@/lib/analyse";
-import { personIn } from "@/lib/personResolution";
+import { gespraechsPersonIn } from "@/lib/personResolution";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { Footnote, MetricTable, StatRow, type MetricColumn, type MetricRow } from "@/components/analyse/AnalyseTables";
@@ -264,7 +264,7 @@ export async function ClosingTab({
     // abgewählt" (Personenfilter aktiv → raus) oder "Person gehört nicht mehr
     // zur Organisation" (kein Filter → sichtbar unter OHNE, statt Umsatz und
     // Gesamtsumme still zu kürzen).
-    const uid = personIn(r, selectedIds);
+    const uid = gespraechsPersonIn(r, selectedIds);
     if (!uid && !allSelected) continue;
     const name = uid ? nameById.get(uid)! : OHNE;
 

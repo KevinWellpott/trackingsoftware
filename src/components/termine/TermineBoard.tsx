@@ -173,8 +173,12 @@ export function TermineBoard({
   /**
    * „Eine Liste pro Person."
    *
-   * Der Filter läuft über `assignee` — also über `personOf()` = Zuweisung vor
-   * Ersteller (docs §2), dieselbe Achse wie jede Auswertung. Eine Zeile ohne
+   * Der Filter läuft über `assignee` — also über `erinnererOf()`
+   * (src/lib/personResolution.ts): wer den Termin gelegt hat (Zuweisung vor
+   * Ersteller, docs §2), nach einem stattgefundenen Gespräch ohne Ergebnis aber
+   * wer es geführt hat („Durchgeführt von", Migration 0042). Das ist bewusst
+   * NICHT mehr die Achse der Auswertungen — die zählt `gespraechsPersonOf()`,
+   * und eine Zeile kann bei Kevin gezählt und von Simon erinnert werden. Eine Zeile ohne
    * auflösbare Person (gelöschter Nutzer, `on delete set null`) gehört
    * niemandem und fällt aus jeder persönlichen Liste heraus; sie steht unter
    * „Alle", statt jemandem angedichtet zu werden.

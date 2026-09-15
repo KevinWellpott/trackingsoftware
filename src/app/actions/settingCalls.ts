@@ -1,8 +1,9 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext } from "@/lib/access";
+import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
+import { closingZustaendigIn } from "@/lib/personResolution";
 import { CANCELLED_MOVE_HINT } from "@/lib/terminMeta";
 import type { SettingOutcome, SettingStatus } from "@/lib/types";
 import { getPipelineSettings } from "@/app/actions/pipelineSettings";
@@ -330,6 +331,62 @@ export async function moveSettingAppointment(
 }
 
 /**
+ * Ein NICHT QUALIFIZIERTES Erstgespräch mit neuem Termin wieder aufmachen — der
+ * Knopf „Termin" der Arbeitsliste (`setNeuerTermin`, actions/followUpStamp.ts).
+ *
+ * Keiner der beiden vorhandenen Wege passt:
+ *  · `moveSettingAppointment` schreibt nur das Datum. Die Zeile bliebe „Nicht
+ *    qualifiziert", denn in der Arbeitsliste schlägt das Ergebnis jedes Datum
+ *    (`terminZustand()`, src/lib/dranRegel.ts) — der Knopf täte scheinbar nichts.
+ *  · `rescheduleSetting` setzt zusätzlich den Show-Status zurück. Der Lead WAR
+ *    aber da, und das steht in keiner zweiten Spalte: Der Reset wäre eine
+ *    Löschung — dieselbe Begründung, mit der `setNeuerTermin` einen
+ *    erschienenen Lead über `moveSettingAppointment` schickt.
+ *
+ * Also genau drei Dinge: Status zurück auf `offen`, Wiedervorlage weg, neues
+ * Datum. Die erfasste Show und der Disqualifikationsgrund bleiben als Historie
+ * stehen. Das Recycling-Datum, das `setSettingOutcome('unqualifiziert')`
+ * eingeplant hat, wird geräumt — der Lead ist auf anderem Weg zurück im Funnel
+ * (`clearRecycle`), sonst tauchte er Wochen später als Recycling-Karte auf.
+ *
+ * `.eq("status", "unqualifiziert")` macht das UPDATE zur Bedingung: Hat
+ * inzwischen jemand anderes ein Ergebnis gesetzt (etwa „Tot"), wird es nicht
+ * überschrieben, und die Meldung sagt, warum nichts passiert ist.
+ */
+export async function reopenUnqualifiedSetting(
+  settingId: string,
+  appointmentAt: string,
+): Promise<{ error?: string }> {
+  const appointmentIso = appointmentAt.endsWith("Z") ? appointmentAt : berlinInputToIso(appointmentAt);
+  if (!appointmentIso) return { error: "Bitte einen neuen Termin angeben." };
+  if (!(await canAccessSettingCall(settingId))) return { error: "Keine Berechtigung." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("setting_calls")
+    .update({ appointment_at: appointmentIso, status: "offen", follow_up_due: null })
+    .eq("id", settingId)
+    .eq("status", "unqualifiziert")
+    .select("id");
+  if (error) return { error: error.message };
+  if (!data?.length) {
+    return { error: "Das Erstgespräch steht inzwischen nicht mehr auf „Nicht qualifiziert“ — bitte neu laden." };
+  }
+
+  await mirrorAppointmentToSource(settingId, appointmentIso);
+  // Fail-soft wie jeder Recycling-Aufruf dieser Datei: Der neue Termin steht,
+  // ein liegen gebliebenes Datum sortiert der Status-Riegel in `recycle_tasks`
+  // ohnehin aus (docs §5).
+  await clearRecycle("setting", settingId);
+
+  revalidatePath(`/setting/${settingId}`, "page");
+  revalidatePath("/termine", "page");
+  revalidatePath("/nachfassen", "page");
+  revalidatePath("/", "layout");
+  return {};
+}
+
+/**
  * Aus einem qualifizierten Setting einen Closing-Call anlegen (idempotent).
  *
  * Der Closing-Termin ist PFLICHT. Vorher wurde `call_at` aus
@@ -404,18 +461,23 @@ export async function createClosingFromSetting(
   // Meet-Link aus dem Setting vorbefüllen — sinnvoller Default ist derselbe
   // Meet-Raum wie beim Setting-Call.
   //
-  // Die Zuweisung erbt vom Setting, weil ein Closing ausschliesslich hier
-  // entsteht: Wer auf „Qualifiziert" klickt, ist damit sonst Eigentuemer jedes
-  // Closings im Team — genau daran zerbrach die Personen-Zuordnung vorher.
-  // In fremder Organisation faellt der Fallback weg: Ein Plattform-Admin ist
+  // Die Zuweisung geht an die EINE Person, die im Team die Closings führt
+  // (`CLOSING_ZUSTAENDIG_USERNAME`, src/lib/personResolution.ts) — nicht an den
+  // Setter, dem das Erstgespräch gehört. Nur wo es sie in dieser Organisation
+  // nicht gibt, gilt die alte Regel: erben vom Setting, sonst der Anlegende.
+  // Der Anlegende bleibt dabei bewusst das LETZTE Glied: Wer auf „Qualifiziert"
+  // klickt, wäre sonst Eigentümer jedes Closings im Team — genau daran zerbrach
+  // die Personen-Zuordnung vor Migration 0028.
+  // In fremder Organisation faellt dieser Fallback weg: Ein Plattform-Admin ist
   // dort kein Mitglied und darf nicht ueber die Org-Grenze zugewiesen werden.
+  const closer = closingZustaendigIn(await listDataViewUsers(access.workspace_id));
   const fallbackAssignee = access.is_foreign_org ? null : access.user.id;
   const { data: closing, error } = await supabase
     .from("closing_calls")
     .insert({
       workspace_id: access.workspace_id,
       created_by_user_id: access.user.id,
-      assigned_user_id: setting?.assigned_user_id ?? fallbackAssignee,
+      assigned_user_id: closer ?? setting?.assigned_user_id ?? fallbackAssignee,
       setting_call_id: settingId,
       lead_name: setting?.lead_name ?? null,
       company: setting?.company ?? null,

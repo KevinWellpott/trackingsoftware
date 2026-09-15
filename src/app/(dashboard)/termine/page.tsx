@@ -44,7 +44,12 @@ export const dynamic = "force-dynamic";
  * nicht bearbeitet. Deckungsgleich mit den RLS-Policies aus Migration 0028 §5.
  */
 function personScope(userId: string): string {
-  return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId})`;
+  // Dritter Zweig seit Migration 0042: Wer ein Gespräch GEFÜHRT hat, bekommt
+  // einen erschienenen Lead ohne Ergebnis in seine Liste (`erinnererOf`,
+  // src/lib/personResolution.ts) — die Zeile muss also auch geladen werden.
+  // ⚠ Dieser Zweig nennt die Spalte NAMENTLICH: Ohne 0042 wiese PostgREST die
+  // Abfrage bei aktiver Datensicht ab. Deshalb läuft 0042 vor dem Deploy.
+  return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId}),conducted_by_user_id.eq.${userId}`;
 }
 
 /* ------------------------------------------------------------------ *

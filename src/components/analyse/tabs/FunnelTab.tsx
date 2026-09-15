@@ -13,7 +13,7 @@ import {
 import { berlinDateISO } from "@/lib/apptTime";
 import { CHANNELS, channelLabel } from "@/lib/channels";
 import { dropoutReasonLabel } from "@/lib/dropoutLists";
-import { personOf } from "@/lib/personResolution";
+import { gespraechsPersonOf } from "@/lib/personResolution";
 import { AnalyseSection, MigrationHint } from "@/components/analyse/AnalyseSection";
 import { Footnote, MetricTable, StatRow, type MetricRow } from "@/components/analyse/AnalyseTables";
 import { BarFunnel, KpiHero, KpiRow } from "@/components/analyse/AnalyseViz";
@@ -396,7 +396,7 @@ export async function FunnelTab({
    * `created_by_user_id` — siehe src/lib/personResolution.ts.
    */
   const resolvePerson = (row: { assigned_user_id: string | null; created_by_user_id: string | null }): string | null => {
-    const uid = personOf(row);
+    const uid = gespraechsPersonOf(row);
     const hit = uid ? nameById.get(uid) : undefined;
     if (hit) return hit;
     return allSelected ? OHNE : null;

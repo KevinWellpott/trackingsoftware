@@ -601,12 +601,15 @@ describe("8 · Zwei Erinnerungs-Ansichten, je eine Zahl", () => {
 
     // Die Menge hängt AM ZUSTAND und an nichts sonst — sie kippt also nicht
     // mitten am Tag um.
-    for (const z of ["verlegt", "offen", "no_show", "show"] as const) {
+    // „Nicht qualifiziert" gehört seit der Rückmeldung „bei Nicht qualifiziert
+    // fehlen Genervt Termin Tot" dazu — ein zweiter Anlauf ist dort der
+    // Normalfall (src/lib/dranRegel.ts, `istBearbeitbar`).
+    for (const z of ["verlegt", "offen", "no_show", "show", "nicht_qualifiziert"] as const) {
       assert.equal(istBearbeitbar(z), true, z);
     }
     // Abgeschlossen bleibt ohne Knöpfe: Wer das wieder aufmachen will, tut es
     // auf der Detailseite, wo die Folgen erklärt sind.
-    for (const z of ["tot", "close", "kein_close", "nicht_qualifiziert", "closing_gelegt", "qualifiziert"] as const) {
+    for (const z of ["tot", "close", "kein_close", "closing_gelegt", "qualifiziert"] as const) {
       assert.equal(istBearbeitbar(z), false, z);
     }
   });

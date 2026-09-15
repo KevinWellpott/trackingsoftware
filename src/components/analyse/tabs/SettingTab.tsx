@@ -12,7 +12,7 @@ import {
 } from "@/lib/analyse";
 import { toBerlinSlot } from "@/lib/apptTime";
 import { CHANNELS, channelLabel } from "@/lib/channels";
-import { personIn } from "@/lib/personResolution";
+import { gespraechsPersonIn } from "@/lib/personResolution";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { ComparisonTable, type ComparisonRow } from "@/components/analyse/ComparisonTable";
 import { Footnote, MetricTable, type MetricRow } from "@/components/analyse/AnalyseTables";
@@ -356,7 +356,7 @@ export async function SettingTab({
     // abgewählt" (Personenfilter aktiv → raus) oder "Person gehört nicht mehr
     // zur Organisation" (kein Filter → sichtbar unter OHNE, statt die
     // Gesamtsumme still zu kürzen).
-    const uid = personIn(r, selectedIds);
+    const uid = gespraechsPersonIn(r, selectedIds);
     if (!uid && !allSelected) continue;
     const name = uid ? nameById.get(uid)! : OHNE;
 

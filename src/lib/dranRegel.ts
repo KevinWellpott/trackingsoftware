@@ -627,11 +627,24 @@ export function istZuTun(zustand: TerminZustand, erinnerung: TerminErinnerung | 
  *
  * Die Menge ist deshalb eine andere und hängt an NICHTS AUSSER DEM ZUSTAND:
  * Arbeitsmenge plus jeder stehende Termin — also alles, was noch laufen kann.
- * Draußen bleiben nur die sechs Ergebnis-Zustände; wer die wieder aufmachen
+ *
+ * ── PLUS „NICHT QUALIFIZIERT" ────────────────────────────────────────────
+ * „Bei Nicht qualifiziert fehlen die Meldungen mit Genervt Termin Tot." Ein
+ * nicht qualifiziertes Erstgespräch ist kein totes Ende: Es bekommt eine
+ * Wiedervorlage, und ein zweiter Anlauf ist der Normalfall, nicht die Ausnahme.
+ * Wer ihn nimmt, soll dafür nicht auf die Detailseite müssen. Der Knopf „Termin"
+ * macht das Erstgespräch dabei wieder AUF (`reopenUnqualifiedSetting`,
+ * actions/settingCalls.ts) — ein bloßes neues Datum änderte nichts, denn das
+ * Ergebnis schlägt in `terminZustand()` jedes Datum.
+ *
+ * Die Knöpfe sind eine MÖGLICHKEIT, keine tägliche Pflicht: Die Zeile leuchtet
+ * nicht Gold und steht nicht in „Zu tun" (`istInArbeitsmenge` bleibt, wie er ist).
+ *
+ * Draußen bleiben die übrigen fünf Ergebnis-Zustände; wer die wieder aufmachen
  * will, tut das auf der Detailseite, wo die Folgen erklärt sind.
  */
 export function istBearbeitbar(zustand: TerminZustand): boolean {
-  return istInArbeitsmenge(zustand) || zustand === "verlegt";
+  return istInArbeitsmenge(zustand) || zustand === "verlegt" || zustand === "nicht_qualifiziert";
 }
 
 /**

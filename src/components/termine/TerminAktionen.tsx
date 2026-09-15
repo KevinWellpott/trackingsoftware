@@ -113,7 +113,14 @@ export function TerminAktionen({
         size="sm"
         disabled={pending}
         onClick={() => setOpen(true)}
-        title="Neuen Termin ansetzen — danach ist die Zeile versorgt."
+        title={
+          // Bei „Nicht qualifiziert" tut der Knopf mehr als ein Datum setzen: Er
+          // macht das Erstgespräch wieder auf (actions/settingCalls.ts,
+          // `reopenUnqualifiedSetting`). Das soll man vor dem Klick wissen.
+          event.zustand === "nicht_qualifiziert"
+            ? "Neuen Termin ansetzen — das Erstgespräch geht wieder auf und ist danach versorgt."
+            : "Neuen Termin ansetzen — danach ist die Zeile versorgt."
+        }
       >
         <CalendarPlus size={13} /> Termin
       </Button>

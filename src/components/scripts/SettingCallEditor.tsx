@@ -822,7 +822,12 @@ export function SettingCallEditor({
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
           <Users size={14} style={{ color: "var(--text-subtle)" }} />
-          <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}>Zuweisung</span>
+          <span
+            style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}
+            title="Wer den Termin gelegt hat — erinnert vorher und nervt bei No-Show oder „Nicht qualifiziert“."
+          >
+            Erinnert &amp; nervt
+          </span>
         </div>
         <div style={{ flex: "1 1 200px", minWidth: 0 }}>
           {/* Umverteilen ist Admin-Sache. Alle anderen sehen fest, wem der
@@ -839,6 +844,30 @@ export function SettingCallEditor({
               {assignedName ?? creatorName ?? "—"}
             </span>
           )}
+        </div>
+
+        {/* „Durchgeführt von" (Migration 0042) — wer das Gespräch geführt hat.
+            Leer, bis es jemand einträgt, und von JEDEM eintragbar: Wer den
+            Call gemacht hat, trägt sich selbst ein (`setConductedBy`). Zählt
+            in der Analyse und bekommt einen erschienenen Lead ohne Ergebnis in
+            seine Arbeitsliste; No-Show und „Nicht qualifiziert" bleiben beim,
+            der den Termin gelegt hat. */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
+          <span
+            style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}
+            title="Wer das Gespräch geführt hat — zählt in der Analyse."
+          >
+            Durchgeführt von
+          </span>
+        </div>
+        <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+          <AssigneeSelect
+            field="conducted"
+            entityType="setting_call"
+            entityId={call.id}
+            users={users}
+            value={call.conducted_by_user_id ?? null}
+          />
         </div>
       </div>
 

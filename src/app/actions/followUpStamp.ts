@@ -15,7 +15,12 @@ import { revalidatePath } from "next/cache";
 import { getAccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { updateClosingCall, setClosingOutcome } from "@/app/actions/closingCalls";
-import { moveSettingAppointment, rescheduleSetting, setSettingOutcome } from "@/app/actions/settingCalls";
+import {
+  moveSettingAppointment,
+  reopenUnqualifiedSetting,
+  rescheduleSetting,
+  setSettingOutcome,
+} from "@/app/actions/settingCalls";
 import { berlinInputToIso } from "@/lib/apptTime";
 
 export type TerminArt = "setting" | "closing";
@@ -189,7 +194,7 @@ export async function setNeuerTermin(
   const supabase = await createClient();
   const { data } = await supabase
     .from(TABELLE[art])
-    .select("cancelled_at, revived_at, show_status")
+    .select("cancelled_at, revived_at, show_status, status")
     .eq("id", id)
     .eq("workspace_id", access.workspace_id)
     .maybeSingle();
@@ -197,6 +202,7 @@ export async function setNeuerTermin(
     cancelled_at: string | null;
     revived_at: string | null;
     show_status: string | null;
+    status: string | null;
   } | null;
 
   // Schritt 2 — der Claim. `geclaimt` merkt sich, ob DIESER Aufruf gestempelt
@@ -216,11 +222,19 @@ export async function setNeuerTermin(
 
   // Das Datum schreiben die vorhandenen Actions — welche, entscheidet die
   // erfasste Tatsache (siehe Kopfkommentar), nicht die Termin-Art allein.
+  //
+  // „Nicht qualifiziert" steht VOR der Show-Weiche: Ein disqualifiziertes
+  // Erstgespräch trägt immer ein erfasstes „erschienen", und über
+  // `moveSettingAppointment` bekäme es nur ein neues Datum — der Zustand bliebe
+  // „Nicht qualifiziert", denn das Ergebnis schlägt jedes Datum
+  // (src/lib/dranRegel.ts). Der Knopf täte scheinbar nichts.
   const res =
     art === "setting"
-      ? vorher?.show_status === "show"
-        ? await moveSettingAppointment(id, iso)
-        : await rescheduleSetting(id, berlinInput)
+      ? vorher?.status === "unqualifiziert"
+        ? await reopenUnqualifiedSetting(id, iso)
+        : vorher?.show_status === "show"
+          ? await moveSettingAppointment(id, iso)
+          : await rescheduleSetting(id, berlinInput)
       : await updateClosingCall(id, { call_at: iso });
 
   // Schritt 3 — die Rücknahme. Best effort wie in `reviveDropout`: Schlägt auch

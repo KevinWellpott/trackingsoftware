@@ -84,24 +84,30 @@ type ListOwnerRow = { owner_name: string | null; created_by_user_id: string | nu
 type MemberProfileRow = { user_id: string; profiles: { username: string } | null };
 
 /**
- * Wem gehoert ein Termin, der aus einer Liste entsteht?
+ * Wem gehoert ein Termin, der aus einer Liste gebucht wird? — dem, der BUCHT.
  *
- * Der Owner der QUELLLISTE entscheidet, nicht der Anlegende: Legt ein Admin
- * eine Liste FUER ein Mitglied an (owner_name = Mitglied, created_by = Admin),
- * gehoeren die daraus entstehenden Termine dem Mitglied — sonst zaehlten sie
- * beim Admin. `owner_name` hat deshalb Vorrang; die Regel steckt in
- * `ownerUserIdOfList` und spiegelt `list_owned_by_user()` in SQL.
+ * „Wenn ich einen Termin lege, muss ich ihn an den Termin erinnern — und wenn
+ * er nicht erscheint, muss weiterhin ich ihn nerven." Die Zuweisung
+ * entscheidet, in wessen Arbeitsliste der Termin steht (`erinnererOf`,
+ * src/lib/personResolution.ts). Erinnern muss, wer ihn gelegt hat — nicht der
+ * Besitzer der Liste, aus der der Lead kam. Bis zum 15. September 2026 stand
+ * hier die umgekehrte Reihenfolge (Owner der Quellliste vor dem Buchenden);
+ * mit mehreren Settern, die auch fremde Listen abarbeiten, fiel damit der
+ * Termin in die Liste von jemandem, der von ihm nichts wusste.
  *
- * Alles wird gegen die Mitgliederliste der AKTIVEN Organisation geprueft —
- * Auflösung wie Fallback. Zwei Faelle laufen sonst ueber die Org-Grenze:
- * ein `owner_name`/`created_by_user_id`, das nach einem Umzug auf einen
- * Ex-Kollegen zeigt, und ein Plattform-Admin, der in einer Kunden-Organisation
- * arbeitet, ohne dort Mitglied zu sein. Der DB-Guard aus Migration 0028 §11
- * greift bewusst nur beim Umzug, nicht beim Insert; deshalb faengt die App das
- * hier ab und weist lieber `null` zu — die Auswertungen fallen dann auf
- * `created_by_user_id` zurueck (`personOf`).
+ * Der Listen-Owner bleibt als RUECKFALL, und zwar genau fuer den Fall, in dem
+ * der Buchende kein Mitglied ist: ein Plattform-Admin, der in einer
+ * Kunden-Organisation arbeitet. Seine user_id waere eine Zuweisung ueber die
+ * Org-Grenze; der Termin gehoert dann dem Kunden-Mitglied, dessen Liste es ist
+ * (`owner_name` hat Vorrang, `ownerUserIdOfList` spiegelt
+ * `list_owned_by_user()` in SQL).
+ *
+ * Alles wird gegen die Mitgliederliste der AKTIVEN Organisation geprueft — ein
+ * `owner_name`/`created_by_user_id` kann nach einem Umzug auf einen
+ * Ex-Kollegen zeigen. Trifft nichts, wird `null` zugewiesen; die Auswertungen
+ * fallen dann auf `created_by_user_id` zurueck (`personOf`).
  */
-async function assignedUserForList(
+async function assignedUserForBooking(
   access: AccessContext,
   table: "lists" | "phone_lists",
   listId: string,
@@ -123,9 +129,12 @@ async function assignedUserForList(
     if (username) usernameToUserId.set(username, row.user_id);
   }
 
+  // Der Buchende zuerst. Nur wenn er in dieser Organisation kein Mitglied ist
+  // (Plattform-Admin in einer Kunden-Organisation), gehoert der Termin dem
+  // Owner der Liste — der Kunde muss ihn in seiner eigenen Liste finden.
+  if (memberIds.has(access.user.id)) return access.user.id;
   const owner = ownerUserIdOfList(listRes.data as ListOwnerRow | null, usernameToUserId);
-  if (owner && memberIds.has(owner)) return owner;
-  return memberIds.has(access.user.id) ? access.user.id : null;
+  return owner && memberIds.has(owner) ? owner : null;
 }
 
 // Gibt den Zugriffskontext zurueck statt nur true/false: die Aufrufer
@@ -201,7 +210,7 @@ export async function convertContactToSetting(input: {
   } else {
     // Nur beim Anlegen zuweisen: ein bestehender Setting-Eintrag kann laengst
     // von Hand umverteilt worden sein, den wuerde ein Nachziehen ueberschreiben.
-    const assignedUserId = await assignedUserForList(access, "lists", input.listId);
+    const assignedUserId = await assignedUserForBooking(access, "lists", input.listId);
     const { data: sc, error: scErr } = await supabase
       .from("setting_calls")
       .insert({
@@ -408,10 +417,11 @@ export async function convertPhoneLeadToSetting(input: {
       })
       .eq("id", settingCallId);
   } else {
-    // Massgeblich ist die Liste, in der der LEAD wirklich liegt: Leads wandern
-    // bei Rueckruf/Nicht-erreicht physisch in eine Routing-Liste, und deren
-    // Owner ist die zustaendige Person — nicht die mitgeschickte listId.
-    const assignedUserId = await assignedUserForList(
+    // Zustaendig ist, wer bucht (`assignedUserForBooking`). Fuer den Rueckfall
+    // auf den Listen-Owner zaehlt die Liste, in der der LEAD wirklich liegt:
+    // Leads wandern bei Rueckruf/Nicht-erreicht physisch in eine
+    // Routing-Liste — nicht die mitgeschickte listId.
+    const assignedUserId = await assignedUserForBooking(
       access,
       "phone_lists",
       (lead as { list_id: string }).list_id,

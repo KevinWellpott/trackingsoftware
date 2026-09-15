@@ -3,7 +3,7 @@ import { LineChart, Scale, Users } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { loadClosingCalls, loadRecycleData, loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
-import { personOf } from "@/lib/personResolution";
+import { gespraechsPersonOf } from "@/lib/personResolution";
 import {
   CHANNELS, CHANNEL_NO_VOLUME, channelVolumeLabel, hasVolume,
   type Channel, type ChannelKey,
@@ -654,7 +654,7 @@ export async function UebersichtTab({
     const day = settingEffDate(r);
     // `nameById` kennt nur die ausgewählten Mitglieder — kein Treffer heißt
     // also "abgewählt" oder "nicht mehr in der Organisation".
-    const uid = personOf(r);
+    const uid = gespraechsPersonOf(r);
     const name = uid ? nameById.get(uid) : undefined;
     if (!name && !allSelected) continue;
 
@@ -683,7 +683,7 @@ export async function UebersichtTab({
 
   for (const r of closings) {
     const day = closingEffDate(r);
-    const uid = personOf(r);
+    const uid = gespraechsPersonOf(r);
     const name = uid ? nameById.get(uid) : undefined;
     if (!name && !allSelected) continue;
 

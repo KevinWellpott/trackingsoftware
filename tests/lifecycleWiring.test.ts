@@ -190,7 +190,9 @@ describe("Erinnerungen folgen der zuständigen Person, nicht dem Anmeldekonto", 
   // dieser Rückbau als „hier passiert nichts mehr" durch.
 
   test("die Zuweisung selbst wird weiter geschrieben", () => {
-    const body = sliceToEnd(ASSIGNEES, "export async function setAssignee(");
+    // Endanker am Bezeichner (Regel oben): Seit Migration 0042 folgt
+    // `setConductedBy` — `setAssignee` ist nicht mehr die letzte Funktion.
+    const body = slice(ASSIGNEES, "export async function setAssignee(", "export async function setConductedBy(");
     assert.match(body, /\.update\(\{ assigned_user_id: userId \}\)/);
     assert.match(body, /\.eq\("workspace_id", access\.workspace_id\)/);
   });

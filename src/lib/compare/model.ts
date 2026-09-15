@@ -113,7 +113,8 @@ export const DIMENSION_LABEL: Record<DimensionKey, string> = {
  * `dims` trägt SCHLÜSSEL, keine Anzeigetexte: die Person ist eine `user_id`,
  * nicht ein Name. Sonst bedeutete eine Serie „Kevin" je nach Quelltabelle
  * zweierlei — bei LinkedIn/Telefon kommt die Person über den Listen-Owner,
- * bei Terminen über `personOf()`. Beide Wege enden hier in derselben user_id.
+ * bei Terminen über `gespraechsPersonOf()` („Durchgeführt von", sonst die
+ * Zuweisung). Beide Wege enden hier in derselben user_id.
  *
  * `null` heißt „für diese Zeile nicht anwendbar oder nicht auflösbar". Eine
  * solche Zeile zählt in jeder ungefilterten Serie mit und fällt aus jeder

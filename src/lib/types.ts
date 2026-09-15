@@ -105,6 +105,12 @@ export type SettingCall = {
    */
   assigned_user_id: string | null;
   /**
+   * „Durchgeführt von" (Migration 0042) — wer das Erstgespräch geführt hat.
+   * Leer, bis es jemand einträgt. Optional, weil `/termine` mit `select("*")`
+   * liest und die Spalte vor 0042 schlicht fehlt.
+   */
+  conducted_by_user_id?: string | null;
+  /**
    * Herkunft des Termins. Die erlaubten Werte stehen NICHT hier, sondern in
    * der Kanal-Registry (`ChannelKey`, src/lib/channels.ts) — dieselbe Liste,
    * die auch der CHECK aus Migration 0029 kennt. Ein neuer Kanal ist damit ein
@@ -234,6 +240,12 @@ export type ClosingCall = {
   created_by_user_id: string | null;
   /** Fachliche Zuordnung, erbt beim Anlegen vom Setting. Siehe SettingCall. */
   assigned_user_id: string | null;
+  /**
+   * „Durchgeführt von" (Migration 0042) — wer das Closing geführt hat. Leer,
+   * bis es jemand einträgt; zählt in der Analyse vor der Zuweisung. Optional
+   * aus demselben Grund wie am Setting (`select("*")` vor 0042).
+   */
+  conducted_by_user_id?: string | null;
   setting_call_id: string | null;
   lead_name: string | null;
   company: string | null;

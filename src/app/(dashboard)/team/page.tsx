@@ -4,7 +4,7 @@ import { Archive, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { getTargets } from "@/app/actions/targets";
-import { personOf } from "@/lib/personResolution";
+import { gespraechsPersonOf } from "@/lib/personResolution";
 import { resolveTarget } from "@/lib/targets";
 import { addDaysISO, getISOWeek, localDateISO, weekStart } from "@/lib/dates";
 import { WochenduellSection } from "@/components/dashboard/WochenduellSection";
@@ -46,6 +46,8 @@ type WonDealRow = {
   deal_volume: number | string | null;
   assigned_user_id: string | null;
   created_by_user_id: string | null;
+  /** „Durchgeführt von" (Migration 0042) — bekommt den Umsatz. */
+  conducted_by_user_id: string | null;
 };
 
 const NUM = (v: number | string | null | undefined): number => Number(v ?? 0);
@@ -95,7 +97,7 @@ export default async function TeamPage() {
     // Lebenszeit-Zahl neben lauter Wochenzahlen.
     supabase
       .from("closing_calls")
-      .select("deal_volume, assigned_user_id, created_by_user_id")
+      .select("deal_volume, assigned_user_id, created_by_user_id, conducted_by_user_id")
       .eq("workspace_id", access.workspace_id)
       .eq("status", "gewonnen")
       .or(
@@ -197,12 +199,14 @@ export default async function TeamPage() {
     bookedByUser.set(r.user_id, (bookedByUser.get(r.user_id) ?? 0) + NUM(r.cnt));
   }
 
-  // Umsatz-Zuordnung über personOf(): zugewiesen vor Ersteller. Mit dem alten
+  // Umsatz-Zuordnung über gespraechsPersonOf(): wer das Closing GEFÜHRT hat
+  // („Durchgeführt von", Migration 0042), sonst zugewiesen vor Ersteller —
+  // dieselbe Achse wie im Analyse-Bereich. Mit dem alten
   // created_by_user_id-Filter landete jeder Abschluss beim Geschäftsführer,
-  // der alle Closings führt — sämtliche Setter standen dadurch bei 0 €.
+  // der alle Closings anlegt — sämtliche Setter standen dadurch bei 0 €.
   const revenueByUser = new Map<string, number>();
   for (const row of (wonDealsRes.data ?? []) as WonDealRow[]) {
-    const uid = personOf(row);
+    const uid = gespraechsPersonOf(row);
     if (!uid) continue;
     revenueByUser.set(uid, (revenueByUser.get(uid) ?? 0) + NUM(row.deal_volume));
   }

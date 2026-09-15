@@ -12,7 +12,8 @@
 // Zwei Regeln, die man beim Erweitern nicht brechen darf:
 //  1. Die Personenachse ist IMMER eine `user_id`. LinkedIn/Telefon lösen über
 //     den Listen-Owner auf (`owner_name` vor `created_by_user_id`), Termine
-//     über `personOf()` (Zuweisung vor Ersteller). Beide Wege enden in
+//     über `gespraechsPersonOf()` („Durchgeführt von" vor Zuweisung vor
+//     Ersteller — dieselbe Achse wie die Analyse-Tabs). Beide Wege enden in
 //     derselben Identität — sonst hieße eine Serie „Kevin" je nach Quelle
 //     etwas anderes.
 //  2. Der Tag einer Zeile ist derselbe wie in den Analyse-Tabs
@@ -30,7 +31,7 @@ import {
   type AnalyseSettingCall,
 } from "@/lib/analyseData";
 import { channelLabel, channelOf, type ChannelKey } from "@/lib/channels";
-import { personOf } from "@/lib/personResolution";
+import { gespraechsPersonOf } from "@/lib/personResolution";
 import { BRANCHE_LABEL } from "@/lib/settingLabels";
 import {
   DIMENSION_KEYS,
@@ -255,7 +256,7 @@ export function buildFacts(src: CompareSources): CompareData {
 
   for (const r of src.settings) {
     const dims = emptyDims();
-    dims.person = personDim(personOf(r));
+    dims.person = personDim(gespraechsPersonOf(r));
     const kanal = addKanal(channelKeyOf(r.source_type));
     dims.kanal = kanal;
     kanalOfSetting.set(r.id, kanal);
@@ -283,7 +284,7 @@ export function buildFacts(src: CompareSources): CompareData {
   // ── Closing-Calls ──────────────────────────────────────────
   for (const r of src.closings) {
     const dims = emptyDims();
-    dims.person = personDim(personOf(r));
+    dims.person = personDim(gespraechsPersonOf(r));
     const kanal = r.setting_call_id ? kanalOfSetting.get(r.setting_call_id) : undefined;
     if (kanal) dims.kanal = addKanal(kanal);
     const zg = r.setting_call_id ? zielgruppeOfSetting.get(r.setting_call_id) : undefined;

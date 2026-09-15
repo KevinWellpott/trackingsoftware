@@ -141,6 +141,11 @@ export type AnalyseSettingCall = {
   created_by_user_id: string | null;
   /** Fachliche Zuordnung (Migration 0028) — siehe `personOf` in personResolution.ts. */
   assigned_user_id: string | null;
+  /**
+   * „Durchgeführt von" (Migration 0042) — die Personenachse der Analyse:
+   * `gespraechsPersonOf()` zählt sie vor der Zuweisung.
+   */
+  conducted_by_user_id: string | null;
   /** Registry-Schlüssel (src/lib/channels.ts); `string` nur für Altwerte. */
   source_type: ChannelKey | string | null;
   source_detail: string | null;
@@ -190,7 +195,7 @@ const SETTING_COLUMNS =
   "source_phone_lead_id, appointment_at, call_at, created_at, phone, show_status, " +
   "status, cancelled_at, cancel_outlook, cancel_reason_code, " +
   "no_show_count, meeting_kind, branche, has_budget_8k, sole_decider, can_decide_now, clear_need, " +
-  "ist_pain, warmth";
+  "ist_pain, warmth, conducted_by_user_id";
 
 /**
  * Personen-Filter für Nutzer ohne Vergleichsrecht (`data_scope='own'`).
@@ -208,7 +213,11 @@ const SETTING_COLUMNS =
  * Erinnerungs-Kaskade, und die ist mit dem Nachfass-Rückbau entfallen.
  */
 function assignedOrCreatedBy(userId: string): string {
-  return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId})`;
+  // Dritter Zweig seit Migration 0042: Die Analyse zählt einen Termin bei dem,
+  // der das Gespräch geführt hat (`gespraechsPersonOf`) — wer nur die eigenen
+  // Daten sieht, muss diese Zeilen also auch laden. Deckungsgleich mit dem
+  // dritten Zweig der RLS-Policies aus 0042.
+  return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId}),conducted_by_user_id.eq.${userId}`;
 }
 
 /**
@@ -242,8 +251,13 @@ export type AnalyseClosingCall = {
   id: string;
   /** Audit: wer hat den Datensatz angelegt. NICHT die Personenachse. */
   created_by_user_id: string | null;
-  /** Fachliche Zuordnung (Migration 0028), erbt beim Anlegen vom Setting. */
+  /**
+   * Fachliche Zuordnung (Migration 0028) — beim Anlegen die feste
+   * Closing-Person, ersatzweise vom Setting geerbt (docs §2).
+   */
   assigned_user_id: string | null;
+  /** „Durchgeführt von" (Migration 0042) — wer das Closing geführt hat; zählt vor der Zuweisung. */
+  conducted_by_user_id: string | null;
   setting_call_id: string | null;
   call_at: string | null;
   created_at: string;
@@ -271,7 +285,8 @@ export type AnalyseClosingCall = {
 const CLOSING_COLUMNS =
   "id, created_by_user_id, assigned_user_id, setting_call_id, call_at, created_at, show_status, status, " +
   "cancelled_at, cancel_outlook, cancel_reason_code, " +
-  "deal_volume, payment_type, lost_reason, lost_reason_code, signature_received, contract_start";
+  "deal_volume, payment_type, lost_reason, lost_reason_code, signature_received, contract_start, " +
+  "conducted_by_user_id";
 
 export async function loadClosingCalls(
   supabase: Client,

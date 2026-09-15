@@ -121,3 +121,60 @@ export async function setAssignee(
   revalidatePath("/", "layout");
   return {};
 }
+
+/**
+ * „Durchgeführt von" setzen — wer das Gespräch GEFÜHRT hat (Migration 0042).
+ * `null` = noch nicht eingetragen.
+ *
+ * Das ist die zweite Personenfrage an einem Termin und bewusst eine andere als
+ * die Zuweisung: Die Zuweisung sagt, wer erinnert und nervt (wer den Termin
+ * gelegt hat), dieses Feld, wer am Tisch saß. In der Analyse zählt es vor der
+ * Zuweisung (`gespraechsPersonOf`), und einen erschienenen Lead ohne Ergebnis
+ * bekommt diese Person in ihre Arbeitsliste (`erinnererOf`).
+ *
+ * ANDERS ALS `setAssignee` darf das JEDES Mitglied mit Zugriff auf die Zeile:
+ * „ein Feld, wo wir eintragen, wer den Termin gemacht hat" — wer das Closing
+ * geführt hat, trägt sich selbst ein, ohne einen Owner darum bitten zu müssen.
+ * Die Zielperson muss trotzdem Mitglied der aktiven Organisation sein; der
+ * Guard aus 0042 nullte eine Zuweisung über die Org-Grenze ohnehin, dann sähe
+ * der Nutzer eine gespeicherte Auswahl, die in der Datenbank leer ist.
+ *
+ * SOLANGE 0042 NICHT EINGESPIELT IST, scheitert das UPDATE an der fehlenden
+ * Spalte — dafür der eigene Satz statt einer rohen Postgres-Meldung (Muster
+ * `markFollowUpContacted`).
+ */
+export async function setConductedBy(
+  entity: AssigneeEntity,
+  entityId: string,
+  userId: string | null,
+): Promise<{ error?: string }> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
+  if (entity !== "setting_call" && entity !== "closing_call") return { error: "Unbekannte Termin-Art." };
+  if (!(await belongsToWorkspace(entity, entityId))) return { error: "Keine Berechtigung." };
+
+  const supabase = await createClient();
+  if (userId && !(await isMember(supabase, access.workspace_id, userId))) {
+    return { error: "Nutzer gehört nicht zu dieser Organisation." };
+  }
+
+  const table = entity === "setting_call" ? "setting_calls" : "closing_calls";
+  const { error } = await supabase
+    .from(table)
+    .update({ conducted_by_user_id: userId })
+    .eq("id", entityId)
+    .eq("workspace_id", access.workspace_id);
+  if (error) {
+    if (/conducted_by_user_id/.test(error.message)) {
+      return { error: "Das Feld „Durchgeführt von“ fehlt in der Datenbank — Migration 0042 ist noch nicht eingespielt." };
+    }
+    return { error: error.message };
+  }
+
+  revalidatePath(`/${entity === "setting_call" ? "setting" : "closing"}/${entityId}`, "page");
+  revalidatePath("/termine", "page");
+  // Zählt in der Analyse und im Team-Dashboard — beide zeigen sonst die alte
+  // Verteilung.
+  revalidatePath("/", "layout");
+  return {};
+}
