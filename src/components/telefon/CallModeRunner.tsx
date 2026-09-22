@@ -71,19 +71,6 @@ const OUTCOME_KEYS = { termin: "1", rueckruf: "2", nicht_erreicht: "3", dead: "4
 /** Feste Zeilenhöhe der Seitenliste (für die Virtualisierung). */
 const SIDE_ROW_HEIGHT = 52;
 
-/** Textfelder, die per Blur gespeichert werden (existieren auf PhoneLead + PhoneLeadInput). */
-type TextFieldName =
-  | "decider_name"
-  | "decider_direct_dial"
-  | "email"
-  | "target_group"
-  | "script"
-  | "objection_notes"
-  | "no_transfer_reason"
-  | "no_pitch_reason"
-  | "no_appointment_reason"
-  | "notes";
-
 /** Der Statuspunkt — das einzige verbliebene Farbsignal je Status. */
 function StatusDot({ status, size = 6 }: { status: PhoneLeadStatus; size?: number }) {
   return (
@@ -187,61 +174,6 @@ function Toggle({
         Nein
       </button>
     </div>
-  );
-}
-
-/**
- * Lokal kontrolliertes Textfeld: tippt in eigenem State (keine Recomputes der
- * Lead-Liste pro Tastendruck) und committet erst on-Blur nach außen. Ändert
- * sich der externe Wert (Lead-Wechsel via key, oder Rollback nach Save-Fehler),
- * wird der Draft zurückgesetzt.
- */
-function DraftField({
-  value,
-  onCommit,
-  placeholder,
-  type = "text",
-  textarea = false,
-  rows,
-  style,
-}: {
-  value: string | null;
-  onCommit: (raw: string) => void;
-  placeholder?: string;
-  type?: string;
-  textarea?: boolean;
-  rows?: number;
-  style?: React.CSSProperties;
-}) {
-  const [draft, setDraft] = useState(value ?? "");
-  const [synced, setSynced] = useState(value);
-  if (value !== synced) {
-    setSynced(value);
-    setDraft(value ?? "");
-  }
-  if (textarea) {
-    return (
-      <textarea
-        className="input"
-        value={draft}
-        rows={rows}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => onCommit(draft)}
-        placeholder={placeholder}
-        style={{ resize: "vertical", lineHeight: "var(--lh-base)", ...style }}
-      />
-    );
-  }
-  return (
-    <input
-      className="input"
-      type={type}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => onCommit(draft)}
-      placeholder={placeholder}
-      style={style}
-    />
   );
 }
 
@@ -373,15 +305,6 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
         setError(null);
       }
     });
-  }
-
-  /** Blur-Commit eines Textfelds: Override setzen + getrimmt speichern. */
-  function commitText(id: string, field: TextFieldName, raw: string) {
-    setAndSave(
-      id,
-      { [field]: raw } as Partial<PhoneLead>,
-      { [field]: raw.trim() || null } as Partial<PhoneLeadInput>,
-    );
   }
 
   /** Nach einem Outcome zum nächsten Lead springen. */
@@ -654,6 +577,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                         href={current.website.startsWith("http") ? current.website : `https://${current.website}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        title={current.website}
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -719,26 +643,26 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                 </div>
               </div>
 
-              {/* ── Frage-Flow (vertikal, eine Frage pro Zeile) ──
-                  Alle Felder bleiben sichtbar und beschreibbar, auch die
-                  „Warum …?"-Zeilen. Sie bedingt einzublenden hiesse, dass ein
-                  Grund, den jemand schon eingetragen hat, beim naechsten
-                  Antwortwechsel verschwindet — im Setting-Skript war genau das
-                  der Fehler. Ruhig wird die Sektion ueber Hierarchie
-                  (Rail statt Kasten, Sublabel statt Eyebrow), nicht ueber
-                  weniger Eingabemoeglichkeiten. */}
+              {/* ── Gesprächsverlauf ──
+                  Zwei Selektoren, mehr nicht. Bis hierher standen an dieser
+                  Stelle zusätzlich „Pitch gekommen?", drei „Warum …?"-Felder
+                  und ein Raster aus Kontaktdaten, Reaktion, Mailbox, Zielgruppe,
+                  Skript, Einwänden und Notizen. Im Minutentakt bedient wurde
+                  davon nichts: Wer telefoniert, hält fest, ob er am Gatekeeper
+                  vorbeikam und ob der Entscheider dran war — alles Weitere
+                  entscheidet danach der Ergebnis-Knopf. Die SPALTEN bleiben
+                  unangetastet (docs §3), sie werden hier nur nicht mehr
+                  gepflegt; wer sie braucht, findet sie im Lead-Dossier. */}
               <div
                 style={{
                   display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--sp-6)",
+                  flexWrap: "wrap",
+                  gap: "var(--sp-7)",
                   marginBottom: "var(--sp-7)",
                   paddingBottom: "var(--sp-7)",
                   borderBottom: "1px solid var(--border-default)",
                 }}
               >
-                <span className="eyebrow eyebrow-muted">Gesprächsverlauf</span>
-                {/* 1. Gatekeeper */}
                 <div>
                   <label className="dialer-label">Gatekeeper erreicht?</label>
                   <Segmented
@@ -753,21 +677,8 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                     }}
                   />
                 </div>
-                {/* 2. Warum nicht durchgestellt? */}
-                <div className="dialer-sub">
-                  <label className="dialer-sublabel">Warum nicht durchgestellt?</label>
-                  <DraftField
-                    key={current.id}
-                    textarea
-                    rows={2}
-                    value={current.no_transfer_reason}
-                    onCommit={(raw) => commitText(current.id, "no_transfer_reason", raw)}
-                    placeholder="Grund, falls nicht durchgestellt…"
-                    style={{ minHeight: 44 }}
-                  />
-                </div>
 
-                {/* 3. Entscheider erreicht? — bis Migration 0028 lag hier EIN
+                {/* Entscheider erreicht? — bis Migration 0028 lag hier EIN
                     Schalter mit der Beschriftung „Entscheider gepitcht?", der
                     auf decider_reached schrieb. Deshalb waren „Entscheider
                     erreicht" und „Pitch kam durch" in jeder Auswertung
@@ -778,9 +689,10 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                     value={current.decider_reached}
                     onChange={(v) => {
                       // Kein Entscheider am Apparat ⇒ es kann auch kein Pitch
-                      // durchgekommen sein. Wird der Schalter zurückgenommen,
-                      // fällt der Pitch mit — sonst bliebe eine unmögliche
-                      // Kombination stehen, die niemand mehr nachträglich sieht.
+                      // durchgekommen sein. Das Pitch-Feld hat keine Bedienung
+                      // mehr; die Kaskade bleibt trotzdem stehen, sonst bliebe
+                      // nach einem zurückgenommenen „Ja" eine unmögliche
+                      // Kombination in der Zeile, die jetzt niemand mehr sieht.
                       if (v) {
                         setAndSave(current.id, { decider_reached: true }, { decider_reached: true });
                       } else {
@@ -791,184 +703,6 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                         );
                       }
                     }}
-                  />
-                </div>
-                {/* 3b. Pitch gekommen? — nur sinnvoll, wenn der Entscheider dran war. */}
-                <div className="dialer-sub">
-                  <label className="dialer-sublabel">Pitch gekommen?</label>
-                  <Toggle
-                    value={current.pitch_delivered}
-                    disabled={current.decider_reached !== true}
-                    onChange={(v) => {
-                      setAndSave(current.id, { pitch_delivered: v }, { pitch_delivered: v });
-                    }}
-                  />
-                  {current.decider_reached !== true && (
-                    <p className="dialer-hint">Erst aktiv, wenn der Entscheider erreicht wurde.</p>
-                  )}
-                </div>
-                {/* 4. Warum kein Pitch? */}
-                <div className="dialer-sub">
-                  <label className="dialer-sublabel">Warum kein Pitch?</label>
-                  <DraftField
-                    key={current.id}
-                    textarea
-                    rows={2}
-                    value={current.no_pitch_reason}
-                    onCommit={(raw) => commitText(current.id, "no_pitch_reason", raw)}
-                    placeholder="Grund, falls kein Pitch…"
-                    style={{ minHeight: 44 }}
-                  />
-                </div>
-
-                {/* 5. Termin? */}
-                <div>
-                  <label className="dialer-label">Termin?</label>
-                  {/* Vorher standen hier ein grüner „Ja"-Button und ein
-                      grauer „Nein"-Chip nebeneinander — letzterer sah aus wie
-                      ein Schalter, war aber totes Markup. „Kein Termin" ist
-                      kein Klick, sondern der Normalfall; die Buchung ist die
-                      einzige Handlung und steht deshalb allein. */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={isPending}
-                      onClick={() => setApptOpen(true)}
-                      icon={<Calendar size={12} />}
-                    >
-                      Termin buchen
-                    </Button>
-                    {(current.status === "termin" || current.appointment_set) && (
-                      <span className="badge badge-green" style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
-                        <Calendar size={11} /> Gebucht
-                        {current.appointment_at ? ` · ${formatTermin(current.appointment_at)}` : ""}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {/* 6. Warum kein Termin? */}
-                <div className="dialer-sub">
-                  <label className="dialer-sublabel">Warum kein Termin?</label>
-                  <DraftField
-                    key={current.id}
-                    textarea
-                    rows={2}
-                    value={current.no_appointment_reason}
-                    onCommit={(raw) => commitText(current.id, "no_appointment_reason", raw)}
-                    placeholder="Grund, falls kein Termin…"
-                    style={{ minHeight: 44 }}
-                  />
-                </div>
-              </div>
-
-              {/* ── Weitere Tracking-Felder ──
-                  Der Versuchszähler stand hier bis eben als eigenes Feld mit
-                  Erklärzeile. Er ist eine reine Anzeige (das Anruf-Log zählt
-                  ihn seit Migration 0028 selbst) und gehört an die Rufnummer,
-                  nicht ins Eingaberaster: Dort oben beantwortet er „der
-                  wievielte Anruf ist das", bevor jemand wählt. */}
-              <span className="eyebrow eyebrow-muted" style={{ display: "block", marginBottom: "var(--sp-5)" }}>
-                Kontaktdaten &amp; Notizen
-              </span>
-              <div
-                className="call-fields-grid"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "var(--sp-6) var(--sp-7)",
-                  marginBottom: "var(--sp-7)",
-                }}
-              >
-                <div>
-                  <label className="dialer-label">Reaktion</label>
-                  <Segmented
-                    value={current.answer_sentiment}
-                    options={[
-                      { value: "positiv", label: "Positiv" },
-                      { value: "neutral", label: "Neutral" },
-                      { value: "negativ", label: "Negativ" },
-                    ]}
-                    onChange={(v) => {
-                      setAndSave(current.id, { answer_sentiment: v }, { answer_sentiment: v });
-                    }}
-                  />
-                </div>
-                <div>
-                  <label className="dialer-label">Mailbox</label>
-                  <Toggle
-                    value={current.mailbox}
-                    onChange={(v) => {
-                      setAndSave(current.id, { mailbox: v }, { mailbox: v });
-                    }}
-                  />
-                </div>
-                <div>
-                  <label className="dialer-label">Ansprechpartner (Entscheider)</label>
-                  <DraftField
-                    key={current.id}
-                    value={current.decider_name}
-                    onCommit={(raw) => commitText(current.id, "decider_name", raw)}
-                    placeholder="Name…"
-                  />
-                </div>
-                <div>
-                  <label className="dialer-label">E-Mail</label>
-                  <DraftField
-                    key={current.id}
-                    type="email"
-                    value={current.email}
-                    onCommit={(raw) => commitText(current.id, "email", raw)}
-                    placeholder="mail@firma.de"
-                  />
-                </div>
-                <div>
-                  <label className="dialer-label">Durchwahl Entscheider</label>
-                  <DraftField
-                    key={current.id}
-                    value={current.decider_direct_dial}
-                    onCommit={(raw) => commitText(current.id, "decider_direct_dial", raw)}
-                    placeholder="+49…"
-                  />
-                </div>
-                <div>
-                  <label className="dialer-label">Zielgruppe</label>
-                  <DraftField
-                    key={current.id}
-                    value={current.target_group}
-                    onCommit={(raw) => commitText(current.id, "target_group", raw)}
-                    placeholder="z. B. Handwerk"
-                  />
-                </div>
-                <div>
-                  <label className="dialer-label">Skript</label>
-                  <DraftField
-                    key={current.id}
-                    value={current.script}
-                    onCommit={(raw) => commitText(current.id, "script", raw)}
-                    placeholder="Verwendetes Skript…"
-                  />
-                </div>
-                <div>
-                  <label className="dialer-label">Einwände</label>
-                  <DraftField
-                    key={current.id}
-                    value={current.objection_notes}
-                    onCommit={(raw) => commitText(current.id, "objection_notes", raw)}
-                    placeholder="z. B. kein Budget…"
-                  />
-                </div>
-
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <label className="dialer-label">Notizen</label>
-                  <DraftField
-                    key={current.id}
-                    textarea
-                    rows={2}
-                    value={current.notes}
-                    onCommit={(raw) => commitText(current.id, "notes", raw)}
-                    placeholder="Gesprächsnotizen…"
-                    style={{ minHeight: 52 }}
                   />
                 </div>
               </div>
@@ -1063,6 +797,10 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                     </span>
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span
+                        // Die Zeile hat eine feste Hoehe (Virtualisierung), der
+                        // Name wird also gekuerzt. Der volle steht im Titel —
+                        // und ungekuerzt in der Karte daneben.
+                        title={l.company || l.phone || undefined}
                         style={{
                           display: "block",
                           fontSize: "var(--fs-sm)",
