@@ -75,7 +75,8 @@ export default async function TelefonPage() {
       p_effective_user_id: access.effective_user_id ?? null,
     }),
     listDataViewUsers(access.workspace_id),
-    // Abgeleitete Liste „Setting No-Show" (src/lib/settingNoShow.ts). Fail-soft:
+    // Abgeleitete Liste „Setting No-Show" (src/lib/settingNoShow.ts) — nur die
+    // EIGENEN No-Shows, die Karte steht also nur in der eigenen Sektion. Fail-soft:
     // Eine fehlgeschlagene Zählung darf die Übersicht nicht abräumen — dann
     // fehlt nur die Karte.
     loadPhoneNoShowLeads(access).catch(() => []),
@@ -285,7 +286,7 @@ export default async function TelefonPage() {
                 {(noShowByOwner.get(owner) ?? 0) > 0 && (
                   <Link
                     href={
-`/telefon/setting-no-show?owner=${encodeURIComponent(owner)}`
+"/telefon/setting-no-show"
                     }
                     style={{ textDecoration: "none" }}
                     className="organic-list-card-link"

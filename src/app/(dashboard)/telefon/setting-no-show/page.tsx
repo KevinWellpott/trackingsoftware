@@ -15,26 +15,19 @@ import { notFound } from "next/navigation";
 // Raus kommt ein Lead über jedes Ergebnis im Call-Mode (neuer Termin, Rückruf,
 // Nicht erreicht, Kein Termin, Tot) oder über das Setting selbst.
 //
-// `?owner=<username>` schneidet auf eine Person — so verlinkt die
-// Telefon-Übersicht je Inhaber („eine Liste je Person"). Ohne Parameter gilt
-// die aktive Datensicht.
+// NUR DIE EIGENEN: Termin selbst gelegt UND Lead in der eigenen Liste
+// (`gehoertMir`, src/lib/settingNoShow.ts). Auch ein Owner mit Team-Sicht sieht
+// hier nicht die No-Shows der Kollegen — dafür stellt er deren Datensicht ein.
 
 export const dynamic = "force-dynamic";
 
-export default async function SettingNoShowPhonePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | undefined>>;
-}) {
+export default async function SettingNoShowPhonePage() {
   const access = await getAccessContext();
   if (!access) notFound();
-  const owner = (await searchParams).owner?.trim() || null;
 
-  const all = await loadPhoneNoShowLeads(access);
-  // „Ohne Zuordnung" ist der Gruppenname der Übersicht für Listen ohne
-  // `owner_name` — derselbe Schlüssel, damit der Link genau ihre Leads trifft.
-  const leads = owner ? all.filter((l) => (l.owner_name ?? "Ohne Zuordnung") === owner) : all;
-  const oc = owner ? ownerColor(owner) : null;
+  const leads = await loadPhoneNoShowLeads(access);
+  const owner = access.effective_username ?? access.username;
+  const oc = ownerColor(owner);
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto" }}>
@@ -54,7 +47,7 @@ export default async function SettingNoShowPhonePage({
           <ArrowLeft size={13} /> Telefon
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-          {owner && oc && (
+          {oc && (
             <span
               className="badge"
               style={{ color: oc.fg, background: oc.bg, border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)` }}
@@ -74,7 +67,7 @@ export default async function SettingNoShowPhonePage({
           Setting No-Show
         </h1>
         <p style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)", margin: "var(--sp-3) 0 0", maxWidth: 720 }}>
-          Telefon-Leads mit Termin, deren Erstgespräch auf &bdquo;Nicht erschienen&ldquo; steht. Ein neuer Termin, ein
+          Deine Telefon-Leads mit Termin, deren Erstgespräch auf &bdquo;Nicht erschienen&ldquo; steht. Ein neuer Termin, ein
           anderes Ergebnis oder &bdquo;Tot&ldquo; nimmt sie von der Liste.
         </p>
       </div>

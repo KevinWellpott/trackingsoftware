@@ -1,15 +1,29 @@
 // „Setting No-Show"-Listen — die Abfragen. Die Regel steht in settingNoShow.ts.
 
-import { matchesOwnScope, ownScopeFilter, type AccessContext } from "@/lib/access";
+import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import { noShowJeLead, type NoShowSettingRow } from "@/lib/settingNoShow";
+import { gehoertMir, noShowJeLead, type NoShowBetrachter, type NoShowSettingRow } from "@/lib/settingNoShow";
 import { LIST_CONTACT_COLUMNS, type ListContact, type PhoneLead } from "@/lib/types";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 /** PostgREST trägt `.in()` in der URL — 100 UUIDs sind ~3,7 kB und damit sicher. */
 const IN_CHUNK = 100;
+
+/**
+ * Für wen die Liste gilt: die eingestellte Datensicht, sonst die angemeldete
+ * Person — dieselbe Regel wie die Vorgabe „Mein" der Arbeitsliste und der
+ * Navigations-Zähler (docs §5.4). Bewusst OHNE „alle": Auch ein Owner mit
+ * Team-Sicht sieht nur seine eigenen No-Shows; wer die eines Kollegen braucht,
+ * stellt dessen Datensicht ein.
+ */
+function betrachterAus(access: AccessContext): NoShowBetrachter {
+  return {
+    user_id: access.effective_user_id ?? access.user.id,
+    username: access.effective_username ?? access.username,
+  };
+}
 
 function chunks<T>(items: T[], size = IN_CHUNK): T[][] {
   const out: T[][] = [];
@@ -31,7 +45,7 @@ async function loadNoShowSettings(
   const rows = await fetchAllRows<Record<string, unknown>>((from, to) =>
     supabase
       .from("setting_calls")
-      .select(`id, ${column}, status, no_show_resolution, appointment_at, created_at`)
+      .select(`id, ${column}, status, no_show_resolution, appointment_at, created_at, assigned_user_id, created_by_user_id`)
       .eq("workspace_id", workspaceId)
       .not(column, "is", null)
       .order("id", { ascending: true })
@@ -45,6 +59,8 @@ async function loadNoShowSettings(
       no_show_resolution: (r.no_show_resolution as string | null) ?? null,
       appointment_at: (r.appointment_at as string | null) ?? null,
       created_at: r.created_at as string,
+      assigned_user_id: (r.assigned_user_id as string | null) ?? null,
+      created_by_user_id: (r.created_by_user_id as string | null) ?? null,
     })),
   );
 }
@@ -66,11 +82,12 @@ export type PhoneNoShowLead = PhoneLead & { owner_name: string | null };
  * „Nicht erreicht" oder „Kein Termin" bekommt, wandert in die jeweilige
  * Routing-Liste — ohne diese Bedingung stünde er dann in zwei Listen zugleich.
  *
- * Personenfilter wie überall im Telefon-Bereich: über die Liste, in der der
- * Lead liegt (`owner_name` vor `created_by_user_id`, `matchesOwnScope`).
+ * Personenfilter: `gehoertMir` — Termin selbst gelegt UND Lead in der
+ * eigenen Liste (src/lib/settingNoShow.ts).
  */
 export async function loadPhoneNoShowLeads(access: AccessContext): Promise<PhoneNoShowLead[]> {
   const supabase = await createClient();
+  const ich = betrachterAus(access);
   const noShows = await loadNoShowSettings(supabase, access.workspace_id, "source_phone_lead_id");
   if (noShows.size === 0) return [];
 
@@ -87,7 +104,8 @@ export async function loadPhoneNoShowLeads(access: AccessContext): Promise<Phone
       const { phone_lists: list, ...lead } = raw as PhoneLead & {
         phone_lists: { owner_name: string | null; created_by_user_id: string | null };
       };
-      if (!matchesOwnScope(access, list)) continue;
+      const setting = noShows.get((lead as PhoneLead).id);
+      if (!setting || !gehoertMir(setting, list, ich)) continue;
       leads.push({ ...(lead as PhoneLead), owner_name: list.owner_name });
     }
   }
@@ -104,22 +122,24 @@ export type LinkedInNoShowContact = ListContact & { owner_name: string | null };
  * in der er parallel stehen könnte. Er verlässt die No-Show-Liste über das
  * Setting — neuer Termin oder tot.
  *
- * Obergrenze sind die sichtbaren, nicht archivierten Listen — dieselbe Regel
- * wie bei den Smart Views (`/ansicht/[viewId]`).
+ * Personenfilter wie beim Telefon (`gehoertMir`); archivierte Listen fallen
+ * heraus — dieselbe Regel wie bei den Smart Views (`/ansicht/[viewId]`).
  */
 export async function loadLinkedInNoShowContacts(access: AccessContext): Promise<LinkedInNoShowContact[]> {
   const supabase = await createClient();
-  let listsQuery = supabase
+  const ich = betrachterAus(access);
+  const { data: listRows } = await supabase
     .from("lists")
-    .select("id, owner_name")
+    .select("id, owner_name, created_by_user_id")
     .eq("workspace_id", access.workspace_id)
     .is("archived_at", null);
-  const scope = ownScopeFilter(access);
-  if (scope) listsQuery = listsQuery.or(scope);
-  const { data: listRows } = await listsQuery;
-  // Liste → Inhaber. Zugleich die Obergrenze: Was hier fehlt, ist nicht sichtbar.
-  const allowed = new Map((listRows ?? []).map((l) => [l.id as string, (l.owner_name as string | null) ?? null]));
-  if (allowed.size === 0) return [];
+  const listen = new Map(
+    (listRows ?? []).map((l) => [
+      l.id as string,
+      { owner_name: (l.owner_name as string | null) ?? null, created_by_user_id: (l.created_by_user_id as string | null) ?? null },
+    ]),
+  );
+  if (listen.size === 0) return [];
 
   const noShows = await loadNoShowSettings(supabase, access.workspace_id, "source_contact_id");
   if (noShows.size === 0) return [];
@@ -129,7 +149,10 @@ export async function loadLinkedInNoShowContacts(access: AccessContext): Promise
     const { data, error } = await supabase.from("contacts").select(LIST_CONTACT_COLUMNS).in("id", ids);
     if (error) throw new Error(error.message);
     for (const c of (data ?? []) as unknown as ListContact[]) {
-      if (c.list_id && allowed.has(c.list_id)) contacts.push({ ...c, owner_name: allowed.get(c.list_id) ?? null });
+      const liste = c.list_id ? listen.get(c.list_id) : undefined;
+      const setting = noShows.get(c.id);
+      if (!liste || !setting || !gehoertMir(setting, liste, ich)) continue;
+      contacts.push({ ...c, owner_name: liste.owner_name });
     }
   }
   return nachNoShowDatum(contacts, noShows);

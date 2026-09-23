@@ -9,14 +9,22 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
-import { istSettingNoShow, noShowJeLead, type NoShowSettingRow } from "@/lib/settingNoShow";
+import { gehoertMir, istSettingNoShow, noShowJeLead, type NoShowSettingRow } from "@/lib/settingNoShow";
 
 function read(relative: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 }
 
 function row(p: Partial<NoShowSettingRow> & { source_id: string; created_at: string }): NoShowSettingRow {
-  return { id: `${p.source_id}-${p.created_at}`, status: "offen", no_show_resolution: null, appointment_at: null, ...p };
+  return {
+    id: `${p.source_id}-${p.created_at}`,
+    status: "offen",
+    no_show_resolution: null,
+    appointment_at: null,
+    assigned_user_id: null,
+    created_by_user_id: null,
+    ...p,
+  };
 }
 
 describe("die Regel", () => {
@@ -50,6 +58,52 @@ describe("die Regel", () => {
   });
 });
 
+describe("nur die eigenen: Termin gelegt UND Lead in der eigenen Liste", () => {
+  const ich = { user_id: "u-simon", username: "Simon" };
+  const meineListe = { owner_name: "Simon", created_by_user_id: "u-admin" };
+  const fremdeListe = { owner_name: "Kevin", created_by_user_id: "u-simon" };
+  const vonMir = { assigned_user_id: "u-simon", created_by_user_id: "u-simon" };
+  const vonKevin = { assigned_user_id: "u-kevin", created_by_user_id: "u-kevin" };
+
+  test("selbst gelegt, eigene Liste → sichtbar", () => {
+    assert.equal(gehoertMir(vonMir, meineListe, ich), true);
+  });
+
+  test("von einem Kollegen gelegt → nicht sichtbar, auch in der eigenen Liste", () => {
+    assert.equal(gehoertMir(vonKevin, meineListe, ich), false);
+  });
+
+  test("selbst gelegt, aber Lead in fremder Liste → nicht sichtbar", () => {
+    // owner_name hat Vorrang vor created_by_user_id — auch wenn ich die
+    // Liste angelegt habe, gehört sie Kevin.
+    assert.equal(gehoertMir(vonMir, fremdeListe, ich), false);
+  });
+
+  test("Zuweisung schlägt Ersteller (personOf)", () => {
+    const fuerMichGebucht = { assigned_user_id: "u-simon", created_by_user_id: "u-admin" };
+    assert.equal(gehoertMir(fuerMichGebucht, meineListe, ich), true);
+    const umverteilt = { assigned_user_id: "u-kevin", created_by_user_id: "u-simon" };
+    assert.equal(gehoertMir(umverteilt, meineListe, ich), false);
+  });
+
+  test("Liste ohne owner_name: Ersteller entscheidet", () => {
+    assert.equal(gehoertMir(vonMir, { owner_name: null, created_by_user_id: "u-simon" }, ich), true);
+    assert.equal(gehoertMir(vonMir, { owner_name: null, created_by_user_id: "u-kevin" }, ich), false);
+  });
+
+  test("beide Loader filtern über gehoertMir, ohne Schalter für alle", () => {
+    const DATA = read("src/lib/settingNoShowData.ts");
+    assert.equal((DATA.match(/gehoertMir\(setting, (list|liste), ich\)/g) ?? []).length, 2);
+    assert.match(DATA, /user_id: access\.effective_user_id \?\? access\.user\.id/);
+    for (const page of [
+      "src/app/(dashboard)/telefon/setting-no-show/page.tsx",
+      "src/app/(dashboard)/listen/setting-no-show/page.tsx",
+    ]) {
+      assert.ok(!read(page).includes("searchParams"), `${page} nimmt wieder einen Personen-Parameter`);
+    }
+  });
+});
+
 describe("Telefon", () => {
   const DATA = read("src/lib/settingNoShowData.ts");
   const PHONE = read("src/app/actions/phone.ts");
@@ -68,10 +122,9 @@ describe("Telefon", () => {
     assert.match(PHONE, /if \(setting\?\.status === "no_show"\) await markTerminDead\("setting", setting\.id\)/);
   });
 
-  test("die Seite existiert und nimmt ?owner=", () => {
+  test("die Seite existiert", () => {
     const PAGE = read("src/app/(dashboard)/telefon/setting-no-show/page.tsx");
     assert.match(PAGE, /loadPhoneNoShowLeads\(access\)/);
-    assert.match(PAGE, /\.owner\?\.trim\(\)/);
   });
 });
 

@@ -14,29 +14,24 @@ import { notFound } from "next/navigation";
 // Ein neuer Termin über das Board setzt das Setting zurück auf „offen"
 // (`convertContactToSetting`), und der Kontakt verschwindet von hier.
 //
-// `?owner=<username>` schneidet auf eine Person, ohne Parameter gilt die
-// aktive Datensicht.
+// NUR DIE EIGENEN: Termin selbst gelegt UND Kontakt in der eigenen Liste
+// (`gehoertMir`, src/lib/settingNoShow.ts) — wie beim Telefon.
 
 export const dynamic = "force-dynamic";
 
-export default async function SettingNoShowLinkedInPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | undefined>>;
-}) {
+export default async function SettingNoShowLinkedInPage() {
   const access = await getAccessContext();
   if (!access) notFound();
-  const owner = (await searchParams).owner?.trim() || null;
 
-  const all = await loadLinkedInNoShowContacts(access);
-  const contacts = owner ? all.filter((c) => c.owner_name === owner) : all;
+  const contacts = await loadLinkedInNoShowContacts(access);
+  const owner = access.effective_username ?? access.username;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
       <PageHeader
         eyebrow="LinkedIn"
         title="Setting No-Show"
-        meta={`${contacts.length.toLocaleString("de-DE")} Kontakte${owner ? ` · ${owner}` : ""} · terminiert, Erstgespräch auf „Nicht erschienen" — ein neuer Termin oder „Tot" nimmt sie von der Liste`}
+        meta={`${contacts.length.toLocaleString("de-DE")} Kontakte · ${owner} · von dir terminiert, Erstgespräch auf „Nicht erschienen" — ein neuer Termin oder „Tot" nimmt sie von der Liste`}
       />
       <ListBoardV2 listId={null} contacts={contacts} />
     </div>

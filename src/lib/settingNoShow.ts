@@ -13,8 +13,16 @@
 // No-Show-Liste. So fällt er von selbst heraus, sobald das Setting einen neuen
 // Termin bekommt (Status → offen) oder beendet wird (Status → dead).
 //
+// NUR FÜR EINE PERSON. Jeder sieht ausschließlich seine eigenen No-Shows —
+// und „eigen" heißt zweierlei zugleich: Er hat den Termin gelegt UND der Lead
+// steht in seiner Liste (`gehoertMir`). Auch ein Owner mit Team-Sicht sieht
+// hier nicht die No-Shows der Kollegen: Wer anruft, ist der, der den Termin
+// gelegt hat — derselbe Gedanke wie „wer legt, erinnert und nervt" (docs §2).
+//
 // Reine Funktionen ohne Datenbank, damit die Regel testbar ist. Die Abfragen
 // stehen in settingNoShowData.ts.
+
+import { personOf } from "@/lib/personResolution";
 
 export type NoShowSettingRow = {
   id: string;
@@ -24,7 +32,34 @@ export type NoShowSettingRow = {
   no_show_resolution: string | null;
   appointment_at: string | null;
   created_at: string;
+  assigned_user_id: string | null;
+  created_by_user_id: string | null;
 };
+
+/** Wer die Liste sieht: die angemeldete Person bzw. die eingestellte Datensicht. */
+export type NoShowBetrachter = { user_id: string; username: string };
+
+/**
+ * Gehört dieser No-Show dem Betrachter?
+ *
+ * 1. Er hat den Termin GELEGT — `personOf()` = `assigned_user_id ??
+ *    created_by_user_id`, die Achse von „Termine gelegt" (docs §2). Bewusst
+ *    nicht „Durchgeführt von": Nicht erschienen ist der Lead ja gerade.
+ * 2. Der Lead steht in SEINER Liste — Inhaber wie überall über `owner_name`,
+ *    `created_by_user_id` nur ohne Namen (`list_owned_by_user()`).
+ *
+ * Beides muss gelten. Fällt eins auseinander (Termin für einen Kollegen gelegt,
+ * Lead aus fremder Liste), sieht ihn niemand hier — er steht dann weiterhin in
+ * der Arbeitsliste unter /termine bei dem, der den Termin gelegt hat.
+ */
+export function gehoertMir(
+  setting: Pick<NoShowSettingRow, "assigned_user_id" | "created_by_user_id">,
+  liste: { owner_name: string | null; created_by_user_id: string | null },
+  ich: NoShowBetrachter,
+): boolean {
+  if (personOf(setting) !== ich.user_id) return false;
+  return liste.owner_name ? liste.owner_name === ich.username : liste.created_by_user_id === ich.user_id;
+}
 
 /**
  * Steht dieses Setting auf No-Show?
