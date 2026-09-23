@@ -4,24 +4,26 @@ import { PhoneDashboard } from "@/components/telefon/PhoneDashboard";
 import { getAccessContext, listDataViewUsers, ownScopeFilter } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { ownerColor } from "@/lib/ownerColor";
+import { loadPhoneNoShowLeads } from "@/lib/settingNoShowData";
 import type { PhoneLeadStatus, PhoneList, PhoneListKind } from "@/lib/types";
 import { EmptyState, PageHeader } from "@/components/ui/PageHeader";
-import { Phone, PhoneMissed, Voicemail } from "lucide-react";
+import { CalendarX, Phone, PhoneMissed, UserX, Voicemail } from "lucide-react";
 import Link from "next/link";
 
 // Telefon-Übersicht: Dashboard-Metriken + alle Telefonlisten gruppiert nach
-// Inhaber (Akquise-Listen + Rückruf-/Nicht-erreicht-Routing-Listen).
+// Inhaber (Akquise-Listen + Rückruf-/Nicht-erreicht-/Kein-Termin-Routing-Listen).
 
 type ListCounts = {
   total: number;
   aktiv: number;
   rueckruf: number;
   nicht_erreicht: number;
+  kein_termin: number;
   termin: number;
   dead: number;
 };
 
-const EMPTY_COUNTS: ListCounts = { total: 0, aktiv: 0, rueckruf: 0, nicht_erreicht: 0, termin: 0, dead: 0 };
+const EMPTY_COUNTS: ListCounts = { total: 0, aktiv: 0, rueckruf: 0, nicht_erreicht: 0, kein_termin: 0, termin: 0, dead: 0 };
 
 // Routing-Listen sind eine STRUKTUR-Eigenschaft der Liste, kein Status ihrer
 // Leads — deshalb ein neutrales Badge mit farbigem Punkt statt einer getoenten
@@ -32,10 +34,12 @@ const KIND_BADGE: Record<PhoneListKind, { label: string; dot: string } | null> =
   akquise: null,
   rueckruf: { label: "Rückruf", dot: "var(--info)" },
   nicht_erreicht: { label: "Nicht erreicht", dot: "var(--warning)" },
+  kein_termin: { label: "Kein Termin", dot: "var(--text-subtle)" },
 };
 
 function KindIcon({ kind }: { kind: PhoneListKind }) {
-  const Icon = kind === "rueckruf" ? PhoneMissed : kind === "nicht_erreicht" ? Voicemail : Phone;
+  const Icon =
+    kind === "rueckruf" ? PhoneMissed : kind === "nicht_erreicht" ? Voicemail : kind === "kein_termin" ? CalendarX : Phone;
   return <Icon size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />;
 }
 
@@ -63,7 +67,7 @@ export default async function TelefonPage() {
     listsQuery = listsQuery.or(ownScope);
   }
 
-  const [{ data: rawLists }, { data: countRows }, allUsers] = await Promise.all([
+  const [{ data: rawLists }, { data: countRows }, allUsers, noShowLeads] = await Promise.all([
     listsQuery,
     // Aggregat-RPC statt Full-Table-Read: nur (list_id, status, cnt) statt aller Leads
     supabase.rpc("rpc_phone_list_counts", {
@@ -71,7 +75,18 @@ export default async function TelefonPage() {
       p_effective_user_id: access.effective_user_id ?? null,
     }),
     listDataViewUsers(access.workspace_id),
+    // Abgeleitete Liste „Setting No-Show" (src/lib/settingNoShow.ts). Fail-soft:
+    // Eine fehlgeschlagene Zählung darf die Übersicht nicht abräumen — dann
+    // fehlt nur die Karte.
+    loadPhoneNoShowLeads(access).catch(() => []),
   ]);
+
+  // Je Inhaber — derselbe Schlüssel wie die Gruppierung unten.
+  const noShowByOwner = new Map<string, number>();
+  for (const l of noShowLeads) {
+    const key = l.owner_name ?? "Ohne Zuordnung";
+    noShowByOwner.set(key, (noShowByOwner.get(key) ?? 0) + 1);
+  }
 
   const lists = (rawLists ?? []) as PhoneList[];
 
@@ -112,7 +127,7 @@ export default async function TelefonPage() {
   }
 
   // Nach Inhaber gruppieren; Akquise-Listen zuerst, Routing-Listen danach
-  const KIND_ORDER: Record<PhoneListKind, number> = { akquise: 0, rueckruf: 1, nicht_erreicht: 2 };
+  const KIND_ORDER: Record<PhoneListKind, number> = { akquise: 0, rueckruf: 1, nicht_erreicht: 2, kein_termin: 3 };
   const grouped: Record<string, PhoneList[]> = {};
   for (const l of lists) {
     const key = l.owner_name ?? "Ohne Zuordnung";
@@ -254,6 +269,7 @@ export default async function TelefonPage() {
                             <span>{c.aktiv} aktiv</span>
                             <span>{c.rueckruf} Rückruf</span>
                             <span style={{ color: "var(--success-fg)" }}>{c.termin} Termin</span>
+                            {c.kein_termin > 0 && <span>{c.kein_termin} kein Termin</span>}
                             <span>{c.dead} dead</span>
                           </div>
                         </div>
@@ -264,6 +280,38 @@ export default async function TelefonPage() {
                     </div>
                   );
                 })}
+                {/* Abgeleitete Liste: keine Zeile in phone_lists, deshalb
+                    kein Löschknopf und nur sichtbar, solange jemand drinsteht. */}
+                {(noShowByOwner.get(owner) ?? 0) > 0 && (
+                  <Link
+                    href={
+`/telefon/setting-no-show?owner=${encodeURIComponent(owner)}`
+                    }
+                    style={{ textDecoration: "none" }}
+                    className="organic-list-card-link"
+                  >
+                    <div className="organic-list-card card" style={{ padding: "var(--sp-6) var(--sp-7)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-6)" }}>
+                        <UserX size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>
+                          Setting No-Show
+                        </span>
+                        <span
+                          className="badge badge-gray"
+                          style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)", flexShrink: 0 }}
+                        >
+                          <span style={{ width: 6, height: 6, borderRadius: "var(--r-full)", background: "var(--danger)" }} />
+                          No-Show
+                        </span>
+                      </div>
+                      <div className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
+                        <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
+                          {noShowByOwner.get(owner)} nochmal anrufen
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                )}
               </div>
             </section>
           );

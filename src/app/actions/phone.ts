@@ -7,9 +7,10 @@ import { revalidatePath } from "next/cache";
 import { parsePhoneCsv } from "@/lib/phone-csv";
 import { logCallAttempt } from "@/app/actions/phoneAttempts";
 import { scheduleRecycle } from "@/app/actions/recycle";
+import { markTerminDead } from "@/app/actions/followUpStamp";
 import type { PhoneCallKind, PhoneListKind } from "@/lib/types";
 
-// Telefonakquise: Listen, Routing (Rückruf/Nicht erreicht = echte separate Listen),
+// Telefonakquise: Listen, Routing (Rückruf/Nicht erreicht/Kein Termin = echte separate Listen),
 // Lead-CRUD und CSV-Import. Personenbezogen über created_by_user_id/owner_name.
 
 function todayLocal(): string {
@@ -78,9 +79,22 @@ export async function restorePhoneListForm(formData: FormData) {
 const ROUTING_LABEL: Record<Exclude<PhoneListKind, "akquise">, string> = {
   rueckruf: "Rückruf",
   nicht_erreicht: "Nicht erreicht",
+  kein_termin: "Kein Termin",
 };
 
-/** Stellt sicher, dass die Routing-Liste (Rückruf / Nicht erreicht) für den Owner existiert. */
+/**
+ * Nach wie vielen „Nicht erreicht" DIREKT HINTEREINANDER ein Lead automatisch
+ * tot ist.
+ *
+ * Gezählt wird eine Serie, nicht die Summe: Jedes andere Ergebnis dazwischen
+ * (Rückruf, Kein Termin, Kein Ergebnis …) heißt „es kam jemand an den Apparat"
+ * und setzt die Zählung zurück. Der dritte Fehlversuch in Folge landet nicht
+ * mehr in der Nicht-erreicht-Liste, sondern bekommt `dead` — und damit wie
+ * jeder tote Lead ein Recycling-Datum statt endgültig zu verschwinden.
+ */
+const NICHT_ERREICHT_LIMIT = 3;
+
+/** Stellt sicher, dass die Routing-Liste (Rückruf / Nicht erreicht / Kein Termin) für den Owner existiert. */
 async function ensurePhoneRoutingList(
   source: { workspace_id: string; created_by_user_id: string | null; owner_name: string | null },
   kind: Exclude<PhoneListKind, "akquise">,
@@ -296,8 +310,15 @@ export async function updatePhoneLead(
 }
 
 /**
- * Ergebnis eines Anrufs setzen. Rückruf/Nicht-erreicht verschieben den Lead
- * physisch in die jeweilige Routing-Liste des Owners. Rückruf braucht callback_at.
+ * Ergebnis eines Anrufs setzen. Rückruf/Nicht-erreicht/Kein-Termin verschieben
+ * den Lead physisch in die jeweilige Routing-Liste des Owners. Rückruf braucht
+ * callback_at.
+ *
+ * Das dritte „Nicht erreicht" in Folge (NICHT_ERREICHT_LIMIT) schreibt stattdessen
+ * `dead`: Der Lead bleibt in seiner aktuellen Liste, bekommt ein
+ * Recycling-Datum, und `autoDead` sagt der Oberfläche, warum aus dem Klick auf
+ * „Nicht erreicht" ein toter Lead wurde. Im Anruf-Log steht trotzdem
+ * `nicht_erreicht` — das ist, was bei diesem Anruf PASSIERT ist.
  *
  * Die vier Outcome-Buttons im Call-Modus SIND das Anruf-Ereignis: jeder Klick
  * ist genau eine Anwahl und wird in `phone_call_attempts` protokolliert
@@ -308,9 +329,9 @@ export async function updatePhoneLead(
 export async function setPhoneLeadOutcome(input: {
   leadId: string;
   listId: string;
-  outcome: "aktiv" | "rueckruf" | "nicht_erreicht" | "dead";
+  outcome: "aktiv" | "rueckruf" | "nicht_erreicht" | "kein_termin" | "dead";
   callbackAt?: string | null;
-}): Promise<{ error?: string; attemptNo?: number; kind?: PhoneCallKind }> {
+}): Promise<{ error?: string; attemptNo?: number; kind?: PhoneCallKind; autoDead?: boolean }> {
   if (!(await canAccessPhoneList(input.listId))) return { error: "Keine Berechtigung." };
   if (input.outcome === "rueckruf" && !input.callbackAt) {
     return { error: "Für einen Rückruf ist Datum + Uhrzeit erforderlich." };
@@ -328,27 +349,79 @@ export async function setPhoneLeadOutcome(input: {
     phone_lists: { workspace_id: string; created_by_user_id: string | null; owner_name: string | null };
   }).phone_lists;
 
-  const patch: Record<string, unknown> = { status: input.outcome };
+  // Drittes „Nicht erreicht" in Folge? Gelesen wird VOR dem Log-Eintrag
+  // dieses Anrufs: Tragen die letzten LIMIT−1 Anwahlen alle `nicht_erreicht`,
+  // ist dieser Anruf der dritte in Folge. Quelle ist das Anruf-Log (0028) — es
+  // ist die einzige Stelle, die jede Anwahl mit ihrem Ergebnis in Reihenfolge
+  // festhält; `call_attempt` kennt kein Ergebnis und ist per CHECK bei 3
+  // gedeckelt. Scheitert das Lesen, wird NICHT automatisch beendet: Im Zweifel
+  // bleibt ein Lead eher einmal zu oft in der Liste, als dass er lautlos tot ist.
+  let autoDead = false;
+  if (input.outcome === "nicht_erreicht") {
+    const { data: recent, error: recentErr } = await supabase
+      .from("phone_call_attempts")
+      .select("outcome")
+      .eq("lead_id", input.leadId)
+      .order("attempt_no", { ascending: false })
+      .limit(NICHT_ERREICHT_LIMIT - 1);
+    autoDead =
+      !recentErr &&
+      (recent ?? []).length === NICHT_ERREICHT_LIMIT - 1 &&
+      (recent ?? []).every((r) => (r as { outcome: string }).outcome === "nicht_erreicht");
+  }
+  const newStatus = autoDead ? "dead" : input.outcome;
+
+  const patch: Record<string, unknown> = { status: newStatus };
   if (!(lead as { first_call_at?: string | null }).first_call_at) patch.first_call_at = todayLocal();
 
-  if (input.outcome === "rueckruf") {
+  if (newStatus === "rueckruf") {
     patch.callback_at = berlinInputToIso(input.callbackAt);
     const target = await ensurePhoneRoutingList(srcList, "rueckruf");
     if (target) patch.list_id = target;
-  } else if (input.outcome === "nicht_erreicht") {
-    const target = await ensurePhoneRoutingList(srcList, "nicht_erreicht");
+  } else if (newStatus === "nicht_erreicht" || newStatus === "kein_termin") {
+    const target = await ensurePhoneRoutingList(srcList, newStatus);
     if (target) patch.list_id = target;
   }
   // 'dead' und 'aktiv' bleiben in der aktuellen Liste.
 
   const { error } = await supabase.from("phone_leads").update(patch).eq("id", input.leadId);
-  if (error) return { error: error.message };
+  if (error) {
+    // 23514 = CHECK verletzt. Bei „Kein Termin" heißt das fast sicher: Die
+    // Datenbank kennt den Wert noch nicht. Ein eigener Satz statt der rohen
+    // Postgres-Meldung (Muster 0041).
+    if (newStatus === "kein_termin" && (error.code === "23514" || /check constraint/i.test(error.message))) {
+      return { error: "„Kein Termin“ ist in der Datenbank noch nicht freigeschaltet — Migration 0043 fehlt." };
+    }
+    return { error: error.message };
+  }
 
   // 'dead' ist eines der vier "toten Enden" (§ Konzept-Diskussion) — bekommt
   // ein Recycling-Datum statt endgültig zu verschwinden. Ohne Grund-Argument:
   // Grund, Status und Wartezeit bestimmt `schedule_recycle()` aus der Zeile —
   // ein vom Client geschickter Grund konnte jede beliebige Wartezeit auslösen.
-  if (input.outcome === "dead") await scheduleRecycle("telefon", input.leadId);
+  // Gilt auch für den automatisch beendeten Lead nach dem dritten
+  // „Nicht erreicht". 'kein_termin' bekommt bewusst KEIN Recycling-Datum:
+  // `schedule_recycle()` kennt für Telefon nur 'dead' (0033, eingefroren).
+  if (newStatus === "dead") await scheduleRecycle("telefon", input.leadId);
+
+  // Tot ist tot — auch am Erstgespräch. Kommt der Lead aus der Liste „Setting
+  // No-Show", steht sein Setting noch auf „Nicht erschienen" und damit
+  // täglich in der Arbeitsliste unter /termine. Ohne diesen Schritt müsste
+  // derselbe Mensch dort ein zweites Mal auf „Tot" gesetzt werden. Nur das
+  // JÜNGSTE Setting und nur, wenn es auf No-Show steht: Ein laufender Termin
+  // oder ein bereits abgeschlossenes Setting bleibt unberührt. Best effort —
+  // das Telefon-Ergebnis steht bereits und wird davon nicht zurückgenommen.
+  if (newStatus === "dead") {
+    const { data: sc } = await supabase
+      .from("setting_calls")
+      .select("id, status")
+      .eq("source_phone_lead_id", input.leadId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const setting = sc as { id: string; status: string | null } | null;
+    if (setting?.status === "no_show") await markTerminDead("setting", setting.id);
+  }
 
   // Anwahl protokollieren — NACH dem Update, weil logCallAttempt den Lead-Stand
   // als Snapshot liest (Status entscheidet über den Topf, mailbox/gatekeeper/
@@ -373,7 +446,7 @@ export async function setPhoneLeadOutcome(input: {
   revalidatePath("/telefon", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
-  return { attemptNo: logged.attemptNo, kind: logged.kind };
+  return { attemptNo: logged.attemptNo, kind: logged.kind, autoDead };
 }
 
 /** Ganze Telefonliste löschen (Leads hängen per ON DELETE CASCADE dran). */

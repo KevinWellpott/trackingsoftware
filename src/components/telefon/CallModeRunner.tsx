@@ -8,12 +8,14 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { berlinInputToIso, formatTermin, isoToBerlinInput } from "@/lib/apptTime";
-import type { PhoneLead, PhoneLeadStatus, PhoneList } from "@/lib/types";
+import type { PhoneLead, PhoneLeadStatus } from "@/lib/types";
 import {
   Calendar,
   CalendarClock,
+  CalendarX,
   ChevronLeft,
   ChevronRight,
+  NotebookPen,
   Globe,
   Phone,
   PhoneMissed,
@@ -24,12 +26,12 @@ import {
   Voicemail,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 // Call-Mode: eine Liste Lead für Lead durchtelefonieren. Ein Lead groß im
 // Fokus, Tracking-Felder inline editierbar, Outcome-Buttons routen den Lead
-// (Rückruf/Nicht erreicht → eigene Routing-Listen, via Server-Action).
+// (Rückruf/Nicht erreicht/Kein Termin → eigene Routing-Listen, via Server-Action).
 
 type StatusFilter = PhoneLeadStatus | "alle";
 
@@ -46,6 +48,7 @@ const STATUS_STYLE: Record<PhoneLeadStatus, { label: string; color: string }> = 
   aktiv: { label: "Aktiv", color: "var(--text-muted)" },
   rueckruf: { label: "Rückruf", color: "var(--info)" },
   nicht_erreicht: { label: "Nicht erreicht", color: "var(--warning)" },
+  kein_termin: { label: "Kein Termin", color: "var(--text-subtle)" },
   termin: { label: "Termin", color: "var(--success)" },
   dead: { label: "Dead", color: "var(--danger)" },
 };
@@ -55,6 +58,7 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "aktiv", label: "Aktiv" },
   { value: "rueckruf", label: "Rückruf" },
   { value: "nicht_erreicht", label: "Nicht erreicht" },
+  { value: "kein_termin", label: "Kein Termin" },
   { value: "termin", label: "Termin" },
   { value: "dead", label: "Dead" },
 ];
@@ -65,8 +69,11 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
  * Bewusst Ziffern statt Anfangsbuchstaben: `t` und `n` liegen auf Deutsch auf
  * „Termin"/„Nicht erreicht" UND auf „Toter Lead"/„Notizen", und ein Kuerzel,
  * das man sich merken muss, ist keins.
+ *
+ * „Kein Termin" kam später dazu und bekommt die 5, statt die vier bestehenden
+ * Kürzel umzunummerieren — die sitzen bei den Settern bereits in den Fingern.
  */
-const OUTCOME_KEYS = { termin: "1", rueckruf: "2", nicht_erreicht: "3", dead: "4" } as const;
+const OUTCOME_KEYS = { termin: "1", rueckruf: "2", nicht_erreicht: "3", dead: "4", kein_termin: "5" } as const;
 
 /** Feste Zeilenhöhe der Seitenliste (für die Virtualisierung). */
 const SIDE_ROW_HEIGHT = 52;
@@ -177,18 +184,113 @@ function Toggle({
   );
 }
 
-export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneLead[] }) {
+/**
+ * `leads` müssen NICHT aus einer einzigen Liste stammen: Die abgeleitete
+ * „Setting No-Show"-Liste (/telefon/setting-no-show) sammelt Leads aus allen
+ * Listen des Inhabers. Jede Aktion läuft deshalb über die `list_id` des
+ * jeweiligen Leads, nie über eine Liste der Seite — genau wie ListBoardV2 bei
+ * den Smart Views. In einer echten Liste ist beides dasselbe.
+ */
+/**
+ * Auf/Zu des Notizfelds — eine Vorliebe des Setters, keine Eigenschaft des
+ * Leads. Deshalb gilt sie über alle Leads hinweg (wer mit offenen Notizen
+ * telefoniert, will sie beim nächsten Lead nicht wieder aufklappen) und bleibt
+ * im localStorage stehen. Dasselbe Muster wie die Filterleiste der Analyse:
+ * `useSyncExternalStore`, damit Server (zugeklappt) und Client nicht
+ * auseinanderlaufen, und ein Rückfall, wenn localStorage blockiert ist.
+ */
+const NOTES_OPEN_KEY = "telefon:notizen-offen";
+const NOTES_OPEN_EVENT = "telefon:notizen-offen-change";
+let notesOpenFallback = false;
+
+function subscribeNotesOpen(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(NOTES_OPEN_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(NOTES_OPEN_EVENT, onChange);
+  };
+}
+
+function readNotesOpen(): boolean {
+  try {
+    const raw = localStorage.getItem(NOTES_OPEN_KEY);
+    if (raw !== null) return raw === "1";
+  } catch {
+    /* ignore */
+  }
+  return notesOpenFallback;
+}
+
+function writeNotesOpen(next: boolean): void {
+  notesOpenFallback = next;
+  try {
+    localStorage.setItem(NOTES_OPEN_KEY, next ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new Event(NOTES_OPEN_EVENT));
+}
+
+/**
+ * Freitext-Notiz zum Lead (`phone_leads.notes`). Gespeichert wird beim
+ * Verlassen des Felds, nicht bei jedem Tastendruck — ein Save je Zeichen wären
+ * dutzende Roundtrips pro Satz. Wer danach direkt einen Ergebnis-Knopf klickt,
+ * verliert nichts: Der Klick nimmt dem Feld zuerst den Fokus, der Save startet
+ * also VOR dem Ergebnis.
+ *
+ * Der Entwurf lebt lokal und wird über `key={lead.id}` je Lead neu angelegt —
+ * sonst trüge der Text beim Weiterblättern in den nächsten Lead hinüber.
+ */
+function NotesField({
+  value,
+  onCommit,
+}: {
+  value: string | null;
+  onCommit: (next: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  return (
+    <textarea
+      className="input"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const next = draft.trim() ? draft : null;
+        if (next !== (value ?? null) && !(next === null && !value)) onCommit(next);
+      }}
+      rows={4}
+      placeholder="Was wurde besprochen, wen erreicht man wann, worauf beim nächsten Anruf achten …"
+      aria-label="Notizen zum Lead"
+      style={{ resize: "vertical", fontSize: "var(--fs-base)", lineHeight: "var(--lh-base)", padding: "var(--sp-5)" }}
+    />
+  );
+}
+
+export function CallModeRunner({
+  leads,
+  empty,
+}: {
+  leads: PhoneLead[];
+  /** Leerzustand, wenn gar kein Lead da ist. Ohne Angabe: der Text einer Importliste. */
+  empty?: { title: string; text: string };
+}) {
   const router = useRouter();
   const [overrides, setOverrides] = useState<Record<string, Partial<PhoneLead>>>({});
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("alle");
   const [search, setSearch] = useState("");
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Neutraler Hinweis (kein Fehler): z. B. „nach dem 3. Nicht erreicht auf Tot
+  // gestellt". Ohne ihn verschwände der Lead aus der Erwartung des Setters —
+  // er hat „Nicht erreicht" gedrückt und findet ihn in keiner Nicht-erreicht-Liste.
+  const [notice, setNotice] = useState<string | null>(null);
   const [apptOpen, setApptOpen] = useState(false);
   const [callbackOpen, setCallbackOpen] = useState(false);
   const [callbackAt, setCallbackAt] = useState("");
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog } = useConfirm();
+  const notesOpen = useSyncExternalStore(subscribeNotesOpen, readNotesOpen, () => false);
 
   const merged = useMemo(
     () => leads.map((l) => ({ ...l, ...(overrides[l.id] ?? {}) })),
@@ -201,6 +303,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
       aktiv: 0,
       rueckruf: 0,
       nicht_erreicht: 0,
+      kein_termin: 0,
       termin: 0,
       dead: 0,
     };
@@ -229,7 +332,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
     if (t) setCurrentId(t.id);
   }
 
-  // Tastatur: ← / → navigiert, 1–4 setzen das Ergebnis. Beides greift nicht,
+  // Tastatur: ← / → navigiert, 1–5 setzen das Ergebnis. Beides greift nicht,
   // während in einem Feld getippt wird oder ein Dialog offen steht — sonst
   // löste die „4" in einer Telefonnummer einen toten Lead aus.
   useEffect(() => {
@@ -254,6 +357,9 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
       } else if (e.key === OUTCOME_KEYS.dead) {
         e.preventDefault();
         void confirmDead();
+      } else if (e.key === OUTCOME_KEYS.kein_termin) {
+        e.preventDefault();
+        applyOutcome("kein_termin");
       }
     }
     window.addEventListener("keydown", onKey);
@@ -297,7 +403,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
     }
     setField(id, uiPatch);
     startTransition(async () => {
-      const res = await updatePhoneLead(id, list.id, savePatch);
+      const res = await updatePhoneLead(id, lead?.list_id ?? "", savePatch);
       if (res.error) {
         setError(res.error);
         if (lead) setField(id, prevPatch);
@@ -313,13 +419,18 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
     setCurrentId(next ? next.id : (filtered[0]?.id ?? null));
   }
 
-  function applyOutcome(outcome: "rueckruf" | "nicht_erreicht" | "dead", callbackAtVal?: string) {
+  function applyOutcome(
+    outcome: "rueckruf" | "nicht_erreicht" | "kein_termin" | "dead",
+    callbackAtVal?: string,
+  ) {
     if (!current) return;
     const id = current.id;
+    const listId = current.list_id;
+    const name = current.company ?? current.phone ?? "Lead";
     startTransition(async () => {
       const res = await setPhoneLeadOutcome({
         leadId: id,
-        listId: list.id,
+        listId,
         outcome,
         callbackAt: callbackAtVal ?? null,
       });
@@ -328,13 +439,18 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
         return;
       }
       setError(null);
+      setNotice(
+        res.autoDead
+          ? `„${name}" war 3-mal hintereinander nicht erreichbar und steht jetzt auf Tot.`
+          : null,
+      );
       // callback_at hält in der DB echtes UTC; der Dialog liefert Berlin-Wandzeit.
       // Der optimistische Override muss dieselbe Einheit tragen wie die Serverzeile,
       // sonst zeigt formatTermin() den Rückruf bis zum nächsten Refresh verschoben an.
       // attemptNo kommt aus dem Anruf-Log — fehlt es (fail-soft), bleibt der
       // bisherige Zähler stehen, statt eine Zahl zu erfinden.
       setField(id, {
-        status: outcome,
+        status: res.autoDead ? "dead" : outcome,
         ...(callbackAtVal ? { callback_at: berlinInputToIso(callbackAtVal) } : {}),
         ...(res.attemptNo != null ? { call_attempt: res.attemptNo } : {}),
       });
@@ -380,8 +496,9 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
     });
     if (!ok) return;
     const id = current.id;
+    const listId = current.list_id;
     startTransition(async () => {
-      const res = await deletePhoneLead(id, list.id);
+      const res = await deletePhoneLead(id, listId);
       if (res.error) {
         setError(res.error);
         return;
@@ -398,10 +515,10 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
         <div className="empty-state">
           <Phone size={24} />
           <div style={{ fontSize: "var(--fs-md)", fontWeight: "var(--fw-medium)", color: "var(--text-primary)" }}>
-            Keine Leads in dieser Liste
+            {empty?.title ?? "Keine Leads in dieser Liste"}
           </div>
           <p style={{ fontSize: "var(--fs-base)", color: "var(--text-muted)", margin: 0 }}>
-            Importiere eine CSV auf der Telefon-Übersicht — die Leads landen dann hier im Call-Mode.
+            {empty?.text ?? "Importiere eine CSV auf der Telefon-Übersicht — die Leads landen dann hier im Call-Mode."}
           </p>
         </div>
       </div>
@@ -452,6 +569,23 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
           />
         </div>
       </div>
+
+      {notice && !error && (
+        <div
+          role="status"
+          style={{
+            fontSize: "var(--fs-sm)",
+            color: "var(--text-secondary)",
+            background: "var(--surface-1)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--r-sm)",
+            padding: "var(--sp-4) var(--sp-6)",
+            marginBottom: "var(--sp-6)",
+          }}
+        >
+          {notice}
+        </div>
+      )}
 
       {error && (
         <div
@@ -652,7 +786,8 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                   vorbeikam und ob der Entscheider dran war — alles Weitere
                   entscheidet danach der Ergebnis-Knopf. Die SPALTEN bleiben
                   unangetastet (docs §3), sie werden hier nur nicht mehr
-                  gepflegt; wer sie braucht, findet sie im Lead-Dossier. */}
+                  gepflegt; wer sie braucht, findet sie im Lead-Dossier.
+                  Ausnahme: die Notiz ist auf Wunsch zurück (s. u.). */}
               <div
                 style={{
                   display: "flex",
@@ -707,6 +842,58 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                 </div>
               </div>
 
+              {/* ── Notizen ──
+                  Zurück seit der Vereinfachung: der eine Freitext, den man im
+                  Telefonat wirklich braucht („Chef ab 14 Uhr da", „will
+                  Referenzen sehen"). Einklappbar, damit die Karte für den, der
+                  nichts notiert, so ruhig bleibt wie vorher. Zugeklappt zeigt
+                  die Kopfzeile den Anfang der Notiz — man sieht, DASS etwas
+                  drinsteht, ohne aufzuklappen. */}
+              <details
+                open={notesOpen}
+                onToggle={(e) => {
+                  const open = e.currentTarget.open;
+                  if (open !== notesOpen) writeNotesOpen(open);
+                }}
+                style={{ marginBottom: "var(--sp-7)" }}
+              >
+                <summary
+                  className="collapse-summary"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--sp-4)",
+                    padding: "var(--sp-3) var(--sp-4)",
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                  <NotebookPen size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                  <span className="dialer-label" style={{ margin: 0 }}>
+                    Notizen
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: "var(--fs-xs)",
+                      color: "var(--text-muted)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {!notesOpen && (current.notes ?? "").trim() ? current.notes : ""}
+                  </span>
+                </summary>
+                <NotesField
+                  key={current.id}
+                  value={current.notes}
+                  onCommit={(next) => setAndSave(current.id, { notes: next }, { notes: next })}
+                />
+              </details>
+
               {/* ── Ergebnis des Anrufs ──
                   Vier vollflächig eingefärbte Buttons standen hier bisher
                   nebeneinander — grün, Markenorange, gold, rot. Das war nicht
@@ -755,6 +942,19 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
                     <span className="dialer-outcome-dot" style={{ background: STATUS_STYLE.dead.color }} />
                     <PhoneOff size={14} /> Toter Lead
                     <span className="dialer-kbd">{OUTCOME_KEYS.dead}</span>
+                  </button>
+                  {/* Entscheider war dran, will aber keinen Termin. Ohne
+                      Rückfrage wie „Nicht erreicht": Der Lead wird nur in die
+                      Kein-Termin-Liste des Inhabers sortiert, nicht beendet. */}
+                  <button
+                    type="button"
+                    className="dialer-outcome"
+                    disabled={isPending}
+                    onClick={() => applyOutcome("kein_termin")}
+                  >
+                    <span className="dialer-outcome-dot" style={{ background: STATUS_STYLE.kein_termin.color }} />
+                    <CalendarX size={14} /> Kein Termin
+                    <span className="dialer-kbd">{OUTCOME_KEYS.kein_termin}</span>
                   </button>
                 </div>
               </div>
@@ -844,7 +1044,7 @@ export function CallModeRunner({ list, leads }: { list: PhoneList; leads: PhoneL
           defaultMeetLink={current.meet_link ?? undefined}
           defaultAppointmentAt={isoToBerlinInput(current.appointment_at) || undefined}
           onSubmit={({ meetLink, meetingKind, appointmentAt }) =>
-            convertPhoneLeadToSetting({ phoneLeadId: current.id, listId: list.id, meetLink, meetingKind, appointmentAt })
+            convertPhoneLeadToSetting({ phoneLeadId: current.id, listId: current.list_id, meetLink, meetingKind, appointmentAt })
           }
           onSaved={() => {
             setField(current.id, { status: "termin", appointment_set: true });

@@ -6,6 +6,7 @@ import { berlinInputToIso } from "@/lib/apptTime";
 import { SELECTABLE_CHANNELS, type SelectableChannelKey } from "@/lib/channels";
 import { ownerUserIdOfList } from "@/lib/personResolution";
 import { logCallAttempt } from "@/app/actions/phoneAttempts";
+import { rescheduleSetting } from "@/app/actions/settingCalls";
 import { revalidatePath } from "next/cache";
 
 // Termin=Ja → erzeugt automatisch einen Setting-Call-Eintrag und nimmt den Lead
@@ -194,19 +195,19 @@ export async function convertContactToSetting(input: {
     .maybeSingle();
   if (!contact) return { error: "Kontakt nicht gefunden." };
 
-  // Falls schon ein Setting-Eintrag existiert: nur Termin/Link aktualisieren.
+  // Falls schon ein Setting-Eintrag existiert: nur Termin/Link aktualisieren
+  // — AUSSER er steht auf No-Show (s. `neuerTerminAmBestehendenSetting`).
   let settingCallId = (contact as { setting_call_id?: string | null }).setting_call_id ?? null;
 
   if (settingCallId) {
-    await supabase
-      .from("setting_calls")
-      .update({
-        meet_link: meetLink,
-        phone,
-        meeting_kind: meetingKind,
-        appointment_at: appointmentAt,
-      })
-      .eq("id", settingCallId);
+    const res = await neuerTerminAmBestehendenSetting(settingCallId, {
+      meetLink,
+      phone,
+      meetingKind,
+      appointmentAt,
+      berlinInput: input.appointmentAt,
+    });
+    if (res.error) return { error: res.error };
   } else {
     // Nur beim Anlegen zuweisen: ein bestehender Setting-Eintrag kann laengst
     // von Hand umverteilt worden sein, den wuerde ein Nachziehen ueberschreiben.
@@ -393,7 +394,7 @@ export async function convertPhoneLeadToSetting(input: {
   // und gemeint ist ohnehin der laufende Anlauf, nicht der abgeschlossene.
   const { data: existingSc } = await supabase
     .from("setting_calls")
-    .select("id")
+    .select("id, status")
     .eq("source_phone_lead_id", input.phoneLeadId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -403,19 +404,23 @@ export async function convertPhoneLeadToSetting(input: {
   // Wird ein bestehender Termin nachbearbeitet (Link korrigiert, verschoben),
   // wurde nicht erneut gewählt — ein Log-Eintrag würde dort eine zweite Anwahl
   // mit Outcome 'termin' erfinden und die Terminquote nach oben verzerren.
+  //
+  // Ausnahme: ein No-Show. Den terminiert man aus der Liste „Setting No-Show"
+  // heraus neu — dafür WURDE gewählt, und genau dieser Anruf hat zum
+  // Ersatztermin geführt. Er gehört deshalb ins Log wie ein neuer Termin.
   const isNewSetting = !existingSc?.id;
+  const warNoShow = (existingSc as { status?: string | null } | null)?.status === "no_show";
 
   let settingCallId: string | null = existingSc?.id ?? null;
   if (settingCallId) {
-    await supabase
-      .from("setting_calls")
-      .update({
-        meet_link: meetLink,
-        phone,
-        meeting_kind: meetingKind,
-        appointment_at: appointmentAt,
-      })
-      .eq("id", settingCallId);
+    const res = await neuerTerminAmBestehendenSetting(settingCallId, {
+      meetLink,
+      phone,
+      meetingKind,
+      appointmentAt,
+      berlinInput: input.appointmentAt,
+    });
+    if (res.error) return { error: res.error };
   } else {
     // Zustaendig ist, wer bucht (`assignedUserForBooking`). Fuer den Rueckfall
     // auf den Listen-Owner zaehlt die Liste, in der der LEAD wirklich liegt:
@@ -460,7 +465,7 @@ export async function convertPhoneLeadToSetting(input: {
   // damit der Zähler der Terminquote. Nach dem Lead-Update, weil der Log-
   // Eintrag den Lead-Stand als Snapshot liest; fail-soft, Fehler blockieren den
   // Termin nicht.
-  if (isNewSetting) {
+  if (isNewSetting || warNoShow) {
     await logCallAttempt({
       leadId: input.phoneLeadId,
       outcome: "termin",
@@ -475,6 +480,49 @@ export async function convertPhoneLeadToSetting(input: {
   revalidatePath("/termine", "page");
   revalidatePath("/", "layout");
   return { settingCallId: settingCallId ?? undefined };
+}
+
+/**
+ * Neuer Termin an einem Setting, das es schon gibt (LinkedIn-Board, Call-Mode).
+ *
+ * Normalfall: nur Termin und Link nachziehen — der Termin wird nachbearbeitet
+ * (Link korrigiert, verschoben), Status und Show-Status bleiben stehen.
+ *
+ * Steht das Setting aber auf No-Show, ist das ein ERSATZTERMIN, und der läuft
+ * über `rescheduleSetting`: Status zurück auf offen, Show-Status und
+ * No-Show-Ausgang geräumt, der No-Show bleibt in `no_show_count` erhalten.
+ * Nur das Datum zu setzen hieße, das Setting stünde mit neuem Termin weiter auf
+ * „Nicht erschienen" — und der Lead bliebe in der Liste „Setting No-Show"
+ * (src/lib/settingNoShow.ts), obwohl er gerade neu terminiert wurde.
+ */
+async function neuerTerminAmBestehendenSetting(
+  settingCallId: string,
+  t: {
+    meetLink: string | null;
+    phone: string | null;
+    meetingKind: MeetingKind;
+    appointmentAt: string;
+    /** Dieselbe Zeit als Berlin-Wandzeit — `rescheduleSetting` rechnet selbst um. */
+    berlinInput: string;
+  },
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("setting_calls").select("status").eq("id", settingCallId).maybeSingle();
+  const warNoShow = (data as { status?: string | null } | null)?.status === "no_show";
+
+  const { error } = await supabase
+    .from("setting_calls")
+    .update({
+      meet_link: t.meetLink,
+      phone: t.phone,
+      meeting_kind: t.meetingKind,
+      ...(warNoShow ? {} : { appointment_at: t.appointmentAt }),
+    })
+    .eq("id", settingCallId);
+  if (error) return { error: error.message };
+
+  if (warNoShow) return rescheduleSetting(settingCallId, t.berlinInput);
+  return {};
 }
 
 /**

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { ownerColor } from "@/lib/ownerColor";
 import type { PhoneLead, PhoneList, PhoneListKind } from "@/lib/types";
-import { ArrowLeft, ChevronRight, FileText, Phone, PhoneMissed, Voicemail } from "lucide-react";
+import { ArrowLeft, CalendarX, ChevronRight, FileText, Phone, PhoneMissed, Voicemail } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -24,6 +24,7 @@ const KIND_META: Record<PhoneListKind, { label: string; dot: string; icon: React
   akquise: { label: "Akquise", dot: "var(--text-muted)", icon: <Phone size={11} /> },
   rueckruf: { label: "Rückruf", dot: "var(--info)", icon: <PhoneMissed size={11} /> },
   nicht_erreicht: { label: "Nicht erreicht", dot: "var(--warning)", icon: <Voicemail size={11} /> },
+  kein_termin: { label: "Kein Termin", dot: "var(--text-subtle)", icon: <CalendarX size={11} /> },
 };
 
 /**
@@ -347,7 +348,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
       </details>
 
       {/* ── Call-Mode ── */}
-      <CallModeRunner list={list} leads={leads} />
+      <CallModeRunner leads={leads} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // Die vereinfachte Telefon-Ansicht — und was der Import ihr liefern muss.
 //
 // Der Call-Mode trägt seit der Vereinfachung nur noch ZWEI Selektoren
-// (Gatekeeper, Entscheider) und die VIER Ergebnis-Knöpfe. Alles, was vorher
+// (Gatekeeper, Entscheider) und die Ergebnis-Knöpfe (vier, seit 0043 fünf). Alles, was vorher
 // als Eingabefeld dastand — Pitch, die drei „Warum …?"-Gründe, Reaktion,
 // Mailbox, Kontaktdaten, Skript, Einwände, Notizen —, ist aus der Oberfläche
 // verschwunden. Die SPALTEN sind geblieben (docs §3): Was fällt, ist die
@@ -19,7 +19,8 @@
 //      vollständig. Die Ansicht ist jetzt die EINZIGE Quelle für den
 //      Ansprechpartner: Das Feld, in dem man ihn nachtragen konnte, gibt es
 //      nicht mehr.
-//   3. Was gefallen ist, bleibt gefallen.
+//   3. Was gefallen ist, bleibt gefallen — mit einer Ausnahme: die Notiz ist
+//      auf Wunsch zurück, als einziges Textfeld und einklappbar.
 //
 // Bauart wie in rueckbauArbeitsflaeche.test.ts: Der Parser ist eine reine
 // Funktion und wird als VERHALTEN geprüft; was eine Verdrahtung in JSX
@@ -129,22 +130,33 @@ describe("3 · Was aus der Ansicht verschwunden ist", () => {
     assert.deepEqual(selektoren, ["Gatekeeper erreicht?", "Entscheider erreicht?"]);
   });
 
-  test("und darunter die vier Ergebnis-Knöpfe", () => {
+  test("und darunter die fünf Ergebnis-Knöpfe", () => {
+    // Vier seit der Vereinfachung, „Kein Termin" kam mit Migration 0043 dazu.
     const i = RUNNER.indexOf("Ergebnis des Anrufs");
     assert.ok(i > 0, "Die Ergebnis-Sektion fehlt");
     const sektion = RUNNER.slice(i);
-    for (const label of ["Termin", "Rückruf", "Nicht erreicht", "Toter Lead"]) {
+    for (const label of ["Termin", "Rückruf", "Nicht erreicht", "Toter Lead", "Kein Termin"]) {
       assert.ok(sektion.includes("> " + label), `Ergebnis-Knopf fehlt: ${label}`);
     }
-    assert.equal((sektion.match(/className="dialer-outcome"/g) ?? []).length, 4);
+    assert.equal((sektion.match(/className="dialer-outcome"/g) ?? []).length, 5);
   });
 
-  test("kein Eingabefeld mehr — die Texteingabe ist restlos gefallen", () => {
+  test("das alte Feld-Raster bleibt gefallen", () => {
     // Nicht die Beschriftungen einzeln prüfen, sondern den Baustein: Solange
     // es KEIN DraftField mehr gibt, kann auch keines zurückkommen, ohne dass
     // dieser Test es meldet.
     assert.ok(!RUNNER.includes("DraftField"), "DraftField ist zurück");
     assert.ok(!RUNNER.includes("commitText"), "commitText ist zurück");
+  });
+
+  test("genau EIN Textfeld ist zurück: die Notiz, einklappbar", () => {
+    // Auf Wunsch zurückgeholt — als einziges Freitextfeld, in einem
+    // <details>, das über alle Leads offen oder zu bleibt.
+    assert.equal((RUNNER.match(/<textarea/g) ?? []).length, 1, "mehr als ein Textfeld im Call-Mode");
+    assert.match(RUNNER, /aria-label="Notizen zum Lead"/);
+    assert.match(RUNNER, /onCommit=\{\(next\) => setAndSave\(current\.id, \{ notes: next \}, \{ notes: next \}\)\}/);
+    assert.match(RUNNER, /<details\s+open=\{notesOpen\}/);
+    assert.match(RUNNER, /<NotesField\s+key=\{current\.id\}/);
   });
 
   test("`pitch_delivered` hat keine Bedienung mehr, fällt aber weiterhin mit", () => {

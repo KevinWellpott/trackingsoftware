@@ -92,7 +92,7 @@ export default async function DashboardLayout({
     id: l.id as string,
     name: l.name as string,
     owner_name: (l as { owner_name?: string | null }).owner_name ?? null,
-    list_kind: (l as { list_kind?: "akquise" | "rueckruf" | "nicht_erreicht" }).list_kind ?? "akquise",
+    list_kind: (l as { list_kind?: "akquise" | "rueckruf" | "nicht_erreicht" | "kein_termin" }).list_kind ?? "akquise",
   }));
 
   return (

@@ -47,7 +47,7 @@ export type PipelineStage = {
 };
 
 // ─── Telefonakquise (Tracking 2.0) ─────────────────────────────
-export type PhoneListKind = "akquise" | "rueckruf" | "nicht_erreicht";
+export type PhoneListKind = "akquise" | "rueckruf" | "nicht_erreicht" | "kein_termin";
 
 export type PhoneList = {
   id: string;
@@ -278,7 +278,7 @@ export type ClosingCall = {
   updated_at: string;
 };
 
-export type PhoneLeadStatus = "aktiv" | "rueckruf" | "nicht_erreicht" | "termin" | "dead";
+export type PhoneLeadStatus = "aktiv" | "rueckruf" | "nicht_erreicht" | "kein_termin" | "termin" | "dead";
 
 export type PhoneLead = {
   id: string;
@@ -343,6 +343,7 @@ export type PhoneCallOutcome =
   | "termin"
   | "rueckruf"
   | "nicht_erreicht"
+  | "kein_termin"
   | "dead"
   | "kein_ergebnis";
 

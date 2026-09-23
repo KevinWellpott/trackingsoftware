@@ -677,6 +677,7 @@ const PHONE_OUTCOME_LABELS: Record<string, string> = {
   termin: "Termin",
   rueckruf: "Rückruf vereinbart",
   nicht_erreicht: "Nicht erreicht",
+  kein_termin: "Kein Termin",
   dead: "Toter Lead",
   kein_ergebnis: "Kein Ergebnis",
 };
@@ -685,6 +686,7 @@ const PHONE_STATUS_LABELS: Record<string, string> = {
   aktiv: "Aktiv",
   rueckruf: "Rückruf",
   nicht_erreicht: "Nicht erreicht",
+  kein_termin: "Kein Termin",
   termin: "Termin",
   dead: "Toter Lead",
 };

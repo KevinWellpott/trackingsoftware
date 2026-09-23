@@ -239,7 +239,7 @@ type SidebarPhoneList = {
   id: string;
   name: string;
   owner_name: string | null;
-  list_kind: "akquise" | "rueckruf" | "nicht_erreicht";
+  list_kind: "akquise" | "rueckruf" | "nicht_erreicht" | "kein_termin";
 };
 type DataScope = "workspace" | "own";
 type DataViewUser = { user_id: string; username: string; data_scope: DataScope };
@@ -423,9 +423,10 @@ function ListRow({
 }
 
 // Die Kuerzel tragen die Bedeutung; der Tooltip der Zeile schreibt sie aus.
-const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht", { label: string }> = {
+const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht" | "kein_termin", { label: string }> = {
   rueckruf: { label: "RR" },
   nicht_erreicht: { label: "NE" },
+  kein_termin: { label: "KT" },
 };
 
 // ---------------------------------------------------------------------------
@@ -1442,6 +1443,15 @@ export function SidebarContent({
           {visibleLists.map((l) => (
             <ListRow key={l.id} href={`/lists/${l.id}`} name={l.name} onClick={onClose} />
           ))}
+          {/* Abgeleitete Liste (src/lib/settingNoShow.ts) — keine Zeile in
+              `lists`, deshalb fest hier statt aus dem Listen-Array. */}
+          <ListRow
+            href="/listen/setting-no-show"
+            name="Setting No-Show"
+            badge={{ label: "NS" }}
+            title="Terminierte LinkedIn-Kontakte, deren Erstgespräch auf „Nicht erschienen“ steht"
+            onClick={onClose}
+          />
           {hiddenListCount > 0 && (
             <ListRow
               href="/listen"
@@ -1494,11 +1504,20 @@ export function SidebarContent({
                   ? `${l.name} (Rückruf-Liste)`
                   : l.list_kind === "nicht_erreicht"
                     ? `${l.name} (Nicht-erreicht-Liste)`
-                    : l.name
+                    : l.list_kind === "kein_termin"
+                      ? `${l.name} (Kein-Termin-Liste)`
+                      : l.name
               }
               onClick={onClose}
             />
           ))}
+          <ListRow
+            href="/telefon/setting-no-show"
+            name="Setting No-Show"
+            badge={{ label: "NS" }}
+            title="Terminierte Telefon-Leads, deren Erstgespräch auf „Nicht erschienen“ steht — zum erneuten Anrufen"
+            onClick={onClose}
+          />
           {hiddenPhoneCount > 0 && (
             <ListRow
               href="/telefon"

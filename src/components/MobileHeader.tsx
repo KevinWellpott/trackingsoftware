@@ -28,7 +28,7 @@ type Props = {
     id: string;
     name: string;
     owner_name: string | null;
-    list_kind: "akquise" | "rueckruf" | "nicht_erreicht";
+    list_kind: "akquise" | "rueckruf" | "nicht_erreicht" | "kein_termin";
   }[];
   dataScope?: "workspace" | "own";
   dataView?: {
