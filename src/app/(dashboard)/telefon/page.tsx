@@ -67,10 +67,18 @@ export default async function TelefonPage() {
     listsQuery = listsQuery.or(ownScope);
   }
 
-  const [{ data: rawLists }, { data: countRows }, allUsers, noShowLeads] = await Promise.all([
+  const [{ data: rawLists }, { data: countRows }, { data: originRows }, allUsers, noShowLeads] = await Promise.all([
     listsQuery,
     // Aggregat-RPC statt Full-Table-Read: nur (list_id, status, cnt) statt aller Leads
     supabase.rpc("rpc_phone_list_counts", {
+      p_workspace_id: access.workspace_id,
+      p_effective_user_id: access.effective_user_id ?? null,
+    }),
+    // Die in Routing-Listen abgewanderten Leads, gezählt unter ihrer
+    // Importliste (Migration 0044). Ohne sie stünde auf jeder Importkarte
+    // „0 Rückruf", egal wie viele Rückrufe aus ihr entstanden sind. Fehlt die
+    // RPC, kommt `data: null` zurück — die Karte zeigt dann den alten Stand.
+    supabase.rpc("rpc_phone_origin_counts", {
       p_workspace_id: access.workspace_id,
       p_effective_user_id: access.effective_user_id ?? null,
     }),
@@ -125,6 +133,14 @@ export default async function TelefonPage() {
     c.total += n;
     if (row.status in c) c[row.status as PhoneLeadStatus] += n;
     totalLeads += n;
+  }
+  // Abgewanderte Leads zusätzlich an ihrer Importliste — bewusst NICHT in
+  // `totalLeads`: Sie stehen oben schon unter ihrer Routing-Liste.
+  for (const row of (originRows ?? []) as { list_id: string; status: string; cnt: number }[]) {
+    const n = Number(row.cnt) || 0;
+    const c = (countsByList[row.list_id] ??= { ...EMPTY_COUNTS });
+    c.total += n;
+    if (row.status in c) c[row.status as PhoneLeadStatus] += n;
   }
 
   // Nach Inhaber gruppieren; Akquise-Listen zuerst, Routing-Listen danach
@@ -269,6 +285,7 @@ export default async function TelefonPage() {
                             <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{c.total} gesamt</span>
                             <span>{c.aktiv} aktiv</span>
                             <span>{c.rueckruf} Rückruf</span>
+                            {c.nicht_erreicht > 0 && <span>{c.nicht_erreicht} nicht erreicht</span>}
                             <span style={{ color: "var(--success-fg)" }}>{c.termin} Termin</span>
                             {c.kein_termin > 0 && <span>{c.kein_termin} kein Termin</span>}
                             <span>{c.dead} dead</span>

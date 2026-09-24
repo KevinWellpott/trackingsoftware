@@ -283,6 +283,14 @@ export type PhoneLeadStatus = "aktiv" | "rueckruf" | "nicht_erreicht" | "kein_te
 export type PhoneLead = {
   id: string;
   list_id: string;
+  /**
+   * Importliste, aus der der Lead stammt (Migration 0044). `list_id` wandert
+   * bei Rückruf / Nicht erreicht / Kein Termin in die Routing-Liste, diese
+   * Spalte bleibt stehen — nur so zeigt die Importliste ihre Unteransichten
+   * vollständig. Gesetzt ausschließlich per Trigger, die App schreibt sie nie.
+   * Optional, weil sie ohne 0044 gar nicht mitkommt.
+   */
+  origin_list_id?: string | null;
   workspace_id: string;
   created_by_user_id: string | null;
   first_call_at: string | null;

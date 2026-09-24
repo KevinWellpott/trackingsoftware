@@ -123,16 +123,26 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
   // „Variante 1" als drei Testarme mit je zu kleiner Fallzahl — genau das, was
   // das Label verhindern soll. Bewusst über den ganzen (sichtbaren) Bestand,
   // nicht nur über diese Liste: der Test läuft über mehrere Listen und Setter.
+  //
+  // Eine Importliste zeigt zusätzlich ihre ABGEWANDERTEN Leads: Rückruf, Nicht
+  // erreicht und Kein Termin verschieben den Lead physisch in die gemeinsame
+  // Routing-Liste des Inhabers (`setPhoneLeadOutcome`), `list_id` zeigt danach
+  // dorthin. Über `list_id` allein blieben die Unteransichten Rückruf / Nicht
+  // erreicht / Kein Termin hier für immer leer — nur Termin und Dead bleiben in
+  // der Liste liegen. `origin_list_id` (Migration 0044) hält die Herkunft fest.
+  // Jede Aktion im Call-Mode läuft ohnehin über die `list_id` DES LEADS, ein
+  // abgewanderter Lead ist hier also voll bearbeitbar.
+  //
+  // Fehlt 0044, weist PostgREST den `or`-Filter ab — dann das alte Verhalten
+  // statt einer leeren Seite.
+  const loadLeads = (withOrigin: boolean) =>
+    fetchAllRows<PhoneLead>((from, to) => {
+      let q = supabase.from("phone_leads").select("*");
+      q = withOrigin ? q.or(`list_id.eq.${listId},origin_list_id.eq.${listId}`) : q.eq("list_id", listId);
+      return q.order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to);
+    });
   const [rawLeads, metaRows] = await Promise.all([
-    fetchAllRows<PhoneLead>((from, to) =>
-      supabase
-        .from("phone_leads")
-        .select("*")
-        .eq("list_id", listId)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to),
-    ),
+    list.list_kind === "akquise" ? loadLeads(true).catch(() => loadLeads(false)) : loadLeads(false),
     fetchAllRows<{ script_label: string | null; target_group: string | null }>((from, to) => {
       let q = supabase
         .from("phone_lists")
@@ -143,6 +153,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
     }).catch(() => []),
   ]);
   const leads = rawLeads as PhoneLead[];
+  const movedCount = leads.filter((l) => l.list_id !== listId).length;
 
   /** Trim + case-insensitiv dedupliziert, erste Schreibweise gewinnt (wie in der Analyse). */
   const distinct = (field: "script_label" | "target_group"): string[] => {
@@ -225,6 +236,12 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
           </span>
           <span className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
             {leads.length.toLocaleString("de-DE")} Leads
+            {movedCount > 0 && (
+              <span title="Rückruf, Nicht erreicht und Kein Termin liegen zusätzlich in der gemeinsamen Routing-Liste — hier stehen sie weiter unter ihrem Status.">
+                {" "}
+                · davon {movedCount.toLocaleString("de-DE")} auch in Routing-Listen
+              </span>
+            )}
           </span>
           <span style={{ marginLeft: "auto" }}>
             <DeletePhoneListButton listId={list.id} listName={list.name} redirectTo="/telefon" />
