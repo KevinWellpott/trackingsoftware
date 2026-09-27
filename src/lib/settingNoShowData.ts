@@ -95,7 +95,7 @@ export async function loadPhoneNoShowLeads(access: AccessContext): Promise<Phone
   for (const ids of chunks([...noShows.keys()])) {
     const { data, error } = await supabase
       .from("phone_leads")
-      .select("*, phone_lists!inner(owner_name, created_by_user_id)")
+      .select("*, phone_lists!list_id!inner(owner_name, created_by_user_id)")
       .eq("workspace_id", access.workspace_id)
       .eq("status", "termin")
       .in("id", ids);

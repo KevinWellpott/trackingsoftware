@@ -85,7 +85,7 @@ const PHONE_LEAD_COLUMNS =
   "script_label, status, first_call_at, call_attempt, gatekeeper_reached, decider_reached, " +
   "pitch_delivered, mailbox, answer_sentiment, callback_at, appointment_set, appointment_at, " +
   "no_transfer_reason, no_pitch_reason, no_appointment_reason, objection_notes, notes, created_at, " +
-  `updated_at, ${RECYCLE_COLUMNS}, phone_lists(name, owner_name)`;
+  `updated_at, ${RECYCLE_COLUMNS}, phone_lists!list_id(name, owner_name)`;
 
 /**
  * Der Nachfass-Stempel der Terminliste (Migration 0041), auf beiden

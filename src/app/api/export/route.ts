@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
         const rows = (await fetchAllRows((f, t) => {
           let q = supabase
             .from("phone_leads")
-            .select("first_call_at, decider_name, company, phone, website, call_attempt, gatekeeper_reached, decider_reached, callback_at, answer_sentiment, status, notes, list_id, phone_lists!inner(name, owner_name, created_by_user_id)")
+            .select("first_call_at, decider_name, company, phone, website, call_attempt, gatekeeper_reached, decider_reached, callback_at, answer_sentiment, status, notes, list_id, phone_lists!list_id!inner(name, owner_name, created_by_user_id)")
             .eq("workspace_id", access.workspace_id);
           if (ownScope) q = q.or(ownScope, { referencedTable: "phone_lists" });
           return q.order("id", { ascending: true }).range(f, t);

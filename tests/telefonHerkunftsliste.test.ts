@@ -8,7 +8,7 @@
 // Bauart wie telefonKeinTerminUndAutoTot.test.ts: Verdrahtung am QUELLTEXT.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
@@ -68,5 +68,25 @@ describe("Die Karten auf /telefon zählen die abgewanderten Leads mit", () => {
 
   test("die RPC zählt nur Leads außerhalb ihrer Herkunftsliste", () => {
     assert.match(MIGRATION, /and pl\.origin_list_id <> pl\.list_id/);
+  });
+});
+
+describe("Einbettungen von phone_lists nennen ihre Beziehung", () => {
+  // Seit 0044 zeigen ZWEI Fremdschlüssel von phone_leads auf phone_lists
+  // (list_id, origin_list_id). Eine Einbettung ohne Hinweis weist PostgREST als
+  // mehrdeutig ab (PGRST201) — im Call-Mode stand danach bei jedem Ergebnis
+  // „Lead nicht gefunden.", weil der Fehler als leeres Ergebnis ankam.
+  // Geprüft wird der ganze Quelltext: Die nächste Abfrage, die den Hinweis
+  // vergisst, soll hier rot werden und nicht erst am Telefon.
+  test("kein phone_lists(…) / phone_lists!inner(…) ohne Beziehungs-Hinweis", () => {
+    const files = readdirSync(fileURLToPath(new URL("../src", import.meta.url)), { recursive: true })
+      .map(String)
+      .filter((f) => /\.(ts|tsx)$/.test(f));
+    const offenders: string[] = [];
+    for (const f of files) {
+      const text = read("src/" + f.split("\\").join("/"));
+      if (/phone_lists(!inner)?\(/.test(text)) offenders.push(f);
+    }
+    assert.deepEqual(offenders, []);
   });
 });

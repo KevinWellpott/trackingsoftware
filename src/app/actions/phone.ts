@@ -338,12 +338,18 @@ export async function setPhoneLeadOutcome(input: {
   }
   const supabase = await createClient();
 
-  // Lead + Quell-Liste laden (Owner/Workspace für Routing)
-  const { data: lead } = await supabase
+  // Lead + Quell-Liste laden (Owner/Workspace für Routing). Der Hinweis
+  // `!list_id` ist Pflicht: Seit Migration 0044 zeigen ZWEI Fremdschlüssel
+  // von phone_leads auf phone_lists (list_id und die Herkunftsliste), ohne ihn weist
+  // PostgREST die Einbettung als mehrdeutig ab (PGRST201).
+  const { data: lead, error: leadErr } = await supabase
     .from("phone_leads")
-    .select("id, list_id, status, first_call_at, phone_lists!inner(workspace_id, created_by_user_id, owner_name)")
+    .select("id, list_id, status, first_call_at, phone_lists!list_id!inner(workspace_id, created_by_user_id, owner_name)")
     .eq("id", input.leadId)
     .maybeSingle();
+  // Ein Abfragefehler ist nicht „nicht gefunden" — genau diese Verwechslung
+  // hat die Mehrdeutigkeit oben tagelang als fehlenden Lead getarnt.
+  if (leadErr) return { error: leadErr.message };
   if (!lead) return { error: "Lead nicht gefunden." };
   const srcList = (lead as unknown as {
     phone_lists: { workspace_id: string; created_by_user_id: string | null; owner_name: string | null };

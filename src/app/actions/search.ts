@@ -248,7 +248,7 @@ export async function globalSearch(query: string): Promise<SearchResult> {
 
   let leadsQuery = supabase
     .from("phone_leads")
-    .select("id, company, decider_name, phone, list_id, phone_lists!inner(name)")
+    .select("id, company, decider_name, phone, list_id, phone_lists!list_id!inner(name)")
     .eq("workspace_id", ws);
   for (const group of leadGroups) leadsQuery = leadsQuery.or(group);
   if (scope) leadsQuery = leadsQuery.or(scope, { referencedTable: "phone_lists" });

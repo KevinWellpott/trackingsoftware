@@ -361,7 +361,7 @@ const PHONE_COLUMNS =
   "id, list_id, created_by_user_id, first_call_at, created_at, status, call_attempt, gatekeeper_reached, " +
   "gatekeeper_attempts, decider_reached, pitch_delivered, answer_sentiment, mailbox, appointment_set, " +
   "target_group, script_label, no_transfer_reason, no_pitch_reason, no_appointment_reason, " +
-  "phone_lists!inner(name, owner_name, list_kind, script_label, target_group)";
+  "phone_lists!list_id!inner(name, owner_name, list_kind, script_label, target_group)";
 
 export async function loadPhoneLeads(
   supabase: Client,
@@ -493,7 +493,7 @@ const RECYCLE_CONTACT_SELECT: string =
   `id, ${RECYCLE_COLS}, blocked_at, answered, appointment_set, follow_up_number, ` +
   `lists!inner(owner_name, created_by_user_id)`;
 const RECYCLE_PHONE_SELECT: string =
-  `id, ${RECYCLE_COLS}, status, phone_lists!inner(owner_name, created_by_user_id)`;
+  `id, ${RECYCLE_COLS}, status, phone_lists!list_id!inner(owner_name, created_by_user_id)`;
 const RECYCLE_SETTING_SELECT: string =
   `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, ` +
   `status, revived_at, no_show_resolution, cancel_outlook`;
