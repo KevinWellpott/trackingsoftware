@@ -1042,9 +1042,20 @@ export function CallModeRunner({
           onClose={() => setApptOpen(false)}
           leadName={current.company ?? current.decider_name ?? undefined}
           defaultMeetLink={current.meet_link ?? undefined}
+          // Durchwahl vor Zentrale — dieselbe Reihenfolge wie der Rückfall in
+          // convertPhoneLeadToSetting: das Setting findet mit dem Entscheider
+          // statt. Vorausgefüllt, damit „Telefon" ein Klick ist statt Abtippen.
+          defaultPhone={current.decider_direct_dial ?? current.phone ?? undefined}
           defaultAppointmentAt={isoToBerlinInput(current.appointment_at) || undefined}
-          onSubmit={({ meetLink, meetingKind, appointmentAt }) =>
-            convertPhoneLeadToSetting({ phoneLeadId: current.id, listId: current.list_id, meetLink, meetingKind, appointmentAt })
+          onSubmit={({ meetLink, phone, meetingKind, appointmentAt }) =>
+            convertPhoneLeadToSetting({
+              phoneLeadId: current.id,
+              listId: current.list_id,
+              meetLink,
+              phone,
+              meetingKind,
+              appointmentAt,
+            })
           }
           onSaved={() => {
             setField(current.id, { status: "termin", appointment_set: true });
