@@ -201,7 +201,7 @@ describe("Die Sperrliste bleibt unangetastet", () => {
   });
 
   test("der Grund-Nachschlag läuft weiter nur dort", () => {
-    assert.match(DROPOUT, /list === "gesperrt" \? await loadBlockReasons\(access, raw\) : null/);
+    assert.match(DROPOUT, /list === "gesperrt" \? loadBlockReasons\(access, raw\) : Promise\.resolve\(null\)/);
   });
 });
 

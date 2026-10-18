@@ -272,7 +272,7 @@ describe("Die Sperrliste behauptet nicht, es gebe keinen Grund", () => {
   test("nachgeschlagen wird nur in der Sperrliste — sonst gäbe es den Fall gar nicht", () => {
     // Die anderen fünf Listen laufen mit der eingestellten Datensicht; dort
     // kann keine Zeile erscheinen, deren Grund unlesbar wäre.
-    assert.match(DROPOUT, /list === "gesperrt" \? await loadBlockReasons\(access, raw\) : null/);
+    assert.match(DROPOUT, /list === "gesperrt" \? loadBlockReasons\(access, raw\) : Promise\.resolve\(null\)/);
   });
 });
 
