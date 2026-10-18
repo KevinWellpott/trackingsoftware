@@ -72,14 +72,17 @@ export default async function ClosingCallPage({
       `created_by_user_id.eq.${access.effective_user_id},assigned_user_id.eq.${access.effective_user_id},conducted_by_user_id.eq.${access.effective_user_id}`,
     );
   }
-  const { data: rawCall } = await callQuery.maybeSingle();
+  // Termin und Mitglieder sind unabhängig voneinander — eine Welle statt zwei.
+  // Mitglieder ungefiltert: Die Auswahl erscheint nur fuer Owner mit
+  // workspace-weiter Datensicht (can_switch_view), und die Namensaufloesung
+  // unten braucht auch fremde Nutzer — sonst bliebe die Zeile fuer ein
+  // Mitglied leer.
+  const [{ data: rawCall }, allUsers] = await Promise.all([
+    callQuery.maybeSingle(),
+    listDataViewUsers(access.workspace_id),
+  ]);
   if (!rawCall) notFound();
   const call = rawCall as ClosingCall;
-
-  // Ungefiltert: Die Auswahl erscheint nur fuer Owner mit workspace-weiter
-  // Datensicht (can_switch_view), und die Namensaufloesung unten braucht auch
-  // fremde Nutzer — sonst bliebe die Zeile fuer ein Mitglied leer.
-  const allUsers = await listDataViewUsers(access.workspace_id);
   const users = allUsers.map((u) => ({ user_id: u.user_id, username: u.username }));
   const assignedName = allUsers.find((u) => u.user_id === call.assigned_user_id)?.username ?? null;
   const creatorName =

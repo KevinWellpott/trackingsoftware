@@ -50,14 +50,17 @@ export default async function SettingCallPage({
       `created_by_user_id.eq.${access.effective_user_id},assigned_user_id.eq.${access.effective_user_id},conducted_by_user_id.eq.${access.effective_user_id}`,
     );
   }
-  const { data: rawCall } = await callQuery.maybeSingle();
+  // Termin und Mitglieder sind unabhängig voneinander — eine Welle statt zwei.
+  // Mitglieder ungefiltert: Die Auswahl erscheint nur fuer Owner mit
+  // workspace-weiter Datensicht (can_switch_view), und die Namensaufloesung
+  // unten braucht auch fremde Nutzer — sonst bliebe die Zeile fuer ein
+  // Mitglied leer.
+  const [{ data: rawCall }, allUsers] = await Promise.all([
+    callQuery.maybeSingle(),
+    listDataViewUsers(access.workspace_id),
+  ]);
   if (!rawCall) notFound();
   const call = rawCall as SettingCall;
-
-  // Ungefiltert: Die Auswahl erscheint nur fuer Owner mit workspace-weiter
-  // Datensicht (can_switch_view), und die Namensaufloesung unten braucht auch
-  // fremde Nutzer — sonst bliebe die Zeile fuer ein Mitglied leer.
-  const allUsers = await listDataViewUsers(access.workspace_id);
   const users = allUsers.map((u) => ({ user_id: u.user_id, username: u.username }));
 
   // Wem der Termin gehoert bzw. wer ihn angelegt hat — ohne Zuweisungs-Recht
@@ -72,22 +75,26 @@ export default async function SettingCallPage({
   // aus LinkedIn auch raus"). Die Antwort steht ohnehin in der Listenzeile,
   // aus der der Termin entstanden ist — hier war sie eine Dublette, die als
   // farbige Karte über dem Gespräch klebte.
+  //
+  // Kontakt und Lead parallel statt nacheinander.
   const sourceNotes: { label: string; text: string }[] = [];
-  if (call.source_contact_id) {
-    const { data: contact } = await supabase
-      .from("contacts")
-      .select("notes")
-      .eq("id", call.source_contact_id)
-      .maybeSingle();
+  const [{ data: contact }, { data: lead }] = await Promise.all([
+    call.source_contact_id
+      ? supabase.from("contacts").select("notes").eq("id", call.source_contact_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    call.source_phone_lead_id
+      ? supabase
+          .from("phone_leads")
+          .select("notes, objection_notes, script")
+          .eq("id", call.source_phone_lead_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  {
     const c = contact as { notes: string | null } | null;
     if (c?.notes?.trim()) sourceNotes.push({ label: "Notizen", text: c.notes });
   }
-  if (call.source_phone_lead_id) {
-    const { data: lead } = await supabase
-      .from("phone_leads")
-      .select("notes, objection_notes, script")
-      .eq("id", call.source_phone_lead_id)
-      .maybeSingle();
+  {
     const l = lead as { notes: string | null; objection_notes: string | null; script: string | null } | null;
     if (l?.notes?.trim()) sourceNotes.push({ label: "Notizen", text: l.notes });
     if (l?.objection_notes?.trim()) sourceNotes.push({ label: "Einwände", text: l.objection_notes });

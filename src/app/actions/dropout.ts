@@ -270,9 +270,10 @@ async function loadLineage(
   if (predByListed.size === 0) return out;
 
   const counters = new Map<string, { reschedule_count: number; no_show_count: number | null }>();
-  for (const entity of ["setting", "closing"] as const) {
+  // Erstgespräche und Closings parallel nachschlagen, nicht nacheinander.
+  await Promise.all((["setting", "closing"] as const).map(async (entity) => {
     const ids = needBy[entity];
-    if (ids.length === 0) continue;
+    if (ids.length === 0) return;
     // `no_show_count` gibt es nur am Erstgespräch (Migration 0018) — beim
     // Closing bleibt die Spalte bewusst weg statt als 0 gelesen zu werden:
     // „kein Zähler" und „Zähler steht auf 0" sind zwei verschiedene Aussagen.
@@ -282,7 +283,7 @@ async function loadLineage(
       .select(columns)
       .eq("workspace_id", access.workspace_id)
       .in("id", ids);
-    if (error || !data) continue;
+    if (error || !data) return;
     for (const raw of data as unknown as {
       id: string;
       reschedule_count: number | null;
@@ -293,7 +294,7 @@ async function loadLineage(
         no_show_count: entity === "setting" ? raw.no_show_count ?? 0 : null,
       });
     }
-  }
+  }));
 
   for (const [key, pred] of predByListed) {
     const c = counters.get(lineageKey(pred.entity, pred.id));
@@ -435,7 +436,8 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
   const supabase = await createClient();
   // Der Deckel steht in `pipeline_settings` (0032) und wird hier nur angezeigt;
   // durchgesetzt wird er in `recycle_attempt()` bzw. in der Gate-Prüfung unten.
-  const settings = await getPipelineSettings();
+  // Läuft parallel zu den RPCs — vorher ein eigener Roundtrip davor.
+  const settingsPromise = getPipelineSettings();
   const sources = dropoutListMeta(list).sources;
 
   try {
@@ -471,8 +473,12 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
     // Die Rückhol-Kette ist eine Anzeigehilfe und darf die Liste nicht
     // aufhalten: sie hängt hinter derselben `available`-Antwort, liefert im
     // Fehlerfall aber nur eine leere Map.
-    const lineage = await loadLineage(access, raw);
-    const blockReasons = list === "gesperrt" ? await loadBlockReasons(access, raw) : null;
+    // Beide Nachschläge hängen nur an `raw` und laufen deshalb parallel.
+    const [lineage, blockReasons, settings] = await Promise.all([
+      loadLineage(access, raw),
+      list === "gesperrt" ? loadBlockReasons(access, raw) : Promise.resolve(null),
+      settingsPromise,
+    ]);
 
     const rows = raw
       .map<DropoutRow>((r) => {
@@ -526,6 +532,7 @@ export async function loadDropoutList(list: string): Promise<DropoutListResult> 
   } catch (e) {
     const missing = isMissingSchema(e);
     if (!missing) console.error("dropout_lists:", e instanceof Error ? e.message : e);
+    const settings = await settingsPromise;
     return { rows: [], available: !missing, maxAttempts: settings.settings.max_attempts };
   }
 }
