@@ -1,7 +1,7 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import type { CSSProperties, ReactNode } from "react";
 import { GitCompare, Table } from "lucide-react";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
-import { localDateISO } from "@/lib/dates";
 import { buildBuckets, parseAnalyseParams } from "@/lib/analyse";
 import {
   loadClosingCalls, loadContacts, loadPhoneLeads, loadSettingCalls,
@@ -61,23 +61,25 @@ export default async function VergleichPage({
   for (const [k, v] of Object.entries(sp)) flat[k] = Array.isArray(v) ? v[0] : v;
   const rawSeries = Array.isArray(sp.s) ? sp.s : sp.s ? [sp.s] : [];
 
-  const today = localDateISO();
+  const today = berlinDateISO(new Date().toISOString());
   const params = parseAnalyseParams(flat, today);
   const canCompare = access.can_switch_view;
 
   // Ohne Vergleichsrecht gibt es genau eine Person — die Lader filtern
   // serverseitig ohnehin auf sie, das Personen-Dropdown zeigt dann nur sie.
-  const members = canCompare
-    ? (await listDataViewUsers(access.workspace_id)).map((m) => ({ user_id: m.user_id, username: m.username }))
-    : [{ user_id: access.user.id, username: access.username }];
-
+  // Mitglieder laufen in derselben Welle wie die Daten — vorher ein eigener
+  // Roundtrip davor.
   const supabase = await createClient();
-  const [contacts, phoneLeads, settings, closings] = await Promise.all([
+  const [memberRows, contacts, phoneLeads, settings, closings] = await Promise.all([
+    canCompare ? listDataViewUsers(access.workspace_id) : Promise.resolve(null),
     loadContacts(supabase, access, canCompare, params.from, params.to),
     loadPhoneLeads(supabase, access, canCompare),
     loadSettingCalls(supabase, access, canCompare),
     loadClosingCalls(supabase, access, canCompare),
   ]);
+  const members = memberRows
+    ? memberRows.map((m) => ({ user_id: m.user_id, username: m.username }))
+    : [{ user_id: access.user.id, username: access.username }];
 
   const { facts, options } = buildFacts({ contacts, phoneLeads, settings, closings, members });
 

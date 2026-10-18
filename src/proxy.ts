@@ -26,9 +26,15 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims statt getUser: Das Projekt signiert mit einem asymmetrischen
+  // Schlüssel (ES256), die Signatur wird deshalb lokal gegen den gecachten
+  // JWKS geprüft — kein Roundtrip zum Auth-Server je Anfrage. Ein abgelaufenes
+  // Token frischt getClaims über getSession() auf und schreibt die Cookies
+  // wie bisher über setAll. Preis: Ein serverseitig widerrufenes Token gilt
+  // bis zu seinem Ablauf (Standard 1 h) weiter; das Entfernen der
+  // Mitgliedschaft sperrt trotzdem sofort, weil getAccessContext sie liest.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const user = claimsData?.claims?.sub ? { id: claimsData.claims.sub } : null;
 
   // /api/ ist hier bewusst offen: API-Routen antworten mit 401 statt mit einem
   // Redirect auf /login. Der Preis ist, dass jede neue Route unter /api/ ihre

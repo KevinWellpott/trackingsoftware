@@ -88,7 +88,9 @@ describe("Drittes „Nicht erreicht“ IN FOLGE ⇒ automatisch tot", () => {
   });
 
   test("die Oberfläche übernimmt 'dead' und sagt, warum", () => {
-    assert.match(RUNNER, /status: res\.autoDead \? "dead" : outcome/);
+    // Seit Oktober 2026 optimistisch: erst der gewählte Status, nach der
+    // Serverantwort bei autoDead die Korrektur auf "dead".
+    assert.match(RUNNER, /res\.autoDead \? \{ status: "dead" as const \}/);
     assert.match(RUNNER, /3-mal hintereinander nicht erreichbar/);
   });
 });

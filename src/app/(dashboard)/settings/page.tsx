@@ -10,7 +10,6 @@ import {
   type TargetPeriod,
 } from "@/lib/targets";
 import { getAccessContext } from "@/lib/access";
-import { createClient } from "@/lib/supabase/server";
 import { ownerColor } from "@/lib/ownerColor";
 import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
 import { RenameUserButton } from "@/components/settings/RenameUserButton";
@@ -49,16 +48,13 @@ const TARGET_FIELDS: {
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ userErr?: string; userOk?: string; deleted?: string }>;
+  searchParams: Promise<{ userErr?: string; userOk?: string; deleted?: string; renamed?: string }>;
 }) {
   // Alles bezieht sich auf die AKTIVE Organisation. Fuer einen Plattform-Admin
   // in einer Kunden-Org ist das deren Workspace — damit laeuft die
   // Nutzerverwaltung des Kunden ueber genau diesen Screen, ohne zweite UI.
   const access = await getAccessContext();
   if (!access) return null;
-
-  const supabase = await createClient();
-  const { data: { user: currentUser } } = await supabase.auth.getUser();
 
   const q = await searchParams;
   const isOwner = access.role === "owner";
@@ -68,15 +64,16 @@ export default async function SettingsPage({
   // wörtlich dasselbe Prädikat wie can_manage_org_settings() in der RLS
   // (Migration 0031) und wie access.can_switch_view.
   const canManageOrgSettings = access.role === "owner" && access.data_scope === "workspace";
-  const { users } = isOwner ? await listUsers(access.workspace_id) : { users: [] };
-  const targets = isOwner ? await getTargets() : [];
-
   // Eine Zeile je Organisation (pipeline_settings). `available: false` heißt
   // „Migration 0032 fehlt" und ist ausdrücklich etwas anderes als „noch nichts
   // konfiguriert" — deshalb zeigt die Seite in dem Fall einen Hinweis statt
   // einer Karte voller Defaults, deren Speichern-Knöpfe nur Fehler produzieren
-  // würden.
-  const pipeline = canManageOrgSettings ? await getPipelineSettings() : null;
+  // würden. Die drei Abfragen sind voneinander unabhängig und laufen parallel.
+  const [{ users }, targets, pipeline] = await Promise.all([
+    isOwner ? listUsers(access.workspace_id) : Promise.resolve({ users: [] }),
+    isOwner ? getTargets() : Promise.resolve([]),
+    canManageOrgSettings ? getPipelineSettings() : Promise.resolve(null),
+  ]);
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
@@ -87,6 +84,9 @@ export default async function SettingsPage({
       {/* Feedback */}
       {q.userOk && (
         <div role="status" style={FEEDBACK_OK}>Nutzer angelegt.</div>
+      )}
+      {q.renamed && (
+        <div role="status" style={FEEDBACK_OK}>Nutzer umbenannt.</div>
       )}
       {q.deleted && (
         <div role="status" style={FEEDBACK_OK}>Nutzer gelöscht.</div>
@@ -126,7 +126,7 @@ export default async function SettingsPage({
           {/* User list */}
           <div>
             {users.map((u, i) => {
-              const isMe = u.user_id === currentUser?.id;
+              const isMe = u.user_id === access.user.id;
               const avatar = ownerColor(u.username);
               return (
                 <div key={u.user_id} style={{ display: "flex", alignItems: "center", gap: "var(--sp-6)", padding: "var(--sp-6) var(--sp-8)", borderBottom: i < users.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>

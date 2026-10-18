@@ -70,7 +70,37 @@ export type AnalyseContact = {
 const CONTACT_COLUMNS =
   "id, list_id, pitched_at, created_at, follow_up_number, next_follow_up_at, answered, answer_category, " +
   "appointment_set, blocked_at, target_group, setting_call_id, " +
-  "lists!inner(name, owner_name, created_by_user_id, pitch_text, fu1_text, fu2_text, fu3_text, archived_at)";
+  "lists!inner(name, owner_name, created_by_user_id, archived_at)";
+
+// Die Texte der Liste (Pitch, FU1–3) reisten früher eingebettet in JEDER
+// Kontaktzeile mit — rund 650 Zeichen je Zeile, beim Zeitraum „Jahr" gut
+// 4,5 MB doppelter Text zwischen Datenbank und Server. Gebraucht wird je Liste
+// nur „ist ein Text hinterlegt". Sie kommen deshalb EINMAL je Liste in einer
+// parallelen Abfrage und werden danach an die Kontakte gehängt (dieselben
+// String-Referenzen, keine Kopien).
+type ListTexts = Pick<AnalyseListMeta, "pitch_text" | "fu1_text" | "fu2_text" | "fu3_text">;
+
+async function loadListTexts(supabase: Client, access: AccessContext): Promise<Map<string, ListTexts>> {
+  const { data, error } = await supabase
+    .from("lists")
+    .select("id, pitch_text, fu1_text, fu2_text, fu3_text")
+    .eq("workspace_id", access.workspace_id);
+  if (error) console.error("loadListTexts:", error.message);
+  const byId = new Map<string, ListTexts>();
+  for (const l of (data ?? []) as (ListTexts & { id: string })[]) {
+    byId.set(l.id, { pitch_text: l.pitch_text, fu1_text: l.fu1_text, fu2_text: l.fu2_text, fu3_text: l.fu3_text });
+  }
+  return byId;
+}
+
+function attachListTexts(rows: AnalyseContact[], texts: Map<string, ListTexts>): AnalyseContact[] {
+  for (const c of rows) {
+    if (!c.lists) continue;
+    const t = texts.get(c.list_id);
+    c.lists = { ...c.lists, pitch_text: t?.pitch_text ?? null, fu1_text: t?.fu1_text ?? null, fu2_text: t?.fu2_text ?? null, fu3_text: t?.fu3_text ?? null };
+  }
+  return rows;
+}
 
 /**
  * Pitch-Tag eines Kontakts — dieselbe Definition wie in `rpc_owner_day_metrics`
@@ -120,12 +150,15 @@ export async function loadContacts(
     return q.order("id").range(f, t);
   };
 
+  const textsPromise = loadListTexts(supabase, access);
   try {
-    return (await fetchAllRows(page(true))) as unknown as AnalyseContact[];
+    const [rows, texts] = await Promise.all([fetchAllRows(page(true)), textsPromise]);
+    return attachListTexts(rows as unknown as AnalyseContact[], texts);
   } catch (err) {
     console.error("loadContacts (OR-Zweig):", err instanceof Error ? err.message : err);
     try {
-      return (await fetchAllRows(page(false))) as unknown as AnalyseContact[];
+      const [rows, texts] = await Promise.all([fetchAllRows(page(false)), textsPromise]);
+      return attachListTexts(rows as unknown as AnalyseContact[], texts);
     } catch (fallbackErr) {
       console.error("loadContacts:", fallbackErr instanceof Error ? fallbackErr.message : fallbackErr);
       return [];

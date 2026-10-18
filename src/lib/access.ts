@@ -51,6 +51,14 @@ type MemberRow = {
   user_id: string;
   role: "owner" | "member";
   data_scope?: DataScope | null;
+  workspaces?: Workspace | null;
+};
+
+type ViewTargetRow = {
+  user_id: string;
+  workspace_id: string;
+  data_scope?: DataScope | null;
+  profiles: { username: string } | null;
 };
 
 type ProfileRow = { username: string } | null;
@@ -70,9 +78,9 @@ async function resolvePlatformAdmin(
 /**
  * Der Zugriffskontext EINER Anfrage — gecacht mit React `cache()`.
  *
- * Warum überhaupt: Die Funktion kostet je Aufruf bis zu sechs Roundtrips in
- * drei Wellen (auth.getUser → Mitgliedschaft ‖ is_platform_admin ‖ profiles →
- * workspaces, dazu ggf. Datensicht-Ziel und Org-Liste), und sie läuft pro
+ * Warum überhaupt: Die Funktion kostet je Aufruf sechs Abfragen in einer
+ * parallelen Welle (bis Oktober 2026 waren es bis zu fünf Wellen
+ * hintereinander, beginnend mit einem Roundtrip zum Auth-Server), und sie läuft pro
  * Seitenaufruf mehrfach: das Layout braucht sie, die Seite selbst, und jede
  * aufgerufene Server-Funktion holt sie sich erneut, weil sie als direkter POST
  * erreichbar ist und ihre Berechtigung deshalb SELBST prüfen muss (siehe
@@ -99,32 +107,64 @@ async function resolvePlatformAdmin(
  */
 export const getAccessContext = cache(async function getAccessContext(): Promise<AccessContext | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  // getClaims statt getUser: lokale Signaturprüfung gegen den gecachten JWKS
+  // (ES256), kein Roundtrip zum Auth-Server. Begründung und Preis: proxy.ts.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
+  if (!userId) return null;
 
-  const [{ data: memberRows }, isPlatformAdmin, { data: profile }] = await Promise.all([
+  const cookieStore = await cookies();
+  const requestedOrgId = cookieStore.get(ACTIVE_ORG_COOKIE)?.value ?? null;
+  const requestedViewUserId = cookieStore.get(DATA_VIEW_COOKIE)?.value ?? null;
+
+  // EINE Welle statt bis zu fünf hintereinander. Was nur vielleicht gebraucht
+  // wird — die fremde Organisation, das Ziel der Datensicht, die Org-Liste des
+  // Plattform-Admins —, wird vorsorglich mitgeholt und erst unten gegen die
+  // tatsächlich aktive Organisation geprüft. Ein überflüssiger paralleler
+  // Aufruf kostet keine Latenz, ein serieller einen vollen Roundtrip. Gelesen
+  // wird weiterhin als der angemeldete Nutzer durch die RLS: Was er nicht
+  // sehen darf, kommt gar nicht erst zurück.
+  const [
+    { data: memberRows },
+    isPlatformAdmin,
+    { data: profile },
+    { data: requestedOrgRow },
+    { data: viewTargetRows },
+    { data: orgRows },
+  ] = await Promise.all([
     // Bewusst KEIN .maybeSingle(): zwei Mitgliedschaften wuerden dort einen
     // PostgREST-Fehler ausloesen, getAccessContext gaebe null zurueck und der
     // Nutzer landete in einer Endlosschleife auf /onboarding, wo
     // bootstrap_workspace mit 'Already in a workspace' abbricht.
+    // Die Organisation reist eingebettet mit — vorher eine eigene Welle.
     supabase
       .from("workspace_members")
-      .select("workspace_id, user_id, role, data_scope")
-      .eq("user_id", user.id),
+      .select("workspace_id, user_id, role, data_scope, workspaces (*)")
+      .eq("user_id", userId),
     resolvePlatformAdmin(supabase),
-    supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle(),
+    supabase.from("profiles").select("username").eq("user_id", userId).maybeSingle(),
+    requestedOrgId
+      ? supabase.from("workspaces").select("*").eq("id", requestedOrgId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    requestedViewUserId
+      ? supabase
+          .from("workspace_members")
+          .select("user_id, workspace_id, data_scope, profiles (username)")
+          .eq("user_id", requestedViewUserId)
+      : Promise.resolve({ data: null }),
+    // Nur für Plattform-Admins gebraucht. Für alle anderen liefert die RLS
+    // ohnehin nur die eigene Organisation, und das Ergebnis wird verworfen.
+    // Vor Migration 0025 greift die Plattform-Admin-Policy auf `workspaces`
+    // noch nicht — dann blendet sich der Umschalter mangels Alternativen aus.
+    supabase.from("workspaces").select("id, name").order("name", { ascending: true }),
   ]);
 
-  const memberships = (memberRows ?? []) as MemberRow[];
+  const memberships = (memberRows ?? []) as unknown as MemberRow[];
   const home = memberships[0] ?? null;
-
-  const cookieStore = await cookies();
-  const requestedOrgId = cookieStore.get(ACTIVE_ORG_COOKIE)?.value ?? null;
 
   // Welche Organisation ist aktiv?
   let activeWorkspaceId: string | null = null;
+  let workspace: Workspace | null = null;
   let role: "owner" | "member" = "member";
   let dataScope: DataScope = "workspace";
   let isForeignOrg = false;
@@ -135,24 +175,19 @@ export const getAccessContext = cache(async function getAccessContext(): Promise
 
   if (requestedMembership) {
     activeWorkspaceId = requestedMembership.workspace_id;
+    workspace = requestedMembership.workspaces ?? null;
     role = requestedMembership.role;
     dataScope = requestedMembership.data_scope ?? "workspace";
-  } else if (requestedOrgId && isPlatformAdmin) {
+  } else if (requestedOrgId && isPlatformAdmin && requestedOrgRow) {
     // Fremde Organisation. Ein Plattform-Admin arbeitet dort ohne
     // Mitgliedschaft — Rolle und Datensicht werden synthetisiert, damit alle
     // bestehenden Owner-Gates (/team, /settings, Sidebar) unveraendert
     // greifen.
-    const { data: foreign } = await supabase
-      .from("workspaces")
-      .select("id")
-      .eq("id", requestedOrgId)
-      .maybeSingle();
-    if (foreign) {
-      activeWorkspaceId = requestedOrgId;
-      role = "owner";
-      dataScope = "workspace";
-      isForeignOrg = true;
-    }
+    activeWorkspaceId = requestedOrgId;
+    workspace = requestedOrgRow as Workspace;
+    role = "owner";
+    dataScope = "workspace";
+    isForeignOrg = true;
   }
 
   // Kein oder ungueltiges Cookie -> Heim-Organisation. Ein ungueltiges Cookie
@@ -161,70 +196,43 @@ export const getAccessContext = cache(async function getAccessContext(): Promise
   if (!activeWorkspaceId) {
     if (!home) return null;
     activeWorkspaceId = home.workspace_id;
+    workspace = home.workspaces ?? null;
     role = home.role;
     dataScope = home.data_scope ?? "workspace";
   }
-
-  const { data: workspace } = await supabase
-    .from("workspaces")
-    .select("*")
-    .eq("id", activeWorkspaceId)
-    .single();
 
   if (!workspace) return null;
 
   const username = ((profile as ProfileRow)?.username ?? workspace.name) as string;
   const canSwitchView = role === "owner" && dataScope === "workspace";
 
-  let effectiveUserId: string | null = dataScope === "own" ? user.id : null;
+  let effectiveUserId: string | null = dataScope === "own" ? userId : null;
   let effectiveUsername: string | null = dataScope === "own" ? username : null;
 
-  if (canSwitchView) {
-    const requestedUserId = cookieStore.get(DATA_VIEW_COOKIE)?.value;
-    if (requestedUserId) {
-      // Der Zielnutzer muss in der AKTIVEN Organisation sein. Damit verfaellt
-      // eine Datensicht aus der vorherigen Organisation automatisch, falls
-      // der Cookie den Org-Wechsel ueberlebt hat.
-      const { data: target } = await supabase
-        .from("workspace_members")
-        .select("user_id, data_scope, profiles (username)")
-        .eq("workspace_id", activeWorkspaceId)
-        .eq("user_id", requestedUserId)
-        .maybeSingle();
-
-      const targetRow = target as
-        | {
-            user_id: string;
-            data_scope?: DataScope | null;
-            profiles: { username: string } | null;
-          }
-        | null;
-
-      if (targetRow) {
-        effectiveUserId = targetRow.user_id;
-        effectiveUsername = targetRow.profiles?.username ?? "Ausgewählter Nutzer";
-      }
+  if (canSwitchView && requestedViewUserId) {
+    // Der Zielnutzer muss in der AKTIVEN Organisation sein. Damit verfaellt
+    // eine Datensicht aus der vorherigen Organisation automatisch, falls
+    // der Cookie den Org-Wechsel ueberlebt hat. Geprüft wird hier statt in
+    // der Abfrage, weil die aktive Organisation erst jetzt feststeht.
+    const targetRow = ((viewTargetRows ?? []) as unknown as ViewTargetRow[]).find(
+      (r) => r.workspace_id === activeWorkspaceId,
+    );
+    if (targetRow) {
+      effectiveUserId = targetRow.user_id;
+      effectiveUsername = targetRow.profiles?.username ?? "Ausgewählter Nutzer";
     }
   }
 
-  let availableWorkspaces: OrgSummary[] = [];
-  if (isPlatformAdmin) {
-    // Vor Migration 0025 greift die Plattform-Admin-Policy auf `workspaces`
-    // noch nicht — dann liefert die Abfrage nur die eigene Organisation und
-    // der Umschalter blendet sich mangels Alternativen selbst aus.
-    const { data: orgs } = await supabase
-      .from("workspaces")
-      .select("id, name")
-      .order("name", { ascending: true });
-    availableWorkspaces = (orgs ?? []) as OrgSummary[];
-  }
+  const availableWorkspaces: OrgSummary[] = isPlatformAdmin
+    ? ((orgRows ?? []) as OrgSummary[])
+    : [];
 
   return {
-    user: { id: user.id },
+    user: { id: userId },
     workspace_id: activeWorkspaceId,
     role,
     data_scope: dataScope,
-    workspaces: workspace as Workspace,
+    workspaces: workspace,
     username,
     effective_user_id: effectiveUserId,
     effective_username: effectiveUsername,

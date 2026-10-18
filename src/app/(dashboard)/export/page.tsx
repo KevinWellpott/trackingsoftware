@@ -1,7 +1,6 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
-import { localDateISO } from "@/lib/dates";
 import type { PitchList } from "@/lib/types";
 import { Download, FileText } from "lucide-react";
 import { BackLink } from "@/components/ui/BackLink";
@@ -20,7 +19,7 @@ export default async function ExportPage({
 
   const supabase = await createClient();
   const q = await searchParams;
-  const today = localDateISO();
+  const today = berlinDateISO(new Date().toISOString());
 
   let listsQuery = supabase
     .from("lists")
@@ -42,32 +41,35 @@ export default async function ExportPage({
   const listIds  = q.listIds  ? q.listIds.split(",").filter(Boolean) : [];
   const category = q.category ?? "";
 
-  // Preview: die fetchAllRows-Query unten liefert count/answered/appts direkt —
-  // der frühere zusätzliche count-Roundtrip war totes Gewicht und wurde entfernt.
+  // Vorschau: drei Zählungen in der Datenbank statt alle Kontakte des
+  // Zeitraums seitenweise zu holen und in JS zu filtern (Standard-Zeitraum ab
+  // 2000 = die ganze Tabelle, 1000 Zeilen je Roundtrip). Dieselben Filter wie
+  // die Download-Route — inklusive `workspace_id`, ohne den ein Plattform-Admin
+  // über alle Organisationen gezählt hätte, während die CSV nur eine enthält.
   const allowedListIds = allLists.map((l) => l.id);
-
-  // Further filter by owner + category (client-side for preview since nested filters are limited)
-  const previewRaw = await fetchAllRows((rangeFrom, rangeTo) => {
+  const previewBase = () => {
     let previewQuery = supabase
       .from("contacts")
-      .select("id, list_id, answered, appointment_set, answer_category, lists!inner(owner_name)")
+      .select("id, lists!inner(owner_name)", { count: "exact", head: true })
+      .eq("workspace_id", access.workspace_id)
       .gte("pitched_at", from || "2000-01-01")
       .lte("pitched_at", to);
     if (access.effective_user_id) {
       previewQuery = previewQuery.in("list_id", allowedListIds.length ? allowedListIds : ["00000000-0000-0000-0000-000000000000"]);
     }
-    return previewQuery.order("id", { ascending: true }).range(rangeFrom, rangeTo);
-  });
-
-  type PR = { id: string; list_id: string; answered: boolean | null; appointment_set: boolean | null; answer_category: string | null; lists: { owner_name: string | null } | null };
-  let preview = (previewRaw ?? []) as unknown as PR[];
-  if (listIds.length > 0) preview = preview.filter((r) => listIds.includes(r.list_id));
-  if (owner) preview = preview.filter((r) => r.lists?.owner_name === owner);
-  if (category) preview = preview.filter((r) => r.answer_category === category);
-
-  const count = preview.length;
-  const answered = preview.filter((r) => r.answered === true).length;
-  const appts = preview.filter((r) => r.appointment_set === true).length;
+    if (listIds.length > 0) previewQuery = previewQuery.in("list_id", listIds);
+    if (owner) previewQuery = previewQuery.eq("lists.owner_name", owner);
+    if (category) previewQuery = previewQuery.eq("answer_category", category);
+    return previewQuery;
+  };
+  const [allRes, answeredRes, apptsRes] = await Promise.all([
+    previewBase(),
+    previewBase().eq("answered", true),
+    previewBase().eq("appointment_set", true),
+  ]);
+  const count = allRes.count ?? 0;
+  const answered = answeredRes.count ?? 0;
+  const appts = apptsRes.count ?? 0;
 
   // Build export URL
   const exportParams = new URLSearchParams();

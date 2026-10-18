@@ -1,9 +1,10 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import { restoreListForm } from "@/app/actions/lists";
 import { ListenTabs, type ListenTab } from "@/components/listen/ListenTabs";
 import { EmptyState, PageHeader } from "@/components/ui/PageHeader";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
-import { localDateISO } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { Inbox, RotateCcw } from "lucide-react";
 import Link from "next/link";
 
@@ -63,7 +64,7 @@ export default async function ListenPage({
   if (!access) return null;
 
   const supabase = await createClient();
-  const today = localDateISO();
+  const today = berlinDateISO(new Date().toISOString());
 
   // Personenfilter nur, wenn der Zugriff eingeschraenkt ist. Ein Owner mit
   // Workspace-Datensicht sieht alle Listen — dieselbe Regel wie ueberall.
@@ -77,15 +78,20 @@ export default async function ListenPage({
 
   // Zaehler in EINER Abfrage statt einer pro Zeile. Nur die sechs Spalten, die
   // isDueFollowUp braucht — RLS beschraenkt die Menge bereits auf den Scope.
-  const contactsQuery = supabase
-    .from("contacts")
-    .select("list_id, next_follow_up_at, answered, appointment_set, follow_up_number, blocked_at")
-    .eq("workspace_id", access.workspace_id);
+  // Ueber fetchAllRows: PostgREST schneidet bei 1000 Zeilen ab, ohne Paging
+  // stimmten Kontakte, Faellig und Termine ab dem tausendsten Kontakt nicht.
+  const contactsQuery = fetchAllRows<ContactRow>((from, to) =>
+    supabase
+      .from("contacts")
+      .select("list_id, next_follow_up_at, answered, appointment_set, follow_up_number, blocked_at")
+      .eq("workspace_id", access.workspace_id)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
-  const [{ data: listData }, { data: contactData }] = await Promise.all([listsQuery, contactsQuery]);
+  const [{ data: listData }, contacts] = await Promise.all([listsQuery, contactsQuery]);
 
   const lists = (listData ?? []) as ListRow[];
-  const contacts = (contactData ?? []) as ContactRow[];
 
   const counts = new Map<string, Counts>();
   for (const c of contacts) {

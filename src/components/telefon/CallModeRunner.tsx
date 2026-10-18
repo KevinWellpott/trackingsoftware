@@ -402,7 +402,12 @@ export function CallModeRunner({
       }
     }
     setField(id, uiPatch);
-    startTransition(async () => {
+    // Bewusst AUSSERHALB von startTransition: Ein Feld-Save (Gatekeeper,
+    // Entscheider, Notiz) setzte sonst isPending und sperrte währenddessen die
+    // Ergebnis-Knöpfe und die Tasten 1–5 — lautlos. Wer eine Notiz tippte und
+    // dann direkt ein Ergebnis klickte, verlor den Klick, weil der Blur den
+    // Save startete und der Knopf vor dem Loslassen deaktiviert war.
+    void (async () => {
       const res = await updatePhoneLead(id, lead?.list_id ?? "", savePatch);
       if (res.error) {
         setError(res.error);
@@ -410,7 +415,7 @@ export function CallModeRunner({
       } else {
         setError(null);
       }
-    });
+    })();
   }
 
   /** Nach einem Outcome zum nächsten Lead springen. */
@@ -419,6 +424,19 @@ export function CallModeRunner({
     setCurrentId(next ? next.id : (filtered[0]?.id ?? null));
   }
 
+  /**
+   * Ergebnis setzen — optimistisch. Der nächste Lead steht SOFORT da; das
+   * Speichern (Status, Routing-Liste, Anruf-Log, ggf. Recycling) läuft im
+   * Hintergrund. Vorher wartete der Setter nach jedem Ergebnis auf rund ein
+   * Dutzend Datenbank-Roundtrips und zwei vollständige Seiten-Renders, und die
+   * Tasten 1–5 waren solange gesperrt.
+   *
+   * Schlägt das Speichern fehl, wird der Status des betroffenen Leads
+   * zurückgesetzt und die Meldung nennt ihn beim Namen — der Setter steht dann
+   * schon beim nächsten Lead und muss wissen, WELCHER nicht gespeichert wurde.
+   * Mehrere schnelle Ergebnisse hintereinander arbeitet Next der Reihe nach ab
+   * (Server Actions laufen seriell), sie überholen sich also nicht.
+   */
   function applyOutcome(
     outcome: "rueckruf" | "nicht_erreicht" | "kein_termin" | "dead",
     callbackAtVal?: string,
@@ -427,7 +445,22 @@ export function CallModeRunner({
     const id = current.id;
     const listId = current.list_id;
     const name = current.company ?? current.phone ?? "Lead";
-    startTransition(async () => {
+    const prev = { status: current.status, callback_at: current.callback_at };
+
+    // callback_at hält in der DB echtes UTC; der Dialog liefert Berlin-Wandzeit.
+    // Der optimistische Override muss dieselbe Einheit tragen wie die Serverzeile,
+    // sonst zeigt formatTermin() den Rückruf verschoben an.
+    setField(id, {
+      status: outcome,
+      ...(callbackAtVal ? { callback_at: berlinInputToIso(callbackAtVal) } : {}),
+    });
+    setError(null);
+    setNotice(null);
+    setCallbackOpen(false);
+    setCallbackAt("");
+    advance();
+
+    void (async () => {
       const res = await setPhoneLeadOutcome({
         leadId: id,
         listId,
@@ -435,30 +468,22 @@ export function CallModeRunner({
         callbackAt: callbackAtVal ?? null,
       });
       if (res.error) {
-        setError(res.error);
+        setField(id, prev);
+        setError(`„${name}" wurde nicht gespeichert: ${res.error}`);
         return;
       }
-      setError(null);
-      setNotice(
-        res.autoDead
-          ? `„${name}" war 3-mal hintereinander nicht erreichbar und steht jetzt auf Tot.`
-          : null,
-      );
-      // callback_at hält in der DB echtes UTC; der Dialog liefert Berlin-Wandzeit.
-      // Der optimistische Override muss dieselbe Einheit tragen wie die Serverzeile,
-      // sonst zeigt formatTermin() den Rückruf bis zum nächsten Refresh verschoben an.
+      if (res.autoDead) {
+        setNotice(`„${name}" war 3-mal hintereinander nicht erreichbar und steht jetzt auf Tot.`);
+      }
       // attemptNo kommt aus dem Anruf-Log — fehlt es (fail-soft), bleibt der
       // bisherige Zähler stehen, statt eine Zahl zu erfinden.
-      setField(id, {
-        status: res.autoDead ? "dead" : outcome,
-        ...(callbackAtVal ? { callback_at: berlinInputToIso(callbackAtVal) } : {}),
-        ...(res.attemptNo != null ? { call_attempt: res.attemptNo } : {}),
-      });
-      setCallbackOpen(false);
-      setCallbackAt("");
-      advance();
-      router.refresh();
-    });
+      if (res.autoDead || res.attemptNo != null) {
+        setField(id, {
+          ...(res.autoDead ? { status: "dead" as const } : {}),
+          ...(res.attemptNo != null ? { call_attempt: res.attemptNo } : {}),
+        });
+      }
+    })();
   }
 
   /**

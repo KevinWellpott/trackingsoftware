@@ -95,15 +95,20 @@ export function TermineBoard({
   const [moved, setMoved] = useState<Record<string, DragTarget>>({});
 
   // ── URL-State ──────────────────────────────────────────────
+  // Über die native History-API statt router.replace: Die Seite liest auf dem
+  // Server KEINEN dieser Parameter — Reiter, Ausschnitt, Personenachse,
+  // Sortierung, Kalender-Schritt und Suche filtern ausschließlich hier im
+  // Client. router.replace hätte trotzdem die komplette force-dynamic-Seite
+  // neu gerendert (alle Termine, Rückrufe, Mail-Log), bei JEDEM Klick.
+  // replaceState hält die URL als Wahrheit (teilbar, überlebt Reload) und
+  // Next synchronisiert useSearchParams damit, ganz ohne Server-Roundtrip.
   const commit = useCallback(
     (mutate: (p: URLSearchParams) => void) => {
       const next = new URLSearchParams(sp.toString());
       mutate(next);
-      startTransition(() => {
-        router.replace(`${pathname}?${next.toString()}`, { scroll: false });
-      });
+      window.history.replaceState(null, "", `${pathname}?${next.toString()}`);
     },
-    [sp, pathname, router],
+    [sp, pathname],
   );
 
   const setParam = useCallback(

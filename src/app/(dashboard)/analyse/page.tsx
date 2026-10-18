@@ -90,7 +90,6 @@ export default async function AnalysePage({
   const access = await getAccessContext();
   if (!access) return null;
 
-  const members = await listDataViewUsers(access.workspace_id);
   // Berliner Kalendertag, nicht die Server-Uhr. Vercel laeuft in UTC — mit
   // `localDateISO()` haette „heute" zwischen 00:00 und 02:00 Berliner Zeit noch
   // den Vortag gemeint, und damit auch das `bis` jedes Zeitraum-Presets. Der
@@ -99,6 +98,15 @@ export default async function AnalysePage({
   const today = berlinDateISO(new Date().toISOString());
   const params = parseAnalyseParams(sp, today);
   const canCompare = access.can_switch_view;
+
+  // Mitglieder und Listen-Filter hängen beide nur am Zugriffskontext — sie
+  // laufen parallel statt nacheinander (ein Roundtrip weniger je Tab-Wechsel).
+  const isLinkedIn = params.tab === "linkedin";
+  const supabase = await createClient();
+  const [members, filterLists] = await Promise.all([
+    listDataViewUsers(access.workspace_id),
+    isLinkedIn ? loadFilterLists(supabase, access, canCompare) : Promise.resolve([]),
+  ]);
 
   // ── Ausgewählte Mitglieder auflösen ──────────────────────────
   let selectedMembers: Member[];
@@ -125,9 +133,6 @@ export default async function AnalysePage({
   // `parseAnalyseParams` prüft die IDs nur syntaktisch; ob sie zu einer real
   // sichtbaren Liste gehören, entscheidet erst dieser Abgleich. Ohne ihn ließe
   // eine fremde UUID in der URL den Tab leer laufen, statt sie zu ignorieren.
-  const isLinkedIn = params.tab === "linkedin";
-  const supabase = await createClient();
-  const filterLists = isLinkedIn ? await loadFilterLists(supabase, access, canCompare) : [];
   const knownListIds = new Set(filterLists.map((l) => l.id));
   const selectedListIds = isLinkedIn ? params.listIds.filter((id) => knownListIds.has(id)) : [];
 
