@@ -75,20 +75,26 @@ export function AnchoredPopover({
     function onDown(e: MouseEvent) {
       if (ref.current && e.target instanceof Node && !ref.current.contains(e.target)) onClose();
     }
+    // Escape schließt NUR das Popover. Abgefangen in der Capture-Phase am
+    // window und dort gestoppt: Sonst erreichte dieselbe Taste auch den
+    // Escape-Handler eines umgebenden Modals, und Escape in einem Select
+    // schloss das ganze Formular samt allem, was schon eingetippt war.
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
     }
     function onScroll(e: Event) {
       if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
       onClose();
     }
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onClose);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onClose);
     };

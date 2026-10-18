@@ -43,8 +43,11 @@ export default async function SettingCallPage({
     // Migration 0028 §5. Ohne den Zuweisungs-Zweig koennte genau die Person,
     // der der Termin gehoert, ihn nicht oeffnen, sobald ein Admin ihn fuer
     // sie angelegt hat.
+    // Dritter Zweig seit 0042: Wer das Gespräch GEFÜHRT hat, sieht es in der
+    // Arbeitsliste (Zustand `show` geht an „Durchgeführt von") und in der RLS
+    // — ohne ihn endete der Klick aus der eigenen Liste in einem 404.
     callQuery = callQuery.or(
-      `created_by_user_id.eq.${access.effective_user_id},assigned_user_id.eq.${access.effective_user_id}`,
+      `created_by_user_id.eq.${access.effective_user_id},assigned_user_id.eq.${access.effective_user_id},conducted_by_user_id.eq.${access.effective_user_id}`,
     );
   }
   const { data: rawCall } = await callQuery.maybeSingle();

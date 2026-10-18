@@ -1,7 +1,7 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import { localDateISO } from "@/lib/dates";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
 
 export async function GET(request: NextRequest) {
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
 
   const from     = sp.get("from") ?? "2000-01-01";
-  const to       = sp.get("to")   ?? localDateISO();
+  const to       = sp.get("to")   ?? berlinDateISO(new Date().toISOString());
   const owner    = sp.get("owner") ?? "";
   const listIds  = (sp.get("listIds") ?? "").split(",").filter(Boolean);
   const source   = sp.get("source") ?? "contacts";
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   if (source !== "contacts") {
     const eff = access.effective_user_id;
     const ownScope = ownScopeFilter(access);
-    const today = localDateISO();
+    const today = berlinDateISO(new Date().toISOString());
     try {
       if (source === "telefon") {
         const rows = (await fetchAllRows((f, t) => {

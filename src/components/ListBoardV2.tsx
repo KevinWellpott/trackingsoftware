@@ -320,8 +320,9 @@ function CategorySelect({ value, onChange }: { value: string | null; onChange: (
 
 // ─── Gemeinsamer Edit-State (Desktop-Zeile + Mobile-Karte) ────────────────────
 // vals ist bewusst lokal (optimistisch): die Zeile zeigt sofort den neuen Wert,
-// der Server-Sync läuft im Hintergrund; onEdited stößt den debounced Refresh an.
-function useContactEdit(c: ListContact, listId: string, onEdited?: () => void) {
+// der Server-Sync läuft im Hintergrund; onEdited stößt den debounced Refresh an
+// bzw. meldet den Fehler, wenn der Server die Änderung abgelehnt hat.
+function useContactEdit(c: ListContact, listId: string, onEdited?: (error?: string) => void) {
   const [vals, setVals] = useState({
     name: c.name,
     pitched_at: c.pitched_at ?? "",
@@ -335,20 +336,44 @@ function useContactEdit(c: ListContact, listId: string, onEdited?: () => void) {
 
   // extra: Payload-Felder, die nicht Teil von vals sind (z. B. explizites
   // next_follow_up_at im Undo-Pfad — überstimmt die Server-Autoberechnung).
+  //
+  // Gesendet werden NUR die Felder aus `patch`. Bis Oktober 2026 ging bei jedem
+  // Edit der komplette, einmal beim Mounten geladene Stand mit — hatte eine
+  // Kollegin inzwischen „Antwort" gesetzt, nahm ein Notiz-Edit aus einem
+  // älteren Tab das lautlos zurück. Fehlende Felder füllt updateContact selbst
+  // aus der Zeile auf.
   function save(patch: Partial<typeof vals>, extra?: Partial<ContactInput>) {
+    const keys = Object.keys(patch) as (keyof typeof vals)[];
+    // Ein Blur ohne Änderung ist kein Speichern — vorher kostete jeder Klick
+    // in eine Zelle und wieder heraus drei Roundtrips und einen Refresh.
+    if (!extra && keys.every((k) => patch[k] === vals[k])) return;
+    const prev = vals;
     const next = { ...vals, ...patch };
     setVals(next);
+    const payload: Partial<ContactInput> = { ...extra };
+    if ("name" in patch) payload.name = next.name;
+    if ("pitched_at" in patch) payload.pitched_at = next.pitched_at || null;
+    if ("follow_up_number" in patch) payload.follow_up_number = next.follow_up_number;
+    if ("answered" in patch) payload.answered = next.answered || null;
+    if ("answer_category" in patch) payload.answer_category = next.answer_category;
+    if ("answer_text" in patch) payload.answer_text = next.answer_text || null;
+    if ("notes" in patch) payload.notes = next.notes || null;
     startTransition(async () => {
-      await updateContact(c.id, listId, {
-        name: next.name,
-        pitched_at: next.pitched_at || null,
-        follow_up_number: next.follow_up_number,
-        answered: next.answered || null,
-        answer_category: next.answer_category,
-        answer_text: next.answer_text || null,
-        notes: next.notes || null,
-        ...extra,
-      });
+      const res = await updateContact(c.id, listId, payload);
+      if (res?.error) {
+        // Zurückrollen — aber nur die Felder, die seither niemand erneut
+        // geändert hat. Die Zeile zeigte sonst einen Wert, der nie gespeichert
+        // wurde.
+        setVals((cur) => {
+          const rolled = { ...cur };
+          for (const k of keys) {
+            if (cur[k] === next[k]) (rolled as Record<string, unknown>)[k] = prev[k];
+          }
+          return rolled;
+        });
+        onEdited?.(res.error);
+        return;
+      }
       onEdited?.();
     });
   }
@@ -409,7 +434,7 @@ const ContactRow = memo(function ContactRow({
   onDeleteContact: (c: ListContact) => void;
   onToggleBlocked: (c: ListContact, currentlyBlocked: boolean) => Promise<boolean>;
   onToast: (t: ToastState) => void;
-  onEdited: () => void;
+  onEdited: (error?: string) => void;
 }) {
   const { vals, save, isPending } = useContactEdit(c, listId, onEdited);
   const [blocked, setBlocked] = useState(c.blocked_at != null);
@@ -937,7 +962,7 @@ const MobileContactCard = memo(function MobileContactCard({
   onDeleteContact: (c: ListContact) => void;
   onToggleBlocked: (c: ListContact, currentlyBlocked: boolean) => Promise<boolean>;
   onToast: (t: ToastState) => void;
-  onEdited: () => void;
+  onEdited: (error?: string) => void;
 }) {
   const { vals, save, isPending } = useContactEdit(c, listId, onEdited);
   const [blocked, setBlocked] = useState(c.blocked_at != null);
@@ -1290,7 +1315,11 @@ export function ListBoardV2({ listId, contacts }: {
   // Inline-Edits ändern nur die Zeile (lokaler State) — Stats/Charts holen sich
   // die Server-Wahrheit kurz danach im Hintergrund (debounced, nicht blockierend).
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleRefresh = useCallback(() => {
+  const scheduleRefresh = useCallback((error?: string) => {
+    if (error) {
+      setActionError(`Änderung nicht gespeichert: ${error}`);
+      return;
+    }
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => router.refresh(), 2500);
   }, [router]);

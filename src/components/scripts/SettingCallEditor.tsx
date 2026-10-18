@@ -715,7 +715,7 @@ export function SettingCallEditor({
             </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
               {followUpDue
-                ? `Nachfassen am ${formatDueDate(followUpDue)} — steht im Nachfassen-Board.`
+                ? `Nachfassen am ${formatDueDate(followUpDue)} — steht als Notiz am Termin; die tägliche Arbeitsliste unter Termine zeigt den Lead unabhängig davon.`
                 : "Kein Nachfassen gesetzt."}
             </div>
           </div>

@@ -1006,7 +1006,7 @@ export function ClosingCallEditor({
         open={wonOpen}
         onClose={() => setWonOpen(false)}
         title="Deal gewonnen"
-        subtitle="Deal-Daten erfassen — der Abschluss erscheint danach im CRM."
+        subtitle="Deal-Daten erfassen — der Abschluss zählt danach in Umsatz und Analyse."
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
           <div>

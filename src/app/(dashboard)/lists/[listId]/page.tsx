@@ -1,3 +1,4 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import { ArchiveListButton } from "@/components/ArchiveListButton";
 import { DeleteListButton } from "@/components/DeleteListButton";
 import { ListBoardV2 } from "@/components/ListBoardV2";
@@ -8,7 +9,7 @@ import { updateListPitchForm } from "@/app/actions/lists";
 import { MultiMetricBarChart, AnswerDonutChart, type MultiMetricDay } from "@/components/DashboardCharts";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { LIST_CONTACT_COLUMNS, type ListContact, type PitchList } from "@/lib/types";
-import { addDaysISO, localDateISO } from "@/lib/dates";
+import { addDaysISO } from "@/lib/dates";
 import { VIZ_NEUTRAL } from "@/lib/viz";
 import { BackLink } from "@/components/ui/BackLink";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -51,7 +52,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
 
   const contacts = (rawContacts ?? []) as unknown as ListContact[];
   const L = list as PitchList;
-  const today = localDateISO();
+  const today = berlinDateISO(new Date().toISOString());
 
   // ── Analytics ───────────────────────────────────────────────
   const total = contacts.length;

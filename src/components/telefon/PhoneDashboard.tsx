@@ -1,3 +1,4 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import { getTargets } from "@/app/actions/targets";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { addDaysISO, localDateISO } from "@/lib/dates";
@@ -134,7 +135,7 @@ export async function PhoneDashboard() {
   if (!access) return null;
 
   const supabase = await createClient();
-  const today = localDateISO();
+  const today = berlinDateISO(new Date().toISOString());
   const from30 = addDaysISO(today, -29);
   const monday = weekStart(today);
   const effectiveUserId = access.effective_user_id ?? null;

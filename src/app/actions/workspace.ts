@@ -473,7 +473,9 @@ export async function renameUserForm(formData: FormData) {
   if (res.error) {
     redirect(`/settings?userErr=${encodeURIComponent(res.error)}`);
   }
-  redirect("/settings?userOk=1");
+  // Eigener Parameter: `userOk` meldet „Nutzer angelegt." — nach einem
+  // Umbenennen stand genau das da.
+  redirect("/settings?renamed=1");
 }
 
 export async function deleteUserForm(formData: FormData) {
@@ -483,7 +485,8 @@ export async function deleteUserForm(formData: FormData) {
   if (res.error) {
     redirect(`/settings?userErr=${encodeURIComponent(res.error)}`);
   }
-  redirect("/settings");
+  // Ohne den Parameter erschien die vorhandene Meldung „Nutzer gelöscht." nie.
+  redirect("/settings?deleted=1");
 }
 
 export async function listUsers(workspaceId: string) {

@@ -238,11 +238,15 @@ export function TermineList({
       setBusyId(event.id);
       startTransition(async () => {
         const res = await aktion();
-        setBusyId(null);
         if (res?.error) {
+          setBusyId(null);
           onError(res.error);
           return;
         }
+        // busyId bleibt stehen, bis der Transition fertig ist: `pending` deckt
+        // das Neuladen mit ab. Vorher wurde er hier schon zurückgesetzt — die
+        // Knöpfe waren auf der noch goldenen Zeile wieder frei und luden zum
+        // Doppelklick ein, solange die frische Zeile unterwegs war.
         router.refresh();
       });
     },

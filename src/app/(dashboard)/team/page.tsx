@@ -1,3 +1,4 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Archive, Users } from "lucide-react";
@@ -6,7 +7,7 @@ import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { getTargets } from "@/app/actions/targets";
 import { gespraechsPersonOf } from "@/lib/personResolution";
 import { resolveTarget } from "@/lib/targets";
-import { addDaysISO, getISOWeek, localDateISO, weekStart } from "@/lib/dates";
+import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 import { WochenduellSection } from "@/components/dashboard/WochenduellSection";
 import { berlinWindowIso } from "@/components/dashboard/periodWindow";
 import { TeamMemberCard, type TeamMemberMetrics } from "@/components/dashboard/TeamMemberCard";
@@ -58,7 +59,7 @@ export default async function TeamPage() {
   if (!(access.role === "owner" && access.data_scope === "workspace")) redirect("/");
 
   const supabase = await createClient();
-  const today = localDateISO();
+  const today = berlinDateISO(new Date().toISOString());
   const monday = weekStart(today);
   const sunday = addDaysISO(monday, 6);
   const from = addDaysISO(monday, -63); // 10-Wochen-Fenster (9 Wochen vor Montag)

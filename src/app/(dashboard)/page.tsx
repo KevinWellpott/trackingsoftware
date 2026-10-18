@@ -1,8 +1,9 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import Link from "next/link";
 import { ArrowRight, CalendarCheck, CalendarPlus, MessageSquare, Phone, Target, TrendingUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
-import { addDaysISO, getISOWeek, localDateISO, weekStart } from "@/lib/dates";
+import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 import { getTargets } from "@/app/actions/targets";
 import { resolveTarget } from "@/lib/targets";
 import { Card } from "@/components/ui/Card";
@@ -157,7 +158,7 @@ export default async function DashboardPage({
   const scopeUserId = access.effective_user_id ?? access.user.id;
   const displayName = access.effective_username ?? access.username;
 
-  const today = localDateISO();
+  const today = berlinDateISO(new Date().toISOString());
   const monday = weekStart(today);
   const periodFrom =
     period === "w" ? monday :

@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, listDataViewUsers, ownScopeFilter, type AccessContext } from "@/lib/access";
-import { berlinInputToIso } from "@/lib/apptTime";
+import { berlinInputToIso, berlinDateISO } from "@/lib/apptTime";
 import { revalidatePath } from "next/cache";
 import { parsePhoneCsv } from "@/lib/phone-csv";
 import { logCallAttempt } from "@/app/actions/phoneAttempts";
@@ -13,9 +13,10 @@ import type { PhoneCallKind, PhoneListKind } from "@/lib/types";
 // Telefonakquise: Listen, Routing (Rückruf/Nicht erreicht/Kein Termin = echte separate Listen),
 // Lead-CRUD und CSV-Import. Personenbezogen über created_by_user_id/owner_name.
 
+// Berliner Kalendertag, nicht die Server-Uhr: Vercel läuft in UTC, zwischen
+// 00:00 und 02:00 Berliner Zeit wäre „heute" sonst noch der Vortag (docs §6).
 function todayLocal(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return berlinDateISO(new Date().toISOString());
 }
 
 async function canAccessPhoneList(listId: string): Promise<boolean> {

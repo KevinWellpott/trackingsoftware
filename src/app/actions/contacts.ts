@@ -1,5 +1,6 @@
 "use server";
 
+import { berlinDateISO } from "@/lib/apptTime";
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
 import { FU_MAX_STAGE, nextFollowUpAfter } from "@/lib/followup";
@@ -71,9 +72,10 @@ function calcNextFollowUp(
   return nextFollowUpAfter(fuNumber, base);
 }
 
+// Berliner Kalendertag, nicht die Server-Uhr: Vercel läuft in UTC, zwischen
+// 00:00 und 02:00 Berliner Zeit wäre „heute" sonst noch der Vortag (docs §6).
 function todayLocal(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return berlinDateISO(new Date().toISOString());
 }
 
 async function canAccessPitchList(listId: string) {

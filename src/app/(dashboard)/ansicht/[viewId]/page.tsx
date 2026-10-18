@@ -1,9 +1,9 @@
+import { berlinDateISO } from "@/lib/apptTime";
 import { listViewRows } from "@/app/actions/listViews";
 import { ListBoardV2 } from "@/components/ListBoardV2";
 import { ViewActions } from "@/components/listen/ViewActions";
 import { EmptyState, PageHeader } from "@/components/ui/PageHeader";
 import { getAccessContext, ownScopeFilter } from "@/lib/access";
-import { localDateISO } from "@/lib/dates";
 import {
   viewFilterOps,
   buildViewTree,
@@ -50,7 +50,7 @@ export default async function AnsichtPage({ params }: { params: Promise<{ viewId
   const parents = flattenForSelect(buildViewTree(rows)).filter((p) => !forbidden.has(p.id));
 
   const supabase = await createClient();
-  const today = localDateISO();
+  const today = berlinDateISO(new Date().toISOString());
 
   // Sichtbare Listen bilden die Obergrenze der Ansicht. Auch wenn in den
   // Filtern eine fremde Liste stuende, kaeme sie hier nicht durch.

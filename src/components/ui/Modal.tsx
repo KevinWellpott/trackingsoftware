@@ -78,10 +78,15 @@ export function Modal({
   // Fokus beim Öffnen ins Modal setzen, beim Schließen zurückgeben.
   useEffect(() => {
     if (!open) return;
-    const prevActive =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
-    if (dialog) {
+    const active = document.activeElement;
+    // Hat ein Feld im Modal den Fokus schon selbst genommen (`autoFocus` —
+    // React setzt ihn VOR diesem Effekt), bleibt er dort. Vorher zog dieser
+    // Effekt ihn auf das erste fokussierbare Element, den Schließen-Knopf im
+    // Kopf: Wer die Suche öffnete und sofort tippte, tippte ins Leere.
+    const focusAlreadyInside = !!dialog && active instanceof Node && dialog.contains(active);
+    const prevActive = !focusAlreadyInside && active instanceof HTMLElement ? active : null;
+    if (dialog && !focusAlreadyInside) {
       const first = dialog.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
       (first ?? dialog).focus();
     }
