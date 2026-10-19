@@ -92,12 +92,14 @@ function TileBody({
     <>
       <span
         aria-hidden
+        className="quicklink-icon"
         style={{ display: "inline-flex", color: accent ? "var(--orange-300)" : "var(--orange-500)", flexShrink: 0 }}
       >
         <Icon size={16} />
       </span>
-      <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+      <span className="quicklink-text" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
         <span
+          className="quicklink-label"
           style={{
             fontSize: "var(--fs-sm)",
             fontWeight: 600,
@@ -111,6 +113,7 @@ function TileBody({
           {label}
         </span>
         <span
+          className="quicklink-hint"
           style={{
             fontSize: "var(--fs-xs)",
             color: "var(--text-muted)",
@@ -175,8 +178,13 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
 
   return (
     <>
+      {/* Am Handy ein 2×2-Raster mit dem Icon oben (globals.css,
+          `[data-quicklinks]`). Nebeneinander mit nicht umbrechender Beschriftung
+          waren die Kacheln breiter als die halbe Bildschirmbreite und schoben
+          das Dashboard über den rechten Rand. */}
       <div
         className="grid-4-stat"
+        data-quicklinks=""
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
@@ -197,6 +205,7 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
               key={l.href}
               href={l.href}
               className="card card-hover"
+              data-quicklink=""
               style={tileStyle()}
               title={countTitle ?? `${l.label} — ${l.hint}`}
             >
@@ -229,6 +238,7 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
           type="button"
           onClick={() => setShowManualAppt(true)}
           className="card card-hover"
+              data-quicklink=""
           style={{ ...tileStyle(), background: "none", border: "1px solid var(--border-accent)" }}
           title="Termin ohne Liste manuell buchen"
         >

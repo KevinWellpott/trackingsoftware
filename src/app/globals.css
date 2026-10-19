@@ -2381,3 +2381,43 @@ html { -webkit-tap-highlight-color: transparent; }
   cursor: pointer;
 }
 body[data-dialer] .header-menu-btn { display: inline-flex; }
+
+/* ─── Dashboard-Quicklinks am Handy: 2×2, Icon oben ────────────────────── */
+@media (max-width: 767px) {
+  [data-quicklinks] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: var(--sp-4) !important;
+  }
+  [data-quicklink] {
+    position: relative;
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: var(--sp-4) !important;
+    padding: var(--sp-6) !important;
+    min-height: 104px;
+  }
+  .quicklink-icon {
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--r-md);
+    background: var(--accent-muted);
+  }
+  .quicklink-text { width: 100%; }
+  .quicklink-label,
+  .quicklink-hint { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+  .quicklink-label { font-size: var(--fs-base) !important; }
+  [data-quicklink] > .count-pill { position: absolute; top: var(--sp-5); right: var(--sp-5); }
+
+  /* Raster-Spalten nie breiter als ihr Anteil: `1fr` heisst minmax(auto, 1fr),
+     und `auto` ist die Mindestbreite des Inhalts — eine nicht umbrechende
+     Zeile darin schob die ganze Seite nach rechts. */
+  .grid-4-stat { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .grid-6-stat { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+
+  /* Sicherheitsnetz: Die Seite selbst scrollt nie seitlich. Tabellen und
+     Kalender scrollen in ihrer eigenen Flaeche. `clip` statt `hidden`, damit
+     sticky-Leisten darin weiter kleben. */
+  .main-content { overflow-x: clip; }
+}
