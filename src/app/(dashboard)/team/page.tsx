@@ -12,6 +12,7 @@ import { WochenduellSection } from "@/components/dashboard/WochenduellSection";
 import { berlinWindowIso } from "@/components/dashboard/periodWindow";
 import { TeamMemberCard, type TeamMemberMetrics } from "@/components/dashboard/TeamMemberCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { dialOwnerKey, loadDialRows } from "@/lib/phoneAttemptsData";
 
 // Admin-Team-Dashboard: Wochenduell + Team-Vergleich.
 // Nur für Owner mit Workspace-Datensicht — alle anderen landen auf "/".
@@ -69,7 +70,7 @@ export default async function TeamPage() {
   // heute, nicht von Sonntag: Umsatz aus der Zukunft gibt es nicht.
   const { startIso: weekStartIso, endIso: weekEndIso } = berlinWindowIso(monday, today);
 
-  const [dayRes, phoneRes, bookedRes, wonDealsRes, members, targets] = await Promise.all([
+  const [dayRes, phoneRes, bookedRes, wonDealsRes, members, targets, dials] = await Promise.all([
     supabase.rpc("rpc_owner_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: from,
@@ -107,6 +108,9 @@ export default async function TeamPage() {
       ),
     listDataViewUsers(access.workspace_id),
     getTargets(),
+    // Anwahlen der Woche aus dem Anruf-Log — die RPC oben zählt Erstkontakte,
+    // dort fehlten Rückrufe und Folgeanrufe (src/lib/phoneAttemptsData.ts).
+    loadDialRows(supabase, access.workspace_id, monday, today),
   ]);
 
   // ── Tages-Metriken aller Owner (RPC-Fehler → leer, Seite bleibt nutzbar)
@@ -186,11 +190,21 @@ export default async function TeamPage() {
   }
 
   const callsByOwner = new Map<string, number>();
-  const phoneRows = phoneRes.error ? [] : ((phoneRes.data ?? []) as PhoneDayRow[]);
-  for (const r of phoneRows) {
-    const key = (r.owner_name ?? "").trim().toLowerCase();
-    if (!key) continue;
-    callsByOwner.set(key, (callsByOwner.get(key) ?? 0) + NUM(r.calls));
+  if (dials.available) {
+    const usernameById = new Map(members.map((m) => [m.user_id, m.username]));
+    for (const d of dials.rows) {
+      const key = dialOwnerKey(d, usernameById);
+      if (!key) continue;
+      callsByOwner.set(key, (callsByOwner.get(key) ?? 0) + 1);
+    }
+  } else {
+    // Rückfall ohne Log: Erstkontakte als Untergrenze.
+    const phoneRows = phoneRes.error ? [] : ((phoneRes.data ?? []) as PhoneDayRow[]);
+    for (const r of phoneRows) {
+      const key = (r.owner_name ?? "").trim().toLowerCase();
+      if (!key) continue;
+      callsByOwner.set(key, (callsByOwner.get(key) ?? 0) + NUM(r.calls));
+    }
   }
 
   // Termine gelegt je Nutzer (RPC ab Migration 0028 → bei Fehler leer).

@@ -63,8 +63,12 @@ const ATTEMPT_COLUMNS =
  * Trennzeichen liest.
  */
 function ownerScopeOr(access: AccessContext): string {
-  const name = access.username.replace(/["\\]/g, "");
-  return `owner_name.eq."${name}",and(owner_name.is.null,created_by_user_id.eq.${access.user.id})`;
+  return ownerScopeOrFor(access.username, access.user.id);
+}
+
+function ownerScopeOrFor(username: string, userId: string): string {
+  const name = username.replace(/["\\]/g, "");
+  return `owner_name.eq."${name}",and(owner_name.is.null,created_by_user_id.eq.${userId})`;
 }
 
 /**
@@ -121,6 +125,72 @@ export async function loadCallAttempts(
     console.error("phoneAttemptsData:", err instanceof Error ? err.message : err);
     return { rows: [], firstCalledAt: null, available: false };
   }
+}
+
+// ── Anwahlen zählen (Ziele, Dashboard, Team) ─────────────────
+
+export type DialRow = {
+  owner_name: string | null;
+  created_by_user_id: string | null;
+  called_at: string;
+  /** Berlin-Kalendertag von `called_at`. */
+  day: string;
+};
+
+/**
+ * Anwahlen eines Zeitraums für die ZÄHLER außerhalb des Analyse-Bereichs —
+ * Wochenziel auf `/`, Telefon-Übersicht, Team-Vergleich.
+ *
+ * Vorher zählten diese Stellen `rpc_phone_day_metrics.calls`, also
+ * ERSTKONTAKTE (`first_call_at`, docs §1): jede Firma genau einmal. Ein
+ * Rückruf, ein Folgeanruf nach „Nicht erreicht" oder der erneute Anruf eines
+ * Setting-No-Shows hat aber längst ein `first_call_at` und zählte deshalb
+ * nirgends — wer einen Tag lang seine Rückrufliste abtelefoniert, stand am
+ * Abend bei 0. Das Wochenziel misst Aktivität, und Aktivität ist jede
+ * Anwahl. Deshalb hier das Log (eine Zeile = ein Wählversuch, docs §3).
+ *
+ * `scope` = genau eine Person mit Owner-Vorrang (wie `loadCallAttempts`);
+ * ohne `scope` alle Anwahlen, die die RLS dem Aufrufer zeigt.
+ */
+export async function loadDialRows(
+  supabase: Client,
+  workspaceId: string,
+  from: string,
+  to: string,
+  scope?: { username: string; userId: string },
+): Promise<{ rows: DialRow[]; available: boolean }> {
+  try {
+    const rows = await fetchAllRows((f, t) => {
+      let q = supabase
+        .from("phone_call_attempts")
+        .select("id, owner_name, created_by_user_id, called_at")
+        .eq("workspace_id", workspaceId)
+        .gte("called_at", addDaysISO(from, -1))
+        .lt("called_at", addDaysISO(to, 2));
+      if (scope) q = q.or(ownerScopeOrFor(scope.username, scope.userId));
+      return q.order("id").range(f, t);
+    });
+    const out: DialRow[] = [];
+    for (const r of rows as unknown as Omit<DialRow, "day">[]) {
+      const day = berlinDateISO(r.called_at);
+      if (day >= from && day <= to) out.push({ ...r, day });
+    }
+    return { rows: out, available: true };
+  } catch (err) {
+    console.error("loadDialRows:", err instanceof Error ? err.message : err);
+    return { rows: [], available: false };
+  }
+}
+
+/**
+ * Wem eine Anwahl zählt: dem Listen-Owner des Anrufzeitpunkts (Snapshot),
+ * ohne Owner dem, der gewählt hat — dieselbe Regel wie `list_owned_by_user()`.
+ * Schlüssel ist der kleingeschriebene Username; `null` = nicht auflösbar.
+ */
+export function dialOwnerKey(row: DialRow, usernameById: Map<string, string>): string | null {
+  const name =
+    row.owner_name?.trim() || (row.created_by_user_id ? usernameById.get(row.created_by_user_id) : undefined);
+  return name ? name.toLowerCase() : null;
 }
 
 // ── Auswertung ───────────────────────────────────────────────

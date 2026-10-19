@@ -5,10 +5,15 @@ import { addDaysISO, localDateISO } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
 import { resolveTarget } from "@/lib/targets";
 import { ownerColor } from "@/lib/ownerColor";
+import { dialOwnerKey, loadDialRows } from "@/lib/phoneAttemptsData";
 import { Calendar, Headphones, Phone, PhoneMissed, PhoneOff, Shield, UserCheck } from "lucide-react";
 
 // Telefon-Dashboard (Server): Owner-Metriken der letzten 30 Tage aus
 // rpc_phone_owner_metrics + Wochenziel-Fortschritt (performance_targets).
+//
+// „Anwahlen" kommen NICHT aus der RPC: deren `calls` zählt Erstkontakte
+// (jede Firma einmal), Rückrufe und Folgeanrufe fielen dort heraus. Gezählt
+// wird jede Zeile im Anruf-Log (`loadDialRows`, src/lib/phoneAttemptsData.ts).
 
 type OwnerMetrics = {
   owner_name: string;
@@ -140,7 +145,7 @@ export async function PhoneDashboard() {
   const monday = weekStart(today);
   const effectiveUserId = access.effective_user_id ?? null;
 
-  const [res30, resWeek, targets, users] = await Promise.all([
+  const [res30, resWeek, targets, users, dials] = await Promise.all([
     supabase.rpc("rpc_phone_owner_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: from30,
@@ -155,10 +160,28 @@ export async function PhoneDashboard() {
     }),
     getTargets(),
     listDataViewUsers(access.workspace_id),
+    loadDialRows(supabase, access.workspace_id, from30, today),
   ]);
 
   const rows30 = coerce(res30.data as RawRow[] | null);
   const rowsWeek = coerce(resWeek.data as RawRow[] | null);
+
+  // Anwahlen je Owner in die Zeilen der RPC einsetzen. Nur vorhandene Zeilen
+  // werden überschrieben — die RPC trägt bereits den Personenfilter der
+  // Datensicht, fremde Owner im Log bleiben damit außen vor.
+  if (dials.available) {
+    const usernameById = new Map(users.map((u) => [u.user_id, u.username]));
+    const dials30 = new Map<string, number>();
+    const dialsWeek = new Map<string, number>();
+    for (const d of dials.rows) {
+      const key = dialOwnerKey(d, usernameById);
+      if (!key) continue;
+      dials30.set(key, (dials30.get(key) ?? 0) + 1);
+      if (d.day >= monday) dialsWeek.set(key, (dialsWeek.get(key) ?? 0) + 1);
+    }
+    for (const r of rows30) r.calls = dials30.get(r.owner_name.toLowerCase()) ?? 0;
+    for (const r of rowsWeek) r.calls = dialsWeek.get(r.owner_name.toLowerCase()) ?? 0;
+  }
   const weekByOwner: Record<string, OwnerMetrics> = {};
   for (const r of rowsWeek) weekByOwner[r.owner_name] = r;
 
@@ -221,7 +244,7 @@ export async function PhoneDashboard() {
             {/* Die Kennzahl-Zeile bleibt farblich ruhig: nur das Icon traegt
                 den Kanal-/Semantikton, die Zahl bleibt --text-primary. */}
             {[
-              { label: "Anrufe", value: totals.calls, icon: <Phone size={12} /> },
+              { label: "Anwahlen", value: totals.calls, icon: <Phone size={12} /> },
               { label: "Gatekeeper", value: totals.gatekeeper_reached, icon: <Shield size={12} /> },
               { label: "Entscheider", value: totals.decider_reached, icon: <UserCheck size={12} /> },
               { label: "Termine", value: totals.appointments, icon: <Calendar size={12} /> },
@@ -287,7 +310,7 @@ export async function PhoneDashboard() {
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)", marginBottom: "var(--sp-7)" }}>
-                    <MiniStat icon={<Phone size={12} />} label="Anrufe" value={r.calls} />
+                    <MiniStat icon={<Phone size={12} />} label="Anwahlen" value={r.calls} />
                     <MiniStat icon={<Shield size={12} />} label="Gatekeeper" value={r.gatekeeper_reached} />
                     <MiniStat icon={<UserCheck size={12} />} label="Entscheider" value={r.decider_reached} />
                     <MiniStat icon={<Calendar size={12} />} label="Termine" value={r.appointments} />
@@ -296,7 +319,7 @@ export async function PhoneDashboard() {
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
-                    <GoalBar label="Anrufe diese Woche" value={week?.calls ?? 0} target={callsTarget} />
+                    <GoalBar label="Anwahlen diese Woche" value={week?.calls ?? 0} target={callsTarget} />
                     <GoalBar label="Termine diese Woche" value={week?.appointments ?? 0} target={apptTarget} />
                   </div>
                 </div>
@@ -308,7 +331,7 @@ export async function PhoneDashboard() {
           {rows30.length > 1 && (
             <div style={{ padding: "0 var(--sp-8) var(--sp-8)" }}>
               <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
-                Anrufe im Vergleich · 30 Tage
+                Anwahlen im Vergleich · 30 Tage
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
                 {[...rows30]

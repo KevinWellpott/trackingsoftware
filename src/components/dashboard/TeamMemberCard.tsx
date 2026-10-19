@@ -150,7 +150,7 @@ export function TeamMemberCard({
         />
         <MetricRow label="Antwortquote (Woche)" value={metrics ? formatRate(metrics.answerRate) : "—"} />
         <MetricRow label="Terminquote (aus Pitches)" value={metrics ? formatRate(metrics.apptRate) : "—"} />
-        <MetricRow label="Telefon-Calls (Woche)" value={metrics ? metrics.calls.toLocaleString("de-DE") : "—"} />
+        <MetricRow label="Anwahlen (Woche)" value={metrics ? metrics.calls.toLocaleString("de-DE") : "—"} />
         <MetricRow label="Umsatz (Woche)" value={metrics ? EUR.format(metrics.revenue) : "—"} />
       </div>
 

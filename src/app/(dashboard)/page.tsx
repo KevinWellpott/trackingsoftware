@@ -16,6 +16,7 @@ import { berlinWindowIso } from "@/components/dashboard/periodWindow";
 import { QuickLinks } from "@/components/dashboard/QuickLinks";
 import { ViewingBanner } from "@/components/dashboard/ViewingBanner";
 import { getNavCounts } from "@/lib/navCountsData";
+import { loadDialRows } from "@/lib/phoneAttemptsData";
 
 // Persönliches Home-Dashboard: zeigt genau EINE Person (scopeUserId).
 // Alle Kennzahlen kommen aus gescopten RPCs/Head-Counts — kein Full-Table-Load.
@@ -214,6 +215,7 @@ export default async function DashboardPage({
     settingOpenRes,
     closingRes,
     navCounts,
+    dials,
   ] = await Promise.all([
     getTargets(),
     supabase.rpc("rpc_owner_day_metrics", {
@@ -263,6 +265,13 @@ export default async function DashboardPage({
     // bringt ihre eigene 1,5-Sekunden-Frist mit: kommt nichts, stehen die
     // Kacheln ohne Zahl da (nie mit einer 0).
     getNavCounts(),
+    // Anwahlen aus dem Anruf-Log — JEDER Wählversuch, auch Rückrufe und
+    // Folgeanrufe. Die RPC oben zählt nur Erstkontakte (jede Firma einmal) und
+    // liefert hier nur noch Entscheider und Termine (docs §1, „Anwahl").
+    loadDialRows(supabase, access.workspace_id, periodFrom < monday ? periodFrom : monday, today, {
+      username: displayName,
+      userId: scopeUserId,
+    }),
   ]);
 
   // ── Tages-Metriken (RPC existiert erst ab Migration 0011 → bei Fehler leer)
@@ -319,6 +328,12 @@ export default async function DashboardPage({
   };
   const phonePeriod = sumPhone(phonePeriodRes);
   const phoneWeek = sumPhone(phoneWeekRes);
+  // Fehlt das Log (Abfrage gescheitert), bleibt die Erstkontakt-Zahl als
+  // Untergrenze stehen — lieber zu wenig als eine erfundene 0.
+  const periodDials = dials.available
+    ? dials.rows.filter((r) => r.day >= periodFrom).length
+    : phonePeriod.calls;
+  const weekDials = dials.available ? dials.rows.filter((r) => r.day >= monday).length : phoneWeek.calls;
 
   // ── Setting / Closing / Umsatz — alle drei jetzt zeitraumgefiltert
   const settingOpen = settingOpenRes.count ?? 0;
@@ -339,8 +354,8 @@ export default async function DashboardPage({
   const phoneTargetSet = targets.some(
     (t) => t.user_id === scopeUserId && t.channel === "telefon" && t.metric === "calls" && t.target_value > 0,
   );
-  const showPhoneGoal = phoneTargetSet || phoneWeek.calls > 0;
-  const showPhoneCard = phoneTargetSet || phonePeriod.calls > 0;
+  const showPhoneGoal = phoneTargetSet || weekDials > 0;
+  const showPhoneCard = phoneTargetSet || periodDials > 0 || phonePeriod.calls > 0;
 
   // ── Quoten (beide auf die Pitches DES ZEITRAUMS bezogen)
   const answerRate = periodDms > 0 ? (periodAnswers / periodDms) * 100 : null;
@@ -460,7 +475,7 @@ export default async function DashboardPage({
           <GoalProgress label="Heute" current={todayDms} goal={dailyGoal} />
           <GoalProgress label="Diese Woche" current={weekDms} goal={weeklyGoal} />
           {showPhoneGoal && (
-            <GoalProgress label="Telefon Woche" current={phoneWeek.calls} goal={phoneWeeklyGoal} unit="Anrufe" />
+            <GoalProgress label="Telefon Woche" current={weekDials} goal={phoneWeeklyGoal} unit="Anwahlen" />
           )}
         </div>
       </SectionCard>
@@ -484,9 +499,9 @@ export default async function DashboardPage({
       {/* ══ TELEFON ══ */}
       {showPhoneCard && (
         <SectionCard title="Telefon" icon={<Phone size={16} />} href="/telefon" meta={periodLabel}>
-          <div className="grid-4-stat" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)" }}>
+          <div className="grid-3-stat" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)" }}>
             {[
-              { label: "Anrufe", value: phonePeriod.calls },
+              { label: "Anwahlen", value: periodDials },
               { label: "Entscheider erreicht", value: phonePeriod.decider },
               { label: "Termine gesetzt", value: phonePeriod.appointments },
             ].map((s) => (
