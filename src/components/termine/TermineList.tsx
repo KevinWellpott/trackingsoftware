@@ -104,6 +104,14 @@ const STAND_WORT: Record<ErinnerungsStand, string> = {
   erledigt: "erinnert",
 };
 
+/** Kurzform für die Handy-Karte — dort gibt es keinen Tooltip. */
+const MARKE_KURZ: Record<TerminErinnerung, string> = { vortag: "Vortag", stunde: "1 Std vorher" };
+
+function stufenKurz(stufen: ErinnerungsStufe[] | null): string | null {
+  if (!stufen) return null;
+  return stufen.map((s) => `${s.nr}. ${MARKE_KURZ[s.marke]}: ${STAND_WORT[s.stand]}`).join(" · ");
+}
+
 function stufenTitel(s: ErinnerungsStufe): string {
   const wann = formatTerminParts(new Date(s.at).toISOString());
   const zeitpunkt = wann ? ` (${wann.date}, ${wann.time})` : "";
@@ -286,8 +294,30 @@ export function TermineList({
   const columns = art ? COLUMNS.filter((c) => c.key !== "status") : COLUMNS;
 
   return (
+    <>
+    {dialog}
+    {/* ── Handy: eine Karte je Vorgang ──
+           Die Tabelle summiert sich auf gut 860 Pixel; am Handy lagen die drei
+           Handgriffe und die Rufnummer rechts außerhalb des Bildschirms, man
+           musste für jede Zeile zur Seite wischen. Die Karte zeigt dieselben
+           Felder untereinander, die Knöpfe in voller Breite unten. */}
+    <div className="only-mobile termin-cards">
+      {rows.map((e) => (
+        <TerminKarte
+          key={e.id}
+          event={e}
+          today={today}
+          erinnerungsAnsicht={art !== null}
+          pending={pending && busyId === e.id}
+          onGenervt={() => onGenervt(e)}
+          onNeuerTermin={(input) => onNeuerTermin(e, input)}
+          onTot={() => void onTot(e)}
+        />
+      ))}
+    </div>
+
     <div
-      className="table-scroll"
+      className="table-scroll hide-on-mobile"
       // `overflowX: "auto"` wie in jeder anderen Tabelle der App (z. B.
       // AnalyseTables). Hier stand `overflow: "hidden"` — ein Inline-Stil, der
       // die einzige `.table-scroll`-Regel (globals.css, unter 768px) schlägt.
@@ -303,7 +333,6 @@ export function TermineList({
         background: "var(--surface-100)",
       }}
     >
-      {dialog}
       <table className="data-table">
         <thead>
           <tr>
@@ -361,6 +390,162 @@ export function TermineList({
           ))}
         </tbody>
       </table>
+    </div>
+    </>
+  );
+}
+
+/**
+ * Die Zeile als Handy-Karte. Rechnet nichts selbst, sondern liest dieselben
+ * Felder und Regeln wie `Row` — nur anders angeordnet: oben wer, dann wann
+ * (das goldene Feld), dann der Weg zum Lead, unten die drei Handgriffe im
+ * Daumenbereich. Was in der Tabelle nur als Tooltip stand (Erinnerungs-Marken,
+ * „Gespräch"), steht hier als Text — am Finger gibt es kein Überfahren.
+ */
+function TerminKarte({
+  event,
+  today,
+  erinnerungsAnsicht,
+  pending,
+  onGenervt,
+  onNeuerTermin,
+  onTot,
+}: {
+  event: TerminEvent;
+  today: string;
+  erinnerungsAnsicht: boolean;
+  pending: boolean;
+  onGenervt: () => void;
+  onNeuerTermin: (berlinInput: string) => void;
+  onTot: () => void;
+}) {
+  const termin = formatTerminParts(event.at);
+  const imFluss = istZuTun(event.zustand, event.erinnerung);
+  const anfassbar = istBearbeitbar(event.zustand);
+  const anlass = event.erinnerung ? erinnerungText(event.erinnerung, event.dayISO, today) : null;
+  const genervtVor = event.lastContactedAt ? dayDiff(dueDayOf(event.lastContactedAt), today) : null;
+  const stufen = erinnerungsAnsicht ? stufenKurz(event.erinnerungsStufen) : null;
+
+  return (
+    <div className="termin-card" data-dran={event.dran ? "true" : undefined}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--sp-4)" }}>
+        <Link href={event.href} style={{ flex: 1, minWidth: 0, color: "inherit", textDecoration: "none" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
+            <span
+              aria-label={kindLabel(event.kind)}
+              style={{
+                flexShrink: 0,
+                padding: "1px 5px",
+                borderRadius: "var(--r-xs)",
+                fontSize: "var(--fs-2xs)",
+                fontWeight: 600,
+                background: event.kind === "setting" ? "var(--event-setting-bg)" : "var(--event-closing-bg)",
+                color: event.kind === "setting" ? "var(--event-setting-fg)" : "var(--event-closing-fg)",
+                border: "1px solid var(--border-default)",
+              }}
+            >
+              {kindLabel(event.kind)}
+            </span>
+            <span style={{ fontWeight: 600, fontSize: "var(--fs-md)", overflowWrap: "anywhere" }}>{event.title}</span>
+          </span>
+          {event.company && (
+            <span style={{ display: "block", fontSize: "var(--fs-sm)", color: "var(--text-muted)", marginTop: 2 }}>
+              {event.company}
+            </span>
+          )}
+        </Link>
+        {!erinnerungsAnsicht && (
+          <span
+            className="badge"
+            style={{
+              flexShrink: 0,
+              color: event.statusPill.color,
+              backgroundColor: event.statusPill.bg,
+              border: `1px solid ${event.statusPill.border}`,
+            }}
+          >
+            {event.statusPill.label}
+          </span>
+        )}
+      </div>
+
+      {/* Das goldene Feld — dieselbe Regel wie die Termin-Spalte der Tabelle. */}
+      <div
+        className="termin-card-when"
+        style={
+          event.dran
+            ? { background: DRAN_TONE.bg, borderColor: DRAN_TONE.border, color: DRAN_TONE.fg }
+            : undefined
+        }
+      >
+        <span className="tnum" style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)", fontWeight: 500 }}>
+          {termin ? (
+            <>
+              <CalendarClock size={14} aria-hidden /> {termin.date}{" "}
+              <strong style={{ fontWeight: 600 }}>{termin.time}</strong>
+            </>
+          ) : (
+            <>
+              <CalendarX2 size={14} aria-hidden /> Kein Termin
+            </>
+          )}
+        </span>
+        {(imFluss || event.lastContactedAt) && (
+          <span style={{ fontSize: "var(--fs-xs)", color: event.dran ? "inherit" : "var(--text-muted)", opacity: event.dran ? 0.85 : 1 }}>
+            {event.cancelled && "abgesagt · "}
+            {anlass ? `${anlass} · ` : ""}
+            {lastContactLabel(genervtVor)}
+            {event.lastContactedBy ? ` · ${event.lastContactedBy}` : ""}
+          </span>
+        )}
+        {stufen && <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-secondary)" }}>{stufen}</span>}
+      </div>
+
+      {(event.assignee || event.conductedBy || (event.dealVolume != null && event.zustand === "close")) && (
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)", flexWrap: "wrap", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
+          {event.assignee && <OwnerCell username={event.assignee.username} />}
+          {event.conductedBy && event.conductedBy.user_id !== event.assignee?.user_id && (
+            <span>Gespräch geführt: {event.conductedBy.username}</span>
+          )}
+          {event.dealVolume != null && event.zustand === "close" && (
+            <span className="tnum" style={{ fontWeight: 600, color: "var(--success-fg)" }}>
+              {EUR_FMT.format(event.dealVolume)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {(event.phone || event.meetLink || event.meetingKind === "telefon") && (
+        <div style={{ display: "flex", gap: "var(--sp-3)" }}>
+          {event.phone ? (
+            <a href={`tel:${event.phone.replace(/[^\d+]/g, "")}`} className="termin-card-link" data-primary="true">
+              <Phone size={15} aria-hidden /> <span className="tnum">{event.phone}</span>
+            </a>
+          ) : (
+            !event.meetLink && (
+              <span className="termin-card-link" aria-disabled="true" style={{ color: "var(--text-muted)" }}>
+                <Phone size={15} aria-hidden /> Nummer fehlt
+              </span>
+            )
+          )}
+          {event.meetLink && (
+            <a href={event.meetLink} target="_blank" rel="noopener noreferrer" className="termin-card-link">
+              <Video size={15} aria-hidden /> Meet
+            </a>
+          )}
+        </div>
+      )}
+
+      {anfassbar && (
+        <TerminAktionen
+          event={event}
+          pending={pending}
+          onGenervt={onGenervt}
+          onNeuerTermin={onNeuerTermin}
+          onTot={onTot}
+          layout="card"
+        />
+      )}
     </div>
   );
 }

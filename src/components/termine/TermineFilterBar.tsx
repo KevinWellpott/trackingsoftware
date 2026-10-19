@@ -196,7 +196,7 @@ export function TermineFilterBar({
       className="glass-nav filter-bar-row"
       style={{
         position: "sticky",
-        top: 0,
+        top: "var(--sticky-top, 0px)",
         zIndex: 20,
         // Sticky-Kopf im Glass-Nav-Rezept: eine der drei Glasflaechen dieser View.
         paddingBottom: "var(--sp-4)",
@@ -240,7 +240,11 @@ export function TermineFilterBar({
           />
         </>
       ) : tab === "liste" ? (
-        <Segmented options={zeitOptions} value={zeit} onChange={(z) => onZeit(z)} ariaLabel="Ausschnitt" />
+        // Am Handy wischbar in einer Zeile: Die vier Ausschnitte samt Zahl
+        // sind ~550px breit und schoben vorher die ganze Seite zur Seite.
+        <div className="termine-zeit-scroll">
+          <Segmented options={zeitOptions} value={zeit} onChange={(z) => onZeit(z)} ariaLabel="Ausschnitt" />
+        </div>
       ) : null}
 
       <span
@@ -256,10 +260,10 @@ export function TermineFilterBar({
         {periodLabel}
       </span>
 
-      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+      <div className="termine-filter-right" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
         {/* Suche gilt in ALLEN Ansichten und liegt in der URL — vorher hielt
             die Listenansicht sie lokal und verlor sie beim Umschalten. */}
-        <div style={{ position: "relative", width: 208 }}>
+        <div className="termine-search" style={{ position: "relative", width: 208 }}>
           <Search
             size={13}
             style={{

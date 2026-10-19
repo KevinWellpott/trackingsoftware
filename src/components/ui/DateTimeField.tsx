@@ -193,6 +193,7 @@ export function DateTimeField({
           width={TIME_POPOVER_WIDTH}
           maxHeight={220}
           popoverRef={listRef}
+          className="glass-popover time-sheet"
           style={{ padding: "var(--sp-2)" }}
         >
           {visibleQuarters.map((t) => {

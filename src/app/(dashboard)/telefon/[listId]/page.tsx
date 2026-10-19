@@ -365,7 +365,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
       </details>
 
       {/* ── Call-Mode ── */}
-      <CallModeRunner leads={leads} />
+      <CallModeRunner leads={leads} script={list.script_text} />
     </div>
   );
 }

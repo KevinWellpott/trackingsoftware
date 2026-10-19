@@ -173,6 +173,7 @@
   --w-sidebar:    248px;
   --w-rail:        64px;
   --touch-target:  44px;
+  --h-bottomnav:   58px;
 
   /* ─── 1.12 Radius ──────────────────────────────────────────── */
   --r-xs:  4px;
@@ -1898,8 +1899,12 @@ tr:focus-within .row-actions,
 }
 
 @media (max-width: 767px) {
-  /* Extra Bottom-Padding, damit der fixe FAB die letzte Karte nie verdeckt */
-  .main-content { padding: var(--sp-6) !important; padding-bottom: 5.5rem !important; }
+  /* Unten Platz fuer Tab-Leiste UND den FAB darueber, damit beide die letzte
+     Karte nie verdecken. */
+  .main-content {
+    padding: var(--sp-6) !important;
+    padding-bottom: calc(var(--h-bottomnav) + 5rem + env(safe-area-inset-bottom)) !important;
+  }
   .grid-4-stat { grid-template-columns: repeat(2, 1fr) !important; }
   .grid-2-col { grid-template-columns: 1fr !important; }
   .grid-6-stat { grid-template-columns: repeat(3, 1fr) !important; }
@@ -1937,3 +1942,442 @@ tr:focus-within .row-actions,
   .cal-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .cal-scroll-x-inner { min-width: 640px; }
 }
+
+/* ─── Handy: untere Tab-Leiste (components/MobileBottomNav.tsx) ──────────
+   Nur unter 768px — darueber steht die Seitenleiste. Die Leiste waechst um
+   den unteren Safe-Area-Abstand, damit der Home-Indikator nicht auf den
+   Tabs liegt. */
+.mobile-bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 35;
+  display: flex;
+  height: calc(var(--h-bottomnav) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  border-bottom: none;
+  border-top: 1px solid var(--glass-border);
+}
+.mobile-bottom-nav-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-bottom-nav-item[data-active="true"] { color: var(--orange-300); }
+.mobile-bottom-nav-item:active { background: var(--surface-2); }
+@media (min-width: 768px) {
+  .mobile-bottom-nav { display: none; }
+}
+
+/* Schwebender Aktionsknopf (Schnell-Track): auf dem Handy UEBER der
+   Tab-Leiste statt auf ihr. */
+.fab-bottom { bottom: calc(1.5rem + env(safe-area-inset-bottom)); }
+@media (max-width: 767px) {
+  .fab-bottom { bottom: calc(var(--h-bottomnav) + 0.875rem + env(safe-area-inset-bottom)); right: 1rem !important; }
+}
+
+/* ─── Touch: Eingabefelder mit mindestens 16px ───────────────────────────
+   iOS Safari zoomt beim Fokus in jedes Feld mit kleinerer Schrift hinein —
+   und zoomt danach nicht zurueck. Mitten im Telefonat steht die Seite dann
+   vergroessert und seitlich verschoben da. 16px ist die Schwelle; die
+   Desktop-Dichte (14px) bleibt fuer Maus-Geraete unangetastet. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
+/* Kein grauer Tap-Blitz auf iOS ueber ganzen Karten; Rueckmeldung kommt aus
+   den eigenen :active-Zustaenden. */
+html { -webkit-tap-highlight-color: transparent; }
+
+/* ─── Power-Dialer: Ergebnis-Block (components/telefon/CallModeRunner.tsx) ───
+   Desktop: Kopfzeile + Knopfreihe unter der Karte, wie bisher.
+   Handy: feste Leiste am unteren Rand mit grossem Anrufen-Knopf und einem
+   3×2-Raster der Ergebnisse — alles im Daumenbereich. */
+.dialer-outcomes {
+  border-top: 1px solid var(--border-default);
+  padding-top: var(--sp-7);
+}
+.dialer-outcomes-grid {
+  display: flex;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.dialer-outcomes-call,
+.dialer-outcome-skip { display: none !important; }
+.dialer-direct-dial {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  color: inherit;
+  text-decoration: none;
+}
+.dialer-direct-dial .tnum {
+  color: var(--orange-300);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.callback-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+}
+.dialer-filters { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+/* Tastenkuerzel gibt es auf Touch nicht — die Chips waeren dort Rauschen. */
+@media (pointer: coarse) {
+  .dialer-kbd,
+  .dialer-kbd-group { display: none !important; }
+  .dialer-filter,
+  .dialer-nav { min-height: 36px; }
+}
+
+@media (max-width: 767px) {
+  /* Fokus-Modus: Die Tab-Leiste weicht der Ergebnis-Leiste. */
+  body[data-dialer] .mobile-bottom-nav { display: none; }
+  body[data-dialer] .main-content {
+    padding-bottom: calc(196px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Filter wischbar in einer Zeile statt drei umbrechender Reihen;
+     die Suche darunter auf voller Breite. */
+  .dialer-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 calc(-1 * var(--sp-6));
+    padding: 0 var(--sp-6);
+    width: calc(100% + 2 * var(--sp-6));
+  }
+  .dialer-filters::-webkit-scrollbar { display: none; }
+  .dialer-search { min-width: 0 !important; width: 100%; margin-left: 0 !important; }
+
+  .dialer-outcomes {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 36;
+    margin: 0;
+    padding: var(--sp-5) var(--sp-6) calc(var(--sp-5) + env(safe-area-inset-bottom));
+    background: var(--surface-1);
+    border-top: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-overlay);
+  }
+  .dialer-outcomes-title { display: none !important; }
+  .dialer-outcomes-call {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-4);
+    height: 52px;
+    margin-bottom: var(--sp-4);
+    border-radius: var(--r-full);
+    background: var(--grad-cta);
+    color: var(--text-on-accent);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    text-decoration: none;
+    box-shadow: var(--shadow-btn-primary);
+  }
+  .dialer-outcomes-call:active { transform: scale(0.98); }
+  .dialer-outcomes-call-number { font-weight: 500; opacity: 0.85; }
+  .dialer-outcomes-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--sp-3);
+  }
+  .dialer-outcome-skip { display: inline-flex !important; }
+  .dialer-outcomes-grid .dialer-outcome {
+    height: 46px;
+    min-width: 0;
+    padding: 0 var(--sp-3);
+    gap: var(--sp-3);
+    border-radius: var(--r-md);
+    font-size: var(--fs-sm);
+  }
+  /* Icons weichen dem Text, der Statuspunkt bleibt. */
+  .dialer-outcomes-grid .dialer-outcome > svg { display: none; }
+  .dialer-outcomes-grid .dialer-outcome[data-tone="won"] > svg,
+  .dialer-outcomes-grid .dialer-outcome-skip > svg { display: inline; }
+}
+
+/* ─── Dialoge am Handy: Bottom-Sheet (components/ui/Modal.tsx) ─────────── */
+@keyframes sheet-enter {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+@media (max-width: 767px) {
+  .ui-modal-scrim {
+    align-items: flex-end !important;
+    padding: env(safe-area-inset-top) 0 0 !important;
+  }
+  .ui-modal {
+    max-width: none !important;
+    max-height: 92dvh !important;
+    border-radius: var(--r-xl) var(--r-xl) 0 0 !important;
+    border-bottom: none !important;
+    animation: sheet-enter var(--dur-3) var(--ease-out) both !important;
+  }
+  .ui-modal-body {
+    padding: var(--sp-7) var(--sp-7) calc(var(--sp-8) + env(safe-area-inset-bottom)) !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .ui-modal-close { width: 40px !important; height: 40px !important; min-height: 40px !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-modal { animation: none !important; }
+}
+
+/* Nur am Handy sichtbar — Gegenstück zu .hide-on-mobile. */
+.only-mobile { display: none !important; }
+@media (max-width: 767px) {
+  .only-mobile { display: flex !important; }
+}
+
+/* Rückruf-Karten (components/termine/RueckrufListe.tsx) */
+.rr-cards { flex-direction: column; gap: var(--sp-5); }
+.rr-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-6);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+.rr-card-primary {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-4);
+  height: 46px;
+  border-radius: var(--r-full);
+  background: var(--accent-muted);
+  border: 1px solid var(--border-accent);
+  color: var(--orange-300);
+  font-weight: 600;
+  font-size: var(--fs-base);
+  text-decoration: none;
+}
+.rr-card-primary:active { transform: scale(0.98); }
+
+/* Navigationszeilen im Drawer: auf Touch mindestens 44px hoch. */
+@media (pointer: coarse) {
+  .sidebar-link { height: var(--touch-target); }
+}
+
+/* ─── Touch-Ziele, die bisher am Inline-Stil scheiterten ──────────────────
+   Die Regel oben (6.5) hob `.ui-btn` & Co. auf 44px — aber Button.tsx,
+   Segmented.tsx, IconButton und viele Links setzen `minHeight` inline, und
+   ein Inline-Stil schlaegt jede Klasse. Auf Touch-Geraeten blieben damit
+   Genervt/Termin/Tot, alle Ablage- und Recycling-Knoepfe und die
+   Segment-Schalter bei 28–32px. Hier deshalb mit !important. */
+@media (pointer: coarse) {
+  .ui-btn,
+  .ui-input,
+  .input,
+  .ui-segmented button,
+  .ui-toggle,
+  .field-trigger,
+  .show-seg { min-height: var(--touch-target) !important; }
+  .ui-icon-btn { min-width: var(--touch-target) !important; }
+  [role="option"] { min-height: 40px; display: flex; align-items: center; }
+}
+
+/* Uhrzeit-Auswahl als Bottom-Sheet: Viertelstunden als Raster statt einer
+   104px schmalen Spalte mit 28px-Zeilen. */
+.anchored-sheet.time-sheet {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+.anchored-sheet .dp-day,
+.anchored-sheet [role="option"] {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Seitenrand als Variable — Leisten, die mit negativem Rand bis an den
+   Bildschirmrand laufen (Analyse-Filter, Vergleich), lasen bisher fest
+   --sp-9 und standen am Handy 16px ueber den Rand hinaus. */
+.main-content { --page-gutter: var(--sp-9); }
+
+/* Klebende Leisten unter der Handy-Kopfzeile statt dahinter. */
+:root { --sticky-top: 0px; }
+@media (max-width: 767px) {
+  :root { --sticky-top: calc(var(--h-topbar) + env(safe-area-inset-top)); }
+  .main-content { --page-gutter: var(--sp-6); }
+
+  /* Schnell-Track weicht der Ergebnis-Leiste des Dialers. */
+  body[data-dialer] .fab-bottom { display: none !important; }
+
+  /* Tippt man im Dialer in ein Feld (Notiz, Suche), geht die Tastatur auf —
+     die feste Leiste laege dann ueber dem Feld. Solange getippt wird, weicht
+     sie; nach dem Tippen ist sie sofort wieder da. */
+  body[data-dialer]:has(textarea:focus, input:focus) .dialer-outcomes { display: none; }
+
+  /* Kennzahl-Kacheln: Bezeichnungen umbrechen statt abschneiden — bei zwei
+     Kacheln je Zeile verlor „Termine gelegt · Woche" sonst den Zeitraum. */
+  .stat-tile-label,
+  .stat-tile-sub { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+
+  /* Drei Telefon-Kacheln: drei Spalten statt 2+1. */
+  .grid-3-stat { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+
+/* Analyse-Filter und Serien-Editor klebten am Handy oben fest — offen
+   deckten sie den halben Bildschirm (Vergleich mit sechs Serien: den ganzen).
+   Unter 768px scrollen sie deshalb mit. */
+@media (max-width: 767px) {
+  .analyse-sticky-bar { position: static !important; }
+}
+
+/* Kalender-Chips: am Finger scrollt ein Wisch die Seite, statt den Termin
+   zu verschieben (components/termine/useDragReschedule.ts). */
+@media (pointer: coarse) {
+  .cal-event { touch-action: manipulation; }
+}
+
+/* Terminliste: Filterleiste am Handy (components/termine/TermineFilterBar.tsx) */
+@media (max-width: 767px) {
+  .termine-zeit-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex: 1 1 100%;
+  }
+  .termine-zeit-scroll::-webkit-scrollbar { display: none; }
+  .termine-zeit-scroll > * { width: max-content; flex-wrap: nowrap; }
+  .termine-filter-right { width: 100%; margin-left: 0 !important; }
+  .termine-search { flex: 1; width: auto !important; min-width: 0; }
+}
+
+/* ─── Terminliste am Handy: Karten (components/termine/TermineList.tsx) ── */
+.termin-cards { flex-direction: column; gap: var(--sp-5); }
+.termin-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-6);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+.termin-card[data-dran="true"] { border-color: var(--border-strong); }
+.termin-card-when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  color: var(--text-secondary);
+  font-size: var(--fs-base);
+}
+.termin-card-link {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  height: 44px;
+  padding: 0 var(--sp-5);
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-default);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.termin-card-link[data-primary="true"] {
+  background: var(--accent-muted);
+  border-color: var(--border-accent);
+  color: var(--orange-300);
+  font-weight: 600;
+}
+.termin-card-link:active { transform: scale(0.98); }
+.termin-aktionen-card {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+.termin-aktionen-card > .ui-btn { width: 100%; min-height: 44px !important; }
+.termin-aktionen-open { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* Drawer am Finger: Auf-/Zuklappen und die „+"-Knoepfe der Abschnitte waren
+   20×16 bzw. 22×22px gross. */
+@media (pointer: coarse) {
+  .section-toggle { min-width: 40px; min-height: 40px; justify-content: center; }
+  .section-action { width: 36px !important; height: 36px !important; }
+}
+
+/* Ablage-Karten am Handy (components/ablage/AblageBoard.tsx) */
+@media (max-width: 767px) {
+  .ablage-actions { flex-direction: column; align-items: stretch !important; }
+  .ablage-actions > .ui-btn { width: 100%; justify-content: center; }
+  .ablage-danger {
+    order: 99;
+    margin-top: var(--sp-5);
+  }
+}
+
+/* Rückgängig-Hinweis des LinkedIn-Boards: am Handy über Tab-Leiste und FAB,
+   der Knopf mit echter Fingergröße. */
+@media (max-width: 767px) {
+  .undo-toast { bottom: calc(var(--h-bottomnav) + 4.5rem + env(safe-area-inset-bottom)) !important; }
+  .undo-toast-btn { min-height: 40px; padding: 0 var(--sp-6) !important; }
+}
+
+@media (max-width: 767px) {
+  /* Segment-Schalter mit vielen Optionen (Analyse-Zeitraum, sechs Werte)
+     wischen statt ueber den Rand zu laufen. */
+  .ui-segmented { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .ui-segmented::-webkit-scrollbar { display: none; }
+  .ui-segmented > button { flex-shrink: 0; white-space: nowrap; }
+
+  /* Trichter: 120px Label + 120px Wert liessen dem Balken ~50px. */
+  .funnel-grid { grid-template-columns: 84px minmax(0, 1fr) 72px !important; column-gap: var(--sp-4) !important; }
+}
+
+/* Menue-Knopf im Kopf: nur im Fokus-Modus des Dialers (Tab-Leiste weicht). */
+.header-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+body[data-dialer] .header-menu-btn { display: inline-flex; }

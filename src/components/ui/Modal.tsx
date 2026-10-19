@@ -107,6 +107,9 @@ export function Modal({
         if (closeOnBackdrop && backdropMouseDown.current && upOnBackdrop) onClose();
         backdropMouseDown.current = false;
       }}
+      // Am Handy ein Bottom-Sheet (globals.css, `.ui-modal-scrim`): von unten,
+      // volle Breite, Knöpfe im Daumenbereich statt in der oberen Bildhälfte.
+      className="ui-modal-scrim"
       style={{
         position: "fixed",
         inset: 0,
@@ -125,6 +128,7 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
+        className="ui-modal"
         style={{
           width: "100%",
           maxWidth: width,
@@ -174,7 +178,7 @@ export function Modal({
               type="button"
               onClick={onClose}
               aria-label="Schließen"
-              className="ui-btn"
+              className="ui-btn ui-modal-close"
               data-variant="ghost"
               style={{
                 width: 28,
@@ -191,7 +195,9 @@ export function Modal({
             </button>
           </div>
         )}
-        <div style={{ padding: "var(--sp-8)", overflowY: "auto" }}>{children}</div>
+        <div className="ui-modal-body" style={{ padding: "var(--sp-8)", overflowY: "auto" }}>
+          {children}
+        </div>
       </div>
     </div>,
     document.body,

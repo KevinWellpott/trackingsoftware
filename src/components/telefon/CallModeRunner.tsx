@@ -7,7 +7,8 @@ import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { berlinInputToIso, formatTermin, isoToBerlinInput } from "@/lib/apptTime";
+import { berlinDateISO, berlinInputToIso, formatTermin, isoToBerlinInput } from "@/lib/apptTime";
+import { addDaysISO } from "@/lib/dates";
 import type { PhoneLead, PhoneLeadStatus } from "@/lib/types";
 import {
   Calendar,
@@ -21,11 +22,12 @@ import {
   PhoneMissed,
   PhoneOff,
   Search,
+  SkipForward,
   Trash2,
   User,
   Voicemail,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
@@ -267,19 +269,64 @@ function NotesField({
   );
 }
 
+/**
+ * Schnellwahl für den Rückruf-Zeitpunkt. Am Handy ist ein Datum-Uhrzeit-Feld
+ * ein Dutzend Berührungen — „ruf morgen früh nochmal an" ist dagegen der
+ * Normalfall. Gerechnet in Berliner Wandzeit, genau wie das Feld daneben;
+ * „in 1 Std" wird auf die nächste Viertelstunde gerundet, damit im Kalender
+ * keine 14:37 steht.
+ */
+function callbackPresets(nowMs: number): { label: string; value: string }[] {
+  const QUARTER = 15 * 60_000;
+  const inMinutes = (min: number) =>
+    isoToBerlinInput(new Date(Math.ceil((nowMs + min * 60_000) / QUARTER) * QUARTER).toISOString());
+  const today = berlinDateISO(new Date(nowMs).toISOString());
+  const nowWall = isoToBerlinInput(new Date(nowMs).toISOString());
+  const tomorrow = addDaysISO(today, 1);
+  // Freitag/Samstag: „morgen" wäre Wochenende — dann der nächste Montag.
+  const weekday = new Date(`${today}T12:00:00Z`).getUTCDay(); // 0 = So
+  const nextWorkday = weekday === 5 ? addDaysISO(today, 3) : weekday === 6 ? addDaysISO(today, 2) : tomorrow;
+  const nextLabel = nextWorkday === tomorrow ? "Morgen" : "Montag";
+  const presets = [
+    { label: "In 1 Std", value: inMinutes(60) },
+    { label: "In 2 Std", value: inMinutes(120) },
+  ];
+  if (`${today}T17:00` > nowWall) presets.push({ label: "Heute 17:00", value: `${today}T17:00` });
+  presets.push(
+    { label: `${nextLabel} 9:00`, value: `${nextWorkday}T09:00` },
+    { label: `${nextLabel} 14:00`, value: `${nextWorkday}T14:00` },
+  );
+  return presets;
+}
+
 export function CallModeRunner({
   leads,
   empty,
+  script,
 }: {
   leads: PhoneLead[];
+  /**
+   * Gesprächsleitfaden der Liste, nur zum Lesen. Bearbeitet wird er oben auf
+   * der Seite — aber dort ist er während des Telefonats nicht erreichbar,
+   * ohne aus dem Lead herauszuscrollen (am Handy: einen ganzen Bildschirm).
+   */
+  script?: string | null;
   /** Leerzustand, wenn gar kein Lead da ist. Ohne Angabe: der Text einer Importliste. */
   empty?: { title: string; text: string };
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [overrides, setOverrides] = useState<Record<string, Partial<PhoneLead>>>({});
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("alle");
+  // `?status=` und `?lead=` öffnen den Call-Modus direkt an der richtigen
+  // Stelle — z. B. aus dem Rückruf-Reiter der Terminliste: ein Tipp, und der
+  // verabredete Rückruf steht mit Nummer und Ergebnis-Knöpfen da. Nur hier
+  // entsteht der Eintrag im Anruf-Log, der die Anwahl im Wochenziel zählt.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
+    const raw = searchParams.get("status");
+    return FILTERS.some((f) => f.value === raw) ? (raw as StatusFilter) : "alle";
+  });
   const [search, setSearch] = useState("");
-  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [currentId, setCurrentId] = useState<string | null>(() => searchParams.get("lead"));
   const [error, setError] = useState<string | null>(null);
   // Neutraler Hinweis (kein Fehler): z. B. „nach dem 3. Nicht erreicht auf Tot
   // gestellt". Ohne ihn verschwände der Lead aus der Erwartung des Setters —
@@ -291,6 +338,21 @@ export function CallModeRunner({
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog } = useConfirm();
   const notesOpen = useSyncExternalStore(subscribeNotesOpen, readNotesOpen, () => false);
+
+  // Fokus-Modus am Handy: Solange der Dialer offen ist, weicht die untere
+  // Tab-Leiste der Ergebnis-Leiste (globals.css, `body[data-dialer]`). Zwei
+  // Leisten übereinander kosteten ein Viertel des Bildschirms, und ein
+  // versehentlicher Tipp auf „Start" mitten im Telefonat wirft aus der Liste.
+  useEffect(() => {
+    document.body.dataset.dialer = "1";
+    return () => {
+      delete document.body.dataset.dialer;
+    };
+  }, []);
+
+  // „Jetzt" für die Rückruf-Schnellwahl — erst beim Öffnen des Dialogs gelesen,
+  // nicht im Render (react-hooks/purity).
+  const [presetNow, setPresetNow] = useState<number | null>(null);
 
   const merged = useMemo(
     () => leads.map((l) => ({ ...l, ...(overrides[l.id] ?? {}) })),
@@ -495,6 +557,7 @@ export function CallModeRunner({
   function openCallback() {
     if (!current) return;
     setCallbackAt(isoToBerlinInput(current.callback_at));
+    setPresetNow(Date.now());
     setCallbackOpen(true);
   }
 
@@ -554,7 +617,7 @@ export function CallModeRunner({
     <div>
       {/* ── Toolbar: Filter + Suche ── */}
       <div className="dialer-bar">
-        <div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}>
+        <div className="dialer-filters">
           {FILTERS.map((f) => (
             <button
               key={f.value}
@@ -572,7 +635,7 @@ export function CallModeRunner({
           ))}
         </div>
 
-        <div style={{ position: "relative", marginLeft: "auto", minWidth: 220 }}>
+        <div className="dialer-search" style={{ position: "relative", marginLeft: "auto", minWidth: 220 }}>
           <Search
             size={13}
             style={{
@@ -586,7 +649,8 @@ export function CallModeRunner({
           />
           <input
             className="input"
-            type="text"
+            type="search"
+            enterKeyHint="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Firma / Telefon suchen…"
@@ -670,7 +734,7 @@ export function CallModeRunner({
               }}
             >
               Lead {filtered.length === 0 ? 0 : currentIndex + 1} / {filtered.length}
-              <span style={{ marginLeft: "var(--sp-4)", color: "var(--text-muted)" }}>
+              <span className="dialer-kbd-group" style={{ marginLeft: "var(--sp-4)", color: "var(--text-muted)" }}>
                 <span className="dialer-kbd">←</span> <span className="dialer-kbd">→</span>
               </span>
             </span>
@@ -788,10 +852,15 @@ export function CallModeRunner({
                     color: "var(--text-muted)",
                   }}
                 >
+                  {/* Die Durchwahl ist dieselbe Handlung wie die Zentrale —
+                      also ebenso antippbar, statt sie abzutippen. */}
                   {current.decider_direct_dial && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
-                      Durchwahl <span className="tnum" style={{ color: "var(--text-secondary)" }}>{current.decider_direct_dial}</span>
-                    </span>
+                    <a
+                      href={`tel:${current.decider_direct_dial.replace(/[^\d+]/g, "")}`}
+                      className="dialer-direct-dial"
+                    >
+                      Durchwahl <span className="tnum">{current.decider_direct_dial}</span>
+                    </a>
                   )}
                   <span className="tnum">{(current.call_attempt ?? 0) + 1}. Anruf</span>
                   {current.callback_at && current.status === "rueckruf" && (
@@ -919,6 +988,43 @@ export function CallModeRunner({
                 />
               </details>
 
+              {(script ?? "").trim() && (
+                <details style={{ marginBottom: "var(--sp-7)" }}>
+                  <summary
+                    className="collapse-summary"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "var(--sp-4)",
+                      padding: "var(--sp-3) var(--sp-4)",
+                      cursor: "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                    <span className="dialer-label" style={{ margin: 0 }}>
+                      Leitfaden
+                    </span>
+                  </summary>
+                  <div
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      fontSize: "var(--fs-base)",
+                      lineHeight: "var(--lh-base)",
+                      color: "var(--text-secondary)",
+                      padding: "var(--sp-5)",
+                      background: "var(--surface-1)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "var(--r-md)",
+                      maxHeight: "50dvh",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {script}
+                  </div>
+                </details>
+              )}
+
               {/* ── Ergebnis des Anrufs ──
                   Vier vollflächig eingefärbte Buttons standen hier bisher
                   nebeneinander — grün, Markenorange, gold, rot. Das war nicht
@@ -928,16 +1034,23 @@ export function CallModeRunner({
                   nicht — „Termin" ist das Ergebnis, auf das der Anruf zielt.
                   Es trägt als einziges eine Fläche, der Rest ist Surface mit
                   Semantik-Punkt. */}
-              <div
-                style={{
-                  borderTop: "1px solid var(--border-default)",
-                  paddingTop: "var(--sp-7)",
-                }}
-              >
-                <span className="eyebrow eyebrow-muted" style={{ display: "block", marginBottom: "var(--sp-5)" }}>
+              {/* Am Handy wird dieser Block zur festen Leiste am unteren
+                  Rand (globals.css, `.dialer-outcomes`): Anrufen und Ergebnis
+                  liegen dann im Daumenbereich, egal wie weit die Karte
+                  gescrollt ist — wer vom Telefonat zurückkommt, tippt sofort
+                  das Ergebnis, statt es erst zu suchen. */}
+              <div className="dialer-outcomes">
+                <span className="eyebrow eyebrow-muted dialer-outcomes-title" style={{ display: "block", marginBottom: "var(--sp-5)" }}>
                   Ergebnis des Anrufs
                 </span>
-                <div style={{ display: "flex", gap: "var(--sp-4)", flexWrap: "wrap" }}>
+                {current.phone && (
+                  <a className="dialer-outcomes-call" href={`tel:${current.phone.replace(/[^\d+]/g, "")}`}>
+                    <Phone size={18} aria-hidden />
+                    Anrufen
+                    <span className="tnum dialer-outcomes-call-number">{current.phone}</span>
+                  </a>
+                )}
+                <div className="dialer-outcomes-grid">
                   <button
                     type="button"
                     className="dialer-outcome"
@@ -980,6 +1093,17 @@ export function CallModeRunner({
                     <span className="dialer-outcome-dot" style={{ background: STATUS_STYLE.kein_termin.color }} />
                     <CalendarX size={14} /> Kein Termin
                     <span className="dialer-kbd">{OUTCOME_KEYS.kein_termin}</span>
+                  </button>
+                  {/* Nur am Handy: weiter ohne Ergebnis (besetzt, gleich
+                      nochmal). Am Desktop erledigen das Pfeiltaste und
+                      „Weiter" im Kartenkopf. */}
+                  <button
+                    type="button"
+                    className="dialer-outcome dialer-outcome-skip"
+                    onClick={() => goto(currentIndex + 1)}
+                    disabled={currentIndex >= filtered.length - 1}
+                  >
+                    <SkipForward size={14} /> Weiter
                   </button>
                 </div>
               </div>
@@ -1109,6 +1233,21 @@ export function CallModeRunner({
               onChange={setCallbackAt}
               ariaLabel="Rückruf"
             />
+            {presetNow != null && (
+              <div className="callback-presets" role="group" aria-label="Schnellwahl">
+                {callbackPresets(presetNow).map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    className="dialer-filter"
+                    data-active={callbackAt === p.value ? "true" : undefined}
+                    onClick={() => setCallbackAt(p.value)}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <p className="dialer-hint" style={{ margin: 0 }}>
             Der Lead wandert automatisch in die Rückruf-Liste des Inhabers.

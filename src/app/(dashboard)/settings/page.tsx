@@ -129,13 +129,15 @@ export default async function SettingsPage({
               const isMe = u.user_id === access.user.id;
               const avatar = ownerColor(u.username);
               return (
-                <div key={u.user_id} style={{ display: "flex", alignItems: "center", gap: "var(--sp-6)", padding: "var(--sp-6) var(--sp-8)", borderBottom: i < users.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
+                <div key={u.user_id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--sp-6)", padding: "var(--sp-6) var(--sp-8)", borderBottom: i < users.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
                   {/* Avatar */}
                   <div style={{ width: 36, height: 36, borderRadius: "var(--r-full)", background: avatar.bg, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, color: avatar.fg, fontSize: "var(--fs-sm)", flexShrink: 0 }}>
                     {u.username[0].toUpperCase()}
                   </div>
                   {/* Info */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* minWidth 140: Am Handy rutschen die Bedienelemente in eine
+                      zweite Zeile, statt den Namen auf null zu quetschen. */}
+                  <div style={{ flex: 1, minWidth: 140 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
                       <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>{u.username}</span>
                       {isMe && <span className="badge badge-gray">Du</span>}

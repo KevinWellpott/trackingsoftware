@@ -129,7 +129,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       data-variant="ghost"
-      className={className ? `ui-btn ${className}` : "ui-btn"}
+      className={className ? `ui-btn ui-icon-btn ${className}` : "ui-btn ui-icon-btn"}
       style={{
         width: size,
         height: size,

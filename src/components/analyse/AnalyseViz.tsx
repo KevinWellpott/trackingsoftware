@@ -552,7 +552,7 @@ export function BarFunnel({
           <div key={s.label}>
             {/* Verbindungszone: zulaufender Trichter-Keil + Konversions-Pill */}
             {i > 0 && (
-              <div style={FUNNEL_GRID}>
+              <div className="funnel-grid" style={FUNNEL_GRID}>
                 <span aria-hidden />
                 <div style={{ position: "relative", height: 22, display: "flex", justifyContent: "center" }}>
                   <div
@@ -596,7 +596,7 @@ export function BarFunnel({
             )}
 
             {/* Stufe: Label rechtsbündig · Balken zentriert · Wert + Anteil links */}
-            <div style={FUNNEL_GRID}>
+            <div className="funnel-grid" style={FUNNEL_GRID}>
               <span
                 style={{
                   textAlign: "right",

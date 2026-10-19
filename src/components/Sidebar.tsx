@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { AnchoredPopover, useAnchor } from "@/components/ui/AnchoredPopover";
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { ownerInitials } from "@/lib/ownerColor";
@@ -897,6 +897,7 @@ function CollapsibleSection({
           // einzige Erklaerung dafuer ist, warum er nicht reagiert.
           aria-disabled={hasActive || undefined}
           title={toggleTitle}
+          className="section-toggle"
           style={{
             display: "flex",
             alignItems: "center",
@@ -994,13 +995,13 @@ function SectionAction({
   };
   if (href) {
     return (
-      <Link href={href} onClick={onClick} title={title} style={style}>
+      <Link href={href} onClick={onClick} title={title} style={style} className="section-action">
         {children}
       </Link>
     );
   }
   return (
-    <button type="button" onClick={onClick} title={title} style={style}>
+    <button type="button" onClick={onClick} title={title} style={style} className="section-action">
       {children}
     </button>
   );
@@ -1672,6 +1673,22 @@ export function MobileDrawer({
   orgSwitch?: OrgSwitchState;
   navCounts?: NavCounts;
 }) {
+  // Offener Drawer: Seite dahinter festhalten (sonst scrollt beim Wischen im
+  // Menue die Liste darunter mit) und Escape schliesst — wie jeder Dialog.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
   return (
     <>
@@ -1683,7 +1700,12 @@ export function MobileDrawer({
           top: 0,
           left: 0,
           bottom: 0,
-          width: "var(--w-sidebar)",
+          // Am Handy etwas breiter als die Desktop-Leiste: längere Listennamen
+          // bleiben lesbar, rechts bleibt ein Streifen Scrim zum Wegtippen.
+          width: "min(300px, 86vw)",
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+          background: "var(--surface-0)",
           zIndex: 70,
           borderRight: "1px solid var(--border-default)",
           boxShadow: "var(--shadow-overlay)",

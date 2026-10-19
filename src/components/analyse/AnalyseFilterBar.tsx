@@ -728,13 +728,13 @@ export function AnalyseFilterBar({
     // Sticky-Toolbar im Glass-Nav-Rezept — eine der drei erlaubten
     // Glasflaechen dieser View (DESIGN.md §4.3).
     <div
-      className="glass-nav"
+      className="glass-nav analyse-sticky-bar"
       style={{
         position: "sticky",
-        top: 0,
+        top: "var(--sticky-top, 0px)",
         zIndex: 30,
-        margin: "0 calc(var(--sp-9) * -1)",
-        padding: "var(--sp-3) var(--sp-9) var(--sp-4)",
+        margin: "0 calc(var(--page-gutter, var(--sp-9)) * -1)",
+        padding: "var(--sp-3) var(--page-gutter, var(--sp-9)) var(--sp-4)",
       }}
     >
       {/* Nachladen (COMPONENTS.md §14.4): 2px-Linie an der Oberkante, der

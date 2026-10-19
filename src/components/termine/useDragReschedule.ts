@@ -73,6 +73,7 @@ export function useDragReschedule({ geometry, onDrop, onClick, onBlocked }: Opti
   const startRef = useRef<{ x: number; y: number; rect: DOMRect } | null>(null);
   // Ref statt State: pointermove muss synchron wissen, ob die Schwelle fiel.
   const movedRef = useRef(false);
+  const touchRef = useRef(false);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLElement>, event: TerminEvent) => {
@@ -84,7 +85,13 @@ export function useDragReschedule({ geometry, onDrop, onClick, onBlocked }: Opti
       const rect = e.currentTarget.getBoundingClientRect();
       startRef.current = { x: e.clientX, y: e.clientY, rect };
       movedRef.current = false;
-      e.currentTarget.setPointerCapture(e.pointerId);
+      touchRef.current = e.pointerType === "touch";
+      // Am Finger KEIN Ziehen: Jeder Wisch, der auf einem Chip begann, hat
+      // den Termin sofort und ohne Rückfrage verschoben, statt die Seite zu
+      // scrollen. Ein Tipp öffnet weiterhin das Popover; verschoben wird am
+      // Handy über „Termin" bzw. die Detailseite. Ohne Capture darf der
+      // Browser die Geste als Scroll übernehmen (globals.css: touch-action).
+      if (!touchRef.current) e.currentTarget.setPointerCapture(e.pointerId);
       setDrag({ event, target: null, pointer: { x: e.clientX, y: e.clientY }, active: false });
     },
     [],
@@ -99,6 +106,8 @@ export function useDragReschedule({ geometry, onDrop, onClick, onBlocked }: Opti
       const dy = e.clientY - start.y;
       if (!movedRef.current && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
       movedRef.current = true;
+      // Finger bewegt sich: Das ist ein Scroll, kein Klick und kein Zug.
+      if (touchRef.current) return;
 
       // Gesperrt: kein Ziel berechnen, kein Ghost, kein Speichern — aber sagen,
       // warum. `movedRef` bleibt gesetzt, damit das Loslassen nicht als Klick

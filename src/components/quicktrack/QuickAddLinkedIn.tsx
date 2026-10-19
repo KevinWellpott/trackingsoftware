@@ -136,10 +136,10 @@ export function QuickAddLinkedIn({
         type="button"
         onClick={openModal}
         title="Schnell tracken (Strg/Cmd+K)"
+        className="fab-bottom"
         style={{
           position: "fixed",
           right: "1.5rem",
-          bottom: "calc(1.5rem + env(safe-area-inset-bottom))",
           zIndex: 40,
           display: "inline-flex",
           alignItems: "center",

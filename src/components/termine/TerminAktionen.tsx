@@ -24,8 +24,15 @@ export function TerminAktionen({
   onGenervt,
   onNeuerTermin,
   onTot,
+  layout = "row",
 }: {
   event: TerminEvent;
+  /**
+   * `card` = Handy-Karte: drei gleich breite Knöpfe über die volle Breite, das
+   * Datumsfeld beim Umterminieren auf eigener Zeile. In der Tabellenzelle
+   * (`row`) stünden sie nebeneinander und wären am Finger zu schmal.
+   */
+  layout?: "row" | "card";
   /** Läuft für DIESE Zeile gerade eine Aktion? */
   pending: boolean;
   onGenervt: () => void;
@@ -46,15 +53,20 @@ export function TerminAktionen({
   // die Uhrzeit setzt das Feld beim Datumsklick von selbst (09:00).
   const [wert, setWert] = useState("");
 
+  const card = layout === "card";
+
   if (open) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
+      <span
+        className={card ? "termin-aktionen-card termin-aktionen-open" : undefined}
+        style={card ? undefined : { display: "inline-flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}
+      >
         <DateTimeField
           value={wert}
           onChange={setWert}
           disabled={pending}
           ariaLabel={`Neuer Termin für ${event.title}`}
-          style={{ minWidth: 0 }}
+          style={card ? { minWidth: 0, gridColumn: "1 / -1" } : { minWidth: 0 }}
         />
         <Button
           type="button"
@@ -76,7 +88,10 @@ export function TerminAktionen({
   }
 
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
+    <span
+      className={card ? "termin-aktionen-card" : undefined}
+      style={card ? undefined : { display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}
+    >
       <Button
         type="button"
         variant="secondary"

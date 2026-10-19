@@ -194,13 +194,13 @@ export function CompareBuilder({
 
   return (
     <div
-      className="glass-nav"
+      className="glass-nav analyse-sticky-bar"
       style={{
         position: "sticky",
-        top: 0,
+        top: "var(--sticky-top, 0px)",
         zIndex: 30,
-        margin: "0 calc(var(--sp-9) * -1)",
-        padding: "var(--sp-4) var(--sp-9) var(--sp-5)",
+        margin: "0 calc(var(--page-gutter, var(--sp-9)) * -1)",
+        padding: "var(--sp-4) var(--page-gutter, var(--sp-9)) var(--sp-5)",
       }}
     >
       {isPending && <span className="route-progress" aria-hidden />}

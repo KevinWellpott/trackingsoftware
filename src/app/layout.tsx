@@ -19,6 +19,9 @@ export const metadata: Metadata = {
 export const viewport = {
   themeColor: "#0a0a0b",
   colorScheme: "dark" as const,
+  // Vollflaechig bis an Notch und Home-Indikator; die Abstaende holen sich
+  // Kopfzeile und Tab-Leiste ueber env(safe-area-inset-*) zurueck.
+  viewportFit: "cover" as const,
 };
 
 export default function RootLayout({

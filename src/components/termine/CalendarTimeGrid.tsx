@@ -139,7 +139,7 @@ export function CalendarTimeGrid({
       <div className="cal-scroll-x-inner">
         {/* 208px = Topbar + PageHeader + die eine verbliebene Filterzeile.
             Vorher 268px — die zweite Filterzeile ist ersatzlos entfallen. */}
-        <div ref={scrollRef} style={{ maxHeight: "calc(100vh - 208px)", overflowY: "auto" }}>
+        <div ref={scrollRef} style={{ maxHeight: "calc(100dvh - 208px)", overflowY: "auto" }}>
           {/* Kopfzeile — klebt oben IM Scroll-Container, teilt sich das Template
               mit dem Raster darunter. */}
           <div

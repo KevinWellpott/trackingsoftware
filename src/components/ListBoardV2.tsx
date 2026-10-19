@@ -1592,7 +1592,11 @@ export function ListBoardV2({ listId, contacts }: {
         <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
           {showNewEntry && listId && <MobileNewCard onCreate={createOptimistic} />}
 
-          <div ref={parentRef} style={{ maxHeight: "62vh", overflowY: "auto", WebkitOverflowScrolling: "touch" as never }}>
+          {/* Fast bildschirmhoch statt 62vh: Die Karten scrollen in einer eigenen
+              Fläche (Virtualisierung). Bei 62vh blieb über ein Drittel des
+              Bildschirms für die Werkzeugleiste, und der Daumen landete beim
+              Wischen ständig in der äußeren statt der inneren Scrollfläche. */}
+          <div ref={parentRef} style={{ maxHeight: "calc(100dvh - 190px)", overflowY: "auto", WebkitOverflowScrolling: "touch" as never, overscrollBehavior: "contain" }}>
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
               {virtualizer.getVirtualItems().map((vi) => {
                 const c = filtered[vi.index];
@@ -1727,6 +1731,7 @@ export function ListBoardV2({ listId, contacts }: {
       {/* Undo-Toast (FU-Fehlklick-Schutz) */}
       {toast && (
         <div
+          className="undo-toast"
           style={{
             position: "fixed",
             bottom: 22,
@@ -1752,6 +1757,7 @@ export function ListBoardV2({ listId, contacts }: {
             <button
               type="button"
               onClick={() => { toast.undo?.(); setToast(null); }}
+              className="undo-toast-btn"
               style={{
                 display: "inline-flex",
                 alignItems: "center",

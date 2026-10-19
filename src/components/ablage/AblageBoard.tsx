@@ -539,8 +539,13 @@ function DropoutCard({
         </Link>
       )}
 
+      {/* Am Handy untereinander in voller Breite, „Endgültig sperren" per CSS
+          ganz nach unten und abgesetzt (globals.css, `.ablage-actions`) —
+          dort stand der Knopf mit dem dauerhaften Kontaktverbot sonst zwischen
+          zwei harmlosen, im Bereich des Daumens. */}
       {/* ── Aktionen ── */}
       <div
+        className="ablage-actions"
         style={{
           display: "flex",
           alignItems: "center",
@@ -611,6 +616,7 @@ function DropoutCard({
           <Button
             variant="danger"
             size="sm"
+            className="ablage-danger"
             disabled={isPending}
             onClick={block}
             title="Dauerhaftes Kontaktverbot: kein Recycling mehr, org-weit sichtbar in der Sperrliste."

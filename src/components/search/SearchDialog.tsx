@@ -127,6 +127,7 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
           <Input
             autoFocus
             type="search"
+            enterKeyHint="search"
             placeholder="Name, Firma oder Telefonnummer…"
             value={query}
             onChange={(e) => onQuery(e.target.value)}
@@ -308,8 +309,8 @@ export function SearchTrigger({
     borderRadius: "var(--r-full)",
     cursor: "pointer",
     color: "var(--text-secondary)",
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

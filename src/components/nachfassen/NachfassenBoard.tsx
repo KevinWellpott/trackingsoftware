@@ -522,6 +522,19 @@ function TaskCard({ task, done }: { task: RecycleTask; done: DoneApi }) {
             Karte trägt weiterhin der Unterschied Fläche/Hairline und die
             Stapelreihenfolge — der Surface-Verlauf ist dieselbe Form und
             dasselbe Licht, nur nicht dieselbe Lautstärke. */}
+        {/* Nur am Handy: Anrufen ZUERST und in voller Breite — die Reihenfolge
+            ist dort Anrufen → Ergebnis. Am Desktop steht die Nummer weiter als
+            Link in der Wege-Zeile unten. */}
+        {!doneEntry && task.phone && (
+          <a
+            href={`tel:${task.phone.replace(/[^\d+]/g, "")}`}
+            className="only-mobile termin-card-link"
+            data-primary="true"
+          >
+            <Phone size={15} aria-hidden /> <span className="tnum">{task.phone}</span>
+          </a>
+        )}
+
         {!doneEntry && (
           <>
             <Button

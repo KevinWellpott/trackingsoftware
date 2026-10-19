@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
 // Gemeinsamer Unterbau fuer alle Dropdowns im Brand-Design (Kalender, Select,
@@ -15,6 +15,54 @@ const GAP = 6;
 const EDGE = 8;
 
 export type PopoverAlign = "start" | "end";
+
+// ── Handy: Bottom-Sheet statt Anker-Popover ──────────────────────────────
+// Am Trigger verankert schloss sich jedes Dropdown am Handy von selbst: Die
+// Tastatur löst dort ein `resize` (Android) bzw. einen Scroll (iOS) aus, und
+// beides war als „weg damit" verdrahtet — das Uhrzeit-Feld, das beim Fokus
+// aufklappt, war damit praktisch nicht bedienbar. Unter 768px sitzt das
+// Popover deshalb unten am sichtbaren Bildschirm (über der Tastatur, per
+// `visualViewport`), volle Breite, mit eigener Scrollfläche; Scroll und
+// Resize schließen es dort nicht mehr.
+const SHEET_QUERY = "(max-width: 767px)";
+
+function subscribeSheet(onChange: () => void) {
+  const mq = window.matchMedia(SHEET_QUERY);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
+function useSheetMode(): boolean {
+  return useSyncExternalStore(
+    subscribeSheet,
+    () => window.matchMedia(SHEET_QUERY).matches,
+    () => false,
+  );
+}
+
+/** Abstand des sichtbaren Bildschirms zum unteren Layout-Rand (= Tastatur). */
+function useKeyboardInset(active: boolean): { bottom: number; height: number } {
+  const [inset, setInset] = useState({ bottom: 0, height: 0 });
+  useEffect(() => {
+    if (!active) return;
+    const vv = window.visualViewport;
+    function update() {
+      const height = vv ? vv.height : window.innerHeight;
+      const bottom = vv ? Math.max(0, window.innerHeight - (vv.offsetTop + vv.height)) : 0;
+      setInset({ bottom, height });
+    }
+    update();
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [active]);
+  return inset;
+}
 
 /**
  * Misst das Popover NACH dem ersten Paint und klappt bei Platzmangel nach oben.
@@ -52,10 +100,12 @@ export function AnchoredPopover({
   const innerRef = useRef<HTMLDivElement>(null);
   const ref = popoverRef ?? innerRef;
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const sheet = useSheetMode();
+  const keyboard = useKeyboardInset(sheet);
 
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || sheet) return;
     const h = el.offsetHeight;
     const w = el.offsetWidth;
     const fitsBelow = anchor.bottom + GAP + h <= window.innerHeight;
@@ -66,7 +116,7 @@ export function AnchoredPopover({
       top: below ? anchor.bottom + GAP : anchor.top - GAP - h,
       left: Math.max(EDGE, Math.min(rawLeft, window.innerWidth - w - EDGE)),
     });
-  }, [anchor, align, ref]);
+  }, [anchor, align, ref, sheet]);
 
   // Outside-Click, Escape, Scroll und Resize schliessen. Scrollen innerhalb des
   // Popovers (lange Optionsliste) ist ausgenommen, sonst schliesst es sich
@@ -90,15 +140,52 @@ export function AnchoredPopover({
     }
     document.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onClose);
+    // Als Sheet hängt das Popover am Bildschirm, nicht am Trigger — Scrollen
+    // und die aufgehende Tastatur dürfen es dort nicht schließen.
+    if (!sheet) {
+      window.addEventListener("scroll", onScroll, true);
+      window.addEventListener("resize", onClose);
+    }
     return () => {
       document.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onClose);
     };
-  }, [onClose, ref]);
+  }, [onClose, ref, sheet]);
+
+  if (sheet) {
+    const available = Math.max(160, (keyboard.height || 600) - 96);
+    return createPortal(
+      <div
+        ref={ref}
+        id={id}
+        role={role}
+        aria-label={label}
+        className={`${className} anchored-sheet`}
+        style={{
+          ...style,
+          position: "fixed",
+          left: EDGE,
+          right: EDGE,
+          bottom: `calc(${keyboard.bottom + EDGE}px + ${keyboard.bottom > 0 ? "0px" : "env(safe-area-inset-bottom)"})`,
+          top: "auto",
+          zIndex: 130,
+          boxSizing: "border-box",
+          width: "auto",
+          minWidth: 0,
+          maxWidth: "none",
+          maxHeight: Math.min(maxHeight ? Math.max(maxHeight, 320) : available, available),
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+          animation: "fade-up var(--dur-2) var(--ease-out) both",
+        }}
+      >
+        {children}
+      </div>,
+      document.body,
+    );
+  }
 
   return createPortal(
     <div

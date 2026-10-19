@@ -5,7 +5,7 @@ import { DRAN_TONE } from "@/lib/dranRegel";
 import { dueRefAt, isOverdue } from "@/lib/dueState";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import type { RueckrufAufgabe } from "@/lib/termine";
-import { Phone, PhoneCall } from "lucide-react";
+import { ChevronRight, Phone, PhoneCall } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -89,8 +89,63 @@ export function RueckrufListe({
   }
 
   return (
+    <>
+    {/* Handy: eine Karte je Rückruf. Die Tabelle daneben braucht fünf
+        Spalten und war am Handy nur seitlich scrollend zu bedienen — ausgerechnet
+        die Nummer lag rechts außerhalb des Bildschirms. */}
+    <div className="only-mobile rr-cards">
+      {rows.map((r) => {
+        const faellig = nowMs != null && isOverdue(r.callbackAt, "moment", dueRefAt(nowMs));
+        const zeit = formatTerminParts(r.callbackAt);
+        const dialer = callModeHref(r);
+        return (
+          <div
+            key={r.id}
+            className="rr-card"
+            style={
+              faellig
+                ? { background: DRAN_TONE.bg, borderColor: DRAN_TONE.border }
+                : undefined
+            }
+          >
+            <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)" }}>
+              <span
+                className="tnum"
+                style={{ fontSize: "var(--fs-sm)", color: faellig ? DRAN_TONE.fg : "var(--text-secondary)" }}
+              >
+                {zeit?.date} <strong style={{ fontWeight: 600, color: faellig ? "inherit" : "var(--text-primary)" }}>{zeit?.time}</strong>
+              </span>
+              {faellig && (
+                <span style={{ fontSize: "var(--fs-2xs)", color: DRAN_TONE.fg, fontWeight: 600 }}>fällig</span>
+              )}
+              {r.ownerName && (
+                <span style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{r.ownerName}</span>
+              )}
+            </div>
+            <div style={{ fontWeight: 600, fontSize: "var(--fs-md)", color: "var(--text-primary)", overflowWrap: "anywhere" }}>
+              {r.company ?? "Unbenannte Firma"}
+            </div>
+            {r.decider && <div style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)" }}>{r.decider}</div>}
+            <div style={{ display: "flex", gap: "var(--sp-4)", marginTop: "var(--sp-3)" }}>
+              {dialer ? (
+                <Link href={dialer} className="rr-card-primary">
+                  <PhoneCall size={16} aria-hidden /> Anrufen & erfassen
+                </Link>
+              ) : r.phone ? (
+                <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} className="rr-card-primary">
+                  <Phone size={16} aria-hidden /> Anrufen
+                </a>
+              ) : (
+                <span style={{ color: "var(--text-disabled)", fontSize: "var(--fs-sm)" }}>keine Nummer</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+
     <div
-      className="table-scroll"
+      className="table-scroll hide-on-mobile"
       // Wie in der Arbeitsliste daneben: `overflowX: "auto"` statt
       // `overflow: "hidden"`. Der Inline-Stil schlug die einzige
       // `.table-scroll`-Regel, und damit war auf schmalen Fenstern die
@@ -202,7 +257,8 @@ export function RueckrufListe({
                 <td>
                   {r.listId ? (
                     <Link
-                      href={`/telefon/${r.listId}`}
+                      href={callModeHref(r) ?? `/telefon/${r.listId}`}
+                      title="Im Call-Modus öffnen — dort Ergebnis eintragen"
                       className="badge"
                       style={{
                         textDecoration: "none",
@@ -211,7 +267,7 @@ export function RueckrufListe({
                         border: "1px solid var(--border-accent)",
                       }}
                     >
-                      <PhoneCall size={11} /> {r.listName ?? "Zur Liste"}
+                      <PhoneCall size={11} /> {r.listName ?? "Call-Modus"} <ChevronRight size={11} aria-hidden />
                     </Link>
                   ) : (
                     <span style={{ color: "var(--text-disabled)" }}>—</span>
@@ -223,7 +279,19 @@ export function RueckrufListe({
         </tbody>
       </table>
     </div>
+    </>
   );
+}
+
+/**
+ * Direkt in den Call-Modus, beim richtigen Lead. Nur dort wird das Ergebnis
+ * erfasst — und nur dort entsteht der Eintrag im Anruf-Log, der den Rückruf
+ * als Anwahl im Wochenziel zählt. Ein nackter `tel:`-Link ruft zwar an, hält
+ * aber nichts fest.
+ */
+function callModeHref(r: RueckrufAufgabe): string | null {
+  if (!r.listId) return null;
+  return `/telefon/${r.listId}?status=rueckruf&lead=${encodeURIComponent(r.id)}`;
 }
 
 /** Wie in der Arbeitsliste — hier ist die Person aber der LISTEN-Owner (docs §2). */

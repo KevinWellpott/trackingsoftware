@@ -104,7 +104,7 @@ export function StatTile({
           </span>
         )}
         <span
-          className="eyebrow"
+          className="eyebrow stat-tile-label"
           style={{
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -125,6 +125,7 @@ export function StatTile({
 
       {sub && (
         <div
+          className="stat-tile-sub"
           style={{
             fontSize: "var(--fs-xs)",
             color: accent ? t.fg : "var(--text-muted)",

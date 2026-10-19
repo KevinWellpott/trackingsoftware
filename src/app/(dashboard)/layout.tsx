@@ -132,7 +132,10 @@ export default async function DashboardLayout({
       {/* Main content */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         {/* Mobile header */}
-        <div className="md:hidden">
+        {/* `contents`: Der Wrapper erzeugt keine eigene Box. Vorher war er
+            genau so hoch wie die Kopfzeile, und ein sticky-Element kann seinen
+            Elternblock nicht verlassen — die Kopfzeile scrollte mit weg. */}
+        <div className="contents md:hidden">
           <MobileHeader
             workspaceName={access.workspaces.name}
             username={access.username}
