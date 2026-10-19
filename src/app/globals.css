@@ -2516,3 +2516,235 @@ body[data-editor] .header-menu-btn { display: inline-flex; }
   }
   .table-scroll .funnel-matrix-row:hover > :first-child { background-color: var(--surface-1); }
 }
+
+/* ─── Kalender am Handy (components/termine/CalendarMobile.tsx) ────────── */
+.cal-mobile { flex-direction: column; gap: var(--sp-6); }
+
+.cal-m-month,
+.cal-m-strip {
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  padding: var(--sp-3);
+}
+.cal-m-weekdays,
+.cal-m-grid,
+.cal-m-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+.cal-m-weekdays > span {
+  text-align: center;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-subtle);
+  padding: var(--sp-2) 0 var(--sp-3);
+}
+.cal-m-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  min-height: 48px;
+  padding: 6px 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.cal-m-strip .cal-m-cell { min-height: 62px; }
+.cal-m-cell[data-outside] { color: var(--text-disabled); }
+.cal-m-cell[data-selected] { background: var(--accent-muted); border-color: var(--border-accent); }
+.cal-m-cell:active { background: var(--surface-3); }
+.cal-m-wd {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.cal-m-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* Heute: dunkler Text auf Orange (7.1:1), wie im Desktop-Raster. */
+.cal-m-cell[data-today] .cal-m-num { background: var(--orange-500); color: #0a0a0b; }
+.cal-m-dots { display: flex; align-items: center; gap: 3px; height: 6px; }
+.cal-m-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--text-muted);
+}
+.cal-m-dot[data-kind="closing"] { background: var(--event-closing-bg); }
+/* „Du bist dran" — derselbe Gold-Ton wie in der Arbeitsliste. */
+.cal-m-dot[data-dran] { background: var(--warning); }
+.cal-m-more { font-size: 9px; line-height: 6px; font-weight: 700; color: var(--text-muted); }
+
+.cal-m-day { display: flex; flex-direction: column; gap: var(--sp-4); scroll-margin-top: calc(var(--sticky-top) + 132px); }
+.cal-m-day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.cal-m-day-head[data-today] { color: var(--orange-300); }
+.cal-m-free {
+  margin: 0;
+  padding: var(--sp-6);
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--r-md);
+}
+.cal-m-free[data-compact] { padding: var(--sp-3) var(--sp-5); text-align: left; border-style: none; color: var(--text-subtle); }
+
+.cal-m-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--sp-5);
+  text-align: left;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  /* Der Rand links trägt den Status — dieselbe Farbe wie der Rahmen des Chips. */
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.cal-m-card:active { background: var(--surface-3); }
+.cal-m-card[data-tone="success"] { border-left-color: var(--success); }
+.cal-m-card[data-tone="danger"]  { border-left-color: var(--danger); }
+.cal-m-card[data-tone="warning"] { border-left-color: var(--warning); }
+.cal-m-card[data-tone="info"]    { border-left-color: var(--info); }
+.cal-m-card[data-dashed]         { border-left-style: dashed; }
+.cal-m-card[data-dimmed]         { opacity: 0.6; }
+.cal-m-card[data-dran]           { box-shadow: inset 0 0 0 1px var(--warning); }
+.cal-m-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 44px;
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.cal-m-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-m-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.cal-m-kind {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  background: var(--event-setting-bg);
+  color: var(--event-setting-fg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.cal-m-kind[data-kind="closing"] { background: var(--event-closing-bg); color: var(--event-closing-fg); box-shadow: none; }
+.cal-m-company { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Kopfleiste im Kalender am Handy: ‹ Zeitraum › Heute, darunter Monat/Woche/Tag
+   in voller Breite. Vorher lagen sechs Bedienelemente in drei umbrechenden
+   Reihen, die Zeitraum-Angabe irgendwo dazwischen. */
+@media (max-width: 767px) {
+  .termine-bar[data-tab="kalender"] {
+    display: grid !important;
+    grid-template-columns: var(--touch-target) minmax(0, 1fr) var(--touch-target) auto;
+    grid-template-areas:
+      "prev label next today"
+      "seg  seg   seg  seg"
+      "right right right right";
+    column-gap: var(--sp-3);
+    row-gap: var(--sp-4);
+    align-items: center;
+  }
+  .termine-bar[data-tab="kalender"] .termine-nav-prev  { grid-area: prev; }
+  .termine-bar[data-tab="kalender"] .termine-nav-next  { grid-area: next; }
+  .termine-bar[data-tab="kalender"] .termine-nav-today { grid-area: today; }
+  .termine-bar[data-tab="kalender"] .termine-nav-prev,
+  .termine-bar[data-tab="kalender"] .termine-nav-next,
+  .termine-bar[data-tab="kalender"] .termine-nav-today { height: var(--touch-target) !important; }
+  .termine-bar[data-tab="kalender"] .termine-nav-prev,
+  .termine-bar[data-tab="kalender"] .termine-nav-next { width: var(--touch-target) !important; }
+  .termine-bar[data-tab="kalender"] .termine-period {
+    grid-area: label;
+    margin-left: 0 !important;
+    text-align: center;
+    font-size: var(--fs-md) !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .termine-kal-seg { grid-area: seg; }
+  .termine-kal-seg .ui-segmented { display: flex; width: 100%; overflow: visible; }
+  .termine-kal-seg .ui-segmented > * { flex: 1 1 0; }
+  .termine-bar[data-tab="kalender"] .termine-filter-right { grid-area: right; }
+  .termine-bar[data-tab="kalender"] .termine-search[data-empty] { display: none; }
+  .termine-bar[data-tab="kalender"] .termine-filter-right:not(:has(> :not(.termine-search[data-empty]))) { display: none; }
+
+  /* Kurzinfo zum Termin als Bottom-Sheet. Die Lage steht inline (am Chip
+     verankert), deshalb !important. */
+  .event-sheet-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 139;
+    background: var(--surface-scrim);
+    animation: modal-scrim var(--dur-2) var(--ease-out) both;
+  }
+  .event-sheet {
+    top: auto !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: auto !important;
+    max-height: 85dvh;
+    overflow-y: auto;
+    padding: var(--sp-7) var(--sp-7) calc(var(--sp-7) + env(safe-area-inset-bottom)) !important;
+    background: var(--surface-4) !important;
+    border-radius: var(--r-xl) var(--r-xl) 0 0 !important;
+    animation: sheet-enter var(--dur-3) var(--ease-out) both !important;
+  }
+  .event-sheet a,
+  .event-sheet button { min-height: var(--touch-target); }
+  .event-sheet button[aria-label="Schließen"] { min-width: var(--touch-target); justify-content: center; }
+}

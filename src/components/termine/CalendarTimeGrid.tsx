@@ -56,6 +56,7 @@ export function CalendarTimeGrid({
   drag,
   dragHandlers,
   onGeometry,
+  compact = false,
 }: {
   days: string[];
   events: TerminEvent[];
@@ -67,6 +68,13 @@ export function CalendarTimeGrid({
     onPointerCancel: () => void;
   };
   onGeometry: (g: TimeGridHandle) => void;
+  /**
+   * Handy (CalendarMobile, Tagesansicht): ohne Kopfzeile — der Tag steht in
+   * der Tagesleiste darüber —, ohne eigene Scrollfläche und ohne die 640px
+   * Mindestbreite der Woche. Das Raster läuft mit der Seite mit; zwei
+   * ineinander scrollende Flächen sind am Daumen nicht zu bedienen.
+   */
+  compact?: boolean;
 }) {
   const today = localDateISO();
   const byDay = useMemo(() => groupByDay(events), [events]);
@@ -128,7 +136,7 @@ export function CalendarTimeGrid({
 
   return (
     <div
-      className="cal-scroll-x"
+      className={compact ? undefined : "cal-scroll-x"}
       style={{
         border: "1px solid var(--border)",
         borderRadius: "var(--radius-md)",
@@ -136,15 +144,15 @@ export function CalendarTimeGrid({
         background: "var(--surface-100)",
       }}
     >
-      <div className="cal-scroll-x-inner">
+      <div className={compact ? undefined : "cal-scroll-x-inner"}>
         {/* 208px = Topbar + PageHeader + die eine verbliebene Filterzeile.
             Vorher 268px — die zweite Filterzeile ist ersatzlos entfallen. */}
-        <div ref={scrollRef} style={{ maxHeight: "calc(100dvh - 208px)", overflowY: "auto" }}>
+        <div ref={scrollRef} style={compact ? undefined : { maxHeight: "calc(100dvh - 208px)", overflowY: "auto" }}>
           {/* Kopfzeile — klebt oben IM Scroll-Container, teilt sich das Template
               mit dem Raster darunter. */}
           <div
             style={{
-              display: "grid",
+              display: compact ? "none" : "grid",
               gridTemplateColumns: template,
               position: "sticky",
               top: 0,

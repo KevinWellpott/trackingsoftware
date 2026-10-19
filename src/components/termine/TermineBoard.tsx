@@ -8,6 +8,7 @@ import type { ClosingCall, SettingCall } from "@/lib/types";
 import { istZuTun } from "@/lib/dranRegel";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { CalendarMobile } from "./CalendarMobile";
 import { CalendarMonth } from "./CalendarMonth";
 import { CalendarTimeGrid, type TimeGridHandle } from "./CalendarTimeGrid";
 import { EventChip } from "./EventChip";
@@ -439,28 +440,50 @@ export function TermineBoard({
         />
       ) : tab === "rueckruf" ? (
         <RueckrufListe aufgaben={rueckrufeGefiltert} verfuegbar={rueckrufeVerfuegbar} />
-      ) : params.view === "monat" ? (
-        <CalendarMonth
-          year={ay}
-          month={am}
-          events={inRange}
-          drag={drag}
-          dragHandlers={handlers}
-          onOpenDay={(dayISO) =>
-            commit((p) => {
-              p.set("view", "tag");
-              p.set("date", dayISO);
-            })
-          }
-        />
       ) : (
-        <CalendarTimeGrid
-          days={days}
-          events={inRange}
-          drag={drag}
-          dragHandlers={handlers}
-          onGeometry={setGeometry}
-        />
+        <>
+          {/* Desktop-Raster und Handy-Kalender stehen beide im Baum und werden
+              per CSS umgeschaltet (`.hide-on-mobile` / `.only-mobile`) — eine
+              Weiche über matchMedia ließe beim Laden erst das Desktop-Raster
+              aufblitzen, weil der Server die Breite nicht kennt. */}
+          <div className="hide-on-mobile">
+            {params.view === "monat" ? (
+              <CalendarMonth
+                year={ay}
+                month={am}
+                events={inRange}
+                drag={drag}
+                dragHandlers={handlers}
+                onOpenDay={(dayISO) =>
+                  commit((p) => {
+                    p.set("view", "tag");
+                    p.set("date", dayISO);
+                  })
+                }
+              />
+            ) : (
+              <CalendarTimeGrid
+                days={days}
+                events={inRange}
+                drag={drag}
+                dragHandlers={handlers}
+                onGeometry={setGeometry}
+              />
+            )}
+          </div>
+          <CalendarMobile
+            view={params.view === "monat" || params.view === "tag" ? params.view : "woche"}
+            date={params.date}
+            today={today}
+            events={filtered}
+            drag={drag}
+            dragHandlers={handlers}
+            onGeometry={setGeometry}
+            onSelectDay={(iso) => setParam("date", iso)}
+            onStep={(dir) => setParam("date", stepDate(params.view, params.date, dir))}
+            onOpen={handleClick}
+          />
+        </>
       )}
 
       {/* Ghost am Zeiger (Monatsansicht: Zielzelle wird zusätzlich hervorgehoben) */}

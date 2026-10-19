@@ -9,6 +9,7 @@ import { ArrowRight, Phone, Video, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useSheetMode } from "@/components/ui/useViewport";
 
 // Kurzinfo zu einem Termin. Positionierung + Dismiss folgen exakt dem
 // CalendarPopover aus ui/DatePicker.tsx (Portal + position:fixed), damit das
@@ -61,6 +62,10 @@ export function EventPopover({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Am Handy ein Bottom-Sheet über einem Scrim (globals.css, `.event-sheet`):
+  // Am Chip verankert lag die Karte halb neben dem Bildschirm, und jedes
+  // Scrollen — am Daumen unvermeidlich — schloss sie wieder.
+  const sheet = useSheetMode();
 
   useEffect(() => {
     function onDown(e: MouseEvent) {
@@ -73,8 +78,9 @@ export function EventPopover({
       if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
       onClose();
     }
-    document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
+    if (sheet) return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onClose);
     return () => {
@@ -83,7 +89,7 @@ export function EventPopover({
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onClose);
     };
-  }, [onClose]);
+  }, [onClose, sheet]);
 
   const below = anchor.bottom + 6 + EST_HEIGHT <= window.innerHeight || anchor.top - 6 - EST_HEIGHT < 0;
   const top = below ? anchor.bottom + 6 : anchor.top - 6 - EST_HEIGHT;
@@ -97,12 +103,14 @@ export function EventPopover({
   const typLabel = event.kind === "setting" ? "Setting" : "Closing";
 
   return createPortal(
+    <>
+    {sheet && <div className="event-sheet-scrim" onClick={onClose} aria-hidden />}
     <div
       ref={ref}
       role="dialog"
       aria-label={`Termin ${event.title}`}
       // Glass-Popover-Rezept (DESIGN.md §4.2) — Popover sind Glas, Dialoge solid.
-      className="glass-popover"
+      className={sheet ? "glass-popover event-sheet" : "glass-popover"}
       style={{
         position: "fixed",
         top,
@@ -268,7 +276,8 @@ export function EventPopover({
           </a>
         )}
       </div>
-    </div>,
+    </div>
+    </>,
     document.body,
   );
 }

@@ -193,7 +193,8 @@ export function TermineFilterBar({
 
   return (
     <div
-      className="glass-nav filter-bar-row"
+      className="glass-nav filter-bar-row termine-bar"
+      data-tab={tab}
       style={{
         position: "sticky",
         top: "var(--sticky-top, 0px)",
@@ -212,14 +213,15 @@ export function TermineFilterBar({
           — dort ist die Fälligkeit der Ausschnitt. */}
       {isKalender ? (
         <>
-          <button type="button" onClick={() => onStep(-1)} aria-label="Zurück" style={navBtn}>
+          <button type="button" className="termine-nav-prev" onClick={() => onStep(-1)} aria-label="Zurück" style={navBtn}>
             <ChevronLeft size={15} />
           </button>
-          <button type="button" onClick={() => onStep(1)} aria-label="Vor" style={navBtn}>
+          <button type="button" className="termine-nav-next" onClick={() => onStep(1)} aria-label="Vor" style={navBtn}>
             <ChevronRight size={15} />
           </button>
           <button
             type="button"
+            className="termine-nav-today"
             onClick={onToday}
             style={{
               ...navBtn,
@@ -232,12 +234,14 @@ export function TermineFilterBar({
           >
             Heute
           </button>
-          <Segmented
-            options={KALENDER_OPTIONS}
-            value={view === "monat" || view === "tag" ? view : "woche"}
-            onChange={(v) => onView(v)}
-            ariaLabel="Kalender-Ansicht"
-          />
+          <div className="termine-kal-seg">
+            <Segmented
+              options={KALENDER_OPTIONS}
+              value={view === "monat" || view === "tag" ? view : "woche"}
+              onChange={(v) => onView(v)}
+              ariaLabel="Kalender-Ansicht"
+            />
+          </div>
         </>
       ) : tab === "liste" ? (
         // Am Handy wischbar in einer Zeile: Die vier Ausschnitte samt Zahl
@@ -248,6 +252,7 @@ export function TermineFilterBar({
       ) : null}
 
       <span
+        className="termine-period"
         style={{
           fontSize: "var(--fs-lg)",
           fontWeight: 600,
@@ -263,7 +268,10 @@ export function TermineFilterBar({
       <div className="termine-filter-right" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
         {/* Suche gilt in ALLEN Ansichten und liegt in der URL — vorher hielt
             die Listenansicht sie lokal und verlor sie beim Umschalten. */}
-        <div className="termine-search" style={{ position: "relative", width: 208 }}>
+        {/* `data-empty`: Im Kalender am Handy weicht ein LEERES Suchfeld — dort
+            sucht man einen Tag, keinen Namen. Ein gesetzter Begriff bleibt
+            sichtbar, sonst filterte er unsichtbar weiter. */}
+        <div className="termine-search" data-empty={draft.trim() ? undefined : ""} style={{ position: "relative", width: 208 }}>
           <Search
             size={13}
             style={{
