@@ -710,6 +710,7 @@ export function FunnelMatrix({
     <div className="table-scroll" style={{ overflowX: "auto" }}>
       <div style={{ minWidth: 680 }}>
         <div
+          className="sticky-col-row"
           style={{
             display: "grid",
             gridTemplateColumns: cols,
@@ -733,7 +734,7 @@ export function FunnelMatrix({
           return (
             <div
               key={r.name}
-              className="funnel-matrix-row"
+              className="funnel-matrix-row sticky-col-row"
               style={{
                 display: "grid",
                 gridTemplateColumns: cols,

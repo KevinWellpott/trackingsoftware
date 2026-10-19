@@ -1252,14 +1252,16 @@ export function CallModeRunner({
           <p className="dialer-hint" style={{ margin: 0 }}>
             Der Lead wandert automatisch in die Rückruf-Liste des Inhabers.
           </p>
-          <Button
-            variant="primary"
-            disabled={!callbackAt}
-            loading={isPending}
-            onClick={() => applyOutcome("rueckruf", callbackAt)}
-          >
-            Rückruf speichern
-          </Button>
+          <div className="ui-modal-actions" data-wrap="">
+            <Button
+              variant="primary"
+              disabled={!callbackAt}
+              loading={isPending}
+              onClick={() => applyOutcome("rueckruf", callbackAt)}
+            >
+              Rückruf speichern
+            </Button>
+          </div>
         </div>
       </Modal>
 

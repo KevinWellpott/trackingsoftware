@@ -108,7 +108,10 @@ export function OrgRowActions({
               required
             />
           </div>
-          <div style={{ display: "flex", gap: "var(--sp-4)", justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <div
+            className="ui-modal-actions"
+            style={{ display: "flex", gap: "var(--sp-4)", justifyContent: "flex-end", flexWrap: "wrap" }}
+          >
             <Button type="button" variant="ghost" onClick={() => setRenaming(false)}>
               Abbrechen
             </Button>

@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { useKeyboardInset, useSheetMode } from "./useViewport";
 
 // Leichtgewichtiges, token-gestyltes Modal. Wiederverwendbar in allen Bereichen.
 // A11y: Focus-Trap (Tab/Shift+Tab), Fokus-Restore beim Schließen,
@@ -32,6 +33,10 @@ export function Modal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const backdropMouseDown = useRef(false);
   const titleId = useId();
+  const sheet = useSheetMode();
+  const keyboard = useKeyboardInset(open && sheet);
+  // Ab gut 80px fehlender Höhe ist es die Tastatur, nicht die Adressleiste.
+  const keyboardOpen = sheet && keyboard.bottom > 80;
 
   useEffect(() => {
     if (!open) return;
@@ -109,10 +114,18 @@ export function Modal({
       }}
       // Am Handy ein Bottom-Sheet (globals.css, `.ui-modal-scrim`): von unten,
       // volle Breite, Knöpfe im Daumenbereich statt in der oberen Bildhälfte.
+      //
+      // Bei offener Tastatur sitzt das Sheet genau im sichtbaren Bildschirm:
+      // `position: fixed` hängt am Layout-Viewport, und der reicht unter die
+      // Tastatur — Speichern-Knopf und das gerade getippte Feld lagen dahinter.
       className="ui-modal-scrim"
+      data-keyboard={keyboardOpen ? "" : undefined}
       style={{
         position: "fixed",
-        inset: 0,
+        top: keyboardOpen ? keyboard.top : 0,
+        right: 0,
+        bottom: keyboardOpen ? keyboard.bottom : 0,
+        left: 0,
         zIndex: 100,
         display: "flex",
         alignItems: "flex-start",
@@ -129,6 +142,14 @@ export function Modal({
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         className="ui-modal"
+        // Das fokussierte Feld nach dem Aufgehen der Tastatur in die Mitte
+        // holen — sonst steht es unter der klebenden Knopf-Reihe.
+        onFocus={(e) => {
+          if (!sheet) return;
+          const t = e.target;
+          if (!(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement)) return;
+          window.setTimeout(() => t.scrollIntoView({ block: "center", behavior: "smooth" }), 320);
+        }}
         style={{
           width: "100%",
           maxWidth: width,

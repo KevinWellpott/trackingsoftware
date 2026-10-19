@@ -263,7 +263,7 @@ export function ViewEditorModal({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: "var(--sp-4)" }}>
+        <div className="ui-modal-actions" style={{ display: "flex", gap: "var(--sp-4)" }}>
           <button type="button" className="btn-primary" onClick={submit} disabled={isPending}>
             {initial ? "Speichern" : "Anlegen"}
           </button>

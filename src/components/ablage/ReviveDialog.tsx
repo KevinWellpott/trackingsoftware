@@ -232,9 +232,11 @@ export function ReviveDialog({
             </div>
           )}
 
-          <Button type="submit" variant="primary" loading={isPending} icon={<RotateCcw size={14} />} fullWidth>
-            Neuen Termin anlegen
-          </Button>
+          <div className="ui-modal-actions" data-wrap="">
+            <Button type="submit" variant="primary" loading={isPending} icon={<RotateCcw size={14} />} fullWidth>
+              Neuen Termin anlegen
+            </Button>
+          </div>
         </form>
       )}
     </Modal>

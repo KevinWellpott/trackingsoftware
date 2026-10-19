@@ -352,7 +352,7 @@ export function AppointmentLifecycleBar({
 
             <ModalError message={error} />
 
-            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+            <div className="ui-modal-actions" style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
               <button
                 type="button"
                 disabled={isPending || !newAt || byLead === null}
@@ -422,7 +422,7 @@ export function AppointmentLifecycleBar({
 
           <ModalError message={error} />
 
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+          <div className="ui-modal-actions" style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
               disabled={isPending || !cancelCode || !outlook}
@@ -468,7 +468,7 @@ export function AppointmentLifecycleBar({
 
           <ModalError message={error} />
 
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+          <div className="ui-modal-actions" style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
               disabled={isPending || !resolution}

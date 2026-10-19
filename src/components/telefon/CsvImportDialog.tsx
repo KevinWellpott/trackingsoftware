@@ -385,9 +385,11 @@ export function CsvImportDialog({
               </div>
             )}
 
-            <Button type="submit" variant="primary" disabled={noMembers} loading={isPending}>
-              Importieren
-            </Button>
+            <div className="ui-modal-actions" data-wrap="">
+              <Button type="submit" variant="primary" disabled={noMembers} loading={isPending}>
+                Importieren
+              </Button>
+            </div>
           </form>
         )}
       </Modal>

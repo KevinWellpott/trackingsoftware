@@ -208,6 +208,16 @@ export function SettingCallEditor({
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // Fokus-Modus am Handy wie im Dialer (globals.css, `body[data-editor]`):
+  // Die Tab-Leiste weicht der Ergebnis-Leiste — zwei feste Leisten
+  // übereinander kosteten ein Viertel des Bildschirms.
+  useEffect(() => {
+    document.body.dataset.editor = "1";
+    return () => {
+      delete document.body.dataset.editor;
+    };
+  }, []);
   const [savedTick, setSavedTick] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -549,8 +559,8 @@ export function SettingCallEditor({
       >
         {/* ── Reihe 1: das Gespräch ── */}
         <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)", flexWrap: "wrap" }}>
-          <span className="eyebrow eyebrow-muted">Anwesenheit</span>
-          <div className="show-group" role="group" aria-label="Anwesenheit">
+          <span className="eyebrow eyebrow-muted hide-on-mobile">Anwesenheit</span>
+          <div className="show-group hide-on-mobile" role="group" aria-label="Anwesenheit">
             <button
               type="button"
               className="show-seg"
@@ -601,7 +611,7 @@ export function SettingCallEditor({
           {/* Der Ausgang des Gesprächs — die einzigen lauten Knöpfe der Karte. */}
           <button
             type="button"
-            className="outcome-btn"
+            className="outcome-btn hide-on-mobile"
             data-tone="lost"
             data-active={status === "unqualifiziert"}
             onClick={() => openFollowUpModal("unqualifiziert")}
@@ -614,15 +624,69 @@ export function SettingCallEditor({
               <span className="badge badge-green">
                 <Check size={12} /> Closing angelegt
               </span>
-              <button type="button" className="btn-primary" onClick={handleGoToClosing} disabled={isPending}>
+              <button type="button" className="btn-primary hide-on-mobile" onClick={handleGoToClosing} disabled={isPending}>
                 Zum Closing <ArrowRight size={15} />
               </button>
             </>
           ) : (
-            <button type="button" onClick={openClosingModal} disabled={isPending} className="btn-primary">
+            <button type="button" onClick={openClosingModal} disabled={isPending} className="btn-primary hide-on-mobile">
               Closing anlegen <ArrowRight size={15} />
             </button>
           )}
+        </div>
+
+        {/* ── Handy: Ergebnis-Leiste am unteren Rand ──
+            Die Karte steht oben, das Gespräch läuft im Skript darunter — am
+            Handy mehrere Bildschirme weiter unten. Dieselben Knöpfe stehen dort
+            deshalb ein zweites Mal, fest über dem Daumen (globals.css,
+            `.editor-outcome-bar`); in der Karte sind sie am Handy ausgeblendet.
+            Beide Sätze rufen dieselben Handler, es gibt nur einen Zustand. */}
+        <div className="editor-outcome-bar only-mobile" role="group" aria-label="Ergebnis des Gesprächs">
+          <div className="show-group" role="group" aria-label="Anwesenheit">
+            <button
+              type="button"
+              className="show-seg"
+              data-tone="show"
+              data-active={showStatus === "show"}
+              aria-pressed={showStatus === "show"}
+              onClick={handleMarkShow}
+              disabled={isPending}
+            >
+              Erschienen
+            </button>
+            <button
+              type="button"
+              className="show-seg"
+              data-tone="noshow"
+              data-active={showStatus === "no_show"}
+              aria-pressed={showStatus === "no_show"}
+              onClick={handleMarkNoShow}
+              disabled={isPending}
+            >
+              Nicht erschienen
+            </button>
+          </div>
+          <div className="editor-outcome-actions">
+            <button
+              type="button"
+              className="outcome-btn"
+              data-tone="lost"
+              data-active={status === "unqualifiziert"}
+              onClick={() => openFollowUpModal("unqualifiziert")}
+              disabled={isPending}
+            >
+              Unqualifiziert
+            </button>
+            {closingDone ? (
+              <button type="button" className="btn-primary" onClick={handleGoToClosing} disabled={isPending}>
+                Zum Closing <ArrowRight size={15} />
+              </button>
+            ) : (
+              <button type="button" onClick={openClosingModal} disabled={isPending} className="btn-primary">
+                Closing anlegen <ArrowRight size={15} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* ── Reihe 2: Termin & Korrektur ── */}
@@ -1145,7 +1209,7 @@ export function SettingCallEditor({
               </div>
             )}
 
-            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+            <div className="ui-modal-actions" style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
               <button
                 type="button"
                 disabled={isPending}
@@ -1198,7 +1262,7 @@ export function SettingCallEditor({
             </div>
           )}
 
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+          <div className="ui-modal-actions" style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
               disabled={isPending || !closingAt}
@@ -1250,7 +1314,7 @@ export function SettingCallEditor({
             </div>
           )}
 
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+          <div className="ui-modal-actions" style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
               disabled={isPending || !rescheduleAt}
@@ -1300,7 +1364,7 @@ export function SettingCallEditor({
             </div>
           )}
 
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+          <div className="ui-modal-actions" style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
             <button
               type="button"
               disabled={isPending || !disqualifyCode}

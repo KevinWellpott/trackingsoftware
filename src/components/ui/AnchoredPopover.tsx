@@ -1,7 +1,8 @@
 "use client";
 
-import { useLayoutEffect, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useLayoutEffect, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useKeyboardInset, useSheetMode } from "./useViewport";
 
 // Gemeinsamer Unterbau fuer alle Dropdowns im Brand-Design (Kalender, Select,
 // Uhrzeit). Vorher lag diese Logik nur im DatePicker; jeder weitere Selektor
@@ -24,45 +25,7 @@ export type PopoverAlign = "start" | "end";
 // Popover deshalb unten am sichtbaren Bildschirm (über der Tastatur, per
 // `visualViewport`), volle Breite, mit eigener Scrollfläche; Scroll und
 // Resize schließen es dort nicht mehr.
-const SHEET_QUERY = "(max-width: 767px)";
-
-function subscribeSheet(onChange: () => void) {
-  const mq = window.matchMedia(SHEET_QUERY);
-  mq.addEventListener("change", onChange);
-  return () => mq.removeEventListener("change", onChange);
-}
-
-function useSheetMode(): boolean {
-  return useSyncExternalStore(
-    subscribeSheet,
-    () => window.matchMedia(SHEET_QUERY).matches,
-    () => false,
-  );
-}
-
-/** Abstand des sichtbaren Bildschirms zum unteren Layout-Rand (= Tastatur). */
-function useKeyboardInset(active: boolean): { bottom: number; height: number } {
-  const [inset, setInset] = useState({ bottom: 0, height: 0 });
-  useEffect(() => {
-    if (!active) return;
-    const vv = window.visualViewport;
-    function update() {
-      const height = vv ? vv.height : window.innerHeight;
-      const bottom = vv ? Math.max(0, window.innerHeight - (vv.offsetTop + vv.height)) : 0;
-      setInset({ bottom, height });
-    }
-    update();
-    vv?.addEventListener("resize", update);
-    vv?.addEventListener("scroll", update);
-    window.addEventListener("resize", update);
-    return () => {
-      vv?.removeEventListener("resize", update);
-      vv?.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, [active]);
-  return inset;
-}
+// Die beiden Hooks liegen in ./useViewport — das Modal braucht dieselben.
 
 /**
  * Misst das Popover NACH dem ersten Paint und klappt bei Platzmangel nach oben.

@@ -40,6 +40,7 @@ export function ConfirmDialog({
         </div>
       )}
       <div
+        className="ui-modal-actions"
         style={{
           display: "flex",
           justifyContent: "flex-end",

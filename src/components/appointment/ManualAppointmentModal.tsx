@@ -277,25 +277,28 @@ export function ManualAppointmentModal({
           </div>
         )}
 
-        <button
-          type="submit"
-          disabled={isPending}
-          style={{
-            background: "var(--grad-cta)",
-            color: "var(--text-on-accent)",
-            boxShadow: "var(--shadow-btn-primary)",
-            border: "none",
-            borderRadius: "var(--r-full)",
-            padding: "0.5625rem 1.125rem",
-            fontSize: "0.875rem",
-            fontWeight: 600,
-            cursor: isPending ? "default" : "pointer",
-            opacity: isPending ? 0.6 : 1,
-            transition: "opacity 0.15s",
-          }}
-        >
-          {isPending ? "Speichern…" : "Termin speichern"}
-        </button>
+        {/* Am Handy klebt die Reihe unten im Sheet (globals.css). */}
+        <div className="ui-modal-actions" data-wrap="">
+          <button
+            type="submit"
+            disabled={isPending}
+            style={{
+              background: "var(--grad-cta)",
+              color: "var(--text-on-accent)",
+              boxShadow: "var(--shadow-btn-primary)",
+              border: "none",
+              borderRadius: "var(--r-full)",
+              padding: "0.5625rem 1.125rem",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              cursor: isPending ? "default" : "pointer",
+              opacity: isPending ? 0.6 : 1,
+              transition: "opacity 0.15s",
+            }}
+          >
+            {isPending ? "Speichern…" : "Termin speichern"}
+          </button>
+        </div>
       </form>
     </Modal>
   );

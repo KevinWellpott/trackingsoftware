@@ -2421,3 +2421,98 @@ body[data-dialer] .header-menu-btn { display: inline-flex; }
      sticky-Leisten darin weiter kleben. */
   .main-content { overflow-x: clip; }
 }
+
+/* ─── Bottom-Sheet: klebende Knopf-Reihe, Platz für die Tastatur ───────── */
+/* `.ui-modal-actions` markiert die Knopf-Reihe am Ende eines Dialogs. Steht
+   dort nur ein einzelner Knopf, legt ein Wrapper mit `data-wrap` ihn hinein —
+   am Desktop ist der Wrapper unsichtbar (`display: contents`), das Layout
+   bleibt also, wie es war. */
+.ui-modal-actions[data-wrap] { display: contents; }
+
+@media (max-width: 767px) {
+  .ui-modal-body {
+    --modal-safe-b: env(safe-area-inset-bottom);
+    padding-bottom: calc(var(--sp-8) + var(--modal-safe-b)) !important;
+  }
+  /* Tastatur offen: Modal.tsx setzt das Sheet in den sichtbaren Bildschirm.
+     Es darf ihn dann ganz nutzen, und unten gibt es keine Home-Leiste mehr
+     auszusparen — die Tastatur liegt davor. */
+  .ui-modal-scrim[data-keyboard] .ui-modal { max-height: 100% !important; }
+  .ui-modal-scrim[data-keyboard] .ui-modal-body { --modal-safe-b: 0px; }
+
+  /* Die Reihe klebt unten im Sheet: Lange Formulare (Termin, Rückruf,
+     Absage) scrollen, die Knöpfe bleiben. Der negative Rand nach unten zieht
+     sie über das Innenpolster des Sheets, damit sie an der Kante abschließt
+     statt mit einem Spalt darüber, durch den der Inhalt scheint. */
+  .ui-modal-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin-left: calc(-1 * var(--sp-7));
+    margin-right: calc(-1 * var(--sp-7));
+    margin-bottom: calc(-1 * (var(--sp-8) + var(--modal-safe-b)));
+    padding: var(--sp-5) var(--sp-7) calc(var(--sp-5) + var(--modal-safe-b));
+    background: var(--surface-4);
+    border-top: 1px solid var(--border-default);
+  }
+  .ui-modal-actions[data-wrap] { display: flex; flex-direction: column; }
+  .ui-modal-actions:not([data-wrap]) > * { flex: 1 1 0; min-width: 0; justify-content: center; }
+}
+
+/* ─── Setting-/Closing-Editor am Handy: feste Ergebnis-Leiste ──────────── */
+body[data-editor] .header-menu-btn { display: inline-flex; }
+
+@media (max-width: 767px) {
+  body[data-editor] .mobile-bottom-nav { display: none; }
+  body[data-editor] .fab-bottom { display: none !important; }
+  body[data-editor] .main-content {
+    padding-bottom: calc(140px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .editor-outcome-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 36;
+    flex-direction: column;
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-6) calc(var(--sp-4) + env(safe-area-inset-bottom));
+    background: var(--surface-1);
+    border-top: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-overlay);
+  }
+  .editor-outcome-bar .show-group { display: flex; width: 100%; }
+  .editor-outcome-bar .show-seg { flex: 1 1 0; }
+  .editor-outcome-actions { display: flex; gap: var(--sp-3); }
+  .editor-outcome-actions > * {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: var(--touch-target);
+    justify-content: center;
+  }
+
+  /* Beim Tippen (Notizen, Skript-Antworten) liegt die Tastatur ohnehin
+     darüber — die Leiste weicht, solange ein Feld den Fokus hat. */
+  body:has(textarea:focus, input:focus, select:focus, [contenteditable="true"]:focus) .editor-outcome-bar.only-mobile {
+    display: none !important;
+  }
+}
+
+/* ─── Analyse-Tabellen am Handy: erste Spalte bleibt stehen ────────────── */
+/* Beim seitlichen Wischen verschwand die Zeilenbeschriftung — man sah
+   Zahlen, aber nicht mehr, zu welcher Person oder Quelle sie gehören. Die
+   Kopfzellen bringen ihre eigene Fläche mit (inline `surface-1`), alle
+   übrigen bekommen die der Karte, damit nichts hindurchscheint. */
+@media (max-width: 767px) {
+  .table-scroll { --sticky-col-bg: var(--surface-2); }
+  .table-scroll > table > :is(thead, tbody, tfoot) > tr > :first-child,
+  .table-scroll .sticky-col-row > :first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background-color: var(--sticky-col-bg);
+    box-shadow: 1px 0 0 var(--border-subtle);
+  }
+  .table-scroll .funnel-matrix-row:hover > :first-child { background-color: var(--surface-1); }
+}

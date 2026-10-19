@@ -231,7 +231,7 @@ export function QuickAddLinkedIn({
               </div>
             )}
 
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <div className="ui-modal-actions" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <button
                 type="submit"
                 disabled={isPending}
