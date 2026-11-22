@@ -667,6 +667,51 @@ Bestand:** Ein `superseded_at` ohne `done_at` heißt „entwertet", nicht „ver
 Deploy des Rückbaus wird gar nichts mehr entwertet, offene Touches bleiben für immer offen
 stehen. Sie sind kein Rückstand, sondern ein Standbild.
 
+### Kundenspace: Kunden & Umsatz (Migration 0047, nur Titan)
+
+Drei Seiten gibt es ausschließlich in der Titan-Organisation: **`/kunden`** (Akte, Agenda,
+Checklisten), **`/kunden/vorlagen`** und **`/umsatz`** (nur Titan-Mitglieder, die Plattform-Admin
+sind). Die Titan-ID steht an einer Stelle (`intern_workspace_id()`), die App fragt
+`intern_rechte(ws)`, die RLS `is_intern_member()` / `is_intern_finanz()`. **Keine
+`*_platform_admin`-Policy und kein `workspace_id`** an diesen Tabellen, deshalb auch keine Kaskade
+auf `workspaces` (Löschvorschau, §8). Leitfaden und Livegang: `docs/kundenspace/`.
+
+| Tabelle | Rechte | Zweck |
+|---|---|---|
+| `kunden` | alle Titan (Löschen nur Finanz) | ein Kunde je gewonnenem Deal (`closing_call_id` unique) oder manuell. **`betreuer_user_id` = EINE Person für Meetings und Geld**, nur Admins, nur von Admins änderbar. Status `gekuendigt`/`abgesprungen` setzen nur Admins |
+| `fulfillment_vorlagen`, `fulfillment_vorlage_punkte` | alle Titan | beliebig viele Vorlagen |
+| `kunden_checklisten`, `kunden_bausteine` | alle Titan | **Kopien** der Vorlagen. Eine geänderte Vorlage ändert keinen Kunden, Nachziehen hängt nur an |
+| `kunden_meetings` | alle Titan | **genau ein `status='geplant'` je Kunde** (darf ohne `termin` sein), sonst `stattgefunden`. Das nächste Meeting ist diese Zeile, keine Spalte an `kunden` |
+| `kunden_meeting_punkte` | alle Titan | die Agenda. `uebernommen_von` = Tag, seit dem ein Punkt mitwandert |
+| `kunden_aufgaben` | alle Titan | Aufgaben `wir`/`kunde`, bleiben offen bis erledigt |
+| `kunden_ablage` | alle Titan, **`typ='vertrag'` nur Finanz** | Link oder Datei im privaten Bucket `kunden-ablage`; Verträge unter `<kunde>/vertrag/` |
+| `kunden_vertraege` | Finanz | 1:1, netto, Kündigung, Abbruch, **`version`** gegen veraltete Stände |
+| `kunden_raten` | Finanz | der Plan. `erlass` storniert/abgeschrieben, `urspruenglich_faellig_am` = erstes Datum, `herkunft_rate_id` beim Teilen, `erlass_zahlung_id` bei Erstattung |
+| `kunden_zahlungen` | Finanz | **vorzeichenbehaftet**. „Kassiert“ ist schlicht die Summe |
+| `kunden_vereinbarungen` | Finanz | `zusage` (ändert nichts an der Fälligkeit) · `stundung` · `uebertrag` |
+| `kosten_positionen`, `kosten_betraege`, `kosten_monate` | Finanz | Kosten netto. Betrag gilt ab Monat X; `ist` ersetzt den Plan des Monats, wird nie addiert |
+| `intern_einstellungen` | Finanz | Steuerrücklage in Prozent |
+| `kunden_log` | je `bereich` | Verlauf, nur Insert. `art='erinnert'` im Bereich `finanz` ist der Zahlungs-Erinnert-Stempel |
+
+**Der Zustand einer Rate wird NICHT gespeichert.** Die Summe aller Zahlungen füllt die aktiven
+Raten nach Fälligkeit, älteste zuerst (`verteileZahlungen()`, `src/lib/umsatz.ts`). **Für SQL heißt
+das:** `raten where faellig_am < heute` ohne Abzug der Zahlungen zählt Bezahltes als überfällig.
+
+**Eine Geldänderung hat genau einen Weg:** `src/lib/umsatzPlanung.ts` rechnet,
+`finanz_anwenden()` schreibt in einer Transaktion mit Versionsprüfung. Nie einzeln in die Tabellen
+schreiben: Die Invariante „Bezahltes bleibt an seinem Datum, bewegt wird nur der Rest“ lebt dort.
+
+**Stundung ≠ Zusage.** Eine Stundung setzt `faellig_am` neu (bis dahin nicht überfällig, danach
+zählen die Tage ab dem neuen Datum); eine Zusage ist nur ein Vermerk, die Rate bleibt überfällig.
+
+**Was bleibt** (`src/lib/finanzen.ts`): Eingänge des Monats + Rest der noch nicht überfälligen
+Raten des Monats − Kosten; Überfälliges zählt nicht. Steuerrücklage nur auf positiven Gewinn.
+
+**Wie ein Kunde entsteht:** Trigger `closing_calls_kunde_sync` beim Übergang nach `gewonnen`,
+jeder Weg, nie doppelt. `deal_volume` und `contract_start` zieht er nach, solange niemand den
+Vertrag bewusst geändert hat. **`closing_calls.deal_volume` bleibt der verkaufte Umsatz der
+Analyse**, „kassiert“ ist eine eigene Zahl und steht nur auf `/umsatz`.
+
 ### Sonstiges
 
 | Tabelle | Zweck |
@@ -1628,7 +1673,12 @@ Konsequenz: Bei Unsicherheit über existierende Spalten das Live-Schema per MCP 
 
 **Nullable-Fallen bei Boolean-Filtern:** `contacts.answered` und `contacts.appointment_set` sind `boolean | null`, und **NULL ist der Normalfall** (frisch gepitcht = noch nichts passiert). Ein `= false` verliert damit die Mehrheit der Zeilen. Die gesamte App liest „nicht true" als Nein — so auch `isDueFollowUp` (`ListBoardV2`), der `nachfassen_tasks`-RPC und `viewFilterOps` (`src/lib/listViews.ts`). In SQL entsprechend `is not true` statt `= false`.
 
-**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes), `…0023` (`list_views`), `…0024` (Schema-Abgleich), `…0025` (`platform_admins`), `…0026` (Nutzer-Umzug), `…0027` (Organisation löschen), `…0028` (`fundament`: Zuweisung, Anruf-Log, RPC-Korrekturen), `…0029` (`analyse_umbau`: Quellen, Termin-Rufnummer, Verlustgrund-Codes, Telefon-Skripte), `…0030` (`script_label_snapshot`), `…0031` (`message_templates`), `…0032` (`reminder_cascade`), `…0033` (`lead_recycling`), `…0034` (`tenant_lifecycle`), `…0036` (`tenant_lifecycle_nachtrag`), `…0037` (`rpc_zugriffspruefung`), `…0038` (`umzug_anruflog`), `…0039` (`apply_touches_pruefung`) `…0040` (`schreibpfad_mandantengrenzen`) und `…0041` (`rueckbau_pflichtfelder_und_nachfass_stempel`) laufen nicht automatisch — sie müssen im Supabase-SQL-Editor ausgeführt werden. **Alles bis einschließlich 0041 ist eingespielt und damit eingefroren.** Der Ablauf im Einzelnen: 0031 bis 0034 am **8. September 2026** (Verifikation bestanden: Katalog 31 Einträge, je Organisation eine `pipeline_settings`-Zeile und 21 `cascade_steps`, davon 16 aktiv), 0036 und 0037 kurz darauf, **0035, 0038, 0039 und 0040 am 10. September 2026 zusammen mit dem Deploy** des Nachfassen-Umbaus auf `main`. **`…0042` (`durchgefuehrt_von`, die Spalte „Durchgeführt von" samt Guard und drittem RLS-Zweig, §2) ist am 15. September 2026 eingespielt und damit eingefroren** — sie musste VOR dem Deploy des zugehörigen Codes laufen: Die Analyse selektiert die Spalte namentlich und `/termine` nennt sie bei aktiver Datensicht im Personenfilter (Muster 0029/0032). **`…0043` (`telefon_kein_termin`) erweitert die drei CHECKs `phone_lists.list_kind`, `phone_leads.status` und `phone_call_attempts.outcome` um `kein_termin`** — rein additiv, keine Datenbewegung. **Am 23. September 2026 eingespielt und damit eingefroren**; sie musste **vor** dem Deploy des Knopfs „Kein Termin" laufen (fehlt sie auf einer Datenbank, meldet der Knopf „Migration 0043 fehlt" statt zu schreiben). **`…0044` (`telefon_herkunftsliste`) legt `phone_leads.origin_list_id` an** (§3) samt Trigger `phone_leads_origin_list` und Lese-RPC `rpc_phone_origin_counts` — **am 24. September 2026 eingespielt und damit eingefroren**. Reihenfolge zum Deploy war frei: Ohne sie fallen Listen-Seite und Übersicht auf das alte Verhalten (nur `list_id`) zurück. **Die nächste Schema-Änderung braucht die Nummer 0045** — an keiner der Dateien 0031–0043 darf noch etwas geändert werden, auch nicht an einer, die „nur" eine Funktion neu schreibt: Wer sie ein zweites Mal einspielt, spielt dann etwas anderes ein, als beim ersten Mal lief. 0041 ist am **12. September 2026** eingespielt worden und damit ebenfalls eingefroren.
+**`…0047` (`umsatz_fulfillment`, Kundenspace, §3) ist geschrieben, Stand 22. November 2026 noch
+nicht eingespielt.** Sie braucht 0045 nicht und muss vor dem Deploy des Kundenspace laufen (ohne sie
+bleibt er unsichtbar, sonst bricht nichts). Prüfung: `docs/kundenspace/0047_pruefung.sql`. Danach
+ist sie eingefroren, die nächste Schema-Änderung bekommt die Nummer 0048.
+
+**Manuell auszuführende Migrationen:** `…0019`, `…0020`, `…0021`, `…0022` (pg_trgm-Suchindizes), `…0023` (`list_views`), `…0024` (Schema-Abgleich), `…0025` (`platform_admins`), `…0026` (Nutzer-Umzug), `…0027` (Organisation löschen), `…0028` (`fundament`: Zuweisung, Anruf-Log, RPC-Korrekturen), `…0029` (`analyse_umbau`: Quellen, Termin-Rufnummer, Verlustgrund-Codes, Telefon-Skripte), `…0030` (`script_label_snapshot`), `…0031` (`message_templates`), `…0032` (`reminder_cascade`), `…0033` (`lead_recycling`), `…0034` (`tenant_lifecycle`), `…0036` (`tenant_lifecycle_nachtrag`), `…0037` (`rpc_zugriffspruefung`), `…0038` (`umzug_anruflog`), `…0039` (`apply_touches_pruefung`) `…0040` (`schreibpfad_mandantengrenzen`) und `…0041` (`rueckbau_pflichtfelder_und_nachfass_stempel`) laufen nicht automatisch — sie müssen im Supabase-SQL-Editor ausgeführt werden. **Alles bis einschließlich 0041 ist eingespielt und damit eingefroren.** Der Ablauf im Einzelnen: 0031 bis 0034 am **8. September 2026** (Verifikation bestanden: Katalog 31 Einträge, je Organisation eine `pipeline_settings`-Zeile und 21 `cascade_steps`, davon 16 aktiv), 0036 und 0037 kurz darauf, **0035, 0038, 0039 und 0040 am 10. September 2026 zusammen mit dem Deploy** des Nachfassen-Umbaus auf `main`. **`…0042` (`durchgefuehrt_von`, die Spalte „Durchgeführt von" samt Guard und drittem RLS-Zweig, §2) ist am 15. September 2026 eingespielt und damit eingefroren** — sie musste VOR dem Deploy des zugehörigen Codes laufen: Die Analyse selektiert die Spalte namentlich und `/termine` nennt sie bei aktiver Datensicht im Personenfilter (Muster 0029/0032). **`…0043` (`telefon_kein_termin`) erweitert die drei CHECKs `phone_lists.list_kind`, `phone_leads.status` und `phone_call_attempts.outcome` um `kein_termin`** — rein additiv, keine Datenbewegung. **Am 23. September 2026 eingespielt und damit eingefroren**; sie musste **vor** dem Deploy des Knopfs „Kein Termin" laufen (fehlt sie auf einer Datenbank, meldet der Knopf „Migration 0043 fehlt" statt zu schreiben). **`…0044` (`telefon_herkunftsliste`) legt `phone_leads.origin_list_id` an** (§3) samt Trigger `phone_leads_origin_list` und Lese-RPC `rpc_phone_origin_counts` — **am 24. September 2026 eingespielt und damit eingefroren**. Reihenfolge zum Deploy war frei: Ohne sie fallen Listen-Seite und Übersicht auf das alte Verhalten (nur `list_id`) zurück. **`…0047` (`umsatz_fulfillment`, interne Kunden & Umsatz, §3) ist geschrieben und noch NICHT eingespielt** — vor dem Deploy des zugehörigen Codes einspielen; ohne sie blendet sich der Block „Intern“ aus, kaputt geht nichts. (0045 liegt auf `feat/termin-mails`, 0046 ist eingespielt.) **Die nächste Schema-Änderung braucht danach die Nummer 0048** — an keiner der Dateien 0031–0043 darf noch etwas geändert werden, auch nicht an einer, die „nur" eine Funktion neu schreibt: Wer sie ein zweites Mal einspielt, spielt dann etwas anderes ein, als beim ersten Mal lief. 0041 ist am **12. September 2026** eingespielt worden und damit ebenfalls eingefroren.
 
 Dass 0036 und 0037 vor 0035 eingespielt wurden, obwohl 0035 dazwischen liegt, war **kein Versehen**: Die drei sind voneinander unabhängig (keine berührt eine Tabelle), und 0035 war die einzige, die auf den Deploy warten musste — sie hätte die damals produktive App zerbrochen (s. u.). Die Nummer ist eine Reihenfolge im Ordner, keine Zwangsfolge beim Ausführen. Für 0041 galt dasselbe mit umgekehrtem Vorzeichen: Sie musste **vor** dem Code laufen, der zu ihr gehört — so ist es auch geschehen.
 

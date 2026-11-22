@@ -6,6 +6,8 @@ import { SidebarContent } from "@/components/Sidebar";
 import { ForeignOrgBanner } from "@/components/ForeignOrgBanner";
 import { buildViewTree, type ViewRow } from "@/lib/listViews";
 import { getNavCounts } from "@/lib/navCountsData";
+import { getInternNav } from "@/lib/internData";
+import { AktionsPuls } from "@/components/kunden/AktionsPuls";
 import { redirect } from "next/navigation";
 
 export default async function DashboardLayout({
@@ -45,7 +47,7 @@ export default async function DashboardLayout({
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
 
-  const [{ data: lists }, { data: phoneListsData }, { data: viewRows }, dataViewUsers, navCounts] =
+  const [{ data: lists }, { data: phoneListsData }, { data: viewRows }, dataViewUsers, navCounts, intern] =
     await Promise.all([
       listsQuery,
       phoneListsQuery,
@@ -63,6 +65,9 @@ export default async function DashboardLayout({
       // liefen die vier Abfragen zweimal — und zeigten auf zwei Flaechen
       // nebeneinander zwei verschiedene Staende.
       getNavCounts(),
+      // Interne Titan-Bereiche (Migration 0047). Eine RPC im selben Bündel;
+      // fehlt sie, liefert sie „keine Rechte“ und der Block bleibt weg.
+      getInternNav(),
     ]);
 
   const sidebarLists = (lists ?? []).map((l) => ({
@@ -126,8 +131,10 @@ export default async function DashboardLayout({
           }}
           orgSwitch={orgSwitch}
           navCounts={navCounts}
+          intern={intern}
         />
       </aside>
+      {intern.kunden && <AktionsPuls />}
 
       {/* Main content */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -152,6 +159,7 @@ export default async function DashboardLayout({
             }}
             orgSwitch={orgSwitch}
             navCounts={navCounts}
+            intern={intern}
           />
         </div>
 

@@ -7,6 +7,9 @@ import { CANCELLED_MOVE_HINT } from "@/lib/terminMeta";
 import { CLOSING_LOST_REASON_CODES, type ClosingLostReasonCode } from "@/lib/types";
 import { scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
+import { getInternRechte } from "@/lib/internData";
+import type { GeldSicht } from "@/lib/geldSicht";
+import type { KundenVertrag } from "@/lib/kunden";
 
 // Closing-Call bearbeiten. Terminal: gewonnen (→ CRM), verloren, nachfassen.
 //
@@ -203,7 +206,7 @@ export async function setClosingOutcome(input: {
    * reine Datum leitet sich daraus ab, siehe `withFollowUpDateSynced`).
    */
   followUpDueAt?: string | null;
-}): Promise<{ error?: string }> {
+}): Promise<{ error?: string; kunde?: GewonnenerKunde }> {
   // Berechtigung IMMER als erste Anweisung — vor jeder Validierung, sonst
   // verrieten die Fehlermeldungen einem Fremden etwas über die Zeile.
   if (!(await canAccessClosingCall(input.closingId))) return { error: "Keine Berechtigung." };
@@ -336,7 +339,54 @@ export async function setClosingOutcome(input: {
   revalidatePath("/crm", "page");
   revalidatePath("/nachfassen", "page");
   revalidatePath("/", "layout");
+
+  // Gewonnen in der Titan-Organisation: Der Trigger aus Migration 0047 hat den
+  // Kunden schon angelegt. Wer Finanzrechte hat, bekommt ihn zurück, damit der
+  // Editor sofort nach dem Ratenplan fragen kann — sonst stünde der Kunde mit
+  // „Zahlungsplan fehlt" da, bis jemand zufällig in /umsatz schaut.
+  if (input.outcome === "gewonnen") {
+    const kunde = await gewonnenerKunde(input.closingId);
+    if (kunde) {
+      revalidatePath("/kunden", "page");
+      revalidatePath("/umsatz", "page");
+      return { kunde };
+    }
+  }
   return {};
+}
+
+/** Der frisch angelegte Kunde samt gesehenem Stand, für den Dialog „Ratenplan". */
+export type GewonnenerKunde = GeldSicht;
+
+/**
+ * Fail-soft: Ohne Migration 0047, ohne Finanzrechte oder wenn schon ein Plan
+ * bzw. eine Zahlung da ist, gibt es nichts zu fragen.
+ */
+async function gewonnenerKunde(closingId: string): Promise<GewonnenerKunde | null> {
+  try {
+    const rechte = await getInternRechte();
+    if (!rechte.umsatz) return null;
+    const supabase = await createClient();
+    const { data: k } = await supabase.from("kunden").select("id, name").eq("closing_call_id", closingId).maybeSingle();
+    if (!k) return null;
+    const kunde = k as { id: string; name: string };
+    const [v, raten, zahlungen] = await Promise.all([
+      supabase.from("kunden_vertraege").select("*").eq("kunde_id", kunde.id).maybeSingle(),
+      supabase.from("kunden_raten").select("id", { count: "exact", head: true }).eq("kunde_id", kunde.id),
+      supabase.from("kunden_zahlungen").select("id", { count: "exact", head: true }).eq("kunde_id", kunde.id),
+    ]);
+    if (v.error || !v.data || raten.count !== 0 || zahlungen.count !== 0) return null;
+    const vertrag = v.data as KundenVertrag;
+    return {
+      id: kunde.id,
+      name: kunde.name,
+      vertrag: { ...vertrag, vertragswert: Number(vertrag.vertragswert) },
+      raten: [],
+      zahlungen: [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
