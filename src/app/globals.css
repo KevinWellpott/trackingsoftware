@@ -3235,3 +3235,10 @@ a.ks-kalender-zelle:hover { background: var(--surface-3); }
 @media (max-width: 767px) {
   .ui-modal-actions.ks-dialog-fuss { bottom: calc(-1 * (var(--sp-8) + var(--modal-safe-b, 0px))); }
 }
+/* Kachel-Unterzeilen tragen im Kundenspace Betraege: umbrechen statt kuerzen. */
+.ks-seite .stat-tile-sub,
+.ks-seite .stat-tile-label { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+@media (max-width: 479px) {
+  .ks-monatswahl { gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
+  .ks-monatswahl > span { min-width: 0; flex: 1 1 auto; }
+}
