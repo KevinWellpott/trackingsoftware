@@ -77,7 +77,8 @@ export function NaechstesMeeting({
         eyebrow="Nächstes Meeting"
         title={formatTermin(meeting.termin) ?? "Noch kein Termin"}
         action={
-          <Button variant="primary" onClick={() => setAbschluss(true)}>
+          // Ohne Termin ist „Termin setzen“ der Handgriff, nicht das Abschließen.
+          <Button variant={meeting.termin ? "primary" : "secondary"} onClick={() => setAbschluss(true)}>
             Meeting abschließen
           </Button>
         }

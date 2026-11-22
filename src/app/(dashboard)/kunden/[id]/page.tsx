@@ -7,10 +7,10 @@ import { KUNDEN_STATUS_LABELS, KUNDEN_STATUS_TONE, aufmerksamkeit } from "@/lib/
 import { datumDe, formatEur } from "@/lib/umsatz";
 import { geldSicht } from "@/lib/geldSicht";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { BackLink } from "@/components/ui/BackLink";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Reiter } from "@/components/kunden/Nav";
+import { ZurueckZurListe } from "@/components/kunden/Zurueck";
 import { KontaktLinks } from "@/components/kunden/Kontakt";
 import { KundeLoeschen } from "@/components/kunden/KundeLoeschen";
 import { NaechstesMeeting } from "@/components/kunden/NaechstesMeeting";
@@ -87,7 +87,7 @@ export default async function KundenAktePage({
 
   return (
     <div className="ks-seite">
-      <BackLink href="/kunden" label="Kunden" />
+      <ZurueckZurListe />
       <PageHeader
         eyebrow="Kundenakte"
         title={kunde.name}
@@ -189,6 +189,16 @@ export default async function KundenAktePage({
         </div>
       )}
 
+      {tab === "meetings" && (
+        <Link href={`/kunden/${id}`} className="ks-hinweis-link">
+          <span>
+            Nächstes Meeting: {geplant.termin ? formatTermin(geplant.termin) : "noch kein Termin"}
+            {" · "}
+            {agenda.length ? `${agenda.length} ${agenda.length === 1 ? "Punkt" : "Punkte"} auf der Agenda` : "keine Agenda"}
+          </span>
+          <span className="ks-link">Im Überblick bearbeiten</span>
+        </Link>
+      )}
       {tab === "meetings" && (
         <MeetingsPanel
           kundeId={id}
