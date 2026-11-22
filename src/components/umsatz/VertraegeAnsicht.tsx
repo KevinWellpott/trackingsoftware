@@ -10,6 +10,9 @@ import type { KundenGeld } from "@/lib/internData";
 // Alle Verträge. Hier findet die Schnellerfassung des Bestands statt, ein
 // Knopf je Kunde ohne Plan.
 
+/** Vertragsgeld ohne Rate. Bei Kündigung und Abbruch ist es kein offener Betrag. */
+const ohnePlan = (g: KundenGeld) => (g.k.status === "gekuendigt" || g.k.status === "abgebrochen" ? 0 : g.k.nichtVerplant);
+
 const VORNE: FinanzStatus[] = ["vertrag_fehlt", "plan_fehlt", "plan_unvollstaendig", "ueberfaellig"];
 
 export function VertraegeAnsicht({
@@ -39,7 +42,7 @@ export function VertraegeAnsicht({
         <StatTile label="Noch offen" value={formatEur(summe((k) => k.offen))} sub="laut Plan" />
         <StatTile
           label="Noch ohne Plan"
-          value={formatEur(summe((k) => (k.status === "gekuendigt" || k.status === "abgebrochen" ? 0 : k.nichtVerplant)))}
+          value={formatEur(geld.reduce((s, g) => s + ohnePlan(g), 0))}
           tone={geld.some((g) => g.k.status === "plan_fehlt") ? "warning" : "neutral"}
         />
       </div>
@@ -71,7 +74,13 @@ export function VertraegeAnsicht({
                   </div>
                   <div>
                     <dt>Offen</dt>
-                    <dd className={g.k.ueberfaellig ? "ks-rot" : undefined}>{formatEur(g.k.offen)}</dd>
+                    {/* Offen ist auch, was noch keine Rate hat; „0 €“ wäre bei fehlendem Plan falsch. */}
+                    <dd className={g.k.ueberfaellig ? "ks-rot" : ohnePlan(g) && !g.k.offen ? "ks-gold" : undefined}>
+                      {formatEur(g.k.offen + ohnePlan(g))}
+                    </dd>
+                    {ohnePlan(g) > 0 && (
+                      <dd className="ks-unter ks-gold">{g.k.offen ? `${formatEur(ohnePlan(g))} ohne Plan` : "ohne Plan"}</dd>
+                    )}
                   </div>
                 </dl>
                 <span className="ks-rate-aktion">

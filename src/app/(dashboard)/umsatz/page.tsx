@@ -23,6 +23,7 @@ import { MonatAnsicht } from "@/components/umsatz/MonatAnsicht";
 import { UeberfaelligAnsicht } from "@/components/umsatz/UeberfaelligAnsicht";
 import { VertraegeAnsicht } from "@/components/umsatz/VertraegeAnsicht";
 import { KostenPanel } from "@/components/umsatz/KostenPanel";
+import { HerkunftMerken } from "@/components/kunden/Zurueck";
 
 // /umsatz: der eigene Geld-Tab des Kundenspace, nur für Admins.
 //
@@ -108,6 +109,7 @@ export default async function UmsatzPage({
 
   return (
     <div className="ks-seite">
+      <HerkunftMerken label="Umsatz" />
       <PageHeader
         eyebrow="Kundenspace"
         title="Umsatz"

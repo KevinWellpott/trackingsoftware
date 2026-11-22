@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Chips } from "@/components/kunden/Nav";
 import { KundeAnlegenButton } from "@/components/kunden/KundeAnlegenButton";
+import { HerkunftMerken } from "@/components/kunden/Zurueck";
 
 // /kunden: eine Zeile je Kunde mit dem, was man vor dem Meeting wissen muss.
 // Nächster Termin, erster Agenda-Punkt, Fortschritt. Die Geldspalte sehen nur
@@ -90,6 +91,7 @@ export default async function KundenPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="ks-seite">
+      <HerkunftMerken label="Kunden" />
       <PageHeader
         eyebrow="Kundenspace"
         title="Kunden"
@@ -167,7 +169,12 @@ export default async function KundenPage({ searchParams }: { searchParams: Promi
                         )}
                       </span>
                       <span className="ks-zelle" data-feld="termin">
-                        <span>{kunde.termin ? formatTermin(kunde.termin) : "Kein Termin"}</span>
+                        {/* Ohne Termin sagt der Hinweis darunter es schon, außer bei pausierten und beendeten Kunden. */}
+                        {kunde.termin ? (
+                          <span>{formatTermin(kunde.termin)}</span>
+                        ) : (
+                          hinweise.length === 0 && <span className="ks-leise">Kein Termin</span>
+                        )}
                         {hinweise.map((h) => (
                           <span key={h} className="ks-unter ks-gold">
                             {h}
@@ -177,7 +184,7 @@ export default async function KundenPage({ searchParams }: { searchParams: Promi
                           <span className="ks-unter">zuletzt {datumDe(berlinDateISO(kunde.letztesMeeting))}</span>
                         )}
                       </span>
-                      <span className="ks-zelle" data-feld="agenda">
+                      <span className="ks-zelle" data-feld="agenda" data-leer={kunde.agenda.length ? undefined : "true"}>
                         {kunde.agenda.length ? (
                           <>
                             <span className="ks-zwei-zeilen">{kunde.agenda[0]}</span>
@@ -187,7 +194,7 @@ export default async function KundenPage({ searchParams }: { searchParams: Promi
                           <span className="ks-leise">Keine Agenda</span>
                         )}
                       </span>
-                      <span className="ks-zelle" data-feld="fortschritt">
+                      <span className="ks-zelle" data-feld="fortschritt" data-leer={f.gesamt ? undefined : "true"}>
                         {f.gesamt ? (
                           <>
                             <span>

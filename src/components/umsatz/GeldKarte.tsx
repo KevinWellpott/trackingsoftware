@@ -17,6 +17,8 @@ export function GeldKarte({ geld, heute }: { geld: KundenGeld; heute: string }) 
   const sicht = geldSicht(geld);
   const anteil = k.vertragswert > 0 ? Math.min(100, Math.max(0, (k.kassiert / k.vertragswert) * 100)) : 0;
   const link = `/kunden/${geld.id}?tab=zahlungen`;
+  // Ohne Plan ist der Vertrag trotzdem offen; „0 € offen“ wäre hier falsch.
+  const ohnePlan = k.status === "gekuendigt" || k.status === "abgebrochen" ? 0 : k.nichtVerplant;
 
   return (
     <Card style={k.ueberfaellig > 0 ? { borderColor: "var(--danger)" } : undefined}>
@@ -38,8 +40,11 @@ export function GeldKarte({ geld, heute }: { geld: KundenGeld; heute: string }) 
           </p>
         ) : (
           <p className="ks-betrag-gross">
-            {formatEurGenau(k.offen)}
-            <span>offen · {FINANZ_STATUS_LABELS[k.status]}</span>
+            {formatEurGenau(k.offen + ohnePlan)}
+            <span>
+              offen · {FINANZ_STATUS_LABELS[k.status]}
+              {ohnePlan > 0 && k.offen > 0 ? `, davon ${formatEurGenau(ohnePlan)} ohne Plan` : ""}
+            </span>
           </p>
         )}
 
