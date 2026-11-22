@@ -10,6 +10,10 @@ import { type NavCount, type NavCounts } from "@/lib/navCounts";
 import {
   Archive,
   BarChart2,
+  Briefcase,
+  Euro,
+  Handshake,
+  ListChecks,
   Building2,
   CalendarDays,
   CalendarPlus,
@@ -111,6 +115,7 @@ const LINKEDIN_HREFS = ["/listen", "/lists", "/ansicht"] as const;
 const TELEFON_HREFS = ["/telefon"] as const;
 const AUSWERTUNG_HREFS = ["/team", "/analyse"] as const;
 const VERWALTUNG_HREFS = ["/export", "/settings", "/admin"] as const;
+const INTERN_HREFS = ["/kunden", "/umsatz"] as const;
 
 /**
  * Mehrere Zaehler zu einem zusammenfassen — fuer das Abzeichen am zugeklappten
@@ -276,8 +281,12 @@ type Props = {
   dataScope?: DataScope;
   dataView?: DataViewState;
   orgSwitch?: OrgSwitchState;
+  /** Interne Titan-Bereiche (Migration 0047) — undefined/false außerhalb von Titan. */
+  intern?: InternNav;
   onClose?: () => void;
 };
+
+export type InternNav = { kunden: boolean; umsatz: boolean; meineUeberfaelligen?: NavCount | null };
 
 // LinkedIn-Glyphe (lucide fuehrt keine Brand-Icons mehr). Sie erbt die
 // Textfarbe ihrer Zeile — die Sidebar ist monochrom, LinkedIn-Blau haette
@@ -1017,6 +1026,7 @@ export function SidebarContent({
   dataView,
   orgSwitch,
   navCounts,
+  intern,
   onClose,
 }: Props) {
   const pathname = usePathname();
@@ -1534,6 +1544,49 @@ export function SidebarContent({
           )}
         </CollapsibleSection>
 
+        {/* ── Kundenspace ── */}
+        {/* Nur in der Titan-Organisation (intern_rechte(), Migration 0047):
+            Kundenakten fürs Fulfillment, Vorlagen und, nur für Admins, der
+            Umsatz. In einer Kunden-Organisation existiert der Block nicht,
+            auch nicht für einen Plattform-Admin, der dort gerade arbeitet:
+            Titans eigene Zahlen gehören nicht in fremde Räume. */}
+        {intern?.kunden && (
+          <CollapsibleSection
+            id="intern"
+            icon={<Briefcase size={13} />}
+            label="Kundenspace"
+            hasActive={containsActive(pathname, INTERN_HREFS)}
+          >
+            <NavLink
+              href="/kunden"
+              // Praefix fuer die Akten, aber nicht fuer die Vorlagen: die haben ihre eigene Zeile.
+              exact={pathname.startsWith("/kunden/vorlagen")}
+              icon={Handshake}
+              label="Kunden"
+              onClick={onClose}
+              title="Nächstes Meeting mit Agenda, Checklisten und Übergabe je Kunde"
+            />
+            {intern.umsatz && (
+              <NavLink
+                href="/umsatz"
+                icon={Euro}
+                label="Umsatz"
+                onClick={onClose}
+                title="Was kommt rein, was geht raus, was bleibt, wer ist überfällig"
+                count={intern.meineUeberfaelligen}
+                countLabel={["Kunde von dir zahlt zu spät", "Kunden von dir zahlen zu spät"]}
+              />
+            )}
+            <NavLink
+              href="/kunden/vorlagen"
+              icon={ListChecks}
+              label="Vorlagen"
+              onClick={onClose}
+              title="Fulfillment-Vorlagen, aus denen die Checklisten der Kunden entstehen"
+            />
+          </CollapsibleSection>
+        )}
+
         {/* ── Auswertung ── */}
         {/* Der Rueckblick, getrennt von der Tagesarbeit darueber: Diese drei
             Seiten oeffnet man absichtlich, nicht im Vorbeigehen. Zusammen sind
@@ -1659,6 +1712,7 @@ export function MobileDrawer({
   dataView,
   orgSwitch,
   navCounts,
+  intern,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1672,6 +1726,7 @@ export function MobileDrawer({
   dataView?: DataViewState;
   orgSwitch?: OrgSwitchState;
   navCounts?: NavCounts;
+  intern?: InternNav;
 }) {
   // Offener Drawer: Seite dahinter festhalten (sonst scrollt beim Wischen im
   // Menue die Liste darunter mit) und Escape schliesst — wie jeder Dialog.
@@ -1722,6 +1777,7 @@ export function MobileDrawer({
           dataView={dataView}
           orgSwitch={orgSwitch}
           navCounts={navCounts}
+          intern={intern}
           onClose={onClose}
         />
       </div>

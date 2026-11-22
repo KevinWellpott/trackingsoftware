@@ -61,7 +61,14 @@ describe("Gliederung", () => {
       assert.match(SIDEBAR, new RegExp(`id="${id}"`), `Block "${id}" fehlt`);
       assert.ok(block(id).includes(`label="${label}"`), `Block "${id}" heißt nicht mehr „${label}"`);
     }
-    assert.equal(zaehle(SIDEBAR, "<CollapsibleSection"), bloecke.length);
+    // GEÄNDERTE ERWARTUNG (8. November 2026, Migration 0047): Dazu kommt
+    // genau EIN bedingter Block „Intern" (Kunden · Umsatz). Er erscheint nur
+    // in der Titan-Organisation (`intern?.kunden`), für jeden Kunden bleibt
+    // es bei den fünf. Bedingt heißt hier: Er steht hinter genau dieser
+    // Abfrage und nirgends sonst — ein sechster Block für alle wäre wieder
+    // die Liste, gegen die diese Gliederung steht.
+    assert.equal(zaehle(SIDEBAR, "<CollapsibleSection"), bloecke.length + 1);
+    assert.match(SIDEBAR, /\{intern\?\.kunden && \(\s*<CollapsibleSection\s+id="intern"/);
   });
 
   test("die Tagesarbeit steht zusammen in einem Block", () => {
@@ -221,7 +228,7 @@ describe("Navigations-Zähler", () => {
   test("Seitenleiste und mobiler Menü-Punkt bilden dieselbe Summe", () => {
     // Zwei eigene Summen wären zwei Gelegenheiten, dieselbe Zahl verschieden
     // zu bilden — auf genau den beiden Flächen, die nebeneinander stehen.
-    assert.match(MOBILE, /import \{ MobileDrawer, sumNavCounts \} from "\.\/Sidebar";/);
+    assert.match(MOBILE, /import \{ MobileDrawer, sumNavCounts(, type InternNav)? \} from "\.\/Sidebar";/);
     assert.match(MOBILE, /sumNavCounts\(\[navCounts\?\.nachfassen\]\)/);
     assert.doesNotMatch(MOBILE, /reduce\(\(n, c\) => n \+ \(c\?\./);
   });

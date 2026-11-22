@@ -1,6 +1,7 @@
 "use client";
 
-import { deleteClosingCall, setClosingOutcome, updateClosingCall, type ClosingCallPatch } from "@/app/actions/closingCalls";
+import { deleteClosingCall, setClosingOutcome, updateClosingCall, type ClosingCallPatch, type GewonnenerKunde } from "@/app/actions/closingCalls";
+import { RatenplanForm } from "@/components/umsatz/RatenplanForm";
 import { AssigneeSelect } from "@/components/assignees/AssigneeSelect";
 import { DangerZone } from "@/components/ui/DangerZone";
 import { ScriptRunner } from "@/components/scripts/ScriptRunner";
@@ -17,7 +18,7 @@ import {
   RescheduleHint,
 } from "@/components/termine/AppointmentLifecycleBar";
 import type { AppointmentLifecycle } from "@/components/termine/lifecycleMeta";
-import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
+import { berlinDateISO, berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { moveLockReason } from "@/lib/terminMeta";
 import { CLOSING_BLOCKS, LEGACY_CLOSING_BLOCKS } from "@/lib/scripts";
 import {
@@ -262,6 +263,7 @@ export function ClosingCallEditor({
   const [error, setError] = useState<string | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { confirm, dialog } = useConfirm();
+  const [planKunde, setPlanKunde] = useState<GewonnenerKunde | null>(null);
 
   // Autosave-Felder (lokaler State)
   const [status, setStatus] = useState<ClosingCall["status"]>(call.status);
@@ -347,6 +349,9 @@ export function ClosingCallEditor({
       setStatus(outcome);
       close();
       flashSaved();
+      // Titan-intern (Migration 0047): Der Kunde ist angelegt — direkt nach dem
+      // Ratenplan fragen, solange die Konditionen frisch im Kopf sind.
+      if (res?.kunde && res.kunde.vertrag.vertragswert > 0) setPlanKunde(res.kunde);
       router.refresh();
     });
   }
@@ -1055,6 +1060,25 @@ export function ClosingCallEditor({
       )}
 
       {dialog}
+      {planKunde && (
+        <Modal
+          open
+          onClose={() => setPlanKunde(null)}
+          title="Kunde angelegt. Ratenplan erfassen?"
+          subtitle={`${planKunde.name} steht jetzt unter Kunden. Ohne Plan weiß die Umsatzübersicht nicht, was wann fällig ist.`}
+          width={580}
+        >
+          <RatenplanForm
+            geld={planKunde}
+            heute={berlinDateISO(new Date().toISOString())}
+            onDone={() => {
+              setPlanKunde(null);
+              router.refresh();
+            }}
+            onCancel={() => setPlanKunde(null)}
+          />
+        </Modal>
+      )}
 
       {/* ── Danger-Zone: Eintrag löschen ── */}
       <DangerZone

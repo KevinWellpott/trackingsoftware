@@ -8,7 +8,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { MobileBottomNav } from "./MobileBottomNav";
-import { MobileDrawer, sumNavCounts } from "./Sidebar";
+import { MobileDrawer, sumNavCounts, type InternNav } from "./Sidebar";
 
 // Topbar (COMPONENTS.md §10.2): 56px, Glass-Nav-Rezept, sticky. Sie blendet
 // bei Scroll nicht aus — das hier ist eine App, kein Marketing-Header.
@@ -48,9 +48,10 @@ type Props = {
     orgs: { id: string; name: string }[];
   };
   navCounts?: NavCounts;
+  intern?: InternNav;
 };
 
-export function MobileHeader({ workspaceName, username, workspaceId, lists, viewTree, phoneLists, dataScope, dataView, orgSwitch, navCounts }: Props) {
+export function MobileHeader({ workspaceName, username, workspaceId, lists, viewTree, phoneLists, dataScope, dataView, orgSwitch, navCounts, intern }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Seitenwechsel schliesst den Drawer — auch über Wege, die selbst kein
   // onClose rufen (Suche, Dialoge, Zurück-Taste). Muster „State beim Rendern
@@ -130,6 +131,7 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, view
         dataView={dataView}
         orgSwitch={orgSwitch}
         navCounts={navCounts}
+        intern={intern}
       />
     </>
   );

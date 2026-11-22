@@ -2748,3 +2748,490 @@ body[data-editor] .header-menu-btn { display: inline-flex; }
   .event-sheet button { min-height: var(--touch-target); }
   .event-sheet button[aria-label="Schließen"] { min-width: var(--touch-target); justify-content: center; }
 }
+
+/* ─── 9 Kundenspace (/kunden, /umsatz) ─────────────────────────
+   Regeln: docs/kundenspace/LEITFADEN.md (U1–U5). Nur vorhandene Tokens.
+   Rot = überfällig, Gold = handeln, Grün = eingegangen, immer mit Text. */
+
+.ks-seite { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.ks-seite[data-schmal="true"] { max-width: 880px; }
+.ks-seite .card { min-width: 0; }
+.ks-stapel { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.ks-stapel[data-gap="eng"] { gap: var(--sp-4); }
+.ks-reihe { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; min-width: 0; }
+.ks-fussreihe { margin-top: var(--sp-5); padding-top: var(--sp-5); border-top: 1px solid var(--border-subtle); }
+.ks-kopfzeile { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-4); }
+.ks-dehnbar.ui-input { flex: 1 1 220px; width: auto; min-width: 0; }
+
+/* Akte: links Arbeit, rechts Geld und Stammdaten (U2). */
+.ks-akte {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+  gap: var(--sp-8);
+  align-items: start;
+}
+.ks-zwei { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-8); align-items: start; }
+@media (max-width: 1023px) {
+  .ks-akte,
+  .ks-zwei { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Text */
+.ks-leise { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); line-height: var(--lh-base); }
+.ks-leer { margin: 0; padding: var(--sp-8); color: var(--text-muted); font-size: var(--fs-sm); }
+.ks-absatz { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-base); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ks-aufzaehlung { margin: 0; padding-left: var(--sp-7); list-style: disc; font-size: var(--fs-sm); line-height: var(--lh-base); }
+.ks-zwischen {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+}
+.ks-name { color: var(--text-primary); font-weight: var(--fw-medium); text-decoration: none; overflow-wrap: anywhere; }
+.ks-unter { display: block; color: var(--text-muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+.ks-herkunft {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  text-decoration: none;
+}
+.ks-rot { color: var(--danger-fg); }
+.ks-gold { color: var(--warning-fg); }
+.ks-gruen { color: var(--success-fg); text-decoration: none; }
+.ks-fehler { color: var(--danger-fg); font-size: var(--fs-sm); }
+.ks-warnung {
+  margin: 0;
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid rgb(209 162 79 / 0.28);
+  border-radius: var(--r-md);
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-base);
+}
+.ks-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--orange-300);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+.ks-link:hover { text-decoration: underline; }
+.ks-marken { display: inline-flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; min-width: 0; }
+
+/* Navigation */
+.ks-reiter { flex-shrink: 0; white-space: nowrap; text-decoration: none; }
+.ks-zahl { margin-left: var(--sp-3); color: var(--text-muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.ks-chips { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+.ks-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 var(--sp-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ks-chip:hover { background: var(--surface-3); }
+.ks-chip[data-active="true"] { border-color: var(--border-strong); background: var(--surface-3); color: var(--text-primary); }
+.ks-chip[data-warnung="true"] .ks-zahl { color: var(--warning-fg); }
+.ks-monatswahl { display: flex; align-items: center; gap: var(--sp-3); }
+.ks-monatswahl > span { min-width: 124px; text-align: center; font-weight: var(--fw-medium); }
+
+/* Formulare */
+.ks-felder { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-5); align-items: start; }
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .ks-felder[data-schmal="true"] { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 479px) {
+  .ks-felder { grid-template-columns: minmax(0, 1fr); }
+}
+.ks-eingabe { display: flex; gap: var(--sp-4); align-items: flex-start; min-width: 0; }
+.ks-eingabe > .ui-input { flex: 1 1 auto; min-width: 0; min-height: var(--h-control); }
+.ks-eingabe > .ui-btn,
+.ks-eingabe > .ui-segmented { flex-shrink: 0; }
+.ks-dialog-fuss { display: flex; justify-content: flex-end; gap: var(--sp-4); flex-wrap: wrap; }
+.ks-termin { flex: 1 1 220px; max-width: 340px; min-width: 0; }
+.ks-aus-checkliste { max-width: 340px; }
+.ks-zustaendig { min-width: 210px; }
+.ks-prozent { display: inline-flex; align-items: center; gap: var(--sp-3); color: var(--text-secondary); font-size: var(--fs-sm); }
+.ks-prozent .ui-input { width: 72px; }
+.ks-textknopf,
+.ks-umschalter {
+  align-self: flex-start;
+  padding: var(--sp-2) 0;
+  border: 0;
+  background: none;
+  color: var(--orange-300);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.ks-umschalter { align-self: center; flex-shrink: 0; padding: var(--sp-2) var(--sp-4); color: var(--text-secondary); text-decoration: underline; }
+.ks-schritt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  min-width: 0;
+  margin: 0;
+  padding: var(--sp-5) 0 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.ks-schritt legend { padding: 0 var(--sp-4) 0 0; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.ks-auswahl {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: var(--sp-3) var(--sp-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+}
+.ks-auswahl[data-hoch="true"] { max-height: 280px; }
+.ks-wahl {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.ks-wahl input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--orange-500); }
+.ks-planzeile { display: flex; justify-content: space-between; gap: var(--sp-5); flex: 1; font-variant-numeric: tabular-nums; }
+
+/* Listen und Haken */
+.ks-liste-schlicht { margin: 0; padding: 0; list-style: none; min-width: 0; }
+.ks-punkt { display: flex; align-items: flex-start; gap: var(--sp-3); min-width: 0; }
+.ks-punkt + .ks-punkt { border-top: 1px solid var(--border-subtle); }
+.ks-punkt-text { flex: 1; min-width: 0; padding: var(--sp-4) 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.ks-haken-huelle { flex: 1; min-width: 0; }
+.ks-haken {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  width: 100%;
+  min-height: 36px;
+  padding: var(--sp-4) 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.ks-haken > svg { flex-shrink: 0; color: var(--text-muted); }
+.ks-haken:hover > svg { color: var(--text-primary); }
+.ks-haken-text { min-width: 0; overflow-wrap: anywhere; }
+.ks-haken[aria-checked="true"] > svg { color: var(--success-fg); }
+.ks-haken[aria-checked="true"] .ks-haken-text { color: var(--text-muted); text-decoration: line-through; }
+/* Die Unterzeile ist inline-block, sonst streicht die Linie des Elternteils sie mit durch. */
+.ks-haken[aria-checked="true"] .ks-herkunft { display: inline-block; width: 100%; }
+.ks-werkzeug { display: flex; flex-shrink: 0; }
+.ks-fortschritt { background: var(--success); }
+
+/* Kundenliste: breit als Tabelle, am Handy als Karten (U1). */
+.ks-tabelle { container-type: inline-size; }
+.ks-tabelle-kopf,
+.ks-tabelle-zeile {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.6fr) minmax(0, 0.8fr);
+  gap: var(--sp-5);
+  padding: var(--sp-5) var(--sp-7);
+}
+.ks-tabelle[data-geld="true"] .ks-tabelle-kopf,
+.ks-tabelle[data-geld="true"] .ks-tabelle-zeile {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.5fr) minmax(0, 0.7fr) minmax(0, 1.1fr);
+}
+.ks-tabelle-kopf {
+  padding-top: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+}
+.ks-tabelle-zeile {
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  transition: background var(--transition-fast);
+}
+.ks-tabelle li:last-child .ks-tabelle-zeile { border-bottom: 0; }
+.ks-tabelle-zeile:hover { background: var(--surface-1); }
+.ks-tabelle-zeile:hover .ks-zelle > .ks-name { color: var(--orange-300); }
+.ks-zelle { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.ks-zelle .progress-track { display: block; width: 100%; max-width: 96px; }
+.ks-zwei-zeilen { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@container (max-width: 760px) {
+  .ks-tabelle-kopf { display: none; }
+  .ks-tabelle .ks-tabelle-zeile,
+  .ks-tabelle[data-geld="true"] .ks-tabelle-zeile {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "kunde geld" "termin termin" "agenda agenda" "fortschritt fortschritt";
+    gap: var(--sp-3) var(--sp-5);
+    padding: var(--sp-6);
+  }
+  .ks-zelle[data-feld="kunde"] { grid-area: kunde; }
+  .ks-zelle[data-feld="geld"] { grid-area: geld; align-items: flex-end; text-align: right; max-width: 170px; }
+  .ks-zelle[data-feld="termin"] { grid-area: termin; }
+  .ks-zelle[data-feld="agenda"] { grid-area: agenda; }
+  .ks-zelle[data-feld="fortschritt"] { grid-area: fortschritt; flex-direction: row; align-items: center; gap: var(--sp-4); }
+}
+
+/* Geld */
+.ks-betrag-gross {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+.ks-betrag-gross > span,
+.ks-betrag-rechts > span {
+  display: block;
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+}
+.ks-betrag-rechts { margin: 0; text-align: right; font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+.ks-naechste-rate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm);
+}
+.ks-seite li:has(+ li) > .ks-schuldner,
+.ks-seite li:has(+ li) > .ks-kosten { border-bottom: 1px solid var(--border-subtle); }
+.ks-rate {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) minmax(88px, 0.8fr) minmax(0, 1.6fr) minmax(0, 250px);
+  align-items: center;
+  gap: var(--sp-3) var(--sp-5);
+  padding: var(--sp-4) 0;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.ks-rate + .ks-rate,
+.ks-rate + .ks-buchung,
+.ks-buchung + .ks-buchung { border-top: 1px solid var(--border-subtle); }
+.ks-rate[data-erlassen="true"] .ks-rate-datum,
+.ks-rate[data-erlassen="true"] .ks-rate-betrag { color: var(--text-muted); }
+.ks-rate-aktion { display: flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
+/* Die Rate richtet sich nach IHREM Platz, nicht nach dem Fenster: Zwischen
+   768 und 1100 px nimmt die Seitenleiste 248 px davon weg. */
+.ks-liste-schlicht:has(> .ks-rate) { container-type: inline-size; }
+@container (max-width: 690px) {
+  .ks-seite .ks-rate { grid-template-columns: minmax(0, 1fr) auto; }
+  .ks-rate .ks-rate-betrag { text-align: right; }
+  .ks-rate > .ks-marken,
+  .ks-rate > .ks-rate-aktion { grid-column: 1 / -1; }
+  .ks-rate > .ks-rate-aktion { justify-content: flex-start; }
+  .ks-rate > .ks-rate-aktion:empty { display: none; }
+}
+.ks-buchung,
+.ks-schuldner,
+.ks-kosten {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  width: 100%;
+  padding: var(--sp-4) 0;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.ks-buchung > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.ks-buchung > :last-child:not(:first-child) { text-align: right; }
+.ks-buchung-betrag { display: inline-flex; align-items: center; gap: var(--sp-3); white-space: nowrap; }
+.ks-buchung-betrag[data-negativ="true"] { color: var(--danger-fg); }
+.ks-schuldner { color: var(--text-primary); text-decoration: none; }
+.ks-schuldner > :last-child { text-align: right; }
+.ks-kosten { border: 0; background: none; color: var(--text-primary); font-family: inherit; text-align: left; cursor: pointer; }
+.ks-kosten:hover .ks-name { color: var(--orange-300); }
+.ks-kosten-betrag { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.ks-rechnung,
+.ks-vorschau { margin: 0; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.ks-rechnung > div,
+.ks-vorschau > div { display: flex; justify-content: space-between; gap: var(--sp-5); padding: var(--sp-3) 0; }
+.ks-rechnung dt,
+.ks-vorschau dt { color: var(--text-secondary); }
+.ks-rechnung dd,
+.ks-vorschau dd { margin: 0; white-space: nowrap; }
+.ks-rechnung > div[data-summe="true"] { border-top: 1px solid var(--border-default); font-weight: var(--fw-semibold); }
+.ks-rechnung > div[data-summe="true"] dt { color: var(--text-primary); }
+.ks-vorschau { padding: var(--sp-3) var(--sp-5); border-radius: var(--r-md); background: var(--surface-1); }
+.ks-vorschau .ks-leise { display: inline; }
+.ks-vertrag {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(250px, 1.4fr) 118px;
+  align-items: center;
+  gap: var(--sp-4) var(--sp-5);
+  padding: var(--sp-5) var(--sp-7);
+  font-size: var(--fs-sm);
+}
+.ks-vertrag + .ks-vertrag { border-top: 1px solid var(--border-subtle); }
+.ks-vertrag-name { min-width: 0; color: var(--text-primary); text-decoration: none; }
+.ks-vertrag-zahlen { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); margin: 0; font-variant-numeric: tabular-nums; }
+.ks-vertrag-zahlen dt { color: var(--text-muted); font-size: var(--fs-xs); }
+.ks-vertrag-zahlen dd { margin: 0; }
+@media (max-width: 1100px) {
+  .ks-vertrag { grid-template-columns: minmax(0, 1fr) auto; }
+  .ks-vertrag-zahlen { grid-column: 1 / -1; }
+  .ks-vertrag > .ks-rate-aktion { grid-column: 1 / -1; justify-content: flex-start; }
+  .ks-vertrag > .ks-rate-aktion:empty { display: none; }
+}
+
+/* Monat nach Tagen: Kalender nur, wo sieben Spalten Platz haben. */
+.ks-kalender { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--sp-2); }
+.ks-kalender-kopf { color: var(--text-muted); font-size: var(--fs-xs); text-align: center; }
+.ks-kalender-zelle {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 78px;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  font-size: var(--fs-2xs);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+a.ks-kalender-zelle { background: var(--surface-2); }
+a.ks-kalender-zelle:hover { background: var(--surface-3); }
+.ks-kalender-zelle[data-heute="true"] { border-color: var(--border-accent); }
+.ks-kalender-tag { color: var(--text-muted); font-size: var(--fs-xs); }
+@media (max-width: 899px) {
+  .ks-kalender { display: none; }
+}
+.ks-tag { scroll-margin-top: calc(var(--h-topbar) + var(--sp-6)); }
+.ks-tag + .ks-tag { margin-top: var(--sp-6); }
+.ks-tag-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--border-default);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.ks-tag-kopf .ks-leise { font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+.ks-heute { color: var(--orange-300); font-size: var(--fs-xs); }
+.ks-details { margin-top: var(--sp-4); }
+.ks-details summary { color: var(--text-muted); font-size: var(--fs-xs); cursor: pointer; }
+
+/* Touch: alles Bedienbare mindestens 44 px. */
+@media (pointer: coarse) {
+  .ks-haken,
+  .ks-chip,
+  .ks-wahl,
+  .ks-kosten,
+  .ks-schuldner,
+  .ks-reiter,
+  .ks-textknopf,
+  .ks-umschalter,
+  .ks-link,
+  .ks-details summary { min-height: var(--touch-target); }
+  .ks-chip { min-width: var(--touch-target); }
+  .ks-seite .ui-icon-btn { min-width: var(--touch-target); }
+  .ks-reiter { display: inline-flex; align-items: center; }
+  .ks-eingabe > .ui-input { min-height: var(--touch-target); }
+}
+
+/* Kundenspace: schmale Breiten */
+.ks-tabelle { overflow: hidden; border-radius: inherit; }
+@media (max-width: 767px) {
+  .ks-chips { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .ks-chips::-webkit-scrollbar { display: none; }
+  .ks-chips > * { flex-shrink: 0; }
+}
+@media (max-width: 479px) {
+  .ks-kopf-umbruch > div { flex-direction: column; }
+  .ks-eingabe { flex-direction: column; align-items: stretch; }
+  .ks-eingabe > .ui-btn { align-self: flex-end; }
+}
+@media (pointer: coarse) {
+  .ks-seite > a,
+  a.ks-name,
+  a.ks-gruen,
+  a.ks-rot,
+  a.ks-rate-datum,
+  .ks-seite .ks-betrag-rechts,
+  .ks-vertrag-name { min-height: var(--touch-target); }
+  .ks-seite > a,
+  a.ks-name,
+  a.ks-gruen,
+  a.ks-rot { display: inline-flex !important; align-items: center; }
+  .ks-vertrag-name { display: flex; flex-direction: column; justify-content: center; }
+  .ks-seite .field-combo-part,
+  .ui-modal-actions .ui-btn { min-height: var(--touch-target); }
+}
+
+/* Kundenspace: Befunde der Elementpruefung (320 bis 1440 px) */
+.ks-kontakt { display: inline-flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-5); min-width: 0; }
+.ks-kontakt .ks-link { overflow-wrap: anywhere; }
+.ks-marke-link { display: inline-flex; align-items: center; text-decoration: none; }
+.ks-kuemmern {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-5);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm);
+}
+.ks-kuemmern > .ui-btn { margin-left: auto; }
+.ks-suche { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.ks-suche .ui-input { flex: 1 1 220px; max-width: 360px; min-width: 0; }
+.ks-loeschen { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-2); }
+@media (max-width: 1239px) {
+  .ks-seite .kpi-row[data-cols="3"],
+  .ks-seite .kpi-row[data-cols="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ks-seite .kpi-row[data-cols="3"] > :last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 479px) {
+  .ks-punkt:has(> .ks-werkzeug) { flex-wrap: wrap; }
+  .ks-punkt:has(> .ks-werkzeug) > .ks-punkt-text,
+  .ks-punkt:has(> .ks-werkzeug) > .ks-haken-huelle { flex-basis: 100%; }
+  .ks-stapel > .ui-segmented { display: flex !important; flex-wrap: wrap; border-radius: var(--r-lg) !important; }
+  .ks-stapel > .ui-segmented > button { flex: 1 1 auto !important; }
+}
+@media (pointer: coarse) {
+  .ks-stapel .field-combo-part,
+  .ks-stapel .field-combo-time,
+  .ks-marke-link { min-height: var(--touch-target); }
+  /* Kalender und Dialog-Kopf: geteilte Bausteine, nur am Touch-Geraet groesser. */
+  [aria-label="Datum wählen"] button { min-height: var(--touch-target); }
+  [aria-label="Datum wählen"] button[aria-label$="Monat"] { min-width: var(--touch-target); }
+  .ui-modal-close { width: var(--touch-target) !important; height: var(--touch-target) !important; min-height: var(--touch-target) !important; }
+}
+@media (max-width: 479px) {
+  .ui-modal-actions.ks-dialog-fuss { flex-wrap: wrap; }
+  .ui-modal-actions.ks-dialog-fuss > .ui-btn { flex: 1 1 auto; white-space: nowrap; }
+}
+/* Sticky misst ab der Innenkante des Polsters: Ohne das schiene in langen
+   Dialogen der Inhalt unter der Knopfreihe durch. */
+@media (max-width: 767px) {
+  .ui-modal-actions.ks-dialog-fuss { bottom: calc(-1 * (var(--sp-8) + var(--modal-safe-b, 0px))); }
+}
