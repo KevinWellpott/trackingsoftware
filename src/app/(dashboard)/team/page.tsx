@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Archive, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { rpcAll } from "@/lib/supabase/fetchAll";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { getTargets } from "@/app/actions/targets";
 import { gespraechsPersonOf } from "@/lib/personResolution";
@@ -71,7 +72,7 @@ export default async function TeamPage() {
   const { startIso: weekStartIso, endIso: weekEndIso } = berlinWindowIso(monday, today);
 
   const [dayRes, phoneRes, bookedRes, wonDealsRes, members, targets, dials] = await Promise.all([
-    supabase.rpc("rpc_owner_day_metrics", {
+    rpcAll(supabase, "rpc_owner_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: from,
       p_to: today,
@@ -80,7 +81,7 @@ export default async function TeamPage() {
     // rpc_phone_day_metrics statt rpc_phone_owner_metrics: bei der Owner-RPC
     // ist nur `calls` zeitraumgefiltert (docs §5) — und sie lief hier zudem
     // über 30 Tage, während alle anderen Zeilen der Karte die Woche zeigten.
-    supabase.rpc("rpc_phone_day_metrics", {
+    rpcAll(supabase, "rpc_phone_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: monday,
       p_to: today,

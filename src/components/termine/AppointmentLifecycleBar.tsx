@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Badge } from "@/components/ui/Badge";
 import { isoToBerlinInput } from "@/lib/apptTime";
+import { absageWirktNoch } from "@/lib/terminMeta";
 import {
   cancelAppointment,
   postponeAppointment,
@@ -106,7 +107,7 @@ export function AppointmentLifecycleBar({
     };
   }, [dialog, maxReschedules]);
 
-  const cancelled = Boolean(lifecycle.cancelled_at);
+  const cancelled = absageWirktNoch(lifecycle);
   const count = lifecycle.reschedule_count ?? 0;
 
   function openPostpone() {
@@ -501,7 +502,7 @@ export function AppointmentLifecycleBar({
  * Aktionsleiste könnte den Zustand also gar nicht zeigen.
  */
 export function CancelledBanner({ lifecycle }: { lifecycle: Partial<AppointmentLifecycle> }) {
-  if (!lifecycle.cancelled_at) return null;
+  if (!absageWirktNoch(lifecycle)) return null;
   const reason = lifecycle.cancel_reason_code ? CANCEL_REASON_LABELS[lifecycle.cancel_reason_code] : "Ohne Grund";
   const outlook = lifecycle.cancel_outlook;
 

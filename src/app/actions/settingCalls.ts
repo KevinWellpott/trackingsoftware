@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { berlinInputToIso } from "@/lib/apptTime";
 import { closingZustaendigIn } from "@/lib/personResolution";
-import { CANCELLED_MOVE_HINT } from "@/lib/terminMeta";
+import { CANCELLED_MOVE_HINT, absageWirktNoch } from "@/lib/terminMeta";
 import type { SettingOutcome, SettingStatus } from "@/lib/types";
 import { getPipelineSettings } from "@/app/actions/pipelineSettings";
 import { clearRecycle, excludeFromRecycle, scheduleRecycle } from "@/app/actions/recycle";
@@ -660,26 +660,6 @@ function ohneWhatsApp<T extends object>(patch: T): T {
   return rest as T;
 }
 
-/**
- * Ist die Absage dieser Zeile noch WIRKSAM? — die Frage hinter allen drei
- * Termin-Riegeln.
- *
- * Eine Absage lässt `appointment_at` stehen (docs §3); erst `revived_at` sagt
- * „die Absage ist überholt, es steht wieder ein Termin" — geschrieben von
- * „Neuen Termin ansetzen" (actions/followUpStamp.ts). Wer nur `cancelled_at`
- * liest, hält eine zurückgeholte Zeile für abgesagt und sperrt sie dauerhaft:
- * Der Kalender-Zug prallt ab, die Detailseite weist ab, und weil die Zeile in
- * der Arbeitsliste als „Verlegt" gilt, hat sie dort auch keine Knöpfe mehr.
- *
- * Dasselbe PAAR liest `terminZustand()` (src/lib/dranRegel.ts), und `revived_at`
- * ist zugleich der Riegel, mit dem `recycle_tasks` eine zurückgeholte Zeile aus
- * der Wiedervorlage nimmt (docs §5). Der Termin-Riegel las bis hierher nur die
- * eine Hälfte — dieselbe Fehlerklasse wie „wer nur `status` liest, hält einen
- * abgesagten Termin für offen".
- */
-function absageWirktNoch(row: { cancelled_at: string | null; revived_at?: string | null } | null): boolean {
-  return Boolean(row?.cancelled_at) && !row?.revived_at;
-}
 
 // Die Pruefung stuetzt sich nicht allein darauf, dass RLS die Zeile
 // durchgelassen hat: fuer einen Plattform-Admin laesst RLS JEDE Zeile durch.
@@ -842,17 +822,33 @@ export async function cancelAppointment(
   // korrigiert, schöbe den Lead damit stillschweigend um Monate nach hinten.
   const { data: before } = await supabase
     .from(APPOINTMENT_TABLE[entityType])
-    .select("cancelled_at, cancel_outlook")
+    .select("cancelled_at, cancel_outlook, revived_at")
     .eq("id", id)
     .maybeSingle();
-  const previous = before as { cancelled_at: string | null; cancel_outlook: string | null } | null;
-  const wasCancelled = Boolean(previous?.cancelled_at);
+  const previous = before as {
+    cancelled_at: string | null;
+    cancel_outlook: string | null;
+    revived_at: string | null;
+  } | null;
+  // Eine Absage, die per „Termin“ schon überholt war (`revived_at`), ist keine
+  // Korrektur mehr, sondern eine NEUE Absage: neu stempeln und `revived_at`
+  // räumen — sonst galt der Termin trotz zweiter Absage weiter als stehend.
+  // Nur ohne Nachfolger aus der Ablage: Die alte Zeile ist dann Historie.
+  const nachfolger = previous?.revived_at
+    ? await supabase
+        .from("setting_calls")
+        .select("id", { count: "exact", head: true })
+        .eq(entityType === "setting" ? "revived_from_setting_call_id" : "revived_from_closing_call_id", id)
+    : null;
+  const neueAbsage = Boolean(previous?.cancelled_at && previous.revived_at && !(nachfolger?.count ?? 0));
+  const wasCancelled = Boolean(previous?.cancelled_at) && !neueAbsage;
 
   const { error } = await supabase
     .from(APPOINTMENT_TABLE[entityType])
     .update({
       // Nur beim ERSTEN Mal stempeln — danach ist der Zeitpunkt Historie.
       ...(wasCancelled ? {} : { cancelled_at: new Date().toISOString() }),
+      ...(neueAbsage ? { revived_at: null } : {}),
       cancel_reason_code: input.reasonCode,
       // Leerer Freitext wird NULL statt "" — sonst steht in der Detailseite eine
       // leere Zeile, die wie eine Angabe aussieht.
@@ -872,7 +868,8 @@ export async function cancelAppointment(
   // ersten Absage oder wenn eine Korrektur den Ausblick von „neuer Termin" auf
   // „ohne Aussicht" dreht. Stand er schon dort, hat die Zeile ihr Datum
   // bereits; ein zweiter Aufruf rechnete es nur von heute neu.
-  const becomesHopeless = input.outlook === "ohne_aussicht" && previous?.cancel_outlook !== "ohne_aussicht";
+  const becomesHopeless =
+    input.outlook === "ohne_aussicht" && (neueAbsage || previous?.cancel_outlook !== "ohne_aussicht");
   if (entityType === "setting" && becomesHopeless) {
     await scheduleRecycle("setting", id);
   }

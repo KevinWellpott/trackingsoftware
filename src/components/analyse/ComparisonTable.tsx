@@ -118,7 +118,16 @@ export function ComparisonTable({
                 {columns.map((c) => {
                   const v = row.values[c.key] ?? null;
                   const avg = average?.[c.key] ?? null;
-                  const showDelta = c.deltaVsAvg && average !== undefined && v !== null && avg !== null;
+                  // Kein Δ bei nur einer Zeile (die IST der Durchschnitt) und
+                  // keins bei einer Differenz unter 0,05 pp — „+0,0 pp" ist
+                  // eine Behauptung über nichts (Live-Test 26.11., P3-3).
+                  const showDelta =
+                    c.deltaVsAvg &&
+                    average !== undefined &&
+                    rows.length > 1 &&
+                    v !== null &&
+                    avg !== null &&
+                    Math.abs(v - avg) >= 0.05;
                   return (
                     <td
                       key={c.key}

@@ -53,26 +53,16 @@ describe("channelKeyOf", () => {
  * ------------------------------------------------------------------ */
 
 describe("closingShowRate", () => {
-  test("ein abgesagter Termin fällt aus dem Nenner, statt als No-Show zu zählen", () => {
-    // 10 Termine, 2 abgesagt, 8 erschienen. Die Absage lässt `show_status`
-    // bewusst unangetastet (docs §3) — im vollen Nenner stünde sie als
-    // garantierte Null und drückte die Quote auf 80 %.
-    assert.equal(closingShowRate(8, 10, 2), 100);
-    assert.equal(closingShowRate(8, 10, 0), 80);
+  // Seit dem Live-Test (26.11., N10): Nenner sind die Closings MIT erfasstem
+  // Ergebnis — wie am Erstgespräch. Vorher waren die fehlenden Prozent
+  // Closings ohne Eintrag, die Quote maß die Erfassung.
+  test("erschienen ÷ (erschienen + nicht erschienen)", () => {
+    assert.equal(closingShowRate(8, 2), 80);
+    assert.equal(closingShowRate(8, 0), 100);
   });
 
-  test("Termine OHNE Angabe bleiben im Nenner — das ist der Sinn der Kennzahl", () => {
-    // docs §5: Der Nenner ist bewusst „alle Closing-Termine", damit die Quote
-    // nicht misst, wer das Häkchen gesetzt hat. Nur die abgesagten kommen raus
-    // — die haben nachweislich nicht stattgefunden.
-    assert.equal(closingShowRate(5, 10, 0), 50);
-    assert.equal(closingShowRate(5, 10, 2), 62.5);
-  });
-
-  test("ohne Termin gibt es keine Quote — null statt 0 %", () => {
-    assert.equal(closingShowRate(0, 0, 0), null);
-    // Nur Absagen im Fenster: derselbe Fall, sonst stünden dort 0 %.
-    assert.equal(closingShowRate(0, 3, 3), null);
+  test("ohne erfasstes Ergebnis gibt es keine Quote — null statt 0 %", () => {
+    assert.equal(closingShowRate(0, 0), null);
   });
 });
 

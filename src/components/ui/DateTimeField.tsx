@@ -149,8 +149,16 @@ export function DateTimeField({
           value={draft}
           placeholder="--:--"
           aria-label={ariaLabel ? `${ariaLabel} — Uhrzeit` : "Uhrzeit"}
-          onFocus={openTime}
+          onFocus={(e) => {
+            openTime();
+            // Inhalt markieren: Getipptes ersetzt die Uhrzeit, statt sich
+            // anzuhängen („09:000830" wurde still zu 09:00, Live-Test P3-4).
+            // Nach dem Frame, sonst setzt der Mausklick den Cursor wieder.
+            const el = e.currentTarget;
+            requestAnimationFrame(() => el.select());
+          }}
           onClick={openTime}
+          maxLength={5}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={(e) => commitTime(e.target.value)}
           onKeyDown={(e) => {

@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { addDaysISO } from "@/lib/dates";
 import { berlinDateISO } from "@/lib/apptTime";
+import { absageWirktNoch } from "@/lib/terminMeta";
 import type { ClosingLostReasonCode, SettingStatus } from "@/lib/types";
 
 type Client = Awaited<ReturnType<typeof createClient>>;
@@ -208,6 +209,17 @@ export type AnalyseSettingCall = {
   cancel_outlook: "ohne_aussicht" | "neuer_termin" | null;
   /** Zählbarer Absagegrund; Beschriftung über `dropoutReasonLabel`. */
   cancel_reason_code: string | null;
+  /** „Absage überholt“ (Migration 0032) — gehört zur Absage-Regel `absageWirktNoch`. */
+  revived_at: string | null;
+  /**
+   * Abgeleitet beim Laden, steht in keiner Spalte: Wirkt die Absage noch?
+   * (`absageWirktNoch`, src/lib/terminMeta.ts). Jede Auswertung, die abgesagte
+   * Termine AUSSCHLIESST, liest dieses Feld und nie `cancelled_at` allein —
+   * sonst fällt ein neu terminierter Termin samt Closing und Umsatz heraus
+   * (Live-Test 26.11., P1-3). Die Absagequote zählt dagegen weiter jede
+   * erfasste Absage (`cancelled_at`).
+   */
+  absage_wirkt: boolean;
   no_show_count: number | null;
   meeting_kind: "link" | "telefon" | null;
   branche: string | null;
@@ -226,7 +238,7 @@ export type AnalyseSettingCall = {
 const SETTING_COLUMNS =
   "id, created_by_user_id, assigned_user_id, source_type, source_detail, source_contact_id, " +
   "source_phone_lead_id, appointment_at, call_at, created_at, phone, show_status, " +
-  "status, cancelled_at, cancel_outlook, cancel_reason_code, " +
+  "status, cancelled_at, cancel_outlook, cancel_reason_code, revived_at, " +
   "no_show_count, meeting_kind, branche, has_budget_8k, sole_decider, can_decide_now, clear_need, " +
   "ist_pain, warmth, conducted_by_user_id";
 
@@ -254,6 +266,31 @@ function assignedOrCreatedBy(userId: string): string {
 }
 
 /**
+ * IDs der Termine, die einen Nachfolger aus der Ablage haben (`revived_from_*`
+ * einer neueren Erstgesprächs-Zeile zeigt auf sie). Ihre Absage wirkt weiter,
+ * auch wenn `revived_at` gesetzt ist — der neue Termin läuft am Nachfolger.
+ * Fail-soft: Ohne die Liste gilt nur `revived_at`.
+ */
+async function loadNachfolgerIds(
+  supabase: Client,
+  workspaceId: string,
+  spalte: "revived_from_setting_call_id" | "revived_from_closing_call_id",
+): Promise<Set<string>> {
+  const rows = await fetchAllRows((f, t) =>
+    supabase
+      .from("setting_calls")
+      .select(spalte)
+      .eq("workspace_id", workspaceId)
+      .not(spalte, "is", null)
+      .order("id")
+      .range(f, t),
+  ).catch(() => []);
+  return new Set(
+    (rows as Record<string, string | null>[]).map((r) => r[spalte]).filter((v): v is string => Boolean(v)),
+  );
+}
+
+/**
  * Alle Setting-Calls der Organisation. Bewusst OHNE Zeitraumfilter in SQL: das
  * maßgebliche Datum ist `coalesce(appointment_at, call_at, created_at)` und
  * damit keine einzelne Spalte — der Zuschnitt passiert in JS über
@@ -275,7 +312,11 @@ export async function loadSettingCalls(
     console.error("analyseData:", err instanceof Error ? err.message : err);
     return [];
   });
-  return rows as unknown as AnalyseSettingCall[];
+  const nachfolger = await loadNachfolgerIds(supabase, access.workspace_id, "revived_from_setting_call_id");
+  return (rows as unknown as AnalyseSettingCall[]).map((r) => ({
+    ...r,
+    absage_wirkt: absageWirktNoch(r, nachfolger.has(r.id)),
+  }));
 }
 
 // ── Closing-Calls ────────────────────────────────────────────
@@ -300,6 +341,10 @@ export type AnalyseClosingCall = {
   cancelled_at: string | null;
   cancel_outlook: "ohne_aussicht" | "neuer_termin" | null;
   cancel_reason_code: string | null;
+  /** „Absage überholt“ (Migration 0032). */
+  revived_at: string | null;
+  /** Abgeleitet beim Laden — siehe `AnalyseSettingCall.absage_wirkt`. */
+  absage_wirkt: boolean;
   deal_volume: number | null;
   payment_type: string | null;
   /** Freitext-Notiz zum Verlust — Kontext, nicht zählbar. */
@@ -317,7 +362,7 @@ export type AnalyseClosingCall = {
 // (siehe SETTING_COLUMNS).
 const CLOSING_COLUMNS =
   "id, created_by_user_id, assigned_user_id, setting_call_id, call_at, created_at, show_status, status, " +
-  "cancelled_at, cancel_outlook, cancel_reason_code, " +
+  "cancelled_at, cancel_outlook, cancel_reason_code, revived_at, " +
   "deal_volume, payment_type, lost_reason, lost_reason_code, signature_received, contract_start, " +
   "conducted_by_user_id";
 
@@ -337,7 +382,41 @@ export async function loadClosingCalls(
     console.error("analyseData:", err instanceof Error ? err.message : err);
     return [];
   });
-  return rows as unknown as AnalyseClosingCall[];
+  // Eigene Sicht: Closings gehören fest der Closing-Person (docs §2) — die
+  // Closings zu den EIGENEN Erstgesprächen fielen damit aus Funnel und
+  // „Gewonnen" des Setters (Live-Test 26.11., P2-3). Sie werden über
+  // `setting_call_id` nachgeladen, soweit RLS sie zeigt.
+  if (!canCompare) {
+    const seen = new Set((rows as { id: string }[]).map((r) => r.id));
+    const ownSettings = await fetchAllRows((f, t) =>
+      supabase
+        .from("setting_calls")
+        .select("id")
+        .eq("workspace_id", access.workspace_id)
+        .or(assignedOrCreatedBy(access.user.id))
+        .order("id")
+        .range(f, t),
+    ).catch(() => []);
+    const ids = (ownSettings as { id: string }[]).map((r) => r.id);
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const { data } = await supabase
+        .from("closing_calls")
+        .select(CLOSING_COLUMNS)
+        .eq("workspace_id", access.workspace_id)
+        .in("setting_call_id", chunk);
+      for (const r of (data ?? []) as unknown as { id: string }[]) {
+        if (seen.has(r.id)) continue;
+        seen.add(r.id);
+        (rows as unknown[]).push(r);
+      }
+    }
+  }
+  const nachfolger = await loadNachfolgerIds(supabase, access.workspace_id, "revived_from_closing_call_id");
+  return (rows as unknown as AnalyseClosingCall[]).map((r) => ({
+    ...r,
+    absage_wirkt: absageWirktNoch(r, nachfolger.has(r.id)),
+  }));
 }
 
 // ── Telefon-Leads ────────────────────────────────────────────
@@ -498,7 +577,10 @@ export type RecycleData = {
  * die Schreibpfade nicht mehr pflegen müssen.
  */
 const RECYCLE_TOUCHED =
-  "next_recycle_at.not.is.null,recycle_last_contacted_at.not.is.null,recycle_excluded_at.not.is.null";
+  "next_recycle_at.not.is.null,recycle_last_contacted_at.not.is.null,recycle_excluded_at.not.is.null," +
+  // Eine Reaktion ohne eingetragenen Versuch (Bestand vor P1-7) gehört
+  // trotzdem in die Wiederbelebungsquote.
+  "recycle_responded_at.not.is.null";
 
 /**
  * Vier Select-Ausdrücke, ausgeschrieben und ausdrücklich als `string` getippt.

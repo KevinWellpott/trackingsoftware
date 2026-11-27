@@ -28,6 +28,8 @@ export type AppointmentLifecycle = {
   reschedule_count: number | null;
   last_reschedule_at: string | null;
   no_show_resolution: NoShowResolution | null;
+  /** „Absage überholt“ (Migration 0032) — wird mit `cancelled_at` gelesen (`absageWirktNoch`). */
+  revived_at?: string | null;
 };
 
 /** Nur am Setting: der Grund, warum der Lead disqualifiziert wurde. */

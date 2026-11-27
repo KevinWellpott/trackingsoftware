@@ -34,3 +34,29 @@ export async function fetchAllRows<T>(
     }
   }
 }
+
+/**
+ * Eine Tages-RPC vollständig laden (`rpc_owner_day_metrics`,
+ * `rpc_phone_day_metrics`). Auch Set-Returning-Funktionen kappt PostgREST still
+ * bei 1.000 Zeilen — bei Owner×Tag-Zeilen eines Jahres war das 2026 schon zu
+ * zwei Dritteln erreicht (Live-Test 26.11., P3-1). Liefert dieselbe Form wie
+ * `supabase.rpc()`, damit die Aufrufer ihre Fehlerbehandlung behalten.
+ */
+export async function rpcAll<T = Record<string, unknown>>(
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => unknown },
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<{ data: T[] | null; error: { message: string } | null }> {
+  type Page = {
+    order: (col: string) => Page;
+    range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+  };
+  try {
+    const data = await fetchAllRows<T>((from, to) =>
+      (supabase.rpc(fn, args) as Page).order("day").order("owner_name").range(from, to),
+    );
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: { message: err instanceof Error ? err.message : String(err) } };
+  }
+}

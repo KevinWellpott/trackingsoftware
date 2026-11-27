@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
+import { rpcAll } from "@/lib/supabase/fetchAll";
 import { loadClosingCalls, loadSettingCalls } from "@/lib/analyseData";
 import {
   NUM, buildBuckets, bucketOf, channelKeyOf, closingEffDate, eur, fmtPct, ownerKey, pct, settingEffDate,
@@ -341,7 +342,7 @@ export async function FunnelTab({
   const futureOnly = from > toEff;
 
   const [liRes, phoneRes, settingRows, closingRows] = await Promise.all([
-    supabase.rpc("rpc_owner_day_metrics", {
+    rpcAll(supabase, "rpc_owner_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: from,
       // Auch die Nenner der Wert-Kacheln laufen über das beschnittene Fenster —
@@ -350,7 +351,7 @@ export async function FunnelTab({
       p_to: toEff,
       p_effective_user_id: eff,
     }),
-    supabase.rpc("rpc_phone_day_metrics", {
+    rpcAll(supabase, "rpc_phone_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: from,
       p_to: toEff,
@@ -526,6 +527,13 @@ export async function FunnelTab({
   const cancelClosing = ZERO_CANCEL();
   /** Absagegründe über BEIDE Termin-Arten — der CHECK ist derselbe (0032). */
   const cancelReasons = new Map<string, number>();
+  /**
+   * Setting-Termine, die der Trichter tatsächlich weglässt (wirkende Absage,
+   * im Quellenfilter). Die Meta-Zeile nennt genau diese Zahl — vorher stand
+   * dort die Summe aus Setting- UND Closing-Absagen, abgezogen wurden aber nur
+   * die Settings (Live-Test 26.11., N13).
+   */
+  let settingAbgezogen = 0;
 
   const addCancel = (
     agg: CancelAgg,
@@ -583,7 +591,10 @@ export async function FunnelTab({
     // Ab hier läuft nur noch, was wirklich stattgefunden hat oder ansteht:
     // Ein abgesagter Termin hat weder Show noch Qualifizierung noch Closing und
     // stünde als garantierte Null in jeder Durchlaufquote (Punkt 9 oben).
-    if (r.cancelled_at) continue;
+    if (r.absage_wirkt) {
+      if (quelle === "alle" || channel === quelle) settingAbgezogen += 1;
+      continue;
+    }
 
     const show = r.show_status === "show";
     const quali = isQualified(r);
@@ -632,7 +643,7 @@ export async function FunnelTab({
         addCancel(cancelClosing, r);
       }
     }
-    if (r.cancelled_at) continue;
+    if (r.absage_wirkt) continue;
 
     const inCohort = r.setting_call_id ? cohort.get(r.setting_call_id) : undefined;
 
@@ -851,7 +862,9 @@ export async function FunnelTab({
    * als beide Varianten.
    */
   const ohneAbsagen =
-    cancelTotal > 0 ? ` · ohne ${cancelTotal.toLocaleString("de-DE")} Absagen` : " · ohne Absagen";
+    settingAbgezogen > 0
+      ? ` · ohne ${settingAbgezogen.toLocaleString("de-DE")} abgesagte Settingtermine`
+      : " · ohne Absagen";
   // Die Zeitgrenze steht IN der Meta-Zeile, nicht nur im Info-Text: Sie ist der
   // Grund, warum dieselbe Woche hier weniger Termine zeigt als im Setting-Tab,
   // und diese Frage stellt sich beim Lesen der Zahl — nicht erst beim Klick.

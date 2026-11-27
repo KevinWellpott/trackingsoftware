@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
+import { berlinDateISO } from "@/lib/apptTime";
 import { loadClosingCalls, loadSettingCalls } from "@/lib/analyseData";
 import {
   NUM, bucketIndex, buildBuckets, bucketOf, closingEffDate, closingShowRate, eur, fmtPct, pct,
@@ -76,12 +77,22 @@ type Totals = {
    */
   abgesagt: number;
   shows: number;
+  /** Erfasste No-Shows — mit `shows` der Nenner der Show-Quote (N10). */
+  noShows: number;
+  /**
+   * Vergangene, nicht abgesagte Closings ohne jedes Ergebnis (Status „offen").
+   * Sie stehen neben der Abschlussrate, weil sie sie drücken, ohne dass ein
+   * Deal verloren wäre (Live-Test 26.11., N9).
+   */
+  ohneErgebnis: number;
   won: number;
   lost: number;
   revenue: number;
 };
 
-const ZERO = (): Totals => ({ closings: 0, abgesagt: 0, shows: 0, won: 0, lost: 0, revenue: 0 });
+const ZERO = (): Totals => ({
+  closings: 0, abgesagt: 0, shows: 0, noShows: 0, ohneErgebnis: 0, won: 0, lost: 0, revenue: 0,
+});
 
 const INT = new Intl.NumberFormat("de-DE");
 
@@ -209,6 +220,8 @@ export async function ClosingTab({
     loadSettingCalls(supabase, access, canCompare),
   ]);
   const buckets = buildBuckets(from, to, granularity);
+  // „Ohne Ergebnis" zählt nur Termine, die schon stattgefunden haben.
+  const heuteTag = berlinDateISO(new Date().toISOString());
 
   // Setting-Index: Herkunft + Termin für Velocity und Quellen-Zuordnung.
   const settingById = new Map(settings.map((s) => [s.id, s]));
@@ -289,8 +302,10 @@ export async function ClosingTab({
     // im vollen Nenner der Show-Quote stünde sie damit als garantierte Null,
     // und die Quote sänke mit jeder erfassten Absage, ohne dass sich am
     // Vertrieb etwas ändert. Deshalb hier mitgezählt und unten abgezogen.
-    if (r.cancelled_at) t.abgesagt += 1;
+    if (r.absage_wirkt) t.abgesagt += 1;
     if (r.show_status === "show") t.shows += 1;
+    if (r.show_status === "no_show") t.noShows += 1;
+    if (!r.absage_wirkt && r.status === "offen" && day <= heuteTag) t.ohneErgebnis += 1;
     statusCounts[r.status] += 1;
 
     const bk = bucketOf(day, from, to, granularity);
@@ -367,23 +382,25 @@ export async function ClosingTab({
     sum.closings += t.closings;
     sum.abgesagt += t.abgesagt;
     sum.shows += t.shows;
+    sum.noShows += t.noShows;
+    sum.ohneErgebnis += t.ohneErgebnis;
     sum.won += t.won;
     sum.lost += t.lost;
     sum.revenue += t.revenue;
   }
 
   // ── KPI-Werte + Deltas ───────────────────────────────────────
-  // NENNER (Show-Quote): alle Closing-TERMINE außer den abgesagten. „Alle
-  // Termine" ist Absicht — Termine ohne gesetztes Erschienen-Feld bleiben
-  // drin, sonst maß die Quote, wer das Häkchen gesetzt hat. Ein ABGESAGTER
-  // Termin ist aber kein „ohne Angabe": Er hat nachweislich nicht
-  // stattgefunden und wurde in der vollen Menge wie ein No-Show gewertet.
-  const showRate = closingShowRate(sum.shows, sum.closings, sum.abgesagt);
+  // NENNER (Show-Quote): Closings mit erfasstem Ergebnis (N10, siehe
+  // `closingShowRate`). Wie viele ohne Eintrag sind, steht daneben.
+  const showRate = closingShowRate(sum.shows, sum.noShows);
   // NEUER NENNER (Abschlussrate): die SHOWS. Vorher wurde gegen
   // „gewonnen + verloren" gerechnet; das wirft jeden noch offenen Deal aus dem
   // Nenner und schönt die Quote systematisch — ein Zeitraum ohne einen einzigen
   // Verlust stand auf 100 %, obwohl zehn Termine unentschieden lagen.
   const winRate = pct(sum.won, sum.shows);
+  // Zusätzlich gegen die ENTSCHIEDENEN Deals (N9): Bei vielen Closings ohne
+  // Ergebnis misst die Rate gegen die Shows vor allem die Erfassung.
+  const winDecided = pct(sum.won, sum.won + sum.lost);
   const revPerMeeting = revenuePerMeeting(sum.revenue, sum.closings);
   const avgDeal = sum.won === 0 ? null : Math.round(sum.revenue / sum.won);
 
@@ -405,8 +422,10 @@ export async function ClosingTab({
       name,
       values: {
         closings: t.closings,
-        showRate: closingShowRate(t.shows, t.closings, t.abgesagt),
+        showRate: closingShowRate(t.shows, t.noShows),
         winRate: pct(t.won, t.shows),
+        winDecided: pct(t.won, t.won + t.lost),
+        ohneErgebnis: t.ohneErgebnis,
         revPerMeeting: revenuePerMeeting(t.revenue, t.closings),
         revenue: t.revenue,
       },
@@ -417,6 +436,8 @@ export async function ClosingTab({
     closings: sum.closings,
     showRate,
     winRate,
+    winDecided,
+    ohneErgebnis: sum.ohneErgebnis,
     revPerMeeting,
     revenue: sum.revenue,
   };
@@ -500,27 +521,27 @@ export async function ClosingTab({
           icon={<CalendarCheck size={15} />}
           index={0}
         />
-        {/* Ohne Delta-Chip, mit Absicht: „Erschienen" wird beim Erfassen eines
-            Ergebnisses automatisch gesetzt und wurde für Bestandsdaten
-            nachgetragen — die Quote klebt deshalb nahe 100 % und BEWEGT sich
-            praktisch nicht. Ein Delta auf einer Zahl, die sich nicht ändern
-            kann, ist Rauschen, und der rote/grüne Chip macht daraus ein
-            Signal, wo keines ist. Die Fußnote unter dem Vergleich erklärt
-            weiterhin, warum. Sobald echte No-Shows erfasst werden, gehören
-            `delta` und `deltaLabel` hier wieder hin. */}
+        {/* Nenner = Closings mit erfasstem Ergebnis (N10); die Zeile darunter
+            nennt, auf wie vielen die Quote beruht. */}
         <KpiHero
           label="Show-Quote"
           value={showRate}
           format="pct"
+          delta={null}
+          deltaLabel={`${INT.format(sum.shows)} von ${INT.format(sum.shows + sum.noShows)} mit Eintrag`}
           icon={<Eye size={15} />}
           index={1}
         />
+        {/* Gegen die Shows, mit Vorperiode. Die Zeile darunter nennt die Rate
+            gegen die entschiedenen Deals und die Closings ohne Ergebnis — erst
+            beide zusammen sagen, ob verloren oder nur nicht eingetragen wurde
+            (N9). */}
         <KpiHero
           label="Abschlussrate"
           value={winRate}
           format="pct"
           delta={ppDelta(winRate, prevWinRate)}
-          deltaLabel="vs. Vorperiode (pp)"
+          deltaLabel={`vs. Vorperiode (pp) · entschieden ${fmtPct(winDecided)} · ${INT.format(sum.ohneErgebnis)} ohne Ergebnis`}
           icon={<Trophy size={15} />}
           index={2}
         />
@@ -578,17 +599,17 @@ export async function ClosingTab({
           info={
             <InfoText>
               <p style={INFO_P}>
-                <strong style={INFO_STRONG}>Show-Quote</strong> = erschienen ÷ alle Closing-Termine{" "}
-                <em>außer den abgesagten</em>. Termine ohne gesetztes Erschienen-Feld bleiben bewusst im Nenner
-                — sonst maß die Quote, wer das Häkchen gesetzt hat. Ein abgesagter Termin ist etwas anderes: Er
-                hat nachweislich nicht stattgefunden, trägt deshalb nie ein Erschienen-Feld und zählte in der
-                vollen Menge wie ein Nicht-Erschienen. Wie viele Termine abgesagt wurden, steht im Funnel-Tab.
+                <strong style={INFO_STRONG}>Show-Quote</strong> = erschienen ÷ Closings mit erfasstem Ergebnis
+                (erschienen oder nicht erschienen) — wie am Erstgespräch. Closings ohne jeden Eintrag stehen nicht
+                im Nenner; wie viele es sind, nennt die Spalte &bdquo;Ohne Ergebnis&ldquo;.
               </p>
               <p style={INFO_P}>
                 <strong style={INFO_STRONG}>Abschlussrate</strong> = gewonnen ÷ erschienen. Ein noch offener
                 Deal drückt die Quote, statt aus dem Nenner zu fallen: Die frühere Rechnung gegen
                 &bdquo;gewonnen + verloren&ldquo; stand in einem Zeitraum ohne einen einzigen Verlust auf 100 %,
-                obwohl zehn Termine unentschieden lagen.
+                obwohl zehn Termine unentschieden lagen. Daneben steht sie gegen die{" "}
+                <em>entschiedenen</em> Deals (gewonnen + verloren): Liegen beide weit auseinander, fehlen
+                Ergebnisse, nicht Abschlüsse.
               </p>
               <p style={INFO_P}>
                 <strong style={INFO_STRONG}>Umsatz/Meeting</strong> = Umsatz ÷ Closing-Termine, also je
@@ -603,6 +624,8 @@ export async function ClosingTab({
               { key: "closings", label: "Closings", format: "int" },
               { key: "showRate", label: "Show-Quote", format: "pct", deltaVsAvg: true },
               { key: "winRate", label: "Abschlussrate", format: "pct", deltaVsAvg: true },
+              { key: "winDecided", label: "Abschluss entschieden", format: "pct" },
+              { key: "ohneErgebnis", label: "Ohne Ergebnis", format: "int" },
               { key: "revPerMeeting", label: "Umsatz/Meeting", format: "eur" },
               { key: "revenue", label: "Umsatz", format: "eur" },
             ]}
@@ -610,15 +633,6 @@ export async function ClosingTab({
             average={average}
             averageLabel="Gesamt"
           />
-          {/* Bleibt als Fußnote stehen (statt hinter dem Info-Icon zu
-              verschwinden): Sie qualifiziert den ANGEZEIGTEN Wert. Ohne sie
-              liest man die Show-Quote nahe 100 % als Erfolg, obwohl sie
-              schlicht abgeleitet wurde. */}
-          <Footnote>
-            &bdquo;Erschienen&ldquo; wird beim Erfassen eines Ergebnisses automatisch gesetzt und wurde für
-            Bestandsdaten nachgetragen — die Show-Quote steht deshalb nahe 100 % und wird erst mit neu erfassten
-            No-Shows aussagekräftig.
-          </Footnote>
         </AnalyseSection>
       </div>
 

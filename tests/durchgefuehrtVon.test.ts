@@ -112,7 +112,15 @@ describe("2 · gespraechsPersonOf — wem die Analyse den Termin zurechnet", () 
       "src/lib/compare/facts.ts",
       "src/app/(dashboard)/team/page.tsx",
     ]) {
-      const quelle = code(read(datei));
+      let quelle = code(read(datei));
+      // Ausnahme seit dem Live-Test (N11): Die Personen-Tabelle der Übersicht
+      // trägt zusätzlich „Termine gelegt" — Buchungs-Aktivität, also bewusst
+      // `personOf` wie im LinkedIn-Tab. Genau diese eine Stelle wird
+      // herausgenommen, jede weitere schlägt an.
+      if (datei.endsWith("UebersichtTab.tsx")) {
+        assert.match(quelle, /const gUid = personOf\(r\);/, datei);
+        quelle = quelle.replace("const gUid = personOf(r);", "");
+      }
       assert.match(quelle, /gespraechsPerson(Of|In)\(/, datei);
       assert.doesNotMatch(quelle, /\bperson(Of|In)\(/, `${datei} zählt noch nach der Zuweisung`);
     }

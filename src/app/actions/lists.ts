@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAccessContext, ownScopeFilter } from "@/lib/access";
+import { getAccessContext, listDataViewUsers, ownScopeFilter } from "@/lib/access";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -30,10 +30,23 @@ export async function createList(
   if (!access) return { error: "Keine Berechtigung." };
 
   const supabase = await createClient();
-  const normalizedOwnerName =
-    access.data_scope === "own"
-      ? access.username
-      : ownerName?.trim() || null;
+  // Der Inhaber muss ein Mitglied der aktiven Organisation sein (docs §2,
+  // `owner_name`-Invariante). Ein fremder oder leerer Name machte die Liste
+  // heimatlos: DMs zählten bei „—" bzw. beim Ersteller, die Pitch-Quote je
+  // Person konnte über 100 % steigen (Live-Test 26.11., P2-5). Ohne Angabe
+  // gehört die Liste dem Anlegenden, sofern er Mitglied ist.
+  const members = await listDataViewUsers(access.workspace_id);
+  const wanted = access.data_scope === "own" ? access.username : ownerName?.trim() || access.username;
+  const owner = members.find((m) => m.username.toLowerCase() === (wanted ?? "").toLowerCase());
+  if (!owner) {
+    const names = members.map((m) => m.username).join(", ");
+    return {
+      error: names
+        ? `Bitte einen Inhaber aus der Organisation wählen: ${names}.`
+        : "Die Organisation hat noch kein Mitglied, dem die Liste gehören könnte.",
+    };
+  }
+  const normalizedOwnerName = owner.username;
 
   const { data: list, error: le } = await supabase
     .from("lists")

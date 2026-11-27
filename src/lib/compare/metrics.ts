@@ -52,7 +52,6 @@ export const METRICS: readonly CompareMetric[] = [
   // Anruf-Log der Ereignis-Ebene (src/lib/channels.ts). Der URL-Schluessel
   // bleibt `calls` — geteilte Links duerfen nicht brechen.
   { key: "calls", label: "Erstkontakte", group: "Telefon", num: "calls", format: "int", hint: "Firmen mit erstem Anruf im Zeitraum" },
-  { key: "gatekeeper", label: "Gatekeeper erreicht", group: "Telefon", num: "gatekeeper", format: "int" },
   { key: "entscheider", label: "Entscheider erreicht", group: "Telefon", num: "decider", format: "int" },
   { key: "entscheiderquote", label: "Entscheider-Quote", group: "Telefon", num: "decider", den: "calls", format: "pct" },
   { key: "tel_termine", label: "Termine aus Erstkontakten", group: "Telefon", num: "phone_appts", format: "int" },
@@ -80,13 +79,9 @@ export const METRICS: readonly CompareMetric[] = [
   // ── Closing ────────────────────────────────────────────────
   { key: "closings", label: "Closings", group: "Closing", num: "closings", format: "int" },
   { key: "closing_shows", label: "Shows (Closing)", group: "Closing", num: "closing_shows", format: "int" },
-  // Nenner sind alle Closingtermine OHNE die abgesagten — deckungsgleich mit
-  // `closingShowRate()` im Closing-Tab. Termine ohne Angabe bleiben drin (sonst
-  // maesse die Quote, wer das Haekchen gesetzt hat); ein abgesagter Termin ist
-  // aber kein „ohne Angabe": Er hat nachweislich nicht stattgefunden und stand
-  // in der vollen Menge wie ein No-Show. Gegen `closings` gerechnet lieferte
-  // dieselbe Kennzahl hier eine andere Zahl als im Tab.
-  { key: "closing_showquote", label: "Show-Quote Closing", group: "Closing", num: "closing_shows", den: "closing_not_cancelled", format: "pct", hint: "abgesagte Termine nicht im Nenner" },
+  // Nenner sind die Closings mit erfasstem Ergebnis — deckungsgleich mit
+  // `closingShowRate()` im Closing-Tab (Live-Test 26.11., N10).
+  { key: "closing_showquote", label: "Show-Quote Closing", group: "Closing", num: "closing_shows", den: "closing_decided", format: "pct", hint: "nur Closings mit erfasstem Ergebnis im Nenner" },
   { key: "gewonnen", label: "Gewonnen", group: "Closing", num: "won", format: "int" },
   { key: "verloren", label: "Verloren", group: "Closing", num: "lost", format: "int" },
   // Gegen die Shows, nicht gegen alle Closings — deckungsgleich mit der
@@ -160,6 +155,7 @@ const MEASURE_SOURCE: Record<MeasureKey, MetricSource> = {
   closing_shows: "closing",
   closing_cancelled: "closing",
   closing_not_cancelled: "closing",
+  closing_decided: "closing",
   won: "closing",
   lost: "closing",
   revenue: "closing",

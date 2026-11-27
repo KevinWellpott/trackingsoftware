@@ -135,6 +135,10 @@ export type DialRow = {
   called_at: string;
   /** Berlin-Kalendertag von `called_at`. */
   day: string;
+  /** Ergebnis der Anwahl (Ergebnis-Knöpfe des Call-Modus), Snapshot. */
+  outcome?: string | null;
+  /** Entscheider am Apparat — Snapshot des Leads beim Anruf. */
+  decider_reached?: boolean | null;
 };
 
 /**
@@ -163,7 +167,7 @@ export async function loadDialRows(
     const rows = await fetchAllRows((f, t) => {
       let q = supabase
         .from("phone_call_attempts")
-        .select("id, owner_name, created_by_user_id, called_at")
+        .select("id, owner_name, created_by_user_id, called_at, outcome, decider_reached")
         .eq("workspace_id", workspaceId)
         .gte("called_at", addDaysISO(from, -1))
         .lt("called_at", addDaysISO(to, 2));

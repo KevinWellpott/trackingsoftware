@@ -325,7 +325,14 @@ function stehtNochAn(row: TerminZustandInput, today: string): boolean {
   if (!row.at) return false;
   if (row.cancelledAt && !row.revivedAt) return false;
   const tag = berlinDateISO(row.at);
-  return Boolean(tag) && tag >= today;
+  if (!tag) return false;
+  // Am Termintag selbst entscheidet ein schon erfasstes Ergebnis: Wer heute
+  // um 10:00 nicht erschienen ist, steht ab dem Eintrag als No-Show in „Zu
+  // tun" und nicht bis Mitternacht als „Termin steht" (Live-Test 26.11.,
+  // P2-2). Ein Show-Status wird erst ab Terminbeginn gesetzt; ein Ersatztermin
+  // räumt ihn (`rescheduleSetting`), ein Termin an einem späteren Tag gewinnt.
+  if (tag === today && row.showStatus) return false;
+  return tag >= today;
 }
 
 /* ------------------------------------------------------------------ *

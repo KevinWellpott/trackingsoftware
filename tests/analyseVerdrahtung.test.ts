@@ -43,10 +43,12 @@ describe("Befund A — die Absage senkt die Closing-Show-Quote nicht mehr", () =
     // Der Nenner bleibt „alle Closing-Termine" (docs §5) — nur die abgesagten
     // kommen raus. Beides muss im selben Durchlauf passieren, sonst zählt die
     // Kachel etwas anderes als die Vergleichstabelle darunter.
-    assert.match(CLOSING_TAB, /if \(r\.cancelled_at\) t\.abgesagt \+= 1;/);
+    // Nur eine WIRKENDE Absage (P1-3): neu terminiert hat der Termin stattgefunden.
+    assert.match(CLOSING_TAB, /if \(r\.absage_wirkt\) t\.abgesagt \+= 1;/);
     assert.match(CLOSING_TAB, /sum\.abgesagt \+= t\.abgesagt;/);
-    assert.match(CLOSING_TAB, /closingShowRate\(sum\.shows, sum\.closings, sum\.abgesagt\)/);
-    assert.match(CLOSING_TAB, /closingShowRate\(t\.shows, t\.closings, t\.abgesagt\)/);
+    // Show-Quote: Nenner = Closings mit erfasstem Ergebnis (N10).
+    assert.match(CLOSING_TAB, /closingShowRate\(sum\.shows, sum\.noShows\)/);
+    assert.match(CLOSING_TAB, /closingShowRate\(t\.shows, t\.noShows\)/);
   });
 
   test("keine rohe Rechnung gegen die volle Termin-Menge mehr", () => {

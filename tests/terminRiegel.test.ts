@@ -276,12 +276,15 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
 
     // Die Bedingung selbst steht je Datei an EINER Stelle — drei Abschriften
     // wären drei Regeln, die auseinanderlaufen.
+    // Seit dem Live-Test (P1-3) für ALLE an einer Stelle: terminMeta.ts.
     for (const [name, quelle] of [
       ["settingCalls.ts", SETTING_CALLS],
       ["closingCalls.ts", CLOSING_CALLS],
     ] as const) {
-      assert.match(quelle, /function absageWirktNoch\(row:[\s\S]{0,200}Boolean\(row\?\.cancelled_at\) && !row\?\.revived_at/, name);
+      assert.doesNotMatch(quelle, /function absageWirktNoch\(/, name);
     }
+    const META = read("src/lib/terminMeta.ts");
+    assert.match(META, /export function absageWirktNoch\(/);
   });
 });
 
@@ -357,7 +360,7 @@ describe("Befund 2c — das Termin-Feld im Closing-Editor", () => {
     // Eine Änderung dort lief über `updateClosingCall` → `generateClosingCascade`
     // und legte eine frische Bestätigungs-Kaskade für ein entschiedenes
     // Gespräch an.
-    assert.match(CLOSING_EDITOR, /const terminLocked = moveLockReason\("closing", status, Boolean\(call\.cancelled_at\)\)/);
+    assert.match(CLOSING_EDITOR, /const terminLocked = moveLockReason\("closing", status, absageWirktNoch\(call\)\)/);
     const feld = slice(CLOSING_EDITOR, "<span style={fieldLabel}>Termin</span>", "Google-Meet-Link");
     assert.match(feld, /disabled=\{Boolean\(terminLocked\)\}/);
     assert.match(feld, /\{terminLocked && /, "gesperrt, aber ohne Begründung");

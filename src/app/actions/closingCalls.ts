@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { berlinDateISO } from "@/lib/apptTime";
-import { CANCELLED_MOVE_HINT } from "@/lib/terminMeta";
+import { CANCELLED_MOVE_HINT, absageWirktNoch } from "@/lib/terminMeta";
 import { CLOSING_LOST_REASON_CODES, type ClosingLostReasonCode } from "@/lib/types";
 import { scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
@@ -101,23 +101,6 @@ function withNoShowResolutionCleared(patch: ClosingCallPatch): ClosingCallPatch 
   return { ...patch, no_show_resolution: null };
 }
 
-/**
- * Ist die Absage dieser Zeile noch WIRKSAM?
- *
- * Bewusst als zweite kurze Kopie neben derselben Funktion in settingCalls.ts —
- * ein `"use server"`-Modul darf nur async Funktionen exportieren, ein geteilter
- * Helfer bräuchte also eine dritte Datei für zwei Zeilen (Muster
- * `withNoShowResolutionCleared` darüber).
- *
- * Der Punkt ist das PAAR: `cancelled_at` allein sagt nicht, ob die Absage noch
- * gilt — „Neuen Termin ansetzen" (actions/followUpStamp.ts) erklärt sie über
- * `revived_at` für überholt, und der Riegel hier nennt genau diesen Weg als den
- * richtigen. Ohne die zweite Spalte wies er ihn ausgerechnet selbst ab: Für ein
- * abgesagtes Closing war der Knopf damit einer, der ausnahmslos scheitert.
- */
-function absageWirktNoch(row: { cancelled_at: string | null; revived_at?: string | null } | null): boolean {
-  return Boolean(row?.cancelled_at) && !row?.revived_at;
-}
 
 // Nicht nur "RLS hat die Zeile durchgelassen": fuer einen Plattform-Admin
 // laesst RLS jede Zeile durch. Die aktive Organisation entscheidet.

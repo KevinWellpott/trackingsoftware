@@ -259,10 +259,23 @@ export async function markRecycleContacted(
  * Wartezeit zu kurz oder zu lang ist.
  */
 export async function markRecycleResponded(origin: RecycleOrigin, entityId: string): Promise<{ error?: string }> {
-  return updateRecycleRow(origin, entityId, {
+  const now = new Date().toISOString();
+  const res = await updateRecycleRow(origin, entityId, {
     next_recycle_at: null,
-    recycle_responded_at: new Date().toISOString(),
+    recycle_responded_at: now,
   });
+  if (res.error) return res;
+  // Wer sofort reagiert, hat nie einen Versuch eingetragen — ohne
+  // Kontaktzeitpunkt fiel er aus Zähler UND Nenner der Wiederbelebungsquote
+  // (Live-Test 26.11., P1-7). Nur setzen, wenn leer: ein echter früherer
+  // Versuch bleibt der Tag der Kohorte. Fail-soft — die Reaktion steht schon.
+  const supabase = await createClient();
+  await supabase
+    .from(TABLE_BY_ORIGIN[origin])
+    .update({ recycle_last_contacted_at: now })
+    .eq("id", entityId)
+    .is("recycle_last_contacted_at", null);
+  return {};
 }
 
 /**

@@ -283,21 +283,18 @@ export function fmtPct(v: number | null): string {
 }
 
 /**
- * Show-Quote eines Closing-Fensters: erschienen ÷ (alle Termine − abgesagte).
+ * Show-Quote Closing = erschienen ÷ Closings MIT erfasstem Ergebnis (erschienen
+ * oder nicht erschienen) — dieselbe Rechnung wie am Erstgespräch.
  *
- * Der Nenner bleibt bewusst die VOLLE Termin-Menge und nicht „Termine mit
- * erfasstem Ergebnis" (docs §5): `show_status` wird beim Eintragen eines
- * Ergebnisses abgeleitet, ein Nenner aus erfassten Feldern misst deshalb die
- * Erfassungsdisziplin statt des Ergebnisses.
- *
- * Genau EINE Menge kommt heraus: die abgesagten. Eine Absage lässt `status` und
- * `show_status` unangetastet (docs §3) — im vollen Nenner zählt sie damit als
- * Nicht-Erschienen, und die Quote sinkt mit jeder erfassten Absage, ohne dass
- * sich am Vertrieb etwas ändert. Ein abgesagter Termin ist kein „ohne Angabe",
- * er hat nachweislich nicht stattgefunden.
+ * Bis zum Live-Test (26.11., N10) stand hier „alle Termine außer den
+ * abgesagten" im Nenner, weil `show_status` am Closing aus dem Ergebnis
+ * abgeleitet wird (docs §4). In der Praxis wurde dort aber kein einziger
+ * No-Show erfasst: Die fehlenden Prozent waren Closings OHNE Eintrag, und die
+ * Quote maß die Erfassung statt des Erscheinens. Wie viele ohne Eintrag sind,
+ * nennt der Closing-Tab daneben.
  */
-export function closingShowRate(shows: number, closings: number, abgesagt: number): number | null {
-  return pct(shows, Math.max(closings - abgesagt, 0));
+export function closingShowRate(shows: number, noShows: number): number | null {
+  return pct(shows, shows + noShows);
 }
 
 /** Normalisiert einen Owner-Namen für case-insensitiven Abgleich. */

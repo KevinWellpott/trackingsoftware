@@ -196,7 +196,10 @@ export function monatsTage(kunden: readonly KundeFinanz[], monat: string): Monat
     for (const rate of k.raten) {
       if (rate.erlass === "storniert" || rate.faellig_am.slice(0, 7) !== monat) continue;
       const t = am(rate.faellig_am);
-      t.faellig = plus(t.faellig, rate.betrag);
+      // Eine abgeschriebene Rate kommt nicht mehr — sie steht in der Liste,
+      // aber nicht in „Fällig". So rechnet auch die Gesamtansicht (Live-Test
+      // 26.11., P3-5).
+      if (rate.erlass !== "abgeschrieben") t.faellig = plus(t.faellig, rate.betrag);
       t.raten.push({ kundeId, kunde, rate });
     }
     for (const zahlung of zahlungen) {

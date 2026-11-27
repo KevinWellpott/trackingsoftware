@@ -1,4 +1,6 @@
 import { berlinDateISO } from "@/lib/apptTime";
+import { berlinWindowIso } from "@/components/dashboard/periodWindow";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getTargets } from "@/app/actions/targets";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { addDaysISO, localDateISO } from "@/lib/dates";
@@ -6,33 +8,30 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveTarget } from "@/lib/targets";
 import { ownerColor } from "@/lib/ownerColor";
 import { dialOwnerKey, loadDialRows } from "@/lib/phoneAttemptsData";
-import { Calendar, Headphones, Phone, PhoneMissed, PhoneOff, Shield, UserCheck } from "lucide-react";
+import { Calendar, Headphones, Phone, PhoneMissed, PhoneOff, UserCheck } from "lucide-react";
 
-// Telefon-Dashboard (Server): Owner-Metriken der letzten 30 Tage aus
-// rpc_phone_owner_metrics + Wochenziel-Fortschritt (performance_targets).
+// Telefon-Dashboard (Server): Owner-Metriken der letzten 30 Tage + Wochenziel.
 //
-// „Anwahlen" kommen NICHT aus der RPC: deren `calls` zählt Erstkontakte
-// (jede Firma einmal), Rückrufe und Folgeanrufe fielen dort heraus. Gezählt
-// wird jede Zeile im Anruf-Log (`loadDialRows`, src/lib/phoneAttemptsData.ts).
+// Jede Zahl ist ein EREIGNIS im Zeitraum. Vorher kamen Entscheider, Termine,
+// Rückrufe und Dead aus rpc_phone_owner_metrics — dort ist nur `calls`
+// zeitgefiltert, der Rest sind Laufzeit-Summen. „Termine diese Woche" stand
+// so bei 82 statt 9 und das Wochenziel war dauerhaft „übertroffen"
+// (Live-Test 26.11., P1-2).
+//   · Anwahlen, Entscheider, Rückrufe, Dead: Anruf-Log (`loadDialRows`), eine
+//     Zeile = ein Wählversuch. Entscheider = Snapshot `decider_reached` oder
+//     Ergebnis Termin/Kein Termin (beides setzt ihn voraus, N5).
+//   · Termine: im Zeitraum GELEGTE Telefon-Termine (`setting_calls.created_at`,
+//     `source_type='telefon'`), Person = Zuweisung — dieselbe Definition wie
+//     „Termine gelegt" auf / und /team (Entscheidung E1).
+// Gatekeeper steht hier nicht mehr: Das Feld wird kaum gepflegt (N4).
 
 type OwnerMetrics = {
   owner_name: string;
   calls: number;
-  gatekeeper_reached: number;
   decider_reached: number;
   appointments: number;
   callbacks: number;
   dead: number;
-};
-
-type RawRow = {
-  owner_name: string | null;
-  calls: number | string | null;
-  gatekeeper_reached: number | string | null;
-  decider_reached: number | string | null;
-  appointments: number | string | null;
-  callbacks: number | string | null;
-  dead: number | string | null;
 };
 
 function weekStart(today: string): string {
@@ -43,16 +42,8 @@ function weekStart(today: string): string {
   return localDateISO(dt);
 }
 
-function coerce(rows: RawRow[] | null | undefined): OwnerMetrics[] {
-  return (rows ?? []).map((r) => ({
-    owner_name: r.owner_name ?? "Ohne Zuordnung",
-    calls: Number(r.calls ?? 0),
-    gatekeeper_reached: Number(r.gatekeeper_reached ?? 0),
-    decider_reached: Number(r.decider_reached ?? 0),
-    appointments: Number(r.appointments ?? 0),
-    callbacks: Number(r.callbacks ?? 0),
-    dead: Number(r.dead ?? 0),
-  }));
+function emptyMetrics(owner_name: string): OwnerMetrics {
+  return { owner_name, calls: 0, decider_reached: 0, appointments: 0, callbacks: 0, dead: 0 };
 }
 
 // Icons tragen keine Semantik mehr. Sechs verschieden eingefaerbte Icons in
@@ -144,46 +135,77 @@ export async function PhoneDashboard() {
   const from30 = addDaysISO(today, -29);
   const monday = weekStart(today);
   const effectiveUserId = access.effective_user_id ?? null;
+  const { startIso, endIso } = berlinWindowIso(from30, today);
 
-  const [res30, resWeek, targets, users, dials] = await Promise.all([
-    supabase.rpc("rpc_phone_owner_metrics", {
-      p_workspace_id: access.workspace_id,
-      p_from: from30,
-      p_to: today,
-      p_effective_user_id: effectiveUserId,
-    }),
-    supabase.rpc("rpc_phone_owner_metrics", {
-      p_workspace_id: access.workspace_id,
-      p_from: monday,
-      p_to: today,
-      p_effective_user_id: effectiveUserId,
-    }),
+  const [targets, users, dials, apptRes] = await Promise.all([
     getTargets(),
     listDataViewUsers(access.workspace_id),
-    loadDialRows(supabase, access.workspace_id, from30, today),
+    loadDialRows(
+      supabase,
+      access.workspace_id,
+      from30,
+      today,
+      effectiveUserId && access.effective_username
+        ? { username: access.effective_username, userId: effectiveUserId }
+        : undefined,
+    ),
+    // Gelegte Telefon-Termine (E1). Paginiert, weil 30 Tage eines großen
+    // Teams die 1.000er-Grenze von PostgREST erreichen können.
+    fetchAllRows((f, t) => {
+      let q = supabase
+        .from("setting_calls")
+        .select("id, created_at, assigned_user_id, created_by_user_id")
+        .eq("workspace_id", access.workspace_id)
+        .eq("source_type", "telefon")
+        .gte("created_at", startIso)
+        .lt("created_at", endIso);
+      if (effectiveUserId) {
+        q = q.or(
+          `assigned_user_id.eq.${effectiveUserId},and(assigned_user_id.is.null,created_by_user_id.eq.${effectiveUserId})`,
+        );
+      }
+      return q.order("id").range(f, t);
+    }).catch(() => []),
   ]);
 
-  const rows30 = coerce(res30.data as RawRow[] | null);
-  const rowsWeek = coerce(resWeek.data as RawRow[] | null);
-
-  // Anwahlen je Owner in die Zeilen der RPC einsetzen. Nur vorhandene Zeilen
-  // werden überschrieben — die RPC trägt bereits den Personenfilter der
-  // Datensicht, fremde Owner im Log bleiben damit außen vor.
-  if (dials.available) {
-    const usernameById = new Map(users.map((u) => [u.user_id, u.username]));
-    const dials30 = new Map<string, number>();
-    const dialsWeek = new Map<string, number>();
-    for (const d of dials.rows) {
-      const key = dialOwnerKey(d, usernameById);
-      if (!key) continue;
-      dials30.set(key, (dials30.get(key) ?? 0) + 1);
-      if (d.day >= monday) dialsWeek.set(key, (dialsWeek.get(key) ?? 0) + 1);
+  const usernameById = new Map(users.map((u) => [u.user_id, u.username]));
+  // Anzeigename je kleingeschriebenem Schlüssel — der Log trägt den Owner als
+  // Freitext-Snapshot, die Termine eine user_id.
+  const displayByKey = new Map(users.map((u) => [u.username.toLowerCase(), u.username]));
+  const rows30Map = new Map<string, OwnerMetrics>();
+  const weekMap = new Map<string, OwnerMetrics>();
+  const bucket = (map: Map<string, OwnerMetrics>, key: string): OwnerMetrics => {
+    let m = map.get(key);
+    if (!m) {
+      m = emptyMetrics(displayByKey.get(key) ?? key);
+      map.set(key, m);
     }
-    for (const r of rows30) r.calls = dials30.get(r.owner_name.toLowerCase()) ?? 0;
-    for (const r of rowsWeek) r.calls = dialsWeek.get(r.owner_name.toLowerCase()) ?? 0;
+    return m;
+  };
+
+  for (const d of dials.rows) {
+    const key = dialOwnerKey(d, usernameById);
+    if (!key) continue;
+    const targetsFor = d.day >= monday ? [bucket(rows30Map, key), bucket(weekMap, key)] : [bucket(rows30Map, key)];
+    for (const m of targetsFor) {
+      m.calls += 1;
+      if (d.decider_reached || d.outcome === "termin" || d.outcome === "kein_termin") m.decider_reached += 1;
+      if (d.outcome === "rueckruf") m.callbacks += 1;
+      if (d.outcome === "dead") m.dead += 1;
+    }
   }
+  for (const r of apptRes as { created_at: string; assigned_user_id: string | null; created_by_user_id: string | null }[]) {
+    const uid = r.assigned_user_id ?? r.created_by_user_id;
+    const name = uid ? usernameById.get(uid) : undefined;
+    if (!name) continue;
+    const key = name.toLowerCase();
+    bucket(rows30Map, key).appointments += 1;
+    if (berlinDateISO(r.created_at) >= monday) bucket(weekMap, key).appointments += 1;
+  }
+
+  const rows30 = [...rows30Map.values()].sort((a, b) => b.calls - a.calls);
   const weekByOwner: Record<string, OwnerMetrics> = {};
-  for (const r of rowsWeek) weekByOwner[r.owner_name] = r;
+  for (const r of weekMap.values()) weekByOwner[r.owner_name] = r;
 
   const userIdByName: Record<string, string> = {};
   for (const u of users) userIdByName[u.username] = u.user_id;
@@ -191,13 +213,12 @@ export async function PhoneDashboard() {
   const totals = rows30.reduce(
     (acc, r) => ({
       calls: acc.calls + r.calls,
-      gatekeeper_reached: acc.gatekeeper_reached + r.gatekeeper_reached,
       decider_reached: acc.decider_reached + r.decider_reached,
       appointments: acc.appointments + r.appointments,
       callbacks: acc.callbacks + r.callbacks,
       dead: acc.dead + r.dead,
     }),
-    { calls: 0, gatekeeper_reached: 0, decider_reached: 0, appointments: 0, callbacks: 0, dead: 0 },
+    { calls: 0, decider_reached: 0, appointments: 0, callbacks: 0, dead: 0 },
   );
 
   const maxCalls = Math.max(1, ...rows30.map((r) => r.calls));
@@ -239,15 +260,14 @@ export async function PhoneDashboard() {
           {/* Global total strip */}
           <div
             className="grid-6-stat"
-            style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", borderBottom: "1px solid var(--border-default)" }}
+            style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", borderBottom: "1px solid var(--border-default)" }}
           >
             {/* Die Kennzahl-Zeile bleibt farblich ruhig: nur das Icon traegt
                 den Kanal-/Semantikton, die Zahl bleibt --text-primary. */}
             {[
               { label: "Anwahlen", value: totals.calls, icon: <Phone size={12} /> },
-              { label: "Gatekeeper", value: totals.gatekeeper_reached, icon: <Shield size={12} /> },
               { label: "Entscheider", value: totals.decider_reached, icon: <UserCheck size={12} /> },
-              { label: "Termine", value: totals.appointments, icon: <Calendar size={12} /> },
+              { label: "Termine gelegt", value: totals.appointments, icon: <Calendar size={12} /> },
               { label: "Rückrufe", value: totals.callbacks, icon: <PhoneMissed size={12} /> },
               { label: "Dead", value: totals.dead, icon: <PhoneOff size={12} /> },
             ].map((s) => (
@@ -309,18 +329,17 @@ export async function PhoneDashboard() {
                     <span style={{ fontWeight: 500, fontSize: "var(--fs-base)", color: "var(--text-primary)" }}>{r.owner_name}</span>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)", marginBottom: "var(--sp-7)" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "var(--sp-6)", marginBottom: "var(--sp-7)" }}>
                     <MiniStat icon={<Phone size={12} />} label="Anwahlen" value={r.calls} />
-                    <MiniStat icon={<Shield size={12} />} label="Gatekeeper" value={r.gatekeeper_reached} />
                     <MiniStat icon={<UserCheck size={12} />} label="Entscheider" value={r.decider_reached} />
-                    <MiniStat icon={<Calendar size={12} />} label="Termine" value={r.appointments} />
+                    <MiniStat icon={<Calendar size={12} />} label="Termine gelegt" value={r.appointments} />
                     <MiniStat icon={<PhoneMissed size={12} />} label="Rückrufe" value={r.callbacks} />
                     <MiniStat icon={<PhoneOff size={12} />} label="Dead" value={r.dead} />
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
                     <GoalBar label="Anwahlen diese Woche" value={week?.calls ?? 0} target={callsTarget} />
-                    <GoalBar label="Termine diese Woche" value={week?.appointments ?? 0} target={apptTarget} />
+                    <GoalBar label="Termine gelegt diese Woche" value={week?.appointments ?? 0} target={apptTarget} />
                   </div>
                 </div>
               );

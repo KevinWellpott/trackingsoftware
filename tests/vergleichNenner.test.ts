@@ -29,23 +29,13 @@ const FACTS = readFileSync(fileURLToPath(new URL("../src/lib/compare/facts.ts", 
 );
 
 describe("Show-Quote Closing — derselbe Nenner wie im Closing-Tab", () => {
-  test("die abgesagten Termine stehen nicht mehr im Nenner", () => {
-    // Der Tab rechnet `closingShowRate(shows, closings, abgesagt)`, also gegen
-    // alle Termine MINUS die abgesagten. Die Registry kann nur zählen und
-    // teilen, nicht subtrahieren — deshalb die eigene Messgröße.
+  test("Nenner sind die Closings mit erfasstem Ergebnis (Live-Test, N10)", () => {
+    // Der Tab rechnet `closingShowRate(shows, noShows)`. Die Registry braucht
+    // dafür eine eigene Messgröße, weil sie nur zählen und teilen kann.
     const m = metricOf("closing_showquote");
     assert.ok(m, "closing_showquote fehlt in der Registry");
     assert.equal(m.num, "closing_shows");
-    assert.equal(m.den, "closing_not_cancelled");
-  });
-
-  test("der Nenner ist trotzdem die volle Termin-Menge, nicht „mit Ergebnis“", () => {
-    // Es gibt bewusst KEIN `closing_decided`: `show_status` wird beim
-    // Eintragen eines Ergebnisses abgeleitet (docs §4), ein Nenner aus
-    // erfassten Feldern misst dort die Erfassungsdisziplin statt des
-    // Ergebnisses. Genau eine Menge kommt heraus — die abgesagten.
-    const keys = new Set(METRICS.flatMap((m) => [m.num, m.den].filter(Boolean)));
-    assert.ok(!keys.has("closing_decided" as never));
+    assert.equal(m.den, "closing_decided");
   });
 
   test("die Absagequote behält dagegen ALLE Closingtermine im Nenner", () => {
@@ -63,7 +53,15 @@ describe("Show-Quote Closing — derselbe Nenner wie im Closing-Tab", () => {
     // eine stumme Division durch 0 — das Diagramm bliebe leer und riete
     // „Zeitraum vergrößern".
     assert.deepEqual(metricSources(metricOf("closing_showquote")!), ["closing"]);
-    assert.match(FACTS, /closing_not_cancelled: r\.cancelled_at \? 0 : 1,/);
+    assert.match(FACTS, /closing_decided: r\.show_status === "show" \|\| r\.show_status === "no_show" \? 1 : 0,/);
     assert.match(FACTS, /closing_cancelled: r\.cancelled_at \? 1 : 0,/);
+  });
+});
+
+describe("Gatekeeper ist keine Kennzahl mehr (Live-Test 26.11., N4)", () => {
+  test("die Registry bietet keine Gatekeeper-Messgröße an", () => {
+    // Bei 13 von 1.708 Anwahlen erfasst lieferte jede Quote darauf Unsinn
+    // (bis 710 %). Ein alter Link mit `s=gatekeeper` fällt still weg.
+    assert.ok(!METRICS.some((m) => m.num === "gatekeeper" || m.den === "gatekeeper"));
   });
 });

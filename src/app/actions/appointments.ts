@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, ownScopeFilter, type AccessContext } from "@/lib/access";
-import { berlinInputToIso } from "@/lib/apptTime";
+import { berlinDateISO, berlinInputToIso } from "@/lib/apptTime";
 import { SELECTABLE_CHANNELS, type SelectableChannelKey } from "@/lib/channels";
 import { ownerUserIdOfList } from "@/lib/personResolution";
 import { logCallAttempt } from "@/app/actions/phoneAttempts";
@@ -366,7 +366,7 @@ export async function convertPhoneLeadToSetting(input: {
   const supabase = await createClient();
   const { data: lead } = await supabase
     .from("phone_leads")
-    .select("id, list_id, status, decider_name, company, phone, decider_direct_dial")
+    .select("id, list_id, status, decider_name, company, phone, decider_direct_dial, first_call_at")
     .eq("id", input.phoneLeadId)
     .maybeSingle();
   if (!lead) return { error: "Lead nicht gefunden." };
@@ -455,7 +455,21 @@ export async function convertPhoneLeadToSetting(input: {
 
   const { error: upErr } = await supabase
     .from("phone_leads")
-    .update({ status: "termin", appointment_set: true, appointment_at: appointmentAt, meet_link: meetLink })
+    .update({
+      status: "termin",
+      appointment_set: true,
+      appointment_at: appointmentAt,
+      meet_link: meetLink,
+      // Ein Termin setzt ein Gespräch mit dem Entscheider voraus (N5).
+      decider_reached: true,
+      // Ein Termin beim ERSTEN Anruf ist auch ein Erstkontakt. Nur
+      // setPhoneLeadOutcome setzte das Datum; der Termin-Knopf lief hier
+      // vorbei, der Lead fehlte im Nenner jeder Telefon-Quote und sein Termin
+      // landete im Importmonat (Live-Test 26.11., P1-1: 291 von 368).
+      ...((lead as { first_call_at?: string | null }).first_call_at
+        ? {}
+        : { first_call_at: berlinDateISO(new Date().toISOString()) }),
+    })
     .eq("id", input.phoneLeadId);
   if (upErr) return { error: upErr.message };
 

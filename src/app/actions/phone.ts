@@ -380,6 +380,11 @@ export async function setPhoneLeadOutcome(input: {
 
   const patch: Record<string, unknown> = { status: newStatus };
   if (!(lead as { first_call_at?: string | null }).first_call_at) patch.first_call_at = todayLocal();
+  // „Kein Termin" setzt ein Gespräch mit dem Entscheider voraus — das Feld
+  // wurde im Call-Modus kaum gepflegt (Kevin: 0 von 371 Anwahlen), die
+  // Entscheider-Quote sagte deshalb nichts. Das Ergebnis beweist es
+  // (Live-Test 26.11., N5). Gleiches gilt für „Termin" (convertPhoneLeadToSetting).
+  if (newStatus === "kein_termin") patch.decider_reached = true;
 
   if (newStatus === "rueckruf") {
     patch.callback_at = berlinInputToIso(input.callbackAt);

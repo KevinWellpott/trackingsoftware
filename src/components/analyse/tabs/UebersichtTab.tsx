@@ -2,8 +2,10 @@ import type { CSSProperties, ReactNode } from "react";
 import { LineChart, Scale, Users } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
+import { rpcAll } from "@/lib/supabase/fetchAll";
 import { loadClosingCalls, loadRecycleData, loadSettingCalls, type AnalyseSettingCall } from "@/lib/analyseData";
-import { gespraechsPersonOf } from "@/lib/personResolution";
+import { gespraechsPersonOf, personOf } from "@/lib/personResolution";
+import { berlinDateISO } from "@/lib/apptTime";
 import {
   CHANNELS, CHANNEL_NO_VOLUME, channelVolumeLabel, hasVolume,
   type Channel, type ChannelKey,
@@ -267,7 +269,7 @@ const METRICS: MatrixMetric[] = [
     unitOf: (c) => channelVolumeLabel(c.key),
     noTotal: true,
   },
-  { key: "termine", label: "Settingtermine", fmt: "int", of: (s) => s.termine },
+  { key: "termine", label: "Settingtermine (stattgefunden)", fmt: "int", of: (s) => s.termine },
   {
     key: "show",
     label: "Show-Quote",
@@ -501,12 +503,18 @@ function ChannelMatrix({
 type Person = {
   dms: number;
   calls: number;
+  /**
+   * Termine GELEGT im Zeitraum — Stichtag Buchung, Person = wer gelegt hat
+   * (`personOf`), dieselbe Definition wie die Kachel „Termine gelegt".
+   */
+  gelegt: number;
+  /** Termine GEFÜHRT, die im Zeitraum stattfinden — Person = „Durchgeführt von". */
   termine: number;
   won: number;
   revenue: number;
 };
 
-const ZERO_PERSON = (): Person => ({ dms: 0, calls: 0, termine: 0, won: 0, revenue: 0 });
+const ZERO_PERSON = (): Person => ({ dms: 0, calls: 0, gelegt: 0, termine: 0, won: 0, revenue: 0 });
 
 export async function UebersichtTab({
   access,
@@ -541,10 +549,10 @@ export async function UebersichtTab({
   const rpcArgs = { p_workspace_id: access.workspace_id, p_effective_user_id: eff };
 
   const [liRes, liPrevRes, phRes, phPrevRes, settings, closings, recycle] = await Promise.all([
-    supabase.rpc("rpc_owner_day_metrics", { ...rpcArgs, p_from: from, p_to: to }),
-    supabase.rpc("rpc_owner_day_metrics", { ...rpcArgs, p_from: prevFrom, p_to: prevTo }),
-    supabase.rpc("rpc_phone_day_metrics", { ...rpcArgs, p_from: from, p_to: to }),
-    supabase.rpc("rpc_phone_day_metrics", { ...rpcArgs, p_from: prevFrom, p_to: prevTo }),
+    rpcAll(supabase, "rpc_owner_day_metrics", { ...rpcArgs, p_from: from, p_to: to }),
+    rpcAll(supabase, "rpc_owner_day_metrics", { ...rpcArgs, p_from: prevFrom, p_to: prevTo }),
+    rpcAll(supabase, "rpc_phone_day_metrics", { ...rpcArgs, p_from: from, p_to: to }),
+    rpcAll(supabase, "rpc_phone_day_metrics", { ...rpcArgs, p_from: prevFrom, p_to: prevTo }),
     loadSettingCalls(supabase, access, canCompare),
     loadClosingCalls(supabase, access, canCompare),
     // Vierter Datenstrom des Tabs: die Recycling-Zeilen aller vier Ursprünge.
@@ -652,6 +660,17 @@ export async function UebersichtTab({
     settingChannel.set(r.id, ck);
 
     const day = settingEffDate(r);
+
+    // Gelegt: eigener Stichtag (Buchung) und eigene Person (wer gelegt hat).
+    // Ohne diese Spalte stand eine Setterin, deren Termine ein Kollege führt,
+    // mit 0 Terminen bei 317 DMs in der Tabelle (Live-Test 26.11., N11).
+    const gelegtTag = berlinDateISO(r.created_at);
+    if (gelegtTag >= from && gelegtTag <= to) {
+      const gUid = personOf(r);
+      const gName = gUid ? nameById.get(gUid) : undefined;
+      if (gName || allSelected) ensure(gName ?? OHNE).gelegt += 1;
+    }
+
     // `nameById` kennt nur die ausgewählten Mitglieder — kein Treffer heißt
     // also "abgewählt" oder "nicht mehr in der Organisation".
     const uid = gespraechsPersonOf(r);
@@ -733,7 +752,7 @@ export async function UebersichtTab({
   const ohne = people.get(OHNE);
   // Die Prüfung nennt genau die Spalten, die die Tabelle zeigt: Eine Zeile
   // „Ohne Zuordnung" mit fünf Nullen wäre eine Zeile über nichts.
-  if (ohne && (ohne.dms > 0 || ohne.calls > 0 || ohne.termine > 0 || ohne.won > 0 || ohne.revenue > 0)) {
+  if (ohne && (ohne.dms > 0 || ohne.calls > 0 || ohne.gelegt > 0 || ohne.termine > 0 || ohne.won > 0 || ohne.revenue > 0)) {
     names.push(OHNE);
   }
 
@@ -741,17 +760,18 @@ export async function UebersichtTab({
     const p = people.get(name) ?? ZERO_PERSON();
     return {
       name,
-      values: { dms: p.dms, calls: p.calls, termine: p.termine, won: p.won, revenue: p.revenue },
+      values: { dms: p.dms, calls: p.calls, gelegt: p.gelegt, termine: p.termine, won: p.won, revenue: p.revenue },
     };
   });
 
   // Fußzeile der Personen-Tabelle: die Summe über die gezeigten Zeilen, nicht
   // die Kanal-Gesamtsumme — sonst stünde dort mehr, als in der Tabelle steht.
-  const personTotal = { dms: 0, calls: 0, termine: 0, won: 0, revenue: 0 };
+  const personTotal = { dms: 0, calls: 0, gelegt: 0, termine: 0, won: 0, revenue: 0 };
   for (const name of names) {
     const p = people.get(name) ?? ZERO_PERSON();
     personTotal.dms += p.dms;
     personTotal.calls += p.calls;
+    personTotal.gelegt += p.gelegt;
     personTotal.termine += p.termine;
     personTotal.won += p.won;
     personTotal.revenue += p.revenue;
@@ -868,12 +888,14 @@ export async function UebersichtTab({
             info={
               <InfoBody>
                 <span>
-                  DMs und Erstkontakte hängen am Besitzer der Liste, Termine und Abschlüsse an der Zuweisung des
-                  Termins.
+                  DMs und Erstkontakte hängen am Besitzer der Liste. <B>Termine gelegt</B> zählt, wer den Termin im
+                  Zeitraum gebucht hat (wie die Kachel &bdquo;Termine gelegt&ldquo;). <B>Termine geführt</B>,
+                  Gewonnen und Umsatz zählen bei der Person, die das Gespräch geführt hat (&bdquo;Durchgeführt
+                  von&ldquo;, sonst die Zuweisung), und zwar für Termine, die im Zeitraum stattfinden.
                 </span>
                 <span>
-                  Wer den Datensatz angelegt hat, zählt nur, solange keine Zuweisung gesetzt ist — ein Termin, den
-                  jemand für eine Kollegin bucht, zählt bei ihr.
+                  Beide Termin-Spalten können deshalb verschieden sein: Wer Termine legt, die ein Kollege führt, hat
+                  viele gelegte und wenige geführte.
                 </span>
                 <span>
                   Fünf Spalten mit Absicht: zwei für den Einsatz, eine für das gemeinsame Ergebnis beider Kanäle, zwei
@@ -888,7 +910,8 @@ export async function UebersichtTab({
               columns={[
                 { key: "dms", label: "DMs", format: "int" },
                 { key: "calls", label: "Erstkontakte", format: "int" },
-                { key: "termine", label: "Termine", format: "int" },
+                { key: "gelegt", label: "Termine gelegt", format: "int" },
+                { key: "termine", label: "Termine geführt", format: "int" },
                 { key: "won", label: "Gewonnen", format: "int" },
                 { key: "revenue", label: "Umsatz", format: "eur" },
               ]}

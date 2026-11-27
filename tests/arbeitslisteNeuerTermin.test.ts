@@ -113,8 +113,11 @@ describe("1 · „Neuer Termin\" hinterlässt keinen halben Zustand", () => {
     }
     // Und die Frage steht je Datei an EINER Stelle, statt dreimal formuliert
     // zu werden.
-    assert.match(SETTING_CALLS, /function absageWirktNoch\(/);
-    assert.match(CLOSING_CALLS, /function absageWirktNoch\(/);
+    // Seit dem Live-Test (P1-3) steht sie EINMAL für alle: in terminMeta.ts.
+    assert.match(SETTING_CALLS, /import \{[^}]*absageWirktNoch[^}]*\} from "@\/lib\/terminMeta"/);
+    assert.match(CLOSING_CALLS, /import \{[^}]*absageWirktNoch[^}]*\} from "@\/lib\/terminMeta"/);
+    assert.doesNotMatch(SETTING_CALLS, /function absageWirktNoch\(/);
+    assert.doesNotMatch(CLOSING_CALLS, /function absageWirktNoch\(/);
   });
 });
 

@@ -168,13 +168,13 @@ describe("Gegenprobe — was NICHT fallen durfte", () => {
     // Rückbau, der sie mitnimmt, hat zu viel herausgerissen.
     assert.match(SETTING_TAB, /const showRate = pct\(sum\.shows, sum\.shows \+ sum\.noShows\);/);
     assert.match(SETTING_TAB, /const qualiRate = pct\(sum\.quali, sum\.shows\);/);
-    assert.match(CLOSING_TAB, /closingShowRate\(sum\.shows, sum\.closings, sum\.abgesagt\)/);
+    assert.match(CLOSING_TAB, /closingShowRate\(sum\.shows, sum\.noShows\)/);
   });
 
   test("Trichter und Absagequote stehen weiter im Funnel-Tab", () => {
     // Der einzige Termin-Trichter des Bereichs und die einzige Stelle mit einer
     // Absagequote (docs §5.1).
-    assert.match(FUNNEL_TAB, /if \(r\.cancelled_at\) continue;/);
+    assert.match(FUNNEL_TAB, /if \(r\.absage_wirkt\) continue;/);
     assert.match(FUNNEL_TAB, /Absagen/);
   });
 });

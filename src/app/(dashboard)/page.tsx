@@ -2,6 +2,7 @@ import { berlinDateISO } from "@/lib/apptTime";
 import Link from "next/link";
 import { ArrowRight, CalendarCheck, CalendarPlus, MessageSquare, Phone, Target, TrendingUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { rpcAll } from "@/lib/supabase/fetchAll";
 import { getAccessContext } from "@/lib/access";
 import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 import { getTargets } from "@/app/actions/targets";
@@ -182,6 +183,15 @@ export default async function DashboardPage({
   // jemand anderes FÜR diese Person angelegt hat.
   const personFilter =
     `assigned_user_id.eq.${scopeUserId},and(assigned_user_id.is.null,created_by_user_id.eq.${scopeUserId})`;
+  // Closings zählen bei der Person, die das Gespräch GEFÜHRT hat — die
+  // PostgREST-Entsprechung von gespraechsPersonOf() (personResolution.ts):
+  // „Durchgeführt von", sonst die Zuweisung, sonst der Ersteller. So rechnen
+  // auch /team und der Closing-Tab; mit dem reinen personFilter landete jedes
+  // Closing bei der festen Closing-Person (Live-Test 26.11., P1-5).
+  const gespraechsFilter =
+    `conducted_by_user_id.eq.${scopeUserId},` +
+    `and(conducted_by_user_id.is.null,assigned_user_id.eq.${scopeUserId}),` +
+    `and(conducted_by_user_id.is.null,assigned_user_id.is.null,created_by_user_id.eq.${scopeUserId})`;
 
   // Setting-Kopfzahlen: Stichtag ist `created_at` = „gelegt", identisch zur
   // Definition von rpc_appointments_booked. Ein anderer Stichtag hier würde
@@ -195,10 +205,14 @@ export default async function DashboardPage({
       .gte("created_at", periodFromIso)
       .lt("created_at", periodToIso);
     if (status) q = q.eq("status", status);
+    // „offen" heißt hier: Termin ohne Ergebnis. Eine wirksame Absage lässt
+    // den Status unangetastet (docs §3) und ist trotzdem kein offener Termin
+    // (Live-Test 26.11., P2-4). Neu terminiert (`revived_at`) zählt wieder.
+    if (status === "offen") q = q.or("cancelled_at.is.null,revived_at.not.is.null");
     return q;
   };
 
-  const phonePeriodPromise = supabase.rpc("rpc_phone_day_metrics", {
+  const phonePeriodPromise = rpcAll(supabase, "rpc_phone_day_metrics", {
     p_workspace_id: access.workspace_id,
     p_from: periodFrom,
     p_to: today,
@@ -213,12 +227,13 @@ export default async function DashboardPage({
     phonePeriodRes,
     phoneWeekRes,
     settingOpenRes,
+    phoneBookedRes,
     closingRes,
     navCounts,
     dials,
   ] = await Promise.all([
     getTargets(),
-    supabase.rpc("rpc_owner_day_metrics", {
+    rpcAll(supabase, "rpc_owner_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: windowFrom,
       p_to: today,
@@ -238,13 +253,23 @@ export default async function DashboardPage({
     phonePeriodPromise,
     period === "w"
       ? phonePeriodPromise
-      : supabase.rpc("rpc_phone_day_metrics", {
+      : rpcAll(supabase, "rpc_phone_day_metrics", {
           p_workspace_id: access.workspace_id,
           p_from: monday,
           p_to: today,
           p_effective_user_id: scopeUserId,
         }),
     settingCount("offen"),
+    // Gelegte TELEFON-Termine (Entscheidung E1, Live-Test N12) — dieselbe
+    // Zahl wie auf /telefon, nicht die Erstkontakt-Kohorte der RPC.
+    supabase
+      .from("setting_calls")
+      .select("*", { count: "exact", head: true })
+      .eq("workspace_id", access.workspace_id)
+      .eq("source_type", "telefon")
+      .or(personFilter)
+      .gte("created_at", periodFromIso)
+      .lt("created_at", periodToIso),
     // Closing + Umsatz aus EINER Zeilenmenge, damit „Gewonnen" und „€" nie
     // auseinanderlaufen. Stichtag = Closing-Termin mit Fallback auf die
     // Anlage — exakt closingEffDate() aus src/lib/analyse.ts, damit Dashboard
@@ -253,7 +278,7 @@ export default async function DashboardPage({
       .from("closing_calls")
       .select("status, deal_volume")
       .eq("workspace_id", access.workspace_id)
-      .or(personFilter)
+      .or(gespraechsFilter)
       .or(
         `and(call_at.gte.${periodFromIso},call_at.lt.${periodToIso}),` +
         `and(call_at.is.null,created_at.gte.${periodFromIso},created_at.lt.${periodToIso})`,
@@ -334,6 +359,14 @@ export default async function DashboardPage({
     ? dials.rows.filter((r) => r.day >= periodFrom).length
     : phonePeriod.calls;
   const weekDials = dials.available ? dials.rows.filter((r) => r.day >= monday).length : phoneWeek.calls;
+  // Entscheider = Anwahlen mit Entscheider am Apparat; Termin und „Kein
+  // Termin" setzen ihn voraus (N5). Ohne Log bleibt die Kohortenzahl der RPC.
+  const periodDecider = dials.available
+    ? dials.rows.filter(
+        (r) => r.day >= periodFrom && (r.decider_reached || r.outcome === "termin" || r.outcome === "kein_termin"),
+      ).length
+    : phonePeriod.decider;
+  const phoneBooked = phoneBookedRes.count ?? 0;
 
   // ── Setting / Closing / Umsatz — alle drei jetzt zeitraumgefiltert
   const settingOpen = settingOpenRes.count ?? 0;
@@ -502,8 +535,8 @@ export default async function DashboardPage({
           <div className="grid-3-stat" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--sp-6)" }}>
             {[
               { label: "Anwahlen", value: periodDials },
-              { label: "Entscheider erreicht", value: phonePeriod.decider },
-              { label: "Termine gesetzt", value: phonePeriod.appointments },
+              { label: "Entscheider erreicht", value: periodDecider },
+              { label: "Termine gelegt", value: phoneBooked },
             ].map((s) => (
               <div key={s.label} style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
                 <div

@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  Calendar, CalendarCheck, CalendarClock, CalendarRange, CalendarX, DoorOpen, FileText, Filter,
-  Inbox, MessageSquare, MessageSquareOff, Phone, PhoneCall, PhoneForwarded, PhoneOff, Repeat,
-  Target, UserCheck, Users, Voicemail, XCircle,
+  Calendar, CalendarCheck, CalendarClock, FileText, Filter,
+  Inbox, Phone, PhoneCall, PhoneForwarded, Repeat,
+  Target, UserCheck, Users,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
+import { rpcAll } from "@/lib/supabase/fetchAll";
 import { loadPhoneLeads, phoneLeadDay, type AnalysePhoneLead } from "@/lib/analyseData";
 import {
   CALL_KIND_LABELS,
@@ -23,10 +24,13 @@ import { FunnelStrip } from "@/components/analyse/FunnelStrip";
 import {
   Footnote, MetricTable, type MetricColumn, type MetricRow,
 } from "@/components/analyse/AnalyseTables";
-import { DistBars, KpiHero, QuoteColumns } from "@/components/analyse/AnalyseViz";
+import { KpiHero, QuoteColumns } from "@/components/analyse/AnalyseViz";
 
-// Telefon-Flow: Anwahlen → Erstkontakte → Gatekeeper → Entscheider → Pitch →
-// Termine. Quellen: rpc_phone_day_metrics (benötigt Migration 0013), das
+// Telefon-Flow: Anwahlen → Erstkontakte → Entscheider → Termine.
+// Gatekeeper, Pitch, Mailbox und die Abbruch-Gründe stehen hier nicht mehr:
+// Seit dem Call-Modus-Umbau (22.09.) werden sie nicht oder kaum erfasst, ihre
+// Quoten lasen sich wie Ergebnisse (bis 710 %), Entscheidungen E2/N4 vom
+// 26.11. Der Entscheider wird seither aus dem Ergebnis abgeleitet (N5). Quellen: rpc_phone_day_metrics (benötigt Migration 0013), das
 // Anruf-Log aus Migration 0028 und die Lead-Ebene, plus Vorperioden-Deltas.
 //
 // Drei Zählebenen, die nicht verwechselt werden dürfen — und die deshalb je
@@ -46,9 +50,9 @@ import { DistBars, KpiHero, QuoteColumns } from "@/components/analyse/AnalyseViz
 //
 // RPC- und Lead-Ebene beschreiben dieselbe KOHORTE: Beide schneiden auf
 // `coalesce(first_call_at, created_at::date) between from and to` zu (SQL:
-// rpc_phone_day_metrics, JS: phoneLeadDay). Nur deshalb dürfen Zähler von der
-// Lead-Ebene (Mailbox, Pitch) über einen Nenner von der RPC-Ebene
-// (Erstkontakte) gerechnet werden.
+// rpc_phone_day_metrics, JS: phoneLeadDay). Die Lead-Ebene zählt dabei nur
+// ANGERUFENE Leads (`first_call_at` gesetzt) — nie angerufene Importzeilen
+// standen sonst zu Tausenden unter „Ohne Angabe" (Live-Test 26.11., P2-1).
 
 type Member = { user_id: string; username: string };
 
@@ -64,29 +68,32 @@ type PhoneDayRow = {
 };
 
 /**
- * Kennzahlen einer Person im Zeitraum.
- *
- * `calls`–`dead` kommen aus der RPC, `pitch` und `mailbox` von der Lead-Ebene
- * (die RPC kennt beide Spalten nicht). Beide Quellen zählen dieselbe Kohorte —
- * siehe Kopfkommentar.
+ * Kennzahlen einer Person im Zeitraum, alle aus der RPC.
  *
  * `calls` heißt so, weil die RPC-Spalte so heißt; in der UI ist das
  * durchgehend „Erstkontakte" (Firmen mit erstem Anruf), NIE „Anwahlen".
  */
 type Totals = {
   calls: number;
-  gatekeeper: number;
   decider: number;
-  pitch: number;
   appts: number;
   callbacks: number;
   dead: number;
-  mailbox: number;
 };
 
-const ZERO = (): Totals => ({
-  calls: 0, gatekeeper: 0, decider: 0, pitch: 0, appts: 0, callbacks: 0, dead: 0, mailbox: 0,
-});
+const ZERO = (): Totals => ({ calls: 0, decider: 0, appts: 0, callbacks: 0, dead: 0 });
+
+/**
+ * Untergrenze für den Nenner einer angezeigten Quote (Live-Test 26.11., N13).
+ * Darunter oder bei Zähler > Nenner steht „—": 3 von 5 sind keine 60 %, und
+ * eine Quote über 100 % ist immer ein Erfassungsfehler, nie ein Ergebnis.
+ */
+const MIN_QUOTE_BASE = 20;
+
+function quote(num: number, den: number): number | null {
+  if (den < MIN_QUOTE_BASE || num > den) return null;
+  return pct(num, den);
+}
 const OHNE = "Ohne Zuordnung";
 const INT_FMT = new Intl.NumberFormat("de-DE");
 
@@ -113,13 +120,6 @@ function shortDay(iso: string): string {
   return `${d}.${m}.`;
 }
 
-const GATEKEEPER_LABELS: Record<string, string> = {
-  direkt: "Direkt zum Entscheider",
-  ja: "Gatekeeper durchgestellt",
-  nein: "Gatekeeper blockte",
-  ohne: "Ohne Angabe",
-};
-
 /** Prozentuale Veränderung vs. Vorperiode; Vorwert 0 → null (kein Delta). */
 function deltaPct(cur: number, prev: number): number | null {
   if (prev === 0) return null;
@@ -130,33 +130,6 @@ function deltaPct(cur: number, prev: number): number | null {
 function deltaPP(cur: number | null, prev: number | null): number | null {
   if (cur === null || prev === null) return null;
   return cur - prev;
-}
-
-/**
- * „Am Gatekeeper vorbei" — durchgestellt ODER direkt beim Entscheider gelandet.
- * Exakt die Definition aus `rpc_phone_day_metrics`
- * (`gatekeeper_reached in ('ja','direkt')`); hier für die Lead-Ebene gespiegelt,
- * damit A/B-Sektion und KPI-Reihe nicht auseinanderlaufen.
- */
-function passedGatekeeper(l: AnalysePhoneLead): boolean {
-  return l.gatekeeper_reached === "ja" || l.gatekeeper_reached === "direkt";
-}
-
-/**
- * Freitext-Gründe zu DistBars-Items: trimmen, leere überspringen,
- * case-insensitiv deduplizieren (erste Schreibweise gewinnt), absteigend sortiert.
- */
-function reasonItems(rows: AnalysePhoneLead[], field: keyof AnalysePhoneLead): { label: string; value: number }[] {
-  const counts = new Map<string, { label: string; value: number }>();
-  for (const r of rows) {
-    const trimmed = ((r[field] as string | null) ?? "").trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    const entry = counts.get(key);
-    if (entry) entry.value += 1;
-    else counts.set(key, { label: trimmed, value: 1 });
-  }
-  return [...counts.values()].sort((a, b) => b.value - a.value);
 }
 
 /** Stagger-Wrapper für Sektionen (KpiHero animiert sich selbst). */
@@ -304,44 +277,6 @@ function TableEmpty({ text, hint }: { text: string; hint?: string }) {
   );
 }
 
-/**
- * Eine Abbruch-Stufe als Spalte („Nicht durchgestellt", „Kein Pitch", …).
- *
- * Die drei Stufen standen bis zum Umbau in drei eigenen Karten — drei Deckel,
- * drei Klicks für EINE Frage in drei Etappen. Nebeneinander kostet dieselbe
- * Fläche und beantwortet sie in einem Blick.
- */
-function ReasonColumn({
-  title,
-  icon: Icon,
-  items,
-}: {
-  title: string;
-  icon: LucideIcon;
-  items: { label: string; value: number }[];
-}) {
-  const total = items.reduce((s, it) => s + it.value, 0);
-  return (
-    <div style={{ display: "grid", gap: "var(--sp-5)", alignContent: "start", minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
-        <Icon size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} aria-hidden />
-        <span className="eyebrow eyebrow-muted">{title}</span>
-        <span
-          style={{
-            marginLeft: "auto",
-            fontSize: "var(--fs-xs)",
-            color: "var(--text-subtle)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {INT_FMT.format(total)}
-        </span>
-      </div>
-      <DistBars items={items} max={8} />
-    </div>
-  );
-}
-
 type LeadCell = { n: number; decider: number; appts: number; dead: number };
 const ZERO_LEAD = (): LeadCell => ({ n: 0, decider: 0, appts: 0, dead: 0 });
 
@@ -351,7 +286,7 @@ const ZERO_LEAD = (): LeadCell => ({ n: 0, decider: 0, appts: 0, dead: 0 });
 // Gruppierung und eine gemeinsame Tabelle — sonst driften die Definitionen
 // auseinander, sobald eine der beiden angefasst wird.
 
-type AbCell = { key: string; label: string; calls: number; gatekeeper: number; decider: number; appts: number };
+type AbCell = { key: string; label: string; calls: number; decider: number; appts: number };
 
 /**
  * Leads nach einer Freitext-Achse gruppieren.
@@ -380,13 +315,12 @@ function groupLeads(
     const key = label.toLowerCase();
     let cell = map.get(key);
     if (!cell) {
-      cell = { key, label, calls: 0, gatekeeper: 0, decider: 0, appts: 0 };
+      cell = { key, label, calls: 0, decider: 0, appts: 0 };
       map.set(key, cell);
     }
     // `calls` wie in der RPC: nur Leads mit echtem Erstkontakt. Nie angerufene
     // Leads blähen sonst den Nenner auf und drücken jede Quote des Arms.
     if (l.first_call_at) cell.calls += 1;
-    if (passedGatekeeper(l)) cell.gatekeeper += 1;
     if (l.decider_reached === true) cell.decider += 1;
     if (l.appointment_set === true) cell.appts += 1;
   }
@@ -395,7 +329,6 @@ function groupLeads(
 
 const AB_COLUMNS: MetricColumn[] = [
   { key: "calls", label: "Erstkontakte", format: "int" },
-  { key: "gkRate", label: "Gatekeeper-Quote", format: "pct" },
   { key: "deciderRate", label: "Entscheider-Quote", format: "pct" },
   { key: "apptRate", label: "Terminquote", format: "pct", emphasis: true },
 ];
@@ -454,7 +387,6 @@ function AbTable({
       share: totalCalls === 0 ? null : c.calls / totalCalls,
       values: {
         calls: c.calls,
-        gkRate: pct(c.gatekeeper, c.calls),
         deciderRate: pct(c.decider, c.calls),
         apptRate: pct(c.appts, c.calls),
       },
@@ -507,13 +439,13 @@ export async function TelefonTab({
   const eff = canCompare ? null : access.user.id;
 
   const [res, prevRes, leadsRaw, attemptData] = await Promise.all([
-    supabase.rpc("rpc_phone_day_metrics", {
+    rpcAll(supabase, "rpc_phone_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: from,
       p_to: to,
       p_effective_user_id: eff,
     }),
-    supabase.rpc("rpc_phone_day_metrics", {
+    rpcAll(supabase, "rpc_phone_day_metrics", {
       p_workspace_id: access.workspace_id,
       p_from: prevFrom,
       p_to: prevTo,
@@ -550,13 +482,13 @@ export async function TelefonTab({
   /** Lead-Kohorte eines Fensters — derselbe Zuschnitt wie in der RPC. */
   const cohort = (windowFrom: string, windowTo: string): AnalysePhoneLead[] =>
     leadsRaw.filter((r) => {
+      if (!r.first_call_at) return false;
       const day = phoneLeadDay(r);
       if (day < windowFrom || day > windowTo) return false;
       return ownerOf(r) !== null;
     });
 
   const leads = cohort(from, to);
-  const prevLeads = cohort(prevFrom, prevTo);
 
   // ── Ereignis-Ebene: Anwahlen aus dem Anruf-Log ───────────────
   // `owner_name` liegt dort als Snapshot vor — der Lead wandert bei
@@ -570,9 +502,8 @@ export async function TelefonTab({
     (acc, k) => ({
       calls: acc.calls + k.calls,
       appointments: acc.appointments + k.appointments,
-      mailbox: acc.mailbox + k.mailbox,
     }),
-    { calls: 0, appointments: 0, mailbox: 0 },
+    { calls: 0, appointments: 0 },
   );
 
   // Zeilen nur, wenn überhaupt etwas protokolliert ist: drei Nullzeilen sähen
@@ -587,7 +518,6 @@ export async function TelefonTab({
           values: {
             calls: k.calls,
             apptRate: pct(k.appointments, k.calls),
-            mailboxRate: pct(k.mailbox, k.calls),
           },
         }));
 
@@ -635,7 +565,6 @@ export async function TelefonTab({
   // Zuwächse je Bucket für den Fortschritts-Chart (kumuliert wird dort).
   const byBucket = {
     calls: {} as Record<string, number>,
-    gatekeeper: {} as Record<string, number>,
     decider: {} as Record<string, number>,
     appts: {} as Record<string, number>,
   };
@@ -650,11 +579,9 @@ export async function TelefonTab({
     ensure(name);
     const t = totals.get(name)!;
     const calls = NUM(r.calls);
-    const gatekeeper = NUM(r.gatekeeper_reached);
     const decider = NUM(r.decider_reached);
     const appts = NUM(r.appointments);
     t.calls += calls;
-    t.gatekeeper += gatekeeper;
     t.decider += decider;
     t.appts += appts;
     t.callbacks += NUM(r.callbacks);
@@ -662,21 +589,8 @@ export async function TelefonTab({
 
     const bk = bucketOf(r.day, from, to, granularity);
     byBucket.calls[bk] = (byBucket.calls[bk] ?? 0) + calls;
-    byBucket.gatekeeper[bk] = (byBucket.gatekeeper[bk] ?? 0) + gatekeeper;
     byBucket.decider[bk] = (byBucket.decider[bk] ?? 0) + decider;
     byBucket.appts[bk] = (byBucket.appts[bk] ?? 0) + appts;
-  }
-
-  // ── Lead-Ebene: was die RPC nicht kennt (Pitch, Mailbox) ─────
-  // Beide gehören in dieselbe Totals-Zeile wie die RPC-Werte: Nenner aller
-  // daraus gerechneten Quoten sind die Erstkontakte DERSELBEN Kohorte.
-  for (const l of leads) {
-    const name = ownerOf(l);
-    if (!name) continue;
-    ensure(name);
-    const t = totals.get(name)!;
-    if (l.pitch_delivered === true) t.pitch += 1;
-    if (l.mailbox === true) t.mailbox += 1;
   }
 
   // ── Personen ohne jede Aktivität ausblenden ──────────────────
@@ -685,8 +599,7 @@ export async function TelefonTab({
   // Kanal nicht". Eine harte Namensliste wäre beim nächsten Personalwechsel
   // falsch — die Aktivität selbst ist das Kriterium, das mitwächst.
   const hasActivity = (t: Totals): boolean =>
-    t.calls > 0 || t.gatekeeper > 0 || t.decider > 0 || t.pitch > 0 ||
-    t.appts > 0 || t.callbacks > 0 || t.dead > 0 || t.mailbox > 0;
+    t.calls > 0 || t.decider > 0 || t.appts > 0 || t.callbacks > 0 || t.dead > 0;
 
   const allNames = [...selectedMembers.map((m) => m.username), OHNE];
   const names = allNames.filter((n) => {
@@ -699,60 +612,42 @@ export async function TelefonTab({
   for (const name of names) {
     const t = totals.get(name)!;
     sum.calls += t.calls;
-    sum.gatekeeper += t.gatekeeper;
     sum.decider += t.decider;
-    sum.pitch += t.pitch;
     sum.appts += t.appts;
     sum.callbacks += t.callbacks;
     sum.dead += t.dead;
-    sum.mailbox += t.mailbox;
   }
 
   // ── Vorperiode (gleiche Mitglieder-Eingrenzung) ──────────────
-  const prevSum = { calls: 0, gatekeeper: 0, decider: 0, appts: 0, callbacks: 0, pitch: 0, mailbox: 0 };
+  const prevSum = { calls: 0, decider: 0, appts: 0, callbacks: 0 };
   for (const r of prevRows) {
     if (!nameByKey.has(ownerKey(r.owner_name)) && !allSelected) continue;
     prevSum.calls += NUM(r.calls);
-    prevSum.gatekeeper += NUM(r.gatekeeper_reached);
     prevSum.decider += NUM(r.decider_reached);
     prevSum.appts += NUM(r.appointments);
     prevSum.callbacks += NUM(r.callbacks);
   }
-  for (const l of prevLeads) {
-    if (l.pitch_delivered === true) prevSum.pitch += 1;
-    if (l.mailbox === true) prevSum.mailbox += 1;
-  }
 
-  // ── KPI-Reihe: die elf Kennzahlen des Telefon-Funnels ────────
-  // Alle Quoten teilen durch die Erstkontakte DESSELBEN Zeitraums, außer den
-  // beiden Anschluss-Terminquoten, die zeigen, was aus einer bereits erreichten
-  // Stufe noch wird. Zusammen beantworten sie „wo verliere ich?" — eine
+  // ── KPI-Reihe ─────────────────────────────────────────────
+  // Alle Quoten teilen durch die Erstkontakte DESSELBEN Zeitraums, außer der
+  // Terminquote ab Entscheider, die zeigt, was aus einem Gespräch wird. Eine
   // schlechte Terminquote bei guter Terminquote ab Entscheider heißt: das
   // Problem sitzt vor dem Gespräch, nicht darin.
-  const mailboxRate = pct(sum.mailbox, sum.calls);
-  const gkRate = pct(sum.gatekeeper, sum.calls);
-  const deciderRate = pct(sum.decider, sum.calls);
-  const pitchRate = pct(sum.pitch, sum.calls);
-  const apptRate = pct(sum.appts, sum.calls);
-  const apptOnGk = pct(sum.appts, sum.gatekeeper);
-  const apptOnDecider = pct(sum.appts, sum.decider);
-  const callbackRate = pct(sum.callbacks, sum.calls);
+  const deciderRate = quote(sum.decider, sum.calls);
+  const apptRate = quote(sum.appts, sum.calls);
+  const apptOnDecider = quote(sum.appts, sum.decider);
+  const callbackRate = quote(sum.callbacks, sum.calls);
 
-  const prevMailboxRate = pct(prevSum.mailbox, prevSum.calls);
-  const prevGkRate = pct(prevSum.gatekeeper, prevSum.calls);
-  const prevDeciderRate = pct(prevSum.decider, prevSum.calls);
-  const prevPitchRate = pct(prevSum.pitch, prevSum.calls);
-  const prevApptRate = pct(prevSum.appts, prevSum.calls);
-  const prevApptOnGk = pct(prevSum.appts, prevSum.gatekeeper);
-  const prevApptOnDecider = pct(prevSum.appts, prevSum.decider);
-  const prevCallbackRate = pct(prevSum.callbacks, prevSum.calls);
+  const prevDeciderRate = quote(prevSum.decider, prevSum.calls);
+  const prevApptRate = quote(prevSum.appts, prevSum.calls);
+  const prevApptOnDecider = quote(prevSum.appts, prevSum.decider);
+  const prevCallbackRate = quote(prevSum.callbacks, prevSum.calls);
 
   const callsSpark = buckets.map((b) => byBucket.calls[b.key] ?? 0);
 
-  // ── Lead-Ebene: Versuche und Gatekeeper ──────────────────────
+  // ── Lead-Ebene: Versuche ────────────────────────────────────
   const attemptCells = [ZERO_LEAD(), ZERO_LEAD(), ZERO_LEAD()];
   let attemptUnknown = 0;
-  const gatekeeperCells = new Map<string, LeadCell>();
 
   for (const l of leads) {
     const attempt = Number(l.call_attempt);
@@ -765,34 +660,7 @@ export async function TelefonTab({
     } else {
       attemptUnknown += 1;
     }
-
-    const gk = (l.gatekeeper_reached ?? "").trim() || "ohne";
-    let gkCell = gatekeeperCells.get(gk);
-    if (!gkCell) {
-      gkCell = ZERO_LEAD();
-      gatekeeperCells.set(gk, gkCell);
-    }
-    gkCell.n += 1;
-    if (l.decider_reached === true) gkCell.decider += 1;
-    if (l.appointment_set === true) gkCell.appts += 1;
-    if (l.status === "dead") gkCell.dead += 1;
   }
-
-  const gatekeeperRows: MetricRow[] = ["direkt", "ja", "nein", "ohne"]
-    .map((key) => ({ key, cell: gatekeeperCells.get(key) }))
-    .filter((e): e is { key: string; cell: LeadCell } => Boolean(e.cell && e.cell.n > 0))
-    .map(({ key, cell }) => ({
-      key,
-      label: GATEKEEPER_LABELS[key],
-      share: leads.length === 0 ? null : cell.n / leads.length,
-      values: {
-        n: cell.n,
-        deciderRate: pct(cell.decider, cell.n),
-        appts: cell.appts,
-        apptRate: pct(cell.appts, cell.n),
-        deadRate: pct(cell.dead, cell.n),
-      },
-    }));
 
   // ── A/B: Skript-Arme und Zielgruppen ─────────────────────────
   // Skript-Achse ist der Wert AM LEAD (Migration 0030), nicht der an der Liste.
@@ -812,15 +680,6 @@ export async function TelefonTab({
   // damit umzugsfest), die Liste liefert den Default für alles ohne eigenen Wert.
   const groupAb = groupLeads(leads, (l) => l.target_group ?? l.phone_lists?.target_group);
 
-  // ── Abbruch-Gründe (drei Stufen desselben Gesprächs) ─────────
-  const noTransfer = reasonItems(leads, "no_transfer_reason");
-  const noPitch = reasonItems(leads, "no_pitch_reason");
-  const noAppointment = reasonItems(leads, "no_appointment_reason");
-  const reasonTotal = [noTransfer, noPitch, noAppointment].reduce(
-    (s, items) => s + items.reduce((n, it) => n + it.value, 0),
-    0,
-  );
-
   // ── Vergleichstabelle ────────────────────────────────────────
   const tableRows: ComparisonRow[] = names.map((name) => {
     const t = totals.get(name)!;
@@ -828,13 +687,10 @@ export async function TelefonTab({
       name,
       values: {
         calls: t.calls,
-        gatekeeper: t.gatekeeper,
-        gkRate: pct(t.gatekeeper, t.calls),
         decider: t.decider,
-        deciderRate: pct(t.decider, t.calls),
-        pitch: t.pitch,
+        deciderRate: quote(t.decider, t.calls),
         appts: t.appts,
-        apptRate: pct(t.appts, t.calls),
+        apptRate: quote(t.appts, t.calls),
         callbacks: t.callbacks,
         dead: t.dead,
       },
@@ -843,11 +699,8 @@ export async function TelefonTab({
 
   const average = {
     calls: sum.calls,
-    gatekeeper: sum.gatekeeper,
-    gkRate,
     decider: sum.decider,
     deciderRate,
-    pitch: sum.pitch,
     appts: sum.appts,
     apptRate,
     callbacks: sum.callbacks,
@@ -881,8 +734,9 @@ export async function TelefonTab({
               &bdquo;niemand hat telefoniert&ldquo;.
             </span>
             <span>
-              <B>Termine</B> sind gebuchte Termine derselben Erstkontakt-Kohorte — auch wenn der Termin erst später
-              zustande kam.
+              <B>Termine aus Erstkontakten</B> sind gebuchte Termine derselben Erstkontakt-Kohorte — auch wenn der
+              Termin erst später zustande kam. Die Zahl unterscheidet sich deshalb von &bdquo;Termine gelegt&ldquo; (Stichtag
+              Buchung) und von den Terminen, die im Zeitraum stattfinden (Übersicht).
             </span>
           </InfoBody>
         }
@@ -914,7 +768,7 @@ export async function TelefonTab({
           index={1}
         />
         <KpiHero
-          label="Termine"
+          label="Termine aus Erstkontakten"
           value={sum.appts}
           delta={deltaPct(sum.appts, prevSum.appts)}
           icon={<Calendar size={15} />}
@@ -923,47 +777,28 @@ export async function TelefonTab({
       </KpiBlock>
 
       <KpiBlock
-        title="Durchkommen"
-        icon={DoorOpen}
+        title="Quoten"
+        icon={CalendarCheck}
         cols={4}
         info={
           <InfoBody>
             <span>
-              Vier Stufen auf dem Weg ins Gespräch, alle mit demselben Nenner: den <B>Erstkontakten</B> des
-              Zeitraums.
+              Alle Quoten sind <B>Kohorten-Quoten</B>: Nenner sind die Erstkontakte des Zeitraums, Zähler der heutige
+              Stand genau dieser Leads. Ein Termin, der erst nächste Woche zustande kommt, zählt rückwirkend auf die
+              Woche des Erstkontakts.
             </span>
             <span>
-              Es sind <B>Kohorten-Quoten</B> — Nenner sind die Erstkontakte des Zeitraums, Zähler der heutige Stand
-              genau dieser Leads. Ein Termin, der erst nächste Woche zustande kommt, zählt rückwirkend auf die Woche
-              des Erstkontakts.
+              <B>Entscheider</B> heißt: Der Entscheider war am Apparat. Ein Termin oder ein &bdquo;Kein Termin&ldquo; setzt das
+              voraus und zählt deshalb immer mit, auch wenn der Schalter im Call-Modus nicht gesetzt wurde.
             </span>
             <span>
-              <B>Gatekeeper</B> fasst &bdquo;durchgestellt&ldquo; und &bdquo;direkt zum Entscheider&ldquo; zusammen.{" "}
-              <B>Pitch-Quote</B> stammt aus <code>pitch_delivered</code> (Migration 0028) — Bestandszeilen wurden
-              aus &bdquo;Entscheider erreicht&ldquo; übernommen, die beiden Quoten spreizen sich deshalb erst mit
-              neu erfassten Anrufen.
+              Eine schwache Terminquote bei starker Terminquote ab Entscheider heißt: Das Problem sitzt <B>vor</B> dem
+              Gespräch, nicht darin. Unter {MIN_QUOTE_BASE} im Nenner oder bei einem Zähler über dem Nenner steht
+              &bdquo;—&ldquo;.
             </span>
           </InfoBody>
         }
       >
-        <KpiHero
-          label="Mailbox-Quote"
-          value={mailboxRate}
-          format="pct"
-          delta={deltaPP(mailboxRate, prevMailboxRate)}
-          deltaLabel="vs. Vorperiode (pp)"
-          icon={<Voicemail size={15} />}
-          index={3}
-        />
-        <KpiHero
-          label="Gatekeeper-Quote"
-          value={gkRate}
-          format="pct"
-          delta={deltaPP(gkRate, prevGkRate)}
-          deltaLabel="vs. Vorperiode (pp)"
-          icon={<DoorOpen size={15} />}
-          index={4}
-        />
         <KpiHero
           label="Entscheider-Quote"
           value={deciderRate}
@@ -971,43 +806,8 @@ export async function TelefonTab({
           delta={deltaPP(deciderRate, prevDeciderRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<UserCheck size={15} />}
-          index={5}
+          index={3}
         />
-        <KpiHero
-          label="Pitch-Quote"
-          value={pitchRate}
-          format="pct"
-          delta={deltaPP(pitchRate, prevPitchRate)}
-          deltaLabel="vs. Vorperiode (pp)"
-          icon={<MessageSquare size={15} />}
-          index={6}
-        />
-      </KpiBlock>
-
-      <KpiBlock
-        title="Terminquoten & Rückruf"
-        icon={CalendarCheck}
-        cols={4}
-        info={
-          <InfoBody>
-            <span>
-              Dieselbe Zahl (Termine), drei Nenner: <B>Terminquote</B> rechnet auf alle Erstkontakte, die beiden
-              anderen auf eine bereits erreichte Stufe. Eine schwache Terminquote bei starker Terminquote ab
-              Entscheider heißt: Das Problem sitzt <B>vor</B> dem Gespräch, nicht darin.
-            </span>
-            <span>
-              Die <B>Rückruf-Quote</B> steht daneben, weil sie die Gegenfrage auf derselben Basis beantwortet: Anteil
-              der Erstkontakte auf &bdquo;ruf dann und dann nochmal an&ldquo; — noch kein Termin, aber auch nicht
-              verloren.
-            </span>
-          </InfoBody>
-        }
-      >
-        {/* Die drei Terminquoten bleiben eine Icon-Familie (alle Kalender),
-            tragen aber verschiedene Glyphen: Drei identische Icons
-            nebeneinander liest man als Rendering-Fehler, nicht als
-            Verwandtschaft. Welche Basis gemeint ist, sagt das Label — das Icon
-            trägt nur die Familie. */}
         <KpiHero
           label="Terminquote"
           value={apptRate}
@@ -1015,16 +815,7 @@ export async function TelefonTab({
           delta={deltaPP(apptRate, prevApptRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<CalendarCheck size={15} />}
-          index={7}
-        />
-        <KpiHero
-          label="Terminquote ab Gatekeeper"
-          value={apptOnGk}
-          format="pct"
-          delta={deltaPP(apptOnGk, prevApptOnGk)}
-          deltaLabel="vs. Vorperiode (pp)"
-          icon={<CalendarRange size={15} />}
-          index={8}
+          index={4}
         />
         <KpiHero
           label="Terminquote ab Entscheider"
@@ -1033,7 +824,7 @@ export async function TelefonTab({
           delta={deltaPP(apptOnDecider, prevApptOnDecider)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<CalendarClock size={15} />}
-          index={9}
+          index={5}
         />
         <KpiHero
           label="Rückruf-Quote"
@@ -1042,7 +833,7 @@ export async function TelefonTab({
           delta={deltaPP(callbackRate, prevCallbackRate)}
           deltaLabel="vs. Vorperiode (pp)"
           icon={<PhoneForwarded size={15} />}
-          index={10}
+          index={6}
         />
       </KpiBlock>
 
@@ -1052,14 +843,14 @@ export async function TelefonTab({
         <AnalyseSection
           title="Vergleich"
           icon={Filter}
-          meta="Erstkontakte · Gatekeeper · Entscheider · Termine"
+          meta="Erstkontakte · Entscheider · Termine"
           collapsible
           info={
             <InfoBody>
               <span>
                 Nur &bdquo;Erstkontakte&ldquo; ist zeitraumgefiltert (<code>first_call_at</code> im Fenster) —
-                Gatekeeper, Entscheider, Pitch, Termine und Dead sind der aktuelle Stand derselben Leads. Die Quoten
-                sind damit Kohorten-Quoten, keine Tageswerte.
+                Entscheider, Termine, Rückrufe und Dead sind der aktuelle Stand derselben Leads. Die Quoten sind damit
+                Kohorten-Quoten, keine Tageswerte.
               </span>
               {hiddenMembers > 0 && (
                 <span>
@@ -1079,12 +870,9 @@ export async function TelefonTab({
             <ComparisonTable
               columns={[
                 { key: "calls", label: "Erstkontakte", format: "int" },
-                { key: "gatekeeper", label: "Gatekeeper", format: "int" },
-                { key: "gkRate", label: "Gatekeeper-Quote", format: "pct", deltaVsAvg: true },
                 { key: "decider", label: "Entscheider", format: "int" },
                 { key: "deciderRate", label: "Entscheider-Quote", format: "pct", deltaVsAvg: true },
-                { key: "pitch", label: "Pitch", format: "int" },
-                { key: "appts", label: "Termine", format: "int" },
+                { key: "appts", label: "Termine aus Erstkontakten", format: "int" },
                 { key: "apptRate", label: "Terminquote", format: "pct", deltaVsAvg: true },
                 { key: "callbacks", label: "Rückrufe", format: "int" },
                 { key: "dead", label: "Dead", format: "int" },
@@ -1125,7 +913,6 @@ export async function TelefonTab({
             columns={[
               { key: "calls", label: "Anwahlen", format: "int" },
               { key: "apptRate", label: "Terminquote", format: "pct", emphasis: true },
-              { key: "mailboxRate", label: "Mailbox-Anteil", format: "pct" },
             ]}
             rows={attemptRows}
             total={
@@ -1134,7 +921,6 @@ export async function TelefonTab({
                 : {
                     calls: attemptTotal.calls,
                     apptRate: pct(attemptTotal.appointments, attemptTotal.calls),
-                    mailboxRate: pct(attemptTotal.mailbox, attemptTotal.calls),
                   }
             }
             minWidth={480}
@@ -1170,12 +956,11 @@ export async function TelefonTab({
             buckets={buckets}
             series={[
               { key: "calls", label: "Erstkontakte", kind: "count", values: byBucket.calls, defaultOn: true },
-              { key: "gatekeeper", label: "Gatekeeper", kind: "count", values: byBucket.gatekeeper },
               { key: "decider", label: "Entscheider", kind: "count", values: byBucket.decider },
-              { key: "appts", label: "Termine", kind: "count", values: byBucket.appts, defaultOn: true },
+              { key: "appts", label: "Termine aus Erstkontakten", kind: "count", values: byBucket.appts, defaultOn: true },
             ]}
             rangeLabel={rangeLabel}
-            note="Jeder Lead zählt am Tag seines Erstkontakts — Gatekeeper, Entscheider und Termine also dort, nicht am Tag des Ereignisses."
+            note="Jeder Lead zählt am Tag seines Erstkontakts — Entscheider und Termine also dort, nicht am Tag des Ereignisses."
           />
         </AnalyseSection>
       </Fade>
@@ -1229,33 +1014,8 @@ export async function TelefonTab({
         </Fade>
       </div>
 
-      {/* ══ 6 · Lead-Ebene: Weg zum Entscheider + Anruf-Versuche ══
-          Beide beschreiben denselben Lead-Bestand aus zwei Richtungen: Wer
-          stand im Weg, und wie oft musste man ran. Beide starten zu. */}
-      <div className="analyse-row" data-split="wide-left" style={{ alignItems: "start" }}>
-        <Fade i={10}>
-          <AnalyseSection
-            title="Der Weg zum Entscheider"
-            icon={DoorOpen}
-            meta={`${INT_FMT.format(leads.length)} Leads`}
-            collapsible
-            defaultOpen={false}
-          >
-            <MetricTable
-              label="Gatekeeper"
-              columns={[
-                { key: "n", label: "Leads", format: "int" },
-                { key: "deciderRate", label: "Entscheider-Quote", format: "pct", emphasis: true },
-                { key: "appts", label: "Termine", format: "int" },
-                { key: "apptRate", label: "Terminquote", format: "pct" },
-                { key: "deadRate", label: "Dead", format: "pct" },
-              ]}
-              rows={gatekeeperRows}
-              minWidth={560}
-              emptyHint="Keine Gatekeeper-Angaben im Zeitraum."
-            />
-          </AnalyseSection>
-        </Fade>
+      {/* ══ 6 · Lead-Ebene: Anruf-Versuche ══ */}
+      <div className="analyse-row" style={{ alignItems: "start" }}>
         <Fade i={11}>
           <AnalyseSection
             title="Wie oft musst du anrufen?"
@@ -1289,50 +1049,8 @@ export async function TelefonTab({
         </Fade>
       </div>
 
-      {/* ══ 7 · Abbruch-Gründe ══
-          Waren drei Karten („Warum nicht durchgestellt?", „Warum kein Pitch?",
-          „Warum kein Termin?") — drei Deckel und drei Klicks für eine Frage in
-          drei Etappen. Als Spalten ist es ein Klick bei gleicher Fläche, und
-          die Reihenfolge der Spalten ist die Reihenfolge des Gesprächs. */}
-      <Fade i={12}>
-        <AnalyseSection
-          title="Wo bricht das Gespräch ab?"
-          icon={MessageSquareOff}
-          meta={`${INT_FMT.format(reasonTotal)} Begründungen`}
-          collapsible
-          defaultOpen={false}
-          info={
-            <InfoBody>
-              <span>
-                Drei Etappen desselben Gesprächs, von links nach rechts: erst der Gatekeeper, dann der Pitch, dann
-                der Termin. Jede Spalte zählt die Freitext-Begründungen der Leads, die genau dort hängen geblieben
-                sind.
-              </span>
-              <span>
-                Ein Lead kann in mehreren Spalten stehen — die Spalten sind Stufen, keine Aufteilung einer Menge.
-                Gezählt wird nur, wo eine Begründung erfasst wurde; ohne Eintrag taucht der Lead nirgends auf.
-              </span>
-            </InfoBody>
-          }
-        >
-          {/* auto-fit statt fester Dreispaltigkeit: Im schmalen Viewport
-              stapeln sich die Stufen, statt auf 90px zusammenzuschrumpfen. */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "var(--sp-7)",
-            }}
-          >
-            <ReasonColumn title="Nicht durchgestellt" icon={PhoneOff} items={noTransfer} />
-            <ReasonColumn title="Kein Pitch" icon={XCircle} items={noPitch} />
-            <ReasonColumn title="Kein Termin" icon={CalendarX} items={noAppointment} />
-          </div>
-        </AnalyseSection>
-      </Fade>
-
       {/* ══ 8 · Funnel ══
-          Startet zu: Dieselben fünf Stufen stehen als Kacheln und als Spalten
+          Startet zu: Dieselben drei Stufen stehen als Kacheln und als Spalten
           der Vergleichstabelle oben — hier nur zusätzlich als Form je Person. */}
       <Fade i={13}>
         <AnalyseSection title="Funnel" icon={Phone} collapsible defaultOpen={false}>
@@ -1342,9 +1060,7 @@ export async function TelefonTab({
               highlight
               stages={[
                 { label: "Erstkontakte", value: sum.calls },
-                { label: "Gatekeeper", value: sum.gatekeeper },
                 { label: "Entscheider", value: sum.decider },
-                { label: "Pitch", value: sum.pitch },
                 { label: "Termine", value: sum.appts },
               ]}
             />
@@ -1356,9 +1072,7 @@ export async function TelefonTab({
                   label={name}
                   stages={[
                     { label: "Erstkontakte", value: t.calls },
-                    { label: "Gatekeeper", value: t.gatekeeper },
                     { label: "Entscheider", value: t.decider },
-                    { label: "Pitch", value: t.pitch },
                     { label: "Termine", value: t.appts },
                   ]}
                 />

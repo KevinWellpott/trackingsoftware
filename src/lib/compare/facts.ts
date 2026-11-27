@@ -302,7 +302,12 @@ export function buildFacts(src: CompareSources): CompareData {
       // dort als Nicht-Erschienen), die Registry kann aber nur zaehlen und
       // teilen, nicht subtrahieren. `closings` bleibt daneben die ABSOLUTE
       // Termin-Menge — wie im Setting-Block eine Zeile hoeher.
-      closing_not_cancelled: r.cancelled_at ? 0 : 1,
+      // Nur eine WIRKENDE Absage nimmt den Termin aus dem Nenner: Neu
+      // terminiert (`revived_at`) hat er stattgefunden (Live-Test, P1-3).
+      // Die Absagequote daneben zählt weiter jede erfasste Absage — wie der
+      // Funnel-Tab.
+      closing_not_cancelled: r.absage_wirkt ? 0 : 1,
+      closing_decided: r.show_status === "show" || r.show_status === "no_show" ? 1 : 0,
     });
   }
 

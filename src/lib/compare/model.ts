@@ -71,6 +71,12 @@ export type MeasureKey =
    * und zählte im vollen Nenner als Nicht-Erschienen.
    */
   | "closing_not_cancelled"
+  /**
+   * Closings mit erfasstem Ergebnis (erschienen oder nicht erschienen) — der
+   * Nenner der Show-Quote Closing seit dem Live-Test (N10), deckungsgleich mit
+   * `closingShowRate()` im Closing-Tab.
+   */
+  | "closing_decided"
   | "won"
   | "lost"
   | "revenue";

@@ -182,8 +182,11 @@ export function RecycleSection({
       if (day >= from && day <= to) excludedInRange += 1;
     }
 
-    if (!r.last_contacted_at) continue;
-    const contactDay = berlinDateISO(r.last_contacted_at);
+    // Kohorten-Tag = letzter Versuch; eine Reaktion ohne eingetragenen
+    // Versuch zählt auf den Tag der Reaktion (Live-Test 26.11., P1-7).
+    const kontakt = r.last_contacted_at ?? r.responded_at;
+    if (!kontakt) continue;
+    const contactDay = berlinDateISO(kontakt);
     if (contactDay < from || contactDay > to) continue;
 
     const responded = r.responded_at !== null;

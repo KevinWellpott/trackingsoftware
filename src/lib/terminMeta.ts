@@ -268,6 +268,30 @@ const TERMINALER_ZUSTAND: Record<string, TerminZustand> = {
  * Konstante könnte dort gar nicht mitkommen, und drei Abschriften wären drei
  * Regeln, die auseinanderlaufen.
  */
+/**
+ * Wirkt die Absage dieser Zeile noch? — die EINE Regel, die Anzeige, Riegel
+ * und Auswertung teilen (Live-Test 26.11., P1-3).
+ *
+ * Eine Absage lässt `appointment_at` und `status` stehen (docs §3). Erst
+ * `revived_at` erklärt sie für überholt — geschrieben von „Termin“ in der
+ * Arbeitsliste (`setNeuerTermin`). Wer nur `cancelled_at` liest, hält eine neu
+ * terminierte Zeile weiter für abgesagt: Der Funnel verlor so Termin, Closing
+ * und Umsatz, und die Detailseite sperrte „Verschieben“.
+ *
+ * Ausnahme: Zeigt eine NEUE Zeile per `revived_from_*` auf diese (aus der
+ * Ablage neu angesetzt), ist die alte Zeile Historie — ihre Absage gilt
+ * weiter, der neue Termin läuft am Nachfolger. Sonst zählte derselbe Termin
+ * zweimal.
+ */
+export function absageWirktNoch(
+  row: { cancelled_at?: string | null; revived_at?: string | null } | null | undefined,
+  hatNachfolger = false,
+): boolean {
+  if (!row?.cancelled_at) return false;
+  if (hatNachfolger) return true;
+  return !row.revived_at;
+}
+
 export const CANCELLED_MOVE_HINT =
   "Der Termin ist abgesagt — bitte einen neuen Termin anlegen statt zu verschieben.";
 

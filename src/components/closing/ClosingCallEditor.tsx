@@ -19,7 +19,7 @@ import {
 } from "@/components/termine/AppointmentLifecycleBar";
 import type { AppointmentLifecycle } from "@/components/termine/lifecycleMeta";
 import { berlinDateISO, berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
-import { moveLockReason } from "@/lib/terminMeta";
+import { absageWirktNoch, moveLockReason } from "@/lib/terminMeta";
 import { CLOSING_BLOCKS, LEGACY_CLOSING_BLOCKS } from "@/lib/scripts";
 import {
   CLOSING_LOST_REASON_CODES,
@@ -380,7 +380,7 @@ export function ClosingCallEditor({
   // zöge jede Auswertung mit, die auf `call_at` bucketet.
   // Der Status ist der LOKALE — nach „Als gewonnen markieren" greift der Riegel
   // sofort, nicht erst nach dem nächsten Laden der Seite.
-  const terminLocked = moveLockReason("closing", status, Boolean(call.cancelled_at));
+  const terminLocked = moveLockReason("closing", status, absageWirktNoch(call));
 
   // Die drei terminalen Ergebnisse. Jedes oeffnet seinen Erfassungs-Dialog —
   // auch das bereits gesetzte, damit man Deal-Volumen oder Grund nachtragen kann.
