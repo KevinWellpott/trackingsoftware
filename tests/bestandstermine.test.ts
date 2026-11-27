@@ -24,11 +24,19 @@
 //
 // Geprüft wird am QUELLTEXT: /nachfassen ist eine React-Client-Komponente, die
 // der Node-Test-Runner ohne JSX-Transform nicht laden kann.
+//
+// Seit dem Nachfass-Eingang (docs/nachfassen-umbau/PLAN-nachfass-eingang.md)
+// heißt das Board `NachfassEingang`, und die Route /erinnerungen ist nicht mehr
+// eine Weiterleitung, sondern ganz gelöscht.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
+
+function pfad(relative: string): string {
+  return fileURLToPath(new URL(`../${relative}`, import.meta.url));
+}
 
 function read(relative: string): string {
   // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
@@ -36,7 +44,12 @@ function read(relative: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
 }
 
-const NACHFASSEN = read("src/components/nachfassen/NachfassenBoard.tsx");
+const NACHFASSEN = read("src/components/nachfassen/NachfassEingang.tsx");
+
+/** Quelltext ohne Kommentare — Erklärungen dürfen die alte Route nennen. */
+function code(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
 
 /* ------------------------------------------------------------------ *
  * /nachfassen verweist nicht mehr auf die Kaskade
@@ -60,9 +73,24 @@ describe("Kein Verweis mehr nach /erinnerungen", () => {
     assert.doesNotMatch(NACHFASSEN, /href="\/erinnerungen"/);
   });
 
-  test("Gegenprobe: die Route ist wirklich eine Weiterleitung", () => {
-    // Sonst wäre die Entfernung ein Verlust statt einer Bereinigung — dann
-    // gäbe es die Seite noch, nur ohne Weg dorthin.
-    assert.match(read("src/app/(dashboard)/erinnerungen/page.tsx"), /redirect\("\/termine"\)/);
+  test("Gegenprobe: die Route ist weg — und nichts zeigt mehr auf sie", () => {
+    // Bis zum Nachfass-Eingang war /erinnerungen eine Weiterleitung auf
+    // /termine. Mit dem Eingang ist sie samt Seite gelöscht. Dann darf auch
+    // kein Link mehr dorthin führen — sonst landete er auf einer 404.
+    assert.equal(existsSync(pfad("src/app/(dashboard)/erinnerungen")), false, "die Route /erinnerungen ist wieder da");
+    const treffer: string[] = [];
+    const gehe = (verzeichnis: string) => {
+      for (const eintrag of readdirSync(pfad(verzeichnis))) {
+        const rel = `${verzeichnis}/${eintrag}`;
+        if (statSync(pfad(rel)).isDirectory()) {
+          gehe(rel);
+          continue;
+        }
+        if (!/\.tsx?$/.test(eintrag)) continue;
+        if (/["'`]\/erinnerungen\b/.test(code(read(rel)))) treffer.push(rel);
+      }
+    };
+    gehe("src");
+    assert.deepEqual(treffer, [], `Verweise auf /erinnerungen: ${treffer.join(", ")}`);
   });
 });

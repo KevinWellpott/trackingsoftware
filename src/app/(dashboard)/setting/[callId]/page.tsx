@@ -85,7 +85,7 @@ export default async function SettingCallPage({
     call.source_phone_lead_id
       ? supabase
           .from("phone_leads")
-          .select("notes, objection_notes, script")
+          .select("notes")
           .eq("id", call.source_phone_lead_id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
@@ -95,10 +95,8 @@ export default async function SettingCallPage({
     if (c?.notes?.trim()) sourceNotes.push({ label: "Notizen", text: c.notes });
   }
   {
-    const l = lead as { notes: string | null; objection_notes: string | null; script: string | null } | null;
+    const l = lead as { notes: string | null } | null;
     if (l?.notes?.trim()) sourceNotes.push({ label: "Notizen", text: l.notes });
-    if (l?.objection_notes?.trim()) sourceNotes.push({ label: "Einwände", text: l.objection_notes });
-    if (l?.script?.trim()) sourceNotes.push({ label: "Script", text: l.script });
   }
 
   // Kompaktes Termin-Format: Datum ruhig, Uhrzeit hervorgehoben.

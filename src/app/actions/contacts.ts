@@ -19,11 +19,7 @@ export type ContactInput = {
   email?: string | null;
   phone?: string | null;
   notes?: string | null;
-  stage_id?: string | null;
-  last_contacted_at?: string | null;
   next_follow_up_at?: string | null;
-  deal_value?: number | null;
-  custom_fields?: Record<string, unknown>;
   // Neue Felder
   pitched_at?: string | null;
   follow_up_number?: 1 | 2 | 3 | null;
@@ -31,12 +27,8 @@ export type ContactInput = {
   appointment_set?: boolean | null;
   answer_text?: string | null;
   answer_category?: string | null;
-  meeting_notes?: string | null;
-  deal_closed?: boolean | null;
-  deal_lost_reason?: string | null;
   // Tracking 2.0
   linkedin_url?: string | null;
-  target_group?: string | null;
 };
 
 /**
@@ -112,22 +104,14 @@ export async function createContact(input: ContactInput) {
       email: input.email ?? null,
       phone: input.phone ?? null,
       notes: input.notes ?? null,
-      stage_id: input.stage_id ?? null,
-      last_contacted_at: input.last_contacted_at ?? null,
       next_follow_up_at: nextFU,
-      deal_value: input.deal_value ?? null,
-      custom_fields: input.custom_fields ?? {},
       pitched_at: input.pitched_at ?? null,
       follow_up_number: input.follow_up_number ?? null,
       answered: input.answered ?? null,
       appointment_set: input.appointment_set ?? null,
       answer_text: input.answer_text ?? null,
       answer_category: input.answer_category ?? null,
-      meeting_notes: input.meeting_notes ?? null,
-      deal_closed: input.deal_closed ?? false,
-      deal_lost_reason: input.deal_lost_reason ?? null,
       linkedin_url: input.linkedin_url ?? null,
-      target_group: input.target_group ?? null,
     })
     .select("id")
     .single();
@@ -159,7 +143,6 @@ export async function updateContact(
   const { name, ...rest } = patch;
   const payload: Record<string, unknown> = { ...rest };
   if (name !== undefined) payload.name = name.trim();
-  if (patch.deal_closed === null) payload.deal_closed = false;
 
   // next_follow_up_at auto-berechnen, wenn sich pitch-relevante Felder ändern.
   // Ein EXPLIZIT mitgegebenes next_follow_up_at hat Vorrang (Undo-Pfad im
@@ -275,111 +258,6 @@ export async function deleteContact(contactId: string, listId: string) {
     .eq("list_id", listId);
   if (error) return { error: error.message };
   return {};
-}
-
-function parseDate(v: FormDataEntryValue | null): string | null {
-  const s = v == null ? "" : String(v).trim();
-  return s === "" ? null : s;
-}
-
-function parseNum(v: FormDataEntryValue | null): number | null {
-  const s = v == null ? "" : String(v).trim();
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-}
-
-function parseFollowUpNumber(
-  v: FormDataEntryValue | null,
-): 1 | 2 | 3 | null {
-  const s = v == null ? "" : String(v).trim();
-  if (s === "1") return 1;
-  if (s === "2") return 2;
-  if (s === "3") return 3;
-  return null;
-}
-
-function parseBool(v: FormDataEntryValue | null): boolean | null {
-  const s = v == null ? "" : String(v).trim();
-  if (s === "true" || s === "1" || s === "yes") return true;
-  if (s === "false" || s === "0" || s === "no") return false;
-  return null;
-}
-
-function parseCustomFields(
-  v: FormDataEntryValue | null,
-): Record<string, unknown> {
-  const s = v == null ? "" : String(v).trim();
-  if (s === "") return {};
-  try {
-    const parsed: unknown = JSON.parse(s);
-    return typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-export async function createContactForm(formData: FormData) {
-  const list_id = String(formData.get("list_id") ?? "");
-  const name = String(formData.get("name") ?? "").trim();
-  if (!name) return;
-  const stageRaw = String(formData.get("stage_id") ?? "").trim();
-  await createContact({
-    list_id,
-    name,
-    company: String(formData.get("company") ?? "").trim() || null,
-    email: String(formData.get("email") ?? "").trim() || null,
-    phone: String(formData.get("phone") ?? "").trim() || null,
-    notes: String(formData.get("notes") ?? "").trim() || null,
-    stage_id: stageRaw === "" ? null : stageRaw,
-    last_contacted_at: parseDate(formData.get("last_contacted_at")),
-    next_follow_up_at: parseDate(formData.get("next_follow_up_at")),
-    deal_value: parseNum(formData.get("deal_value")),
-    custom_fields: parseCustomFields(formData.get("custom_fields")),
-    pitched_at: parseDate(formData.get("pitched_at")),
-    follow_up_number: parseFollowUpNumber(formData.get("follow_up_number")),
-    answered: parseBool(formData.get("answered")),
-    appointment_set: parseBool(formData.get("appointment_set")),
-    answer_text: String(formData.get("answer_text") ?? "").trim() || null,
-    answer_category: String(formData.get("answer_category") ?? "").trim() || null,
-    meeting_notes: String(formData.get("meeting_notes") ?? "").trim() || null,
-    deal_closed: parseBool(formData.get("deal_closed")),
-    deal_lost_reason: String(formData.get("deal_lost_reason") ?? "").trim() || null,
-  });
-}
-
-export async function updateContactForm(formData: FormData) {
-  const contact_id = String(formData.get("contact_id") ?? "");
-  const list_id = String(formData.get("list_id") ?? "");
-  if (!contact_id || !list_id) return;
-  const name = String(formData.get("name") ?? "").trim();
-  if (!name) return;
-  const stageRaw = String(formData.get("stage_id") ?? "").trim();
-  await updateContact(contact_id, list_id, {
-    name,
-    company: String(formData.get("company") ?? "").trim() || null,
-    email: String(formData.get("email") ?? "").trim() || null,
-    phone: String(formData.get("phone") ?? "").trim() || null,
-    notes: String(formData.get("notes") ?? "").trim() || null,
-    stage_id: stageRaw === "" ? null : stageRaw,
-    last_contacted_at: parseDate(formData.get("last_contacted_at")),
-    next_follow_up_at: parseDate(formData.get("next_follow_up_at")),
-    deal_value: parseNum(formData.get("deal_value")),
-    custom_fields: parseCustomFields(formData.get("custom_fields")),
-    pitched_at: parseDate(formData.get("pitched_at")),
-    follow_up_number: parseFollowUpNumber(formData.get("follow_up_number")),
-    answered: parseBool(formData.get("answered")),
-    appointment_set: parseBool(formData.get("appointment_set")),
-    answer_text: String(formData.get("answer_text") ?? "").trim() || null,
-    answer_category: String(formData.get("answer_category") ?? "").trim() || null,
-    meeting_notes: String(formData.get("meeting_notes") ?? "").trim() || null,
-    deal_closed: parseBool(formData.get("deal_closed")),
-    deal_lost_reason: String(formData.get("deal_lost_reason") ?? "").trim() || null,
-  });
 }
 
 export async function deleteContactForm(formData: FormData) {

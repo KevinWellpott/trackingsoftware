@@ -1,4 +1,5 @@
 import { berlinDateISO } from "@/lib/apptTime";
+import { istKontaktDran } from "@/lib/dranRegel";
 import { restoreListForm } from "@/app/actions/lists";
 import { ListenTabs, type ListenTab } from "@/components/listen/ListenTabs";
 import { EmptyState, PageHeader } from "@/components/ui/PageHeader";
@@ -101,16 +102,8 @@ export default async function ListenPage({
     if (c.appointment_set === true) cur.termine += 1;
     // Exakt die Bedingung aus isDueFollowUp und nachfassen_tasks — weicht sie
     // ab, widersprechen sich die Zahlen zwischen den Ansichten.
-    if (
-      c.next_follow_up_at != null &&
-      c.next_follow_up_at <= today &&
-      c.answered !== true &&
-      c.appointment_set !== true &&
-      c.follow_up_number !== 3 &&
-      c.blocked_at == null
-    ) {
-      cur.faellig += 1;
-    }
+    // Ausgelaufene Follow-ups (über 14 Tage überfällig, F1) zählen nicht.
+    if (istKontaktDran(c, today)) cur.faellig += 1;
     counts.set(c.list_id, cur);
   }
 

@@ -38,7 +38,6 @@ export type Member = { user_id: string; username: string };
 const TAB_OPTIONS = [
   { value: "liste", label: "Liste" },
   { value: "kalender", label: "Kalender" },
-  { value: "rueckruf", label: "Rückrufe" },
 ] as const;
 
 /**
@@ -98,7 +97,6 @@ const KALENDER_OPTIONS = [
 // DIE ZAHL DANEBEN ist die der Zeilen, die der Ausschnitt wirklich zeigt —
 // gebildet über dieselbe Menge, die die Liste rendert (`zeitCounts` im Board).
 const ZEIT_OPTIONS = [
-  { value: "zu_tun", label: "Zu tun" },
   { value: "erinnerung_setting", label: "Erinnerung Setting" },
   { value: "erinnerung_closing", label: "Erinnerung Closing" },
   { value: "alle", label: "Alle" },

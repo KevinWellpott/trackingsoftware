@@ -36,8 +36,6 @@ export type AppointmentLifecycle = {
 export type SettingLifecycle = AppointmentLifecycle & {
   disqualify_reason_code: DisqualifyReasonCode | null;
   disqualify_reason: string | null;
-  /** Dokumentierte Verweigerung „will keine Nummer rausgeben" (Entscheidung E10). */
-  wa_refused_at: string | null;
 };
 
 export const CANCEL_REASON_LABELS: Record<CancelReasonCode, string> = {

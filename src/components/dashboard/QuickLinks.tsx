@@ -136,32 +136,22 @@ export function QuickLinks({ counts }: { counts?: NavCounts }) {
 
   const links: QuickLink[] = [
     {
-      href: "/termine",
-      label: "Termine",
-      // „Kalender" stand hier bis zum Rückbau — und ist seither die falsche
-      // Auskunft: /termine öffnet in der ARBEITSLISTE, der Kalender ist der
-      // zweite Reiter. Die Kachel versprach damit ausgerechnet der Fläche, die
-      // morgens als erste angeklickt wird, das Nebenprodukt statt der Sache.
-      hint: "Wer liegt in der Luft",
-      icon: CalendarDays,
-      // KEIN Zähler, und das ist eine Entscheidung: Das Gold der Arbeitsliste
-      // ist abgeleitet (lib/dranRegel.ts) — ein Badge müsste dieselben Zeilen
-      // laden wie die Seite oder die Regel ein zweites Mal formulieren
-      // (Begründung in lib/navCounts.ts).
-      count: null,
-    },
-    {
       href: "/nachfassen",
-      // „Recycling" wie die Seite und wie die Seitenleiste. „Nachfassen" war
-      // die Sammelbezeichnung für DREI Mechanismen; zwei davon stehen seit dem
-      // Rückbau in der Terminliste, und der Name versprach hier weiter deren
-      // Inhalt. Und „Heute fällig" versprach Tagesarbeit — die Wartezeiten des
-      // Recyclings liegen bei 14 bis 270 Tagen (docs §5, `pipeline_settings`).
-      label: "Recycling",
-      hint: "Zweiter Anlauf fällig",
+      // Der Nachfass-Eingang ist die tägliche Arbeitsfläche und steht deshalb
+      // vorn (Plan, Detailfrage O4). Das Badge zählt dieselbe Menge wie die
+      // Seite: überfällig + heute + „Ergebnis fehlt".
+      label: "Nachfassen",
+      hint: "Wer heute dran ist",
       icon: Clock,
       count: counts?.nachfassen ?? null,
       countLabel: ["Aufgabe fällig", "Aufgaben fällig"],
+    },
+    {
+      href: "/termine",
+      label: "Termine",
+      hint: "Kalender und Erinnerungen",
+      icon: CalendarDays,
+      count: null,
     },
     {
       href: "/ablage",

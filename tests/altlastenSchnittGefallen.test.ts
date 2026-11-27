@@ -15,22 +15,19 @@
 // Liste, wenn er entweder neu terminiert ist oder als tot markiert wird. Nichts
 // anderes nimmt ihn da runter."
 //
-// „Nichts anderes" schließt einen Altersschnitt ein. Die Gegenrede („er ist kein
-// Intervall, er löst sich mit jedem Genervt-Klick selbst auf") war ein Argument
-// für eine dritte Bedingung — und genau die dritte Bedingung ist das, was der
-// Satz ausschließt. Eine Zeile verschwand damit aus einem Grund, den die Ansage
-// nicht kennt, und der Nutzer musste einen Schalter finden, um seine eigene
-// Arbeit wiederzusehen.
-//
-// ── WAS DAMIT AUSDRÜCKLICH NICHT GEFALLEN IST ──────────────────────────────
-// Die Personen- und Organisationsfilterung, der Ausschnitt „Zu tun · Verlegt ·
-// Alle" und die Gold-Regel selbst. Es ging ausschließlich um die Altersgrenze —
-// deshalb steht in Abschnitt D die Gegenprobe, dass die drei anderen Schnitte
-// noch da sind.
+// ── UND WAS DER NACHFASS-EINGANG DARAN ÄNDERT (27.11.2026) ─────────────────
+// Die Tagesarbeit steht seither auf /nachfassen (docs/nachfassen-umbau/
+// PLAN-nachfass-eingang.md). Der Eingang hat einen Reiter „Aufräumen" für den
+// Altbestand vor dem Start (Plan §4.5, Entscheidung N4) — und der ist
+// ausdrücklich KEIN versteckter Altersschnitt: Altfälle sind sichtbar und
+// gezählt, der Reiter verlangt eine Entscheidung, und sobald jemand einen
+// Vorgang anfasst, ist er kein Altfall mehr. Genau diese drei Eigenschaften
+// prüft Abschnitt B; fiele eine davon, wäre der alte Schnitt unter neuem Namen
+// zurück.
 //
 // Zwei Prüfarten, wie überall im Haus: Was eine Funktion entscheidet, wird am
-// VERHALTEN geprüft (der Navigations-Zähler, mit einer Supabase-Attrappe). Was
-// eine React-Komponente verdrahtet, wird am QUELLTEXT geprüft — der Runner
+// VERHALTEN geprüft (die Regel-Bibliothek des Eingangs). Was eine
+// React-Komponente verdrahtet, wird am QUELLTEXT geprüft — der Runner
 // (`node --experimental-strip-types`) lädt kein `.tsx`, und eine Attrappe bewiese
 // nur, dass die Attrappe stimmt.
 
@@ -39,8 +36,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
-import type { AccessContext } from "@/lib/access";
-import { loadNavCounts } from "@/lib/navCounts";
+import {
+  REITER_GRUPPEN,
+  badgeZahl,
+  gruppeVon,
+  gruppiere,
+  type NachfassEintrag,
+} from "@/lib/nachfassRegel";
 
 function pfad(relative: string): string {
   return fileURLToPath(new URL(`../${relative}`, import.meta.url));
@@ -67,44 +69,31 @@ function code(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
-const BOARD = read("src/components/nachfassen/NachfassenBoard.tsx");
+const EINGANG = read("src/components/nachfassen/NachfassEingang.tsx");
 const SEITE = read("src/app/(dashboard)/nachfassen/page.tsx");
-const ACTION = read("src/app/actions/nachfassen.ts");
 const TERMINE = read("src/components/termine/TermineBoard.tsx");
-const NAV = read("src/lib/navCounts.ts");
+const BADGE = read("src/lib/navCountsData.ts");
 
-/* ------------------------------------------------------------------ *
- * Attrappe für den Navigations-Zähler (Bauart aus tests/navCounts.test.ts)
- * ------------------------------------------------------------------ */
+/** Ein fester Tag nach dem Start des Eingangs. */
+const HEUTE = "2026-12-10";
+const JETZT = Date.parse(`${HEUTE}T09:00:00.000Z`);
+const START = "2026-12-01";
 
-type Antwort = { data?: unknown[] | null; error?: unknown; count?: number | null };
-
-function abfrage(antwort: Antwort) {
-  const api: Record<string, unknown> = {};
-  for (const m of ["select", "order", "range", "limit", "eq", "is", "in", "not"]) api[m] = () => api;
-  api.then = (erfuellen: (v: unknown) => void) => {
-    erfuellen({ data: null, error: null, count: null, ...antwort });
+function eintrag(patch: Partial<NachfassEintrag> & { key: string }): NachfassEintrag {
+  return {
+    quelle: "termin",
+    art: "setting",
+    id: patch.key,
+    name: patch.key,
+    firma: null,
+    faelligAm: null,
+    koernung: "tag",
+    ergebnisFehlt: false,
+    lebenszeichen: HEUTE,
+    kontakte: [],
+    ...patch,
   };
-  return api;
 }
-
-function supabase(antwort: Antwort) {
-  return {
-    rpc: () => abfrage(antwort),
-    from: () => abfrage(antwort),
-  } as unknown as Parameters<typeof loadNavCounts>[0];
-}
-
-function zugriff(): AccessContext {
-  return {
-    workspace_id: "ws-1",
-    user: { id: "u-ich" },
-    effective_user_id: null,
-  } as unknown as AccessContext;
-}
-
-/** 8.9.2026, 10:00 Berliner Wandzeit (Sommerzeit, UTC+2). */
-const JETZT = Date.parse("2026-09-08T08:00:00Z");
 
 /* ------------------------------------------------------------------ *
  * A — Die Grenze selbst ist weg
@@ -147,90 +136,96 @@ describe("A · Es gibt keine Altersgrenze mehr", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * B — Der Zähler zählt wieder alles, was die Seite zeigt
+ * B — „Aufräumen“ ist kein Altersschnitt unter neuem Namen
  * ------------------------------------------------------------------ */
 
-describe("B · Das Badge zählt, was die Liste zeigt", () => {
-  test("ein uralter Recycling-Versuch zählt wieder mit", async (t) => {
-    // DER KERN. Diese Fälligkeit vom November 2025 lag über 90 Tage zurück und
-    // fiel damit aus Badge UND Board. Sie ist jetzt eine Aufgabe wie jede
-    // andere — überfällig, aber auf der Liste.
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(
-      supabase({
-        data: [{ due_at: "2025-11-01T00:00:00+00:00" }, { due_at: "2026-08-20T00:00:00+00:00" }],
-        count: 2,
-      }),
-      zugriff(),
-    );
+describe("B · Der Eingang verliert nichts und versteckt nichts", () => {
+  const eintraege = [
+    eintrag({ key: "ueber", faelligAm: "2026-12-05" }),
+    eintrag({ key: "heute", faelligAm: HEUTE }),
+    eintrag({ key: "ohne-datum" }),
+    eintrag({ key: "fehlt", ergebnisFehlt: true }),
+    eintrag({ key: "bald", faelligAm: "2026-12-12" }),
+    eintrag({ key: "spaeter", faelligAm: "2027-02-01" }),
+    // Altbestand: letztes Lebenszeichen lange vor dem Start, nie angefasst.
+    eintrag({ key: "alt", faelligAm: "2025-11-01", lebenszeichen: "2025-11-01" }),
+  ];
 
-    assert.deepEqual(counts.nachfassen, { total: 2, overdue: 2 });
+  test("gruppiere() verliert keinen einzigen Vorgang", () => {
+    // Der alte Schnitt NAHM Zeilen weg. Jede Gruppe des Eingangs ist ein Reiter
+    // mit Inhalt — die Summe aller Gruppen ist die Eingabe, ohne Rest.
+    const gruppen = gruppiere(eintraege, HEUTE, JETZT, START);
+    const summe = [...gruppen.values()].reduce((n, l) => n + l.length, 0);
+    assert.equal(summe, eintraege.length);
   });
 
-  test("auch oberhalb des 500er-Fensters gibt es wieder eine Zahl", async (t) => {
-    // Der `null`-Fall „das Fenster wurde abgeschnitten" hing AM SCHNITT: `count`
-    // zählt vor dem Fenster, der Schnitt wirkte erst danach — die gefilterte
-    // Gesamtzahl war oberhalb des Deckels nicht mehr zu ermitteln. Ohne Schnitt
-    // ist `count` die Wahrheit, und das Badge kann sie wieder nennen. Gedeckelt
-    // bleibt allein der Überfällig-Anteil (§5.4).
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(
-      supabase({ data: [{ due_at: "2026-09-08T00:00:00+00:00" }], count: 812 }),
-      zugriff(),
-    );
-
-    assert.deepEqual(counts.nachfassen, { total: 812, overdue: 0 });
+  test("das Badge zählt genau, was der Reiter „Fällig“ zeigt", () => {
+    // Die Bindungspflicht aus docs §5.4: Ein Badge, das anders zählt als die
+    // Seite darunter, ist ein Fehler — in BEIDE Richtungen.
+    const gruppen = gruppiere(eintraege, HEUTE, JETZT, START);
+    const faellig = REITER_GRUPPEN.faellig.reduce((n, g) => n + (gruppen.get(g)?.length ?? 0), 0);
+    assert.equal(badgeZahl(gruppen).total, faellig);
+    assert.equal(faellig, 4, "überfällig, heute, ohne Datum, Ergebnis fehlt");
   });
 
-  test("GEGENRICHTUNG: eine fehlende Gesamtzahl bleibt „kein Badge“, keine 0", async (t) => {
-    // Diese Ehrlichkeitsregel hat mit dem Schnitt nichts zu tun und darf mit ihm
-    // nicht mitfallen: `(count ?? 0)` verbuchte fällige Aufgaben stillschweigend
-    // als „nichts zu tun" (docs §5.4).
-    t.mock.timers.enable({ apis: ["Date"], now: JETZT });
-    const counts = await loadNavCounts(
-      supabase({ data: [{ due_at: "2026-09-08" }, { due_at: "2026-09-08" }], count: null }),
-      zugriff(),
-    );
-
-    assert.equal(counts.nachfassen, null);
+  test("… und liest dafür DENSELBEN Loader wie die Seite", () => {
+    assert.match(BADGE, /ladeNachfassen\("mein"\)/);
+    assert.match(BADGE, /badgeZahl\(gruppiere\(daten\.eintraege, daten\.today, daten\.nowMs\)\)/);
+    assert.match(SEITE, /await ladeNachfassen\(/);
   });
 
-  test("der Zähler filtert überhaupt nichts mehr heraus", () => {
-    // Am Quelltext, weil eine Attrappe nur die geprüfte Antwort abdeckt: Im
-    // Zähler steht kein `continue` mehr, das eine Zeile verwirft, und die
-    // Gesamtzahl kommt aus `count` statt aus einer selbst gefilterten Liste.
-    assert.doesNotMatch(NAV, /continue;/);
-    assert.match(NAV, /return tally\(rows\.map\(\(r\) => r\.due_at\), recycle\.count\);/);
+  test("ein angefasster Vorgang fällt NIE wegen seines Alters aus „Fällig“", () => {
+    // DER KERN. Das Alter allein nimmt nichts herunter: Wer seit einem Jahr
+    // überfällig ist, aber im Eingang schon einmal bearbeitet wurde, steht
+    // unter „Überfällig" und im Badge — genau wie der Satz des Auftraggebers es
+    // verlangt.
+    const uralt = eintrag({
+      key: "uralt",
+      faelligAm: "2025-11-01",
+      lebenszeichen: "2025-11-01",
+      kontakte: [{ ergebnis: "nicht_erreicht", created_at: "2026-12-02T09:00:00.000Z" }],
+    });
+    assert.equal(gruppeVon(uralt, HEUTE, JETZT, START), "ueberfaellig");
+    assert.equal(badgeZahl(gruppiere([uralt], HEUTE, JETZT, START)).total, 1);
+  });
+
+  test("der Altbestand ist sichtbar, gezählt und verlangt eine Entscheidung", () => {
+    // Die drei Bedingungen aus Plan §4.5. Fehlte eine, wäre „Aufräumen" der
+    // alte Schnitt unter neuem Namen.
+    const alt = eintraege.find((e) => e.key === "alt")!;
+    assert.equal(gruppeVon(alt, HEUTE, JETZT, START), "aufraeumen");
+    // Sichtbar und gezählt: Der Reiter trägt seine Zahl …
+    assert.match(EINGANG, /label: `Aufräumen \$\{aufraeumenAnzahl\}`/);
+    // … und verschwindet erst, wenn er leer ist.
+    assert.match(EINGANG, /aufraeumenAnzahl > 0 \|\| props\.reiter === "aufraeumen"/);
+    // Entscheidung: die drei Sammelaktionen.
+    for (const aktion of ['sammel("nochmal")', 'sammel("aufgeben")', 'sammel("sperren")']) {
+      assert.ok(EINGANG.includes(aktion), `${aktion} fehlt im Aufräumen`);
+    }
   });
 });
 
 /* ------------------------------------------------------------------ *
- * C — Die Oberfläche versteckt nichts und braucht keinen Schalter
+ * C — Kein Hinweis, kein Schalter, kein Parameter
  * ------------------------------------------------------------------ */
 
-describe("C · Kein Hinweis, kein Schalter, kein Parameter", () => {
-  test("/nachfassen blendet nichts mehr aus", () => {
-    // Die Hinweiszeile war die BEDINGUNG, unter der ein Schnitt vertretbar war
-    // (Zahl, Grenze, Ausweg in einer Zeile). Ohne Schnitt gibt es nichts zu
-    // rechtfertigen — und eine Zeile, die „0 ausgeblendet" verschweigt, aber im
-    // Code steht, wäre der Rest, aus dem der Schnitt zurückkehrt.
-    // Oberflächentext an der ROHEN Datei: Er muss restlos weg sein, ein
-    // Kommentar braucht ihn nicht zu zitieren.
-    assert.doesNotMatch(BOARD, /ausgeblendet/);
-    assert.doesNotMatch(BOARD, /Trotzdem anzeigen/);
-    // Bezeichner am CODE: Die Erklärung darüber darf sagen, was gefallen ist.
-    assert.doesNotMatch(code(BOARD), /hiddenStale|showingAll/);
-    assert.doesNotMatch(code(BOARD), /alle=1/);
+describe("C · Kein Ausblende-Hinweis, kein Schalter, kein Parameter", () => {
+  test("/nachfassen kennt keine „ausgeblendet … Trotzdem anzeigen“-Zeile", () => {
+    // Die Hinweiszeile war die BEDINGUNG, unter der ein Schnitt vertretbar war.
+    // Ohne Schnitt gibt es nichts zu rechtfertigen.
+    assert.doesNotMatch(EINGANG, /ausgeblendet/);
+    assert.doesNotMatch(EINGANG, /Trotzdem anzeigen/);
+    assert.doesNotMatch(code(EINGANG), /hiddenStale|showingAll/);
+    assert.doesNotMatch(code(EINGANG), /alle=1/);
   });
 
-  test("… und die Seite kennt den Parameter nicht mehr", () => {
-    assert.doesNotMatch(code(SEITE), /alle=1|includeOlder|showingAll|searchParams/);
-    // Die Aufgaben kommen ohne Schalter — die Signatur trägt keine Optionen mehr.
-    assert.match(SEITE, /await getNachfassenTasks\(\)/);
-    assert.match(ACTION, /export async function getNachfassenTasks\(\): Promise<NachfassenResult>/);
+  test("… und die Seite reicht keinen Alters-Schalter an den Loader", () => {
+    assert.doesNotMatch(code(SEITE), /alle=1|includeOlder|showingAll/);
+    // Der Loader bekommt genau eine Angabe: die Personenachse.
+    assert.match(SEITE, /await ladeNachfassen\(sp\.wer === "alle" \? "alle" : "mein"\)/);
   });
 
-  test("/termine blendet weder in der Liste noch bei den Rückrufen etwas aus", () => {
+  test("/termine blendet in der Liste nichts aus", () => {
     // Auch hier zweigeteilt: Der sichtbare Text ist restlos weg, die Bezeichner
     // dürfen im Kommentar weiterleben, der den Rückbau begründet.
     assert.doesNotMatch(TERMINE, /Trotzdem anzeigen/);
@@ -241,7 +236,6 @@ describe("C · Kein Hinweis, kein Schalter, kein Parameter", () => {
     // noch etwas herausnimmt.
     assert.match(TERMINE, /events=\{filtered\}/);
     assert.match(TERMINE, /ohneTermin=\{ohneTermin\}/);
-    assert.match(TERMINE, /aufgaben=\{rueckrufeGefiltert\}/);
   });
 });
 
@@ -249,32 +243,25 @@ describe("C · Kein Hinweis, kein Schalter, kein Parameter", () => {
  * D — Gegenprobe: was NICHT gefallen ist
  * ------------------------------------------------------------------ */
 
-describe("D · Die drei anderen Schnitte stehen weiter", () => {
+describe("D · Die anderen Schnitte stehen weiter", () => {
   test("die Personenachse bleibt — „eine Liste pro Person“", () => {
     // Der Auftraggeber hat den ALTERS-Schnitt gestrichen, nicht die Liste je
     // Person. Fiele sie mit, stünde dort der Bestand des ganzen Teams.
     assert.match(TERMINE, /const matchesWer = useCallback\(/);
     assert.match(TERMINE, /e\.assignee\?\.user_id === scopeUserId/);
-    assert.match(TERMINE, /r\.ownerUserId !== scopeUserId/);
+    assert.match(read("src/lib/nachfassenData.ts"), /if \(!alle && person !== scopeUser\) continue;/);
   });
 
-  test("der Ausschnitt „Zu tun · Termin steht · Alle“ bleibt", () => {
-    // Er schneidet nach ZUSTAND, nicht nach Zeit — das ist genau die
-    // Unterscheidung aus dem Satz des Auftraggebers („neu terminiert oder tot").
-    //
-    // Der mittlere heißt seit der Erinnerungs-Runde „Termin steht" (der
-    // URL-Wert bleibt `verlegt`), und der erste hat eine zweite Tür bekommen:
-    // `istZuTun` = Arbeitsmenge ODER offene Erinnerung. Das ist kein Zeitschnitt
-    // in der Gegenrichtung — er nimmt nichts heraus, er holt einen anstehenden
-    // Termin für die Stunden herein, in denen anzukündigen ist.
-    assert.match(TERMINE, /onZeit=\{\(z\) => setParam\("zeit", z === "zu_tun" \? null : z\)\}/);
+  test("der Ausschnitt der Terminliste schneidet nach Zustand, nicht nach Zeit", () => {
+    // Seit dem Nachfass-Eingang: „Erinnerung Setting · Erinnerung Closing ·
+    // Alle" — „Alle" ist die Vorgabe und fliegt aus der URL.
+    assert.match(TERMINE, /onZeit=\{\(z\) => setParam\("zeit", z === "alle" \? null : z\)\}/);
     const liste = read("src/components/termine/TermineList.tsx");
-    assert.match(liste, /istZuTun\(e\.zustand, e\.erinnerung\)/);
+    assert.match(liste, /all\.filter\(\(e\) => e\.zustand === "verlegt" && e\.kind === art\)/);
   });
 
   test("und der Kalender blendet weiterhin nichts aus", () => {
     // „Ausgeblendet wird nichts — auch ein toter Lead bleibt sichtbar" (docs §1).
-    // Das galt schon vor dem Rückbau und gilt unverändert.
     assert.match(TERMINE, /const inRange = useMemo\(\s*\n?\s*\(\) => \(range \? filtered\.filter/);
   });
 });

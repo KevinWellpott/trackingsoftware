@@ -5,20 +5,6 @@ import { getAccessContext, listDataViewUsers, ownScopeFilter } from "@/lib/acces
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-const DEFAULT_STAGES: {
-  name: string;
-  probability_pct: number | null;
-  sort_order: number;
-  exclude_from_followup: boolean;
-}[] = [
-  { name: "Neu", probability_pct: 10, sort_order: 0, exclude_from_followup: false },
-  { name: "Gespräch", probability_pct: 30, sort_order: 1, exclude_from_followup: false },
-  { name: "Angebot", probability_pct: 60, sort_order: 2, exclude_from_followup: false },
-  { name: "Verhandlung", probability_pct: 80, sort_order: 3, exclude_from_followup: false },
-  { name: "Gewonnen", probability_pct: 100, sort_order: 4, exclude_from_followup: true },
-  { name: "Verloren", probability_pct: 0, sort_order: 5, exclude_from_followup: true },
-];
-
 export async function createList(
   workspaceId: string,
   name: string,
@@ -61,16 +47,6 @@ export async function createList(
     .single();
   if (le || !list)
     return { error: le?.message ?? "Liste konnte nicht angelegt werden." };
-
-  const rows = DEFAULT_STAGES.map((s) => ({
-    list_id: list.id,
-    name: s.name,
-    probability_pct: s.probability_pct,
-    sort_order: s.sort_order,
-    exclude_from_followup: s.exclude_from_followup,
-  }));
-  const { error: se } = await supabase.from("pipeline_stages").insert(rows);
-  if (se) return { error: se.message };
 
   revalidatePath("/", "layout");
   revalidatePath(`/lists/${list.id}`, "page");

@@ -64,10 +64,18 @@ describe("2 · Die drei Zähler lesen das Anruf-Log", () => {
     assert.match(src, /loadDialRows\(supabase, access\.workspace_id, monday, today\)/);
   });
 
-  test("Der Rückruf-Reiter führt in den Call-Modus — nur dort wird die Anwahl erfasst", () => {
-    const src = read("src/components/termine/RueckrufListe.tsx");
-    assert.match(src, /\?status=rueckruf&lead=/);
-    const dialer = read("src/components/telefon/CallModeRunner.tsx");
-    assert.match(dialer, /searchParams\.get\("lead"\)/);
+  test("Rückrufe im Nachfass-Eingang laufen über setPhoneLeadOutcome — dort wird die Anwahl erfasst", () => {
+    // Der frühere Rückruf-Reiter in /termine führte in den Call-Modus. Seit dem
+    // Nachfass-Eingang stehen Rückrufe auf /nachfassen und tragen ihre
+    // Ergebnis-Knöpfe direkt in der Zeile. Zählen muss die Anwahl trotzdem:
+    // Jeder Knopf geht über `setPhoneLeadOutcome`, und genau dort wird ins
+    // Anruf-Log geschrieben — ein zweites Protokoll für dieselbe Anwahl gäbe es
+    // nicht (Plan §4.3).
+    const src = read("src/components/nachfassen/NachfassEingang.tsx");
+    assert.match(src, /setPhoneLeadOutcome\(\{ leadId: e\.id, listId, outcome \}\)/);
+    assert.match(src, /outcome: "rueckruf", callbackAt: wert/);
+    const action = read("src/app/actions/phone.ts");
+    const koerper = action.slice(action.indexOf("export async function setPhoneLeadOutcome("));
+    assert.match(koerper, /await logCallAttempt\(/);
   });
 });

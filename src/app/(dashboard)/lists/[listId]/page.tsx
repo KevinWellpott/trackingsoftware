@@ -1,4 +1,5 @@
 import { berlinDateISO } from "@/lib/apptTime";
+import { istKontaktDran } from "@/lib/dranRegel";
 import { ArchiveListButton } from "@/components/ArchiveListButton";
 import { DeleteListButton } from "@/components/DeleteListButton";
 import { ListBoardV2 } from "@/components/ListBoardV2";
@@ -37,8 +38,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   const { data: list, error: le } = await listQuery.single();
   if (le || !list) notFound();
 
-  // Nur die Spalten laden, die Board + Kacheln wirklich brauchen — der frühere
-  // "*, pipeline_stages (*)"-Join hat den Payload bei großen Listen vervielfacht.
+  // Nur die Spalten laden, die Board + Kacheln wirklich brauchen.
   const rawContacts = await fetchAllRows((from, to) =>
     supabase
       .from("contacts")
@@ -61,12 +61,8 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   // Offen = fällig. Ein Follow-up, dessen Wiedervorlage noch in der Zukunft liegt,
   // ist erledigt, nicht offen. Gleiche Bedingung wie im nachfassen_tasks-RPC,
   // sonst widersprechen sich Listen-Kachel und Nachfassen-Board.
-  const openFU = contacts.filter((c) =>
-    c.next_follow_up_at != null &&
-    c.next_follow_up_at <= today &&
-    c.answered !== true && c.appointment_set !== true && c.follow_up_number !== 3 &&
-    c.blocked_at == null
-  ).length;
+  // Dieselbe Regel wie das Board (`istKontaktDran`), samt „ausgelaufen" (F1).
+  const openFU = contacts.filter((c) => istKontaktDran(c, today)).length;
 
   const answerRate = pct(answered, total);
   const apptRate = pct(appts, total);

@@ -20,6 +20,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
+import { istInArbeitsmenge } from "@/lib/dranRegel";
 import { CANCELLED_MOVE_HINT, moveLockReason, TERMINAL_CLOSING_STATUS, TERMINAL_SETTING_STATUS } from "@/lib/terminMeta";
 import { buildEvents, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
@@ -205,8 +206,13 @@ describe("Befund 2a — der Kalender kennt die Absage", () => {
     // OHNE Absage steht in der Zukunft und ist damit versorgt.
     assert.equal(settingEvent().statusPill.label, "Termin steht");
     assert.equal(settingEvent().dran, false);
-    // … und die Absage kippt ihn in die Arbeitsmenge zurück.
-    assert.equal(settingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" }).dran, true);
+    // … und die Absage kippt ihn in die Arbeitsmenge zurück. Golden wird er
+    // dafür seit dem Nachfass-Eingang nicht mehr in der Terminliste: Gold heißt
+    // dort nur noch „eine Termin-Erinnerung ist offen" (`istTerminDran`), und ein
+    // abgesagter Termin hat keine. Die Arbeit steht auf /nachfassen (Plan §4.7).
+    const abgesagt = settingEvent({ cancelled_at: "2026-09-10T09:00:00.000Z" });
+    assert.equal(istInArbeitsmenge(abgesagt.zustand), true);
+    assert.equal(abgesagt.dran, false);
   });
 
   test("„die Absage ist überholt“ steht in `revived_at`, nicht im Datum", () => {

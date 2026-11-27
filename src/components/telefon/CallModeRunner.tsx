@@ -302,15 +302,8 @@ function callbackPresets(nowMs: number): { label: string; value: string }[] {
 export function CallModeRunner({
   leads,
   empty,
-  script,
 }: {
   leads: PhoneLead[];
-  /**
-   * Gesprächsleitfaden der Liste, nur zum Lesen. Bearbeitet wird er oben auf
-   * der Seite — aber dort ist er während des Telefonats nicht erreichbar,
-   * ohne aus dem Lead herauszuscrollen (am Handy: einen ganzen Bildschirm).
-   */
-  script?: string | null;
   /** Leerzustand, wenn gar kein Lead da ist. Ohne Angabe: der Text einer Importliste. */
   empty?: { title: string; text: string };
 }) {
@@ -373,9 +366,19 @@ export function CallModeRunner({
     return counts;
   }, [merged]);
 
+  // Uhr für die Reihenfolge (Muster TermineBoard): `null` bis zum ersten Tick,
+  // damit Server und Browser dieselbe Liste rendern.
+  const [jetzt, setJetzt] = useState<number | null>(null);
+  useEffect(() => {
+    const tick = () => setJetzt(Date.now());
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return merged.filter(
+    const treffer = merged.filter(
       (l) =>
         (statusFilter === "alle" || l.status === statusFilter) &&
         (!q ||
@@ -383,7 +386,18 @@ export function CallModeRunner({
           (l.phone ?? "").toLowerCase().includes(q) ||
           (l.decider_name ?? "").toLowerCase().includes(q)),
     );
-  }, [merged, statusFilter, search]);
+    // Fällige Rückrufe zuerst, nach verabredeter Uhrzeit (Prüfliste O4,
+    // Redesign E8: Rückruf → Wiederholen → neu). 14 von 17 Rückrufen waren
+    // überfällig, weil sie nur in einem Reiter standen, den niemand öffnete.
+    // Der Rest behält die Reihenfolge der Liste; sortiert wird stabil.
+    if (jetzt === null) return treffer;
+    const faellig = (l: (typeof treffer)[number]) =>
+      l.status === "rueckruf" && l.callback_at !== null && Date.parse(l.callback_at) <= jetzt;
+    const vorn = treffer
+      .filter(faellig)
+      .sort((a, b) => (a.callback_at ?? "").localeCompare(b.callback_at ?? ""));
+    return [...vorn, ...treffer.filter((l) => !faellig(l))];
+  }, [merged, statusFilter, search, jetzt]);
 
   const idxRaw = currentId ? filtered.findIndex((l) => l.id === currentId) : -1;
   const currentIndex = idxRaw >= 0 ? idxRaw : 0;
@@ -852,16 +866,6 @@ export function CallModeRunner({
                     color: "var(--text-muted)",
                   }}
                 >
-                  {/* Die Durchwahl ist dieselbe Handlung wie die Zentrale —
-                      also ebenso antippbar, statt sie abzutippen. */}
-                  {current.decider_direct_dial && (
-                    <a
-                      href={`tel:${current.decider_direct_dial.replace(/[^\d+]/g, "")}`}
-                      className="dialer-direct-dial"
-                    >
-                      Durchwahl <span className="tnum">{current.decider_direct_dial}</span>
-                    </a>
-                  )}
                   <span className="tnum">{(current.call_attempt ?? 0) + 1}. Anruf</span>
                   {current.callback_at && current.status === "rueckruf" && (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
@@ -987,43 +991,6 @@ export function CallModeRunner({
                   onCommit={(next) => setAndSave(current.id, { notes: next }, { notes: next })}
                 />
               </details>
-
-              {(script ?? "").trim() && (
-                <details style={{ marginBottom: "var(--sp-7)" }}>
-                  <summary
-                    className="collapse-summary"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "var(--sp-4)",
-                      padding: "var(--sp-3) var(--sp-4)",
-                      cursor: "pointer",
-                      userSelect: "none",
-                    }}
-                  >
-                    <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-                    <span className="dialer-label" style={{ margin: 0 }}>
-                      Leitfaden
-                    </span>
-                  </summary>
-                  <div
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      fontSize: "var(--fs-base)",
-                      lineHeight: "var(--lh-base)",
-                      color: "var(--text-secondary)",
-                      padding: "var(--sp-5)",
-                      background: "var(--surface-1)",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: "var(--r-md)",
-                      maxHeight: "50dvh",
-                      overflowY: "auto",
-                    }}
-                  >
-                    {script}
-                  </div>
-                </details>
-              )}
 
               {/* ── Ergebnis des Anrufs ──
                   Vier vollflächig eingefärbte Buttons standen hier bisher
@@ -1191,10 +1158,8 @@ export function CallModeRunner({
           onClose={() => setApptOpen(false)}
           leadName={current.company ?? current.decider_name ?? undefined}
           defaultMeetLink={current.meet_link ?? undefined}
-          // Durchwahl vor Zentrale — dieselbe Reihenfolge wie der Rückfall in
-          // convertPhoneLeadToSetting: das Setting findet mit dem Entscheider
-          // statt. Vorausgefüllt, damit „Telefon" ein Klick ist statt Abtippen.
-          defaultPhone={current.decider_direct_dial ?? current.phone ?? undefined}
+          // Vorausgefüllt, damit „Telefon" ein Klick ist statt Abtippen.
+          defaultPhone={current.phone ?? undefined}
           defaultAppointmentAt={isoToBerlinInput(current.appointment_at) || undefined}
           onSubmit={({ meetLink, phone, meetingKind, appointmentAt }) =>
             convertPhoneLeadToSetting({

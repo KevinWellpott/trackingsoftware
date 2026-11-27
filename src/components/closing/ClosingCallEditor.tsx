@@ -270,9 +270,6 @@ export function ClosingCallEditor({
   const [callAt, setCallAt] = useState(isoToLocalInput(call.call_at));
   const [meetLink, setMeetLink] = useState(call.meet_link ?? "");
   const [showStatus, setShowStatus] = useState<"show" | "no_show" | null>(call.show_status);
-  const [recordingLink, setRecordingLink] = useState(call.recording_link ?? "");
-  const [objectionsHandled, setObjectionsHandled] = useState(call.objections_handled ?? "");
-  const [objectionsOpen, setObjectionsOpen] = useState(call.objections_open ?? "");
   const [notes, setNotes] = useState(call.notes ?? "");
   const lastSavedNotesRef = useRef(call.notes ?? "");
 
@@ -403,7 +400,7 @@ export function ClosingCallEditor({
   }
 
   // Setzt alles zurueck, was das ERGEBNIS beschreibt. Script-Antworten,
-  // Notizen, Aufzeichnung und Termin bleiben — das ist Arbeit, kein Ergebnis.
+  // Notizen und Termin bleiben — das ist Arbeit, kein Ergebnis.
   async function handleReset() {
     const ok = await confirm({
       title: "Ergebnis zurücksetzen?",
@@ -655,7 +652,7 @@ export function ClosingCallEditor({
           className="tnum"
           style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--text-muted)", whiteSpace: "nowrap" }}
         >
-          Termin · Meet-Link · Show · Einwände
+          Termin · Meet-Link · Show
         </span>
       </summary>
 
@@ -698,42 +695,6 @@ export function ClosingCallEditor({
           }}
           placeholder="https://meet.google.com/…"
           style={fieldInput}
-        />
-      </div>
-
-      <div>
-        <span style={fieldLabel}>Aufzeichnung (Link)</span>
-        <input
-          type="url"
-          value={recordingLink}
-          onChange={(e) => setRecordingLink(e.target.value)}
-          onBlur={() => save({ recording_link: recordingLink || null })}
-          placeholder="https://…"
-          style={fieldInput}
-        />
-      </div>
-
-      <div>
-        <span style={fieldLabel}>Einwände behandelt</span>
-        <textarea
-          value={objectionsHandled}
-          onChange={(e) => setObjectionsHandled(e.target.value)}
-          onBlur={() => save({ objections_handled: objectionsHandled || null })}
-          placeholder="Welche Einwände kamen — und wie behandelt?"
-          rows={3}
-          style={{ ...fieldInput, resize: "vertical", lineHeight: 1.5 }}
-        />
-      </div>
-
-      <div>
-        <span style={fieldLabel}>Einwände offen</span>
-        <textarea
-          value={objectionsOpen}
-          onChange={(e) => setObjectionsOpen(e.target.value)}
-          onBlur={() => save({ objections_open: objectionsOpen || null })}
-          placeholder="Was ist noch nicht ausgeräumt?"
-          rows={3}
-          style={{ ...fieldInput, resize: "vertical", lineHeight: 1.5 }}
         />
       </div>
       </div>

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccessContext } from "@/lib/access";
 import { berlinDateISO } from "@/lib/apptTime";
 import { CANCELLED_MOVE_HINT, absageWirktNoch } from "@/lib/terminMeta";
+import { faelligNachShowStatus } from "@/lib/nachfassRegel";
 import { CLOSING_LOST_REASON_CODES, type ClosingLostReasonCode } from "@/lib/types";
 import { scheduleRecycle } from "@/app/actions/recycle";
 import { revalidatePath } from "next/cache";
@@ -59,9 +60,6 @@ export type ClosingCallPatch = {
    * eines Verlustgrunds ZURÜCKZUNEHMEN — siehe `setClosingOutcome`.
    */
   next_recycle_at?: string | null;
-  recording_link?: string | null;
-  objections_handled?: string | null;
-  objections_open?: string | null;
   script_answers?: Record<string, string>;
   status?: "offen" | "gewonnen" | "verloren" | "nachfassen";
   notes?: string | null;
@@ -141,7 +139,14 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
     if (absageWirktNoch(before)) return { error: CANCELLED_MOVE_HINT };
   }
 
-  const { error } = await supabase.from("closing_calls").update(withNoShowResolutionCleared(patch)).eq("id", id);
+  const fertig = withNoShowResolutionCleared(patch);
+  // Nachfass-Eingang (Plan §4.6): wie am Erstgespräch — No-Show heute,
+  // erschienen ohne Ergebnis am nächsten Werktag fällig, ohne eigenes Datum.
+  if ("show_status" in fertig && !("follow_up_due" in fertig)) {
+    const due = faelligNachShowStatus(fertig.show_status, berlinDateISO(new Date().toISOString()));
+    if (due) fertig.follow_up_due = due;
+  }
+  const { error } = await supabase.from("closing_calls").update(fertig).eq("id", id);
   if (error) return { error: error.message };
 
   revalidatePath(`/closing/${id}`, "page");
@@ -162,6 +167,24 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
  */
 function isLostReasonCode(v: unknown): v is ClosingLostReasonCode {
   return typeof v === "string" && (CLOSING_LOST_REASON_CODES as readonly string[]).includes(v);
+}
+
+/**
+ * „Durchgeführt von" mit der angemeldeten Person vorbelegen, wenn noch leer
+ * (Prüfliste O3: nur 24 von 68 Closings trugen es). Wer das Ergebnis einträgt,
+ * hat das Gespräch in aller Regel geführt; korrigieren lässt es sich auf der
+ * Detailseite. Ein Plattform-Admin in fremder Organisation ist dort kein
+ * Mitglied — der Guard aus 0042 nullt die Angabe dann. Fail-soft.
+ */
+async function durchfuehrungVorbelegen(tabelle: "setting_calls" | "closing_calls", id: string): Promise<void> {
+  const access = await getAccessContext();
+  if (!access || access.is_foreign_org) return;
+  const supabase = await createClient();
+  await supabase
+    .from(tabelle)
+    .update({ conducted_by_user_id: access.user.id })
+    .eq("id", id)
+    .is("conducted_by_user_id", null);
 }
 
 /**
@@ -296,6 +319,7 @@ export async function setClosingOutcome(input: {
     .update(withNoShowResolutionCleared(withFollowUpDateSynced(patch)))
     .eq("id", input.closingId);
   if (error) return { error: error.message };
+  await durchfuehrungVorbelegen("closing_calls", input.closingId);
 
   // Verloren ist kein Ende — der Lead bekommt ein Recycling-Datum, dessen
   // Wartezeit vom Verlustgrund abhängt. 'falsche_zielgruppe' und 'kein_fit'

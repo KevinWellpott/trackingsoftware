@@ -63,10 +63,39 @@ export type FollowUpKontakt = {
  * `boolean | null`, und NULL ist der NORMALFALL (frisch gepitcht = noch nichts
  * passiert, docs §7). Ein Vergleich auf `false` verlöre die Mehrheit der Zeilen.
  */
+/**
+ * Ab wie vielen Tagen Überfälligkeit ein LinkedIn-Follow-up als „ausgelaufen"
+ * gilt (Entscheidung F1, 27.11.2026). 1.848 von 1.849 fälligen Follow-ups
+ * lagen über 14 Tage zurück; die rote Zahl nahm niemand mehr ernst. Ein
+ * ausgelaufenes Follow-up verschwindet aus Fällig-Zahl und Liste, bleibt aber
+ * in der Auswertung als „nicht nachgefasst" sichtbar. Gelöscht wird nichts.
+ */
+export const FU_AUSGELAUFEN_TAGE = 14;
+
+/** Letzter Tag, an dem ein Follow-up noch als fällig gilt (heute − 14). */
+export function fuAusgelaufenGrenze(today: string): string {
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - FU_AUSGELAUFEN_TAGE);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Im Flow, aber seit über 14 Tagen überfällig — für die Auswertung. */
+export function istFuAusgelaufen(c: FollowUpKontakt, today: string): boolean {
+  return (
+    c.next_follow_up_at != null &&
+    c.next_follow_up_at < fuAusgelaufenGrenze(today) &&
+    c.answered !== true &&
+    c.appointment_set !== true &&
+    c.follow_up_number !== 3 &&
+    c.blocked_at == null
+  );
+}
+
 export function istKontaktDran(c: FollowUpKontakt, today: string): boolean {
   return (
     c.next_follow_up_at != null &&
     c.next_follow_up_at <= today &&
+    c.next_follow_up_at >= fuAusgelaufenGrenze(today) &&
     c.answered !== true &&
     c.appointment_set !== true &&
     c.follow_up_number !== 3 &&
@@ -214,6 +243,13 @@ export type TerminZustandInput = {
    * Der Knopf „Neuen Termin ansetzen" in der Arbeitsliste ist dieser Schritt.
    */
   revivedAt: string | null;
+  /**
+   * Zeigt eine NEUERE Erstgesprächs-Zeile per `revived_from_*` auf diese
+   * (aus der Ablage neu angesetzt)? Dann ist diese Zeile Historie: Ihre Absage
+   * bzw. ihr No-Show gilt weiter, die Arbeit hängt am Nachfolger. Ohne das
+   * stand derselbe Mensch zweimal in der Liste. Fehlt die Angabe, gilt `false`.
+   */
+  hatNachfolger?: boolean;
 };
 
 /**
@@ -282,9 +318,13 @@ export function terminZustand(row: TerminZustandInput, today: string): TerminZus
   // Ablage-Ansicht „Ausgeschieden" und der Recycling-Zweig `ohne_aussicht`
   // (docs §5). `revived_at` hebt es auf — dann steht wieder ein Termin, und
   // Schritt 3 entscheidet.
-  if (row.cancelledAt && row.cancelOutlook === "ohne_aussicht" && !row.revivedAt) {
+  if (row.cancelledAt && row.cancelOutlook === "ohne_aussicht" && (!row.revivedAt || row.hatNachfolger)) {
     return AUS_DEM_FUNNEL[row.kind];
   }
+  // Aus der Ablage neu angesetzt: Die alte Zeile ist erledigt, egal was ihr
+  // Datum sagt — sonst stünde sie neben ihrem Nachfolger noch einmal in der
+  // Liste (alt „offen", neu „Termin steht").
+  if (row.hatNachfolger) return AUS_DEM_FUNNEL[row.kind];
 
   if (stehtNochAn(row, today)) return "verlegt";
   if (row.showStatus === "no_show") {
@@ -669,6 +709,12 @@ export function istTerminDran(
   today: string,
   erinnerung: TerminErinnerung | null = null,
 ): boolean {
-  if (erinnerung !== null) return true;
-  return istInArbeitsmenge(zustand) && !istHeuteKontaktiert(stempel, today);
+  // Seit dem Nachfass-Eingang (Plan §4.7) beantwortet „Wen muss ich heute
+  // nerven?" allein `/nachfassen`. In der Terminliste leuchtet nur noch, was
+  // dort NICHT steht: die offene Termin-Erinnerung. Zwei Definitionen von
+  // „du bist dran" auf zwei Seiten wären genau der alte Fehler.
+  void zustand;
+  void stempel;
+  void today;
+  return erinnerung !== null;
 }

@@ -3,9 +3,8 @@
 import { moveSettingAppointment } from "@/app/actions/settingCalls";
 import { updateClosingCall } from "@/app/actions/closingCalls";
 import { slotToIso } from "@/lib/apptTime";
-import { buildEvents, type RueckrufAufgabe, type TerminEvent, type WithCancellation } from "@/lib/termine";
+import { buildEvents, type TerminEvent, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
-import { istZuTun } from "@/lib/dranRegel";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { CalendarMobile } from "./CalendarMobile";
@@ -13,7 +12,6 @@ import { CalendarMonth } from "./CalendarMonth";
 import { CalendarTimeGrid, type TimeGridHandle } from "./CalendarTimeGrid";
 import { EventChip } from "./EventChip";
 import { EventPopover } from "./EventPopover";
-import { RueckrufListe } from "./RueckrufListe";
 import { TermineFilterBar, TermineTabs, type Member } from "./TermineFilterBar";
 import { TermineList } from "./TermineList";
 import { useDragReschedule, type DragGeometry, type DragTarget } from "./useDragReschedule";
@@ -43,8 +41,6 @@ export function TermineBoard({
   settings,
   closings,
   members,
-  rueckrufe,
-  rueckrufeVerfuegbar,
   today,
   scopeUserId,
   canSeeAll,
@@ -56,10 +52,6 @@ export function TermineBoard({
   closings: WithCancellation<ClosingCall>[];
   /** Namensquelle für `assigned_user_id` und für den Nachfass-Stempler. */
   members: Member[];
-  /** Fällige Telefon-Rückrufe — der dritte Reiter (docs §1: eigene Zeitkörnung). */
-  rueckrufe: RueckrufAufgabe[];
-  /** `false` = Abfrage gescheitert. „Nicht ermittelbar" ≠ „nichts zu tun". */
-  rueckrufeVerfuegbar: boolean;
   /**
    * Der Berliner Kalendertag, VOM SERVER. Kein `localDateISO()` im Browser:
    * Der Server läuft auf Vercel in UTC und lieferte damit abends einen anderen
@@ -235,7 +227,6 @@ export function TermineBoard({
     const pool = [...filtered, ...ohneTermin];
     const steht = pool.filter((e) => e.zustand === "verlegt");
     return {
-      zu_tun: pool.filter((e) => istZuTun(e.zustand, e.erinnerung)).length,
       erinnerung_setting: steht.filter((e) => e.kind === "setting").length,
       erinnerung_closing: steht.filter((e) => e.kind === "closing").length,
       alle: pool.length,
@@ -266,26 +257,6 @@ export function TermineBoard({
      ist kein Zeitschnitt in die Gegenrichtung — es nimmt nichts heraus, es
      holt etwas herein, und zwar genau für die Stunden, in denen etwas zu tun
      ist.                                                                     */
-
-  /**
-   * Rückrufe folgen derselben Personenachse — aber über den LISTEN-Owner
-   * (`list_owned_by_user()`, docs §2). Das sind die zwei Achsen, die im ganzen
-   * Datenmodell nebeneinanderlaufen; sie hier zu vermischen hieße, einen
-   * Telefon-Lead demjenigen zuzuschreiben, der zufällig den Termin angelegt hat.
-   */
-  const rueckrufeGefiltert = useMemo(() => {
-    const q = params.search.trim().toLowerCase();
-    return rueckrufe.filter((r) => {
-      if (params.wer !== "alle" && scopeUserId && r.ownerUserId !== scopeUserId) return false;
-      if (!q) return true;
-      return [r.company, r.decider].filter(Boolean).join(" ").toLowerCase().includes(q);
-    });
-  }, [rueckrufe, params.search, params.wer, scopeUserId]);
-
-  // Der Rückruf-Reiter trug denselben Schnitt mit der Grenze seiner eigenen
-  // Kadenz (14 Tage ab `callback_at`) und ist mit ihm gefallen. Ein verabredeter
-  // Rückruf vom Februar sieht zwar nicht mehr nach Verabredung aus — er steht
-  // aber genau deshalb noch offen, weil ihn niemand erledigt hat.
 
   // Auf den sichtbaren Zeitraum eingrenzen (Liste und Rückrufe zeigen alles).
   const range = rangeForView(params.view, params.date);
@@ -368,7 +339,7 @@ export function TermineBoard({
    */
   const handleTab = useCallback(
     (next: TerminTab) =>
-      setParam("view", next === "liste" ? null : next === "rueckruf" ? "rueckruf" : "woche"),
+      setParam("view", next === "liste" ? "liste" : null),
     [setParam],
   );
 
@@ -398,7 +369,7 @@ export function TermineBoard({
         wer={params.wer}
         canSeeAll={canSeeAll}
         onSearch={(q) => setParam("q", q.trim() ? q : null)}
-        onZeit={(z) => setParam("zeit", z === "zu_tun" ? null : z)}
+        onZeit={(z) => setParam("zeit", z === "alle" ? null : z)}
         onWer={(w) => setParam("wer", w === "mein" ? null : w)}
         onView={(v: TerminView) => setParam("view", v)}
         onStep={(dir) => setParam("date", stepDate(params.view, params.date, dir))}
@@ -437,9 +408,8 @@ export function TermineBoard({
           dir={params.dir}
           onSort={handleSort}
           onError={setError}
+          nowMs={nowMs}
         />
-      ) : tab === "rueckruf" ? (
-        <RueckrufListe aufgaben={rueckrufeGefiltert} verfuegbar={rueckrufeVerfuegbar} />
       ) : (
         <>
           {/* Desktop-Raster und Handy-Kalender stehen beide im Baum und werden

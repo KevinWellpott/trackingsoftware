@@ -546,7 +546,6 @@ describe("8 · Zwei Erinnerungs-Ansichten, je eine Zahl", () => {
     // welche Zeilen, welche vierte Spalte, welcher Leerzustand.
     assert.equal(erinnerungsArt("erinnerung_setting"), "setting");
     assert.equal(erinnerungsArt("erinnerung_closing"), "closing");
-    assert.equal(erinnerungsArt("zu_tun"), null);
     assert.equal(erinnerungsArt("alle"), null);
     assert.match(TERMINE_LIST, /const art = erinnerungsArt\(zeit\)/);
     assert.match(TERMINE_LIST, /all\.filter\(\(e\) => e\.zustand === "verlegt" && e\.kind === art\)/);
@@ -558,8 +557,11 @@ describe("8 · Zwei Erinnerungs-Ansichten, je eine Zahl", () => {
     // nur der gemeinsame Name, sonst stünde dieselbe Auskunft zweimal.
     assert.equal(periodLabel("liste", "2026-09-16", "erinnerung_setting"), "Termin-Erinnerung");
     assert.equal(periodLabel("liste", "2026-09-16", "erinnerung_closing"), "Termin-Erinnerung");
-    assert.equal(periodLabel("liste", "2026-09-16", "zu_tun"), "Arbeitsliste");
-    assert.equal(periodLabel("liste", "2026-09-16"), "Arbeitsliste");
+    // „Zu tun" gibt es seit dem Nachfass-Eingang nicht mehr (die Tagesarbeit
+    // steht auf /nachfassen); „Alle" und ein fehlender Ausschnitt tragen das
+    // Listen-Etikett.
+    assert.equal(periodLabel("liste", "2026-09-16", "alle"), "Terminliste");
+    assert.equal(periodLabel("liste", "2026-09-16"), "Terminliste");
     // Der Kalender bleibt unberührt: Dort IST die Beschriftung der Zeitraum.
     assert.equal(periodLabel("tag", "2026-09-16", "erinnerung_setting"), periodLabel("tag", "2026-09-16"));
   });
@@ -567,7 +569,9 @@ describe("8 · Zwei Erinnerungs-Ansichten, je eine Zahl", () => {
   test("die Zahl kommt aus derselben Menge, die die Liste zeigt", () => {
     assert.match(BOARD, /const zeitCounts = useMemo\(/);
     assert.match(BOARD, /const pool = \[\.\.\.filtered, \.\.\.ohneTermin\]/);
-    assert.match(BOARD, /zu_tun: pool\.filter\(\(e\) => istZuTun\(e\.zustand, e\.erinnerung\)\)\.length/);
+    // „Zu tun" ist mit dem Nachfass-Eingang aus der Terminliste gefallen — die
+    // Tagesarbeit hat ihre eine Zahl im Badge von /nachfassen.
+    assert.doesNotMatch(BOARD, /zu_tun:/);
     // Beide Erinnerungs-Zahlen aus DERSELBEN Zwischenmenge — zweimal dasselbe
     // Prädikat nebeneinander wäre zwei Chancen, es verschieden zu schreiben.
     assert.match(BOARD, /const steht = pool\.filter\(\(e\) => e\.zustand === "verlegt"\)/);
@@ -575,7 +579,7 @@ describe("8 · Zwei Erinnerungs-Ansichten, je eine Zahl", () => {
     assert.match(BOARD, /erinnerung_closing: steht\.filter\(\(e\) => e\.kind === "closing"\)\.length/);
     assert.match(BOARD, /alle: pool\.length/);
     // Die Liste darunter schneidet wortgleich.
-    assert.match(TERMINE_LIST, /istZuTun\(e\.zustand, e\.erinnerung\)/);
+    assert.match(TERMINE_LIST, /all\.filter\(\(e\) => e\.zustand === "verlegt" && e\.kind === art\)/);
     // Und die Zahl steht IM Label, nicht als zweite Pille daneben (Badge-Budget).
     assert.match(FILTER_BAR, /label: `\$\{o\.label\} · \$\{zeitCounts\[o\.value\]\}`/);
   });
@@ -597,7 +601,11 @@ describe("8 · Zwei Erinnerungs-Ansichten, je eine Zahl", () => {
     // dann ein Strich, obwohl genau in dieser Ansicht umterminiert und
     // abgeschrieben wird.
     assert.match(TERMINE_LIST, /const anfassbar = istBearbeitbar\(event\.zustand\)/);
-    assert.match(TERMINE_LIST, /\{anfassbar \? \(\s*<TerminAktionen/);
+    // Zeile (Tabelle) und Karte (Handy) hängen beide an `anfassbar` — davor kann
+    // nur ein bereits eingetragenes Ergebnis stehen, nie eine Zeitfrage.
+    assert.match(TERMINE_LIST, /anfassbar \? \(\s*<TerminAktionen/);
+    assert.match(TERMINE_LIST, /\(anfassbar && \(\s*<TerminAktionen/);
+    assert.doesNotMatch(TERMINE_LIST, /istZuTun\([^)]*\) \? \(\s*<TerminAktionen/);
 
     // Die Menge hängt AM ZUSTAND und an nichts sonst — sie kippt also nicht
     // mitten am Tag um.

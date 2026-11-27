@@ -13,20 +13,16 @@
 //      steht.
 //   3. ERNST · Der WhatsApp-Schreibpfad hatte keine Oberfläche mehr, war per
 //      direktem POST aber erreichbar und erzeugte dabei einen
-//      Einwilligungs-Zeitstempel.
+//      Einwilligungs-Zeitstempel. Inzwischen sind die Spalten selbst gefallen.
 //
-// Zwei Bauarten wie in terminRiegel.test.ts: Was eine reine Funktion
-// entscheidet, wird als VERHALTEN geprüft (`buildDossier` kennt keine
-// Datenbank). Was eine Server Action entscheidet, wird am QUELLTEXT geprüft —
-// eine echte Probe bräuchte eine Datenbank, eine Attrappe bewiese nur, dass die
+// Geprüft wird am QUELLTEXT: Was eine Server Action entscheidet, bräuchte für
+// eine echte Probe eine Datenbank, eine Attrappe bewiese nur, dass die
 // Attrappe stimmt.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
-
-import { buildDossier, type DossierInput, type DossierSetting } from "@/lib/leadDossier";
 
 function read(relative: string): string {
   // Zeilenenden vereinheitlichen — `core.autocrlf=true` legt die Quelldateien
@@ -58,6 +54,7 @@ const STEMPEL = read("src/app/actions/followUpStamp.ts");
 const SETTING_CALLS = read("src/app/actions/settingCalls.ts");
 const CLOSING_CALLS = read("src/app/actions/closingCalls.ts");
 const DOSSIER = read("src/lib/leadDossier.ts");
+const DOSSIER_ACTION = read("src/app/actions/leadDossier.ts");
 
 const NEUER_TERMIN = slice(STEMPEL, "export async function setNeuerTermin(", "\n/**");
 
@@ -173,135 +170,19 @@ describe("3 · Kein Schreibpfad und keine Anzeige ohne Erfassung", () => {
     assert.doesNotMatch(code(SETTING_CALLS), /withWaConsentDerived/);
   });
 
-  test("der Typ ist kein Riegel — die Felder werden zur Laufzeit abgestreift", () => {
-    // Die wichtigste Prüfung der drei: `updateSettingCall` reicht den Patch
-    // unverändert an `.update()` weiter. Ein Feld aus dem TypeScript-Typ zu
-    // nehmen schließt deshalb gar nichts — ein POST mit `wa_phone` käme
-    // weiterhin durch.
-    const update = slice(SETTING_CALLS, "export async function updateSettingCall(", "\n/**");
-    assert.match(update, /ohneWhatsApp/);
-    assert.match(SETTING_CALLS, /function ohneWhatsApp</);
-    // Und zwar wirklich abstreifen, nicht bloß normalisieren: Die drei Namen
-    // stehen im Rest-Operator, sie tauchen im UPDATE nicht wieder auf.
-    const strip = slice(SETTING_CALLS, "function ohneWhatsApp<", "\n/**");
-    assert.match(strip, /"wa_phone", "wa_consent_at", "wa_refused_at"/);
-    assert.match(strip, /delete rest\[/);
+  test("die Spalten sind gefallen — kein Code liest oder schreibt sie mehr", () => {
+    // Bis zum Aufräumen stand hier ein Laufzeit-Riegel (`ohneWhatsApp`), der
+    // die drei Felder aus jedem Patch abstreifte: Die Spalten lagen noch in der
+    // Datenbank, ein POST mit `wa_phone` wäre sonst durchgekommen. Seit die
+    // Spalten selbst entfernt werden, weist PostgREST einen solchen Patch ab —
+    // der Riegel hätte nichts mehr zu schützen. Was bleiben muss: Nirgends
+    // steht ein Name, der eine gelöschte Spalte wieder anfragt.
+    assert.doesNotMatch(code(SETTING_CALLS), /ohneWhatsApp|wa_phone|wa_consent_at|wa_refused_at/);
+    assert.doesNotMatch(code(DOSSIER), /wa_phone|wa_consent_at|wa_refused_at/);
+    assert.doesNotMatch(code(DOSSIER_ACTION), /wa_phone|wa_consent_at|wa_refused_at/);
   });
 
-  test("das Dossier bietet die Nummer nicht mehr als Kontaktweg an", () => {
-    // VERHALTENSPROBE. Ohne Schreibpfad lässt sich eine Einwilligung weder
-    // dokumentieren noch widerrufen; eine angebotene Nummer wäre eine
-    // Einladung, die niemand zurücknehmen kann.
-    const dossier = buildDossier(
-      eingabe({
-        settings: [
-          setting({
-            id: "s1",
-            wa_phone: "+49 170 1234567",
-            wa_consent_at: "2026-08-11T09:00:00.000Z",
-          }),
-        ],
-      }),
-    );
-    assert.equal(
-      dossier.channels.some((c) => c.value.includes("170 1234567")),
-      false,
-      "die WhatsApp-Nummer steht weiter in den Kontaktwegen",
-    );
+  test("das Dossier bietet keine WhatsApp-Nummer als Kontaktweg an", () => {
     assert.doesNotMatch(code(DOSSIER), /kind: "whatsapp"/);
   });
-
-  test("… die dokumentierte VERWEIGERUNG bleibt dagegen stehen", () => {
-    // Ein Kontaktverbot ist der eine Datensatz, dessen Verlust schadet statt
-    // schützt — dieselbe Begründung wie bei der Sperrliste (docs §1). Es lädt
-    // niemanden ein, es hält jemanden ab.
-    const dossier = buildDossier(
-      eingabe({ settings: [setting({ id: "s1", wa_refused_at: "2026-08-11T09:00:00.000Z" })] }),
-    );
-    assert.ok(
-      dossier.warnings.some((w) => /keine persönliche Nummer/.test(w)),
-      "die Verweigerung ist mit der Nummer verschwunden",
-    );
-  });
 });
-
-/* ------------------------------------------------------------------ *
- * Zeilen-Fabriken — nur die Felder, die die Tests oben setzen
- * ------------------------------------------------------------------ */
-
-const RECYCLE = {
-  next_recycle_at: null,
-  recycle_attempt_count: 0,
-  recycle_excluded_at: null,
-  recycle_last_contacted_at: null,
-  recycle_responded_at: null,
-  recycle_reason_code: null,
-};
-
-function setting(partial: Partial<DossierSetting> & { id: string }): DossierSetting {
-  return {
-    lead_name: "Anna Meier",
-    company: "Meier GmbH",
-    phone: null,
-    wa_phone: null,
-    wa_consent_at: null,
-    wa_refused_at: null,
-    source_type: "linkedin",
-    source_detail: null,
-    source_contact_id: null,
-    source_phone_lead_id: null,
-    appointment_at: null,
-    call_at: null,
-    meeting_kind: null,
-    meet_link: null,
-    status: "offen",
-    show_status: null,
-    branche: null,
-    has_budget_8k: null,
-    sole_decider: null,
-    can_decide_now: null,
-    clear_need: null,
-    ist_pain: null,
-    warmth: null,
-    soll_ziel: null,
-    script_answers: null,
-    notes: null,
-    objections_handled: null,
-    objections_open: null,
-    follow_up_due: null,
-    follow_up_last_contacted_at: null,
-    follow_up_last_contacted_by_user_id: null,
-    follow_up_last_contacted_username: null,
-    no_show_count: 0,
-    no_show_resolution: null,
-    cancelled_at: null,
-    cancel_reason_code: null,
-    cancel_reason: null,
-    cancel_outlook: null,
-    reschedule_count: 0,
-    last_reschedule_at: null,
-    revived_at: null,
-    disqualify_reason_code: null,
-    disqualify_reason: null,
-    assigned_user_id: null,
-    created_by_user_id: null,
-    assigned_username: null,
-    created_at: "2026-08-10T08:00:00.000Z",
-    updated_at: "2026-08-10T08:00:00.000Z",
-    ...RECYCLE,
-    ...partial,
-  };
-}
-
-function eingabe(partial: Partial<DossierInput>): DossierInput {
-  return {
-    anchor: { kind: "setting", id: "s1" },
-    contacts: [],
-    phoneLeads: [],
-    settings: [],
-    closings: [],
-    attempts: [],
-    now: "2026-09-09T10:00:00.000Z",
-    ...partial,
-  };
-}

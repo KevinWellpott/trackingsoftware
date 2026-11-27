@@ -50,7 +50,7 @@ function versteckt(source: string): string {
   return out.join("\n\n");
 }
 
-const NACHFASSEN = read("src/components/nachfassen/NachfassenBoard.tsx");
+const NACHFASSEN = read("src/components/nachfassen/NachfassEingang.tsx");
 const ABLAGE = read("src/components/ablage/AblageBoard.tsx");
 const SEITE_NACHFASSEN = read("src/app/(dashboard)/nachfassen/page.tsx");
 // ── GEÄNDERTER UMFANG, und zwar aus dem Rückbau heraus ─────────────────────
@@ -72,14 +72,15 @@ describe("1 · Erklärtexte stehen hinter dem Info-Icon", () => {
     // Weiterleitung reduziert hat — ohne Kopf gibt es dort nichts mehr zu
     // verstecken.)
     //
-    // Die gesuchte Frage hat sich mit dem Rückbau geändert: /nachfassen zeigt
-    // nur noch das Recycling und beantwortet damit nicht mehr „was ist heute
-    // fällig?" (das steht in der Terminliste), sondern „welcher tote Lead ist
-    // wieder einen Versuch wert?" — die dritte der drei Fragen aus docs §1.
+    // Die gesuchte Frage hat sich zweimal geändert: Nach dem Rückbau zeigte
+    // /nachfassen nur das Recycling („welcher tote Lead ist wieder einen
+    // Versuch wert?"). Seit dem Nachfass-Eingang ist die Seite wieder der EINE
+    // Ort für die Tagesarbeit — Termine ohne nächsten Schritt, Rückrufe,
+    // Recycling — und beantwortet „wen musst du heute kontaktieren?".
     assert.match(SEITE_NACHFASSEN, /<InfoPopover/, "/nachfassen hat kein Info-Icon am Titel.");
     assert.match(
       versteckt(SEITE_NACHFASSEN),
-      /Welcher tote Lead ist wieder einen Versuch wert\?/,
+      /Wen musst du heute kontaktieren\?/,
       "/nachfassen zeigt seine Selbstbeschreibung weiterhin als Absatz.",
     );
     assert.doesNotMatch(SEITE_NACHFASSEN, /\bmeta=/, "/nachfassen trägt weiterhin eine Meta-Zeile mit Fließtext.");
@@ -135,44 +136,49 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
   }
 
   test("Fehlermeldungen und „nicht verfügbar\"-Kästen — eine versteckte Fehlermeldung ist keine", () => {
-    // „Die Aufgabenliste konnte nicht geladen werden" ist mit der Union-RPC
-    // entfallen: /nachfassen liest nur noch `recycle_tasks`, und damit gibt es
-    // dort genau EINEN Ausfall statt zweier.
+    // Der Nachfass-Eingang kennt zwei Ausfälle, die man sehen muss: Das
+    // Kontakt-Protokoll fehlt (Migration noch nicht eingespielt — „Kontakt
+    // eintragen" schreibt dann nicht), oder die Recycling-Wiedervorlagen sind
+    // nicht ladbar (dann fehlt eine ganze Quelle in der Liste). Beides sähe
+    // ohne den Kasten aus wie „nichts zu tun".
     sichtbar("/nachfassen", NACHFASSEN, [
-      "Recycling ist nicht verfügbar",
-      "Konnte nicht gespeichert werden — bitte erneut versuchen.",
+      "Das Kontakt-Protokoll fehlt noch in der Datenbank",
+      "Die Recycling-Wiedervorlagen konnten nicht geladen werden",
     ]);
     sichtbar("/ablage", ABLAGE, ["Die Ablage ist nicht verfügbar"]);
   });
 
-  test("es gibt gar keine Ausblendungs-Zeile mehr — weil nichts mehr ausgeblendet wird", () => {
-    // HIER STAND das Gegenteil: Die Zeile „N lange überfällige Versuche
-    // ausgeblendet — Trotzdem anzeigen" musste ohne Klick sichtbar sein, weil
-    // sie die Bedingung war, unter der der Altlasten-Schnitt vertretbar blieb
-    // (Tatsache plus Handlung in einer Zeile).
+  test("was nicht unter „Fällig“ steht, ist ohne Klick gezählt und erklärt", () => {
+    // HIER STAND: „es gibt gar keine Ausblendungs-Zeile mehr" — der
+    // Altlasten-Schnitt war gefallen, und eine Zeile, die etwas ankündigt, das
+    // nicht passiert, wäre der Rest gewesen, aus dem er zurückkommt.
     //
-    // Der Auftraggeber hat den Schnitt gestrichen („ohne Ausnahme, ohne
-    // Intervall-Logik"). Damit dreht sich die Prüfung um: Eine Zeile, die etwas
-    // ankündigt, das nicht passiert, ist schlechter als keine — und sie wäre der
-    // Rest, aus dem der Schnitt zurückkommt. Die Regel selbst („was versteckt
-    // wird, steht ohne Klick da") bleibt gültig; sie hat hier nur keinen
-    // Gegenstand mehr.
+    // Der Nachfass-Eingang sortiert den Altbestand bewusst in einen eigenen
+    // Reiter „Aufräumen" (Plan §4.5, Entscheidung N4). Dass das kein
+    // versteckter Altersschnitt ist, hängt an genau dieser Regel: Die Zahl
+    // steht im Reiter, die Erklärung steht über der Liste — beides ohne Klick.
     assert.doesNotMatch(NACHFASSEN, /ausgeblendet/);
     assert.doesNotMatch(NACHFASSEN, /Trotzdem anzeigen/);
+    assert.match(NACHFASSEN, /label: `Aufräumen \$\{aufraeumenAnzahl\}`/);
+    sichtbar("/nachfassen", NACHFASSEN, ["Altbestand vor dem Start des Eingangs", "Noch {aufraeumListe.length} offen."]);
   });
 
   test("Leerzustände sagen weiterhin ohne Klick, was als Nächstes passiert", () => {
-    // Zwei Leerzustände waren es, solange es Filter gab („in dieser Auswahl").
-    // Ohne Filterreihe bleibt der eine, und er sagt jetzt, worauf man wartet.
-    sichtbar("/nachfassen", NACHFASSEN, ["Kein Lead wartet auf einen zweiten Anlauf"]);
+    // Der Leerzustand von „Fällig" sagt, wo die übrigen Vorgänge stehen —
+    // sonst läse sich eine leere Liste wie „niemand ist offen".
+    sichtbar("/nachfassen", NACHFASSEN, ["Nichts fällig. Wer offen ist, steht mit seinem nächsten Kontakt unter"]);
     sichtbar("/ablage", ABLAGE, ["Nichts abgelegt"]);
   });
 
   test("Warnungen an einer konkreten Karte bleiben an ihrer Karte", () => {
-    // /nachfassen trug hier die Kontaktfrequenz-Warnung. Ihre Quelle waren
-    // erledigte Kaskaden-Touches — die gibt es nicht mehr; geblieben ist eine
-    // schlichte Angabe („Zuletzt versucht"), die ebenfalls ohne Klick dasteht.
-    sichtbar("/nachfassen", NACHFASSEN, ["Zuletzt versucht"]);
+    // /nachfassen trug hier die Kontaktfrequenz-Warnung, danach die Angabe
+    // „Zuletzt versucht". Im Nachfass-Eingang stehen an der Zeile der letzte
+    // Kontakt und — ab fünf Versuchen ohne Erreichen — der Vorschlag zum
+    // Aufgeben (Plan §4.4). Ein Vorschlag hinter einem Icon wäre keiner.
+    sichtbar("/nachfassen", NACHFASSEN, [
+      "zuletzt ${lastContactLabel(",
+      "nicht erreicht. Aufgeben? Er kommt nach der Wartezeit über das Recycling wieder.",
+    ]);
     // Die Sätze zu weggelassenen Knöpfen (`hints`) und der Vorgänger-Hinweis
     // hängen an EINER Zeile und entscheiden dort etwas.
     sichtbar("/ablage", ABLAGE, ["Zweiter Anlauf.", "{hint}", "Wiedervorlage ist fällig — steht in Nachfassen"]);

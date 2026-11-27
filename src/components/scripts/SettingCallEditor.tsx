@@ -46,7 +46,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 
 // Setting-Call-Editor: eine Spalte — Aktionsleiste (Show/No-Show/Unqualifiziert/
 // Verlegen/Dead/Closing), Zuweisung, Quell-Kontext, Script-Runner, ganz unten
-// Aufzeichnungs-Link + Notizen. Alles speichert automatisch (Blur bzw. Klick)
+// die Notizen. Alles speichert automatisch (Blur bzw. Klick)
 // via updateSettingCall.
 //
 // Das Ergebnis (Nicht erschienen / Qualifiziert / Unqualifiziert / Dead) läuft
@@ -81,7 +81,8 @@ type Props = {
 type FollowUpOutcome = "no_show" | "unqualifiziert";
 
 /** Default-Wiedervorlage: No-Show morgen erneut anfassen, Unqualifizierte in einer Woche. */
-const FOLLOW_UP_DEFAULT_DAYS: Record<FollowUpOutcome, number> = { no_show: 1, unqualifiziert: 7 };
+// No-Show: heute fällig im Nachfass-Eingang (Plan §4.6).
+const FOLLOW_UP_DEFAULT_DAYS: Record<FollowUpOutcome, number> = { no_show: 0, unqualifiziert: 7 };
 
 const FOLLOW_UP_COPY: Record<FollowUpOutcome, { title: string; subtitle: string; submit: string }> = {
   no_show: {
@@ -185,19 +186,6 @@ const fieldLabel: React.CSSProperties = {
   marginBottom: "0.35rem",
 };
 
-const fieldInput: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  background: "var(--surface-50)",
-  border: "1px solid var(--border-bright)",
-  borderRadius: "var(--radius-sm)",
-  padding: "0.45rem 0.625rem",
-  fontSize: "0.8125rem",
-  color: "var(--text-primary)",
-  outline: "none",
-  fontFamily: "inherit",
-};
-
 export function SettingCallEditor({
   call,
   users,
@@ -227,7 +215,6 @@ export function SettingCallEditor({
   const [status, setStatus] = useState<SettingStatus>(call.status);
   const [showStatus, setShowStatus] = useState<"show" | "no_show" | null>(call.show_status);
   const [followUpDue, setFollowUpDue] = useState<string | null>(call.follow_up_due);
-  const [recordingLink, setRecordingLink] = useState(call.recording_link ?? "");
   const [notes, setNotes] = useState(call.notes ?? "");
   const [closingDone, setClosingDone] = useState(call.status === "closing_gelegt");
   // Id des angelegten Closings (nach createClosingFromSetting bekannt; bei
@@ -300,7 +287,7 @@ export function SettingCallEditor({
   }
 
   // Alles zuruecksetzen, was das ERGEBNIS beschreibt — Script-Antworten,
-  // Notizen, Aufzeichnung und Termin bleiben stehen. Das ist Arbeit, kein
+  // Notizen und Termin bleiben stehen. Das ist Arbeit, kein
   // Ergebnis, und wer sich beim Ausgang vertippt hat will die nicht verlieren.
   //
   // no_show_count geht bewusst MIT auf 0: der Reset ist die Korrektur eines
@@ -941,7 +928,7 @@ export function SettingCallEditor({
           sie stand doppelt: einmal hier und einmal in der Listenzeile, aus der
           der Termin entstand.
 
-          Was bleibt, sind Notizen und Einwände aus dem TELEFON-Lead: die
+          Was bleibt, sind die Notizen aus dem TELEFON-Lead: die
           stehen sonst nirgends und wären für den, der den Call übernimmt, ein
           echter Verlust. Sie liegen deshalb still und eingeklappt hier statt
           in einer Karte, die durch ihre Farbe wichtiger wirkte als das
@@ -1002,15 +989,26 @@ export function SettingCallEditor({
           boxShadow: "var(--shadow-sm)",
         }}
       >
-        <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-6)" }}>
-          Gesprächsverlauf
-        </div>
-        <ScriptRunner
-          blocks={SETTING_BLOCKS}
-          highlight={{ title: "Gold Standards", blocks: SETTING_GOLD_BLOCKS }}
-          initial={call.script_answers ?? {}}
-          onSave={(answers) => updateSettingCall(call.id, { script_answers: answers })}
-        />
+        {/* Einklappbar, nichts erzwungen (Prüfliste O8): Das Skript wurde in
+            29 % der Erstgespräche genutzt und stand als lange Seite unter dem
+            Ergebnis. Offen, solange das Gespräch noch kein Ergebnis hat —
+            danach zu. Die Felder bleiben vollständig (kein „weniger Text“,
+            der Notizfelder verschwinden lässt). */}
+        <details open={call.status === "offen" && !call.show_status} className="setting-skript">
+          <summary
+            className="collapse-summary eyebrow eyebrow-muted"
+            style={{ cursor: "pointer", marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}
+          >
+            <ChevronRight size={13} className="collapse-chevron" style={{ flexShrink: 0 }} />
+            Gesprächsverlauf
+          </summary>
+          <ScriptRunner
+            blocks={SETTING_BLOCKS}
+            highlight={{ title: "Gold Standards", blocks: SETTING_GOLD_BLOCKS }}
+            initial={call.script_answers ?? {}}
+            onSave={(answers) => updateSettingCall(call.id, { script_answers: answers })}
+          />
+        </details>
 
         {/* Antworten aus fruheren Skript-Versionen (Gap, Konsequenz).
             Sie stehen weiter in script_answers und wuerden sonst still
@@ -1059,7 +1057,7 @@ export function SettingCallEditor({
         )}
       </div>
 
-      {/* ── Aufzeichnung + Notizen (ganz unten) ── */}
+      {/* ── Notizen (ganz unten) ── */}
       <div
         style={{
           background: "var(--surface-100)",
@@ -1072,18 +1070,6 @@ export function SettingCallEditor({
           gap: "1.25rem",
         }}
       >
-        <div>
-          <span style={fieldLabel}>Aufzeichnung (Link)</span>
-          <input
-            type="url"
-            value={recordingLink}
-            onChange={(e) => setRecordingLink(e.target.value)}
-            onBlur={() => save({ recording_link: recordingLink || null })}
-            placeholder="https://…"
-            style={fieldInput}
-          />
-        </div>
-
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
             <FileText size={15} style={{ color: "var(--brand-500)" }} />

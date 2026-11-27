@@ -63,14 +63,13 @@ export type AnalyseContact = {
   answer_category: string | null;
   appointment_set: boolean | null;
   blocked_at: string | null;
-  target_group: string | null;
   setting_call_id: string | null;
   lists: AnalyseListMeta | null;
 };
 
 const CONTACT_COLUMNS =
   "id, list_id, pitched_at, created_at, follow_up_number, next_follow_up_at, answered, answer_category, " +
-  "appointment_set, blocked_at, target_group, setting_call_id, " +
+  "appointment_set, blocked_at, setting_call_id, " +
   "lists!inner(name, owner_name, created_by_user_id, archived_at)";
 
 // Die Texte der Liste (Pitch, FU1–3) reisten früher eingebettet in JEDER
@@ -222,13 +221,6 @@ export type AnalyseSettingCall = {
   absage_wirkt: boolean;
   no_show_count: number | null;
   meeting_kind: "link" | "telefon" | null;
-  branche: string | null;
-  has_budget_8k: "ja" | "nein" | "unklar" | null;
-  sole_decider: boolean | null;
-  can_decide_now: boolean | null;
-  clear_need: boolean | null;
-  ist_pain: number | null;
-  warmth: number | null;
 };
 
 // ACHTUNG: Die Liste ist namentlich. Fehlt eine Spalte in der Datenbank, weist
@@ -239,8 +231,7 @@ const SETTING_COLUMNS =
   "id, created_by_user_id, assigned_user_id, source_type, source_detail, source_contact_id, " +
   "source_phone_lead_id, appointment_at, call_at, created_at, phone, show_status, " +
   "status, cancelled_at, cancel_outlook, cancel_reason_code, revived_at, " +
-  "no_show_count, meeting_kind, branche, has_budget_8k, sole_decider, can_decide_now, clear_need, " +
-  "ist_pain, warmth, conducted_by_user_id";
+  "no_show_count, meeting_kind, conducted_by_user_id";
 
 /**
  * Personen-Filter für Nutzer ohne Vergleichsrecht (`data_scope='own'`).
@@ -430,7 +421,6 @@ export type AnalysePhoneLead = {
   status: string | null;
   call_attempt: number | null;
   gatekeeper_reached: "ja" | "nein" | "direkt" | null;
-  gatekeeper_attempts: number | null;
   decider_reached: boolean | null;
   /**
    * Der Pitch kam durch (Migration 0028) — NICHT dasselbe wie
@@ -438,7 +428,6 @@ export type AnalysePhoneLead = {
    * beiden Quoten spreizen sich deshalb erst mit neu erfassten Anrufen.
    */
   pitch_delivered: boolean | null;
-  answer_sentiment: "positiv" | "neutral" | "negativ" | null;
   mailbox: boolean | null;
   appointment_set: boolean | null;
   target_group: string | null;
@@ -449,9 +438,6 @@ export type AnalysePhoneLead = {
    * Label wandert und damit aus seinem Arm fiele.
    */
   script_label: string | null;
-  no_transfer_reason: string | null;
-  no_pitch_reason: string | null;
-  no_appointment_reason: string | null;
   phone_lists: {
     name: string | null;
     owner_name: string | null;
@@ -465,14 +451,12 @@ export type AnalysePhoneLead = {
 
 // `script_label`/`target_group` der Liste setzen Migration 0029 voraus,
 // `pitch_delivered` Migration 0028.
-// `script_text` bleibt bewusst draußen: Für die Auswertung zählt der Testarm,
-// der Volltext würde nur die Payload jeder Zeile aufblähen.
 const PHONE_COLUMNS =
   // list_id ist noetig, damit die Vergleichsseite Telefonlisten ueber ihre ID
   // unterscheidet — ueber den Namen fielen zwei gleichnamige Listen zusammen.
   "id, list_id, created_by_user_id, first_call_at, created_at, status, call_attempt, gatekeeper_reached, " +
-  "gatekeeper_attempts, decider_reached, pitch_delivered, answer_sentiment, mailbox, appointment_set, " +
-  "target_group, script_label, no_transfer_reason, no_pitch_reason, no_appointment_reason, " +
+  "decider_reached, pitch_delivered, mailbox, appointment_set, " +
+  "target_group, script_label, " +
   "phone_lists!list_id!inner(name, owner_name, list_kind, script_label, target_group)";
 
 export async function loadPhoneLeads(

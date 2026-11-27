@@ -10,8 +10,7 @@
 //     ausschließlich, um zu entscheiden, WORÜBER eine Erinnerung rausgeht.
 //     Mit ihm ist die WhatsApp-Karte gefallen und die Pflichtabfrage im
 //     Closing-Dialog — eine Pflicht, deren einziger Verbraucher weg ist, hält
-//     nur noch auf. (`withWaConsentDerived` in actions/settingCalls.ts bleibt
-//     als Server-Riegel stehen; die beiden CHECKs aus 0032 gelten weiter.)
+//     nur noch auf. Inzwischen sind auch die drei WhatsApp-Spalten gefallen.
 //  2. Die Erinnerungs-Karte am Termin („heißt auf dem Bildschirm
 //     Erinnerungen", „startet zugeklappt", „der zugeklappte Kopf trägt Anzahl,
 //     Fälligkeit und Überfälligkeit"). Sie war die Oberfläche des
@@ -114,12 +113,13 @@ describe("Die beiden Editoren tragen keine Nachrichten-Logik mehr", () => {
     // letzten Kürzen des Setting-Skripts sind versehentlich sämtliche
     // Notizfelder mitgegangen — „weniger Text" heißt nie „Feld weg". Geprüft
     // wird deshalb nicht eine Abwesenheit, sondern eine Anwesenheit: Skript,
-    // Notizen, Aufzeichnung und die Ergebnis-Wege.
+    // Notizen und die Ergebnis-Wege. (Die Felder „Aufzeichnung" und die
+    // beiden Einwand-Felder sind bewusst gefallen: Ihre Spalten hat kein Kunde
+    // je befüllt, sie werden aus der Datenbank entfernt.)
     assert.match(SETTING_EDITOR, /<ScriptRunner/);
     assert.match(SETTING_EDITOR, /blocks=\{SETTING_BLOCKS\}/);
     assert.match(SETTING_EDITOR, /script_answers: answers/);
     assert.match(SETTING_EDITOR, /save\(\{ notes: notes \|\| null \}\)/);
-    assert.match(SETTING_EDITOR, /save\(\{ recording_link: recordingLink \|\| null \}\)/);
     assert.match(SETTING_EDITOR, /setSettingOutcome\(/);
     assert.match(SETTING_EDITOR, /<DisqualifyReasonFields/);
 
@@ -127,12 +127,7 @@ describe("Die beiden Editoren tragen keine Nachrichten-Logik mehr", () => {
     assert.match(CLOSING_EDITOR, /blocks=\{CLOSING_BLOCKS\}/);
     assert.match(CLOSING_EDITOR, /script_answers: answers/);
     assert.match(CLOSING_EDITOR, /save\(\{ notes: notes \|\| null \}\)/);
-    assert.match(CLOSING_EDITOR, /save\(\{ recording_link: recordingLink \|\| null \}\)/);
     assert.match(CLOSING_EDITOR, /setClosingOutcome\(/);
-    // Die beiden Einwand-Felder des Closings hängen an keinem Ergebnis und
-    // wären beim Kürzen am leichtesten mitgegangen.
-    assert.match(CLOSING_EDITOR, /objections_handled/);
-    assert.match(CLOSING_EDITOR, /objections_open/);
   });
 
   test("das Closing lässt sich ohne persönliche Nummer anlegen", () => {

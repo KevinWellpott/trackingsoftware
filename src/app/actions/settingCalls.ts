@@ -2,9 +2,10 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
-import { berlinInputToIso } from "@/lib/apptTime";
+import { berlinDateISO, berlinInputToIso } from "@/lib/apptTime";
 import { closingZustaendigIn } from "@/lib/personResolution";
 import { CANCELLED_MOVE_HINT, absageWirktNoch } from "@/lib/terminMeta";
+import { faelligNachShowStatus } from "@/lib/nachfassRegel";
 import type { SettingOutcome, SettingStatus } from "@/lib/types";
 import { getPipelineSettings } from "@/app/actions/pipelineSettings";
 import { clearRecycle, excludeFromRecycle, scheduleRecycle } from "@/app/actions/recycle";
@@ -32,21 +33,9 @@ import { revalidatePath } from "next/cache";
 
 export type SettingCallPatch = {
   call_at?: string | null;
-  branche?: string | null;
-  offer_type?: string | null;
   show_status?: "show" | "no_show" | null;
-  has_budget_8k?: "ja" | "nein" | "unklar" | null;
-  sole_decider?: boolean | null;
-  can_decide_now?: boolean | null;
-  clear_need?: boolean | null;
-  ist_pain?: number | null;
-  soll_ziel?: string | null;
-  warmth?: number | null;
   closing_scheduled?: boolean | null;
   closing_at?: string | null;
-  recording_link?: string | null;
-  objections_handled?: string | null;
-  objections_open?: string | null;
   meet_link?: string | null;
   appointment_at?: string | null;
   script_answers?: Record<string, string>;
@@ -67,21 +56,45 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
   const supabase = await createClient();
 
   // Eine Normalisierung, die kein Aufrufer vergessen können darf: der
-  // No-Show-Ausgang folgt dem Show-Status (CHECK aus 0032). Davor fällt ab, was
-  // gar nicht mehr erfasst wird.
+  // No-Show-Ausgang folgt dem Show-Status (CHECK aus 0032).
   //
   // Der frühere Vorher-Lesen-Block darüber ist mit dem Rückbau entfallen: Er
   // ermittelte den alten `show_status` einzig, um beim Weg zurück auf
   // „erschienen" die No-Show-Kette zu entwerten. Ohne Kette gibt es nichts mehr
   // zu entwerten — und eine zusätzliche Abfrage vor jedem Speichern erst recht
   // nicht.
-  const normalized = withNoShowResolutionCleared(ohneWhatsApp(patch));
+  const normalized = withNoShowResolutionCleared(patch);
+  // Nachfass-Eingang (Plan §4.6): Ein frisch erfasster Show-Status macht den
+  // Vorgang fällig — No-Show heute, erschienen ohne Ergebnis am nächsten
+  // Werktag —, sofern der Aufrufer kein eigenes Datum schickt.
+  if ("show_status" in normalized && !("follow_up_due" in normalized)) {
+    const due = faelligNachShowStatus(normalized.show_status, berlinDateISO(new Date().toISOString()));
+    if (due) normalized.follow_up_due = due;
+  }
   const { error } = await supabase.from("setting_calls").update(normalized).eq("id", id);
   if (error) return { error: error.message };
 
   revalidatePath(`/setting/${id}`, "page");
   revalidatePath("/termine", "page");
   return {};
+}
+
+/**
+ * „Durchgeführt von" mit der angemeldeten Person vorbelegen, wenn noch leer
+ * (Prüfliste O3: nur 24 von 68 Closings trugen es). Wer das Ergebnis einträgt,
+ * hat das Gespräch in aller Regel geführt; korrigieren lässt es sich auf der
+ * Detailseite. Ein Plattform-Admin in fremder Organisation ist dort kein
+ * Mitglied — der Guard aus 0042 nullt die Angabe dann. Fail-soft.
+ */
+async function durchfuehrungVorbelegen(tabelle: "setting_calls" | "closing_calls", id: string): Promise<void> {
+  const access = await getAccessContext();
+  if (!access || access.is_foreign_org) return;
+  const supabase = await createClient();
+  await supabase
+    .from(tabelle)
+    .update({ conducted_by_user_id: access.user.id })
+    .eq("id", id)
+    .is("conducted_by_user_id", null);
 }
 
 /**
@@ -110,7 +123,10 @@ export async function setSettingOutcome(input: {
   if (!(await canAccessSettingCall(input.settingId))) return { error: "Keine Berechtigung." };
 
   // Qualifiziert = Closing. Ein Schritt, kein Zwischenstatus.
-  if (input.outcome === "qualifiziert") return createClosingFromSetting(input.settingId);
+  if (input.outcome === "qualifiziert") {
+    await durchfuehrungVorbelegen("setting_calls", input.settingId);
+    return createClosingFromSetting(input.settingId);
+  }
 
   // Vorpruefung statt roher Postgres-Meldung (Muster `isOneOf`): Server Actions
   // sind per direktem POST erreichbar, und der Trigger wuerde einen fehlenden
@@ -143,7 +159,8 @@ export async function setSettingOutcome(input: {
 
   if (input.outcome === "no_show") {
     patch.show_status = "no_show";
-    patch.follow_up_due = input.followUpDue ?? null;
+    // Ohne Angabe sofort fällig (Plan §4.6) — vorher stand hier +1 Tag.
+    patch.follow_up_due = input.followUpDue ?? berlinDateISO(new Date().toISOString());
     // Ein neuer No-Show ist ein neues Ereignis — der Ausgang des vorherigen
     // ('antwort' o. ae.) beschreibt ihn nicht mehr.
     patch.no_show_resolution = null;
@@ -196,6 +213,7 @@ export async function setSettingOutcome(input: {
   if (input.outcome === "dead" || input.outcome === "unqualifiziert") {
     await scheduleRecycle("setting", input.settingId);
   }
+  if (input.outcome === "unqualifiziert") await durchfuehrungVorbelegen("setting_calls", input.settingId);
 
   // Die Folgen des GRUNDES — dieselbe Funktion wie beim Nachtragen an einer
   // Bestandszeile, damit Kontaktverbot und „nie Recycling" auf beiden Wegen
@@ -630,37 +648,6 @@ function withNoShowResolutionCleared<T extends { show_status?: "show" | "no_show
   return { ...patch, no_show_resolution: null };
 }
 
-/**
- * Die drei WhatsApp-Spalten aus dem Patch werfen — der letzte Schreibpfad, den
- * der Rückbau übersehen hatte.
- *
- * Welle 3 hat den WhatsApp-Block aus dem Setting-Editor gestrichen; die
- * Kaskade, die einen Kanal wählen musste, gibt es nicht mehr. Geblieben war
- * eine Server Action, die eine persönliche Mobilnummer samt
- * Einwilligungs-Zeitstempel (UWG, auch B2B) entgegennahm — ohne Oberfläche,
- * also ausschließlich per direktem POST erreichbar. Die frühere Ableitung an
- * dieser Stelle ERZEUGTE den Zeitstempel sogar, wenn keiner mitkam: ein
- * Einwilligungs-NACHWEIS, den nie jemand eingeholt hat.
- *
- * ES GENÜGT NICHT, die Felder aus `SettingCallPatch` zu nehmen. Der Patch geht
- * unverändert an `.update()`; ein TypeScript-Typ ist zur Laufzeit nichts, und
- * ein POST mit `wa_phone` käme weiterhin durch. Der Riegel muss deshalb ein
- * echtes Abstreifen sein.
- *
- * Die SPALTEN bleiben in der Datenbank (so entschieden) und mit ihnen die
- * CHECKs aus 0032. Verletzen kann sie nach diesem Schritt niemand mehr: Es
- * schreibt sie schlicht nichts.
- */
-function ohneWhatsApp<T extends object>(patch: T): T {
-  // Auf einer KOPIE, nicht am übergebenen Objekt — dieselbe Bauart wie
-  // `withNoShowResolutionCleared`: Ein Helfer, der seinem Aufrufer den Patch
-  // unter den Händen verändert, ist der nächste stille Fehler.
-  const rest = { ...patch } as Record<string, unknown>;
-  for (const feld of ["wa_phone", "wa_consent_at", "wa_refused_at"]) delete rest[feld];
-  return rest as T;
-}
-
-
 // Die Pruefung stuetzt sich nicht allein darauf, dass RLS die Zeile
 // durchgelassen hat: fuer einen Plattform-Admin laesst RLS JEDE Zeile durch.
 // Massgeblich ist die aktive Organisation — sonst koennte eine alte URL aus
@@ -854,6 +841,11 @@ export async function cancelAppointment(
       // leere Zeile, die wie eine Angabe aussieht.
       cancel_reason: input.reasonText?.trim() || null,
       cancel_outlook: input.outlook,
+      // „Neuer Termin" heißt: jemand muss ihn jetzt holen — heute im Eingang
+      // (Plan §4.6). „Ohne Aussicht" geht ins Recycling, kein Datum.
+      ...(input.outlook === "neuer_termin"
+        ? { follow_up_due: berlinDateISO(new Date().toISOString()) }
+        : {}),
     })
     .eq("id", id);
   if (error) return { error: error.message };

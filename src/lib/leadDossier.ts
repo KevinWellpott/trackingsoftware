@@ -59,7 +59,7 @@ import {
   LEGACY_CLOSING_BLOCKS,
   LEGACY_SETTING_BLOCKS,
 } from "@/lib/scripts";
-import { BRANCHE_LABEL, BUDGET_LABEL, SETTING_STATUS_LABEL, SHOW_STATUS_LABEL, jaNein } from "@/lib/settingLabels";
+import { SETTING_STATUS_LABEL, SHOW_STATUS_LABEL } from "@/lib/settingLabels";
 import { CLOSING_LOST_REASON_LABELS } from "@/lib/types";
 
 /* ------------------------------------------------------------------ *
@@ -140,16 +140,13 @@ export type DossierContact = RecycleFields & {
   email: string | null;
   phone: string | null;
   linkedin_url: string | null;
-  target_group: string | null;
   notes: string | null;
-  meeting_notes: string | null;
   answer_text: string | null;
   answer_category: string | null;
   answered: boolean | null;
   pitched_at: string | null;
   follow_up_number: number | null;
   next_follow_up_at: string | null;
-  last_contacted_at: string | null;
   appointment_set: boolean | null;
   appointment_at: string | null;
   blocked_at: string | null;
@@ -166,7 +163,6 @@ export type DossierPhoneLead = RecycleFields & {
   decider_name: string | null;
   company: string | null;
   phone: string | null;
-  decider_direct_dial: string | null;
   email: string | null;
   website: string | null;
   target_group: string | null;
@@ -178,14 +174,9 @@ export type DossierPhoneLead = RecycleFields & {
   decider_reached: boolean | null;
   pitch_delivered: boolean | null;
   mailbox: boolean | null;
-  answer_sentiment: string | null;
   callback_at: string | null;
   appointment_set: boolean | null;
   appointment_at: string | null;
-  no_transfer_reason: string | null;
-  no_pitch_reason: string | null;
-  no_appointment_reason: string | null;
-  objection_notes: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -210,17 +201,6 @@ export type DossierSetting = RecycleFields & {
   lead_name: string | null;
   company: string | null;
   phone: string | null;
-  /**
-   * Die beiden WhatsApp-Felder werden NICHT mehr angezeigt (siehe die
-   * Kontaktwege weiter unten) und von nichts mehr geschrieben. Sie bleiben im
-   * Typ, weil die Abfrage in actions/leadDossier.ts sie weiterhin namentlich
-   * selektiert — eine Spalte aus dem Typ zu nehmen, die die Abfrage lädt, wäre
-   * eine Unwahrheit über die Zeile, kein Rückbau.
-   */
-  wa_phone: string | null;
-  wa_consent_at: string | null;
-  /** Kontaktverbot für den Kanal — das eine der drei Felder, das sichtbar bleibt. */
-  wa_refused_at: string | null;
   source_type: string | null;
   source_detail: string | null;
   source_contact_id: string | null;
@@ -231,18 +211,8 @@ export type DossierSetting = RecycleFields & {
   meet_link: string | null;
   status: string | null;
   show_status: string | null;
-  branche: string | null;
-  has_budget_8k: string | null;
-  sole_decider: boolean | null;
-  can_decide_now: boolean | null;
-  clear_need: boolean | null;
-  ist_pain: number | null;
-  warmth: number | null;
-  soll_ziel: string | null;
   script_answers: Record<string, string> | null;
   notes: string | null;
-  objections_handled: string | null;
-  objections_open: string | null;
   follow_up_due: string | null;
   /** Nachfass-Stempel der Terminliste (Migration 0041) — s. Kopf der Datei. */
   follow_up_last_contacted_at: string | null;
@@ -292,8 +262,6 @@ export type DossierClosing = RecycleFields & {
   follow_up_last_contacted_username: string | null;
   script_answers: Record<string, string> | null;
   notes: string | null;
-  objections_handled: string | null;
-  objections_open: string | null;
   cancelled_at: string | null;
   cancel_reason_code: string | null;
   cancel_reason: string | null;
@@ -308,8 +276,25 @@ export type DossierClosing = RecycleFields & {
   updated_at: string;
 };
 
+/** Ein Eintrag im Kontakt-Protokoll des Nachfass-Eingangs (Migration 0049). */
+export type DossierNachfassKontakt = {
+  id: string;
+  setting_call_id: string | null;
+  closing_call_id: string | null;
+  contact_id: string | null;
+  phone_lead_id: string | null;
+  ergebnis: "nicht_erreicht" | "erreicht";
+  folge: string;
+  kanal: string | null;
+  notiz: string | null;
+  created_at: string;
+  created_by_username: string | null;
+};
+
 export type DossierInput = {
   anchor: DossierAnchor;
+  /** Fehlt (älterer Aufrufer) oder leer = kein Protokoll. */
+  nachfassKontakte?: DossierNachfassKontakt[];
   contacts: DossierContact[];
   phoneLeads: DossierPhoneLead[];
   settings: DossierSetting[];
@@ -810,6 +795,39 @@ export function buildDossier(input: DossierInput): LeadDossier {
   const warnings: string[] = [];
   const caveats: string[] = [];
 
+  // Kontakt-Protokoll des Nachfass-Eingangs: jeder Klick ein Ereignis. Wie
+  // alles andere nur für den belegten Kern — Vermutetes zählt nirgends mit.
+  const protokoll = (input.nachfassKontakte ?? []).filter(
+    (k) =>
+      (k.setting_call_id && core.settingIds.has(k.setting_call_id)) ||
+      (k.closing_call_id && core.closingIds.has(k.closing_call_id)) ||
+      (k.contact_id && core.contactIds.has(k.contact_id)) ||
+      (k.phone_lead_id && core.leadIds.has(k.phone_lead_id)),
+  );
+  const mitProtokoll = new Set(protokoll.map((k) => k.setting_call_id ?? k.closing_call_id ?? ""));
+  for (const k of protokoll) {
+    const source: DossierEventSource = k.setting_call_id
+      ? "setting"
+      : k.closing_call_id
+        ? "closing"
+        : k.contact_id
+          ? "linkedin"
+          : "telefon";
+    b.add({
+      id: `nachfass:${k.id}`,
+      source,
+      title:
+        k.folge === "aufgegeben"
+          ? "Aufgegeben"
+          : k.folge === "gesperrt"
+            ? "Gesperrt"
+            : `Nachgefasst · ${k.ergebnis === "erreicht" ? "erreicht" : "nicht erreicht"}`,
+      detail: joinDetails([k.created_by_username, NACHFASS_KANAL[k.kanal ?? ""] ?? null, k.notiz?.trim() || null]),
+      at: k.created_at,
+      contactedLead: k.folge === "naechster_kontakt",
+    });
+  }
+
   const note = (id: string, label: string, text: string | null, source: DossierEventSource) => {
     const t = clean(text);
     if (t) notes.push({ id, label, text: t, source });
@@ -821,7 +839,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
       id: `contact:${c.id}:pitch`,
       source: "linkedin",
       title: "LinkedIn-Pitch verschickt",
-      detail: joinDetails([c.list_name ? `Liste ${c.list_name}` : null, c.target_group]),
+      detail: c.list_name ? `Liste ${c.list_name}` : null,
       at: c.pitched_at ?? berlinDateISO(c.created_at),
       contactedLead: true,
       estimated: !c.pitched_at,
@@ -835,7 +853,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
         source: "linkedin",
         title: `Nachgefasst bis FU${c.follow_up_number}`,
         detail: "Zeitpunkt nicht erfasst — die App speichert nur die erreichte Stufe, kein Ereignis je Follow-up.",
-        at: c.last_contacted_at ?? c.updated_at,
+        at: c.updated_at,
         estimated: true,
         contactedLead: true,
       });
@@ -851,7 +869,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
         title: "Antwort auf LinkedIn",
         detail: joinDetails([c.answer_category, c.answer_text]),
         tone: "success",
-        at: c.last_contacted_at ?? c.updated_at,
+        at: c.updated_at,
         estimated: true,
       });
     }
@@ -903,7 +921,6 @@ export function buildDossier(input: DossierInput): LeadDossier {
 
     note(`contact:${c.id}:notes`, "Notiz am LinkedIn-Kontakt", c.notes, "linkedin");
     note(`contact:${c.id}:answer_text`, "Antwort des Leads", c.answer_text, "linkedin");
-    note(`contact:${c.id}:meeting`, "Gesprächsnotiz (LinkedIn-Kontakt)", c.meeting_notes, "linkedin");
     addRecycleEvents(b, "linkedin", `contact:${c.id}`, c, warnings);
   }
 
@@ -952,16 +969,12 @@ export function buildDossier(input: DossierInput): LeadDossier {
       id: `lead:${l.id}:callback`,
       source: "telefon",
       title: "Rückruf vereinbart",
-      detail: joinDetails([l.phone, l.decider_direct_dial ? `Durchwahl ${l.decider_direct_dial}` : null]),
+      detail: l.phone,
       tone: "info",
       at: l.callback_at,
     });
 
     note(`lead:${l.id}:notes`, "Notiz am Telefon-Lead", l.notes, "telefon");
-    note(`lead:${l.id}:objections`, "Einwände am Telefon", l.objection_notes, "telefon");
-    note(`lead:${l.id}:no_transfer`, "Nicht durchgestellt, weil", l.no_transfer_reason, "telefon");
-    note(`lead:${l.id}:no_pitch`, "Kein Pitch, weil", l.no_pitch_reason, "telefon");
-    note(`lead:${l.id}:no_appt`, "Kein Termin, weil", l.no_appointment_reason, "telefon");
     addRecycleEvents(b, "telefon", `lead:${l.id}`, l, warnings);
   }
 
@@ -1044,18 +1057,13 @@ export function buildDossier(input: DossierInput): LeadDossier {
       tone: "info",
     });
 
-    addFollowUpStamp(b, "setting", `setting:${s.id}`, s);
+    if (!mitProtokoll.has(s.id)) addFollowUpStamp(b, "setting", `setting:${s.id}`, s);
 
     note(`setting:${s.id}:notes`, "Notiz zum Setting", s.notes, "setting");
-    note(`setting:${s.id}:ziel`, "Soll / Ziel", s.soll_ziel, "setting");
-    note(`setting:${s.id}:obj_handled`, "Behandelte Einwände", s.objections_handled, "setting");
-    note(`setting:${s.id}:obj_open`, "Offene Einwände", s.objections_open, "setting");
     for (const [key, value] of Object.entries(s.script_answers ?? {})) {
       note(`setting:${s.id}:script:${key}`, SCRIPT_LABELS.get(key) ?? key, value, "setting");
     }
     addRecycleEvents(b, "setting", `setting:${s.id}`, s, warnings);
-
-    if (s.wa_refused_at) warnings.push("Will keine persönliche Nummer herausgeben — WhatsApp scheidet aus.");
   }
 
   /* ── Closings ──────────────────────────────────────────────── */
@@ -1119,7 +1127,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
       tone: "info",
     });
 
-    addFollowUpStamp(b, "closing", `closing:${c.id}`, c);
+    if (!mitProtokoll.has(c.id)) addFollowUpStamp(b, "closing", `closing:${c.id}`, c);
 
     b.add({
       id: `closing:${c.id}:contract`,
@@ -1139,8 +1147,6 @@ export function buildDossier(input: DossierInput): LeadDossier {
     });
 
     note(`closing:${c.id}:notes`, "Notiz zum Closing", c.notes, "closing");
-    note(`closing:${c.id}:obj_handled`, "Behandelte Einwände", c.objections_handled, "closing");
-    note(`closing:${c.id}:obj_open`, "Offene Einwände", c.objections_open, "closing");
     for (const [key, value] of Object.entries(c.script_answers ?? {})) {
       note(`closing:${c.id}:script:${key}`, SCRIPT_LABELS.get(key) ?? key, value, "closing");
     }
@@ -1213,21 +1219,9 @@ export function buildDossier(input: DossierInput): LeadDossier {
   for (const l of leads) {
     pushChannel(mailChannel(l.email));
     pushChannel(phoneChannel(l.phone, "Zentrale"));
-    pushChannel(phoneChannel(l.decider_direct_dial, "Durchwahl Entscheider"));
     if (l.website) pushChannel({ kind: "website", label: "Website", value: l.website, href: l.website, note: null });
   }
   for (const c of contacts) pushChannel(phoneChannel(c.phone, "Aus der LinkedIn-Liste"));
-  // HIER STAND die WhatsApp-Nummer aus dem Erstgespräch. Sie ist mit ihrem
-  // Schreibpfad gegangen (actions/settingCalls.ts, `ohneWhatsApp`), und zwar
-  // in dieser Reihenfolge begründet: Ein Kontaktweg ist ein HANDLUNGSANGEBOT.
-  // Seit der Rückbau die Erfassung entfernt hat, lässt sich zu dieser Nummer
-  // weder eine Einwilligung dokumentieren noch eine widerrufen (UWG, auch B2B)
-  // — die Karte lud damit zu einer Nachricht ein, die niemand mehr zurücknehmen
-  // kann. Die Spalten bleiben in der Datenbank; ein Löschweg führt nur über sie.
-  //
-  // Die dokumentierte VERWEIGERUNG bleibt dagegen sichtbar (siehe `warnings`):
-  // Sie ist ein Kontaktverbot, und dessen Verlust schadet, statt zu schützen —
-  // dieselbe Begründung wie bei der Sperrliste (docs §1).
   for (const s of settings) pushChannel(phoneChannel(s.phone, "Einwahl zum Termin"));
 
   const facts: DossierFact[] = [];
@@ -1235,18 +1229,10 @@ export function buildDossier(input: DossierInput): LeadDossier {
     const v = clean(value ?? null);
     if (v) facts.push({ label, value: v });
   };
-  fact("Zielgruppe", firstOf([clean(anchorContact?.target_group), clean(anchorLead?.target_group)]));
-  fact("Branche", lookup(BRANCHE_LABEL, lastSetting?.branche ?? null));
+  fact("Zielgruppe", anchorLead?.target_group);
   fact("Status Telefon-Lead", lookup(PHONE_STATUS_LABELS, anchorLead?.status ?? null));
   fact("Skript-Testarm", anchorLead?.script_label);
-  fact("Stimmung am Telefon", anchorLead?.answer_sentiment);
   fact("Antwort-Kategorie", anchorContact?.answer_category);
-  fact("Budget (8k)", lookup(BUDGET_LABEL, lastSetting?.has_budget_8k ?? null));
-  fact("Alleinentscheider", jaNein(lastSetting?.sole_decider));
-  fact("Kann sofort entscheiden", jaNein(lastSetting?.can_decide_now));
-  fact("Klarer Bedarf", jaNein(lastSetting?.clear_need));
-  fact("Pain (1–10)", lastSetting?.ist_pain != null ? String(lastSetting.ist_pain) : null);
-  fact("Wärme (1–10)", lastSetting?.warmth != null ? String(lastSetting.warmth) : null);
   fact("Deal-Volumen", lastClosing?.status === "gewonnen" ? euro(lastClosing.deal_volume) : null);
   fact("Zahlungsart", lastClosing?.payment_type);
 
@@ -1322,7 +1308,7 @@ export function buildDossier(input: DossierInput): LeadDossier {
     // „Entscheider" ist die einzige Rolle, die die Datenbank kennt: das
     // Telefon-Feld heisst decider_name, alles andere ist ein blosser Name.
     role: anchorLead?.decider_name ? "Entscheider" : null,
-    targetGroup: firstOf([clean(anchorContact?.target_group), clean(anchorLead?.target_group)]),
+    targetGroup: clean(anchorLead?.target_group ?? null),
     ownerName: firstOf([clean(anchorContact?.list_owner_name), clean(anchorLead?.list_owner_name)]),
     assigneeName: firstOf([clean(lastClosing?.assigned_username), clean(lastSetting?.assigned_username)]),
     origin,
@@ -1341,6 +1327,15 @@ export function buildDossier(input: DossierInput): LeadDossier {
 /* ------------------------------------------------------------------ *
  * Nachfass-Stempel der Terminliste (Migration 0041)
  * ------------------------------------------------------------------ */
+
+const NACHFASS_KANAL: Record<string, string> = {
+  anruf: "Anruf",
+  whatsapp: "WhatsApp",
+  mail: "Mail",
+  linkedin: "LinkedIn",
+  sms: "SMS",
+  sonstiges: "Sonstiges",
+};
 
 /** Die zwei Stempel-Spalten plus den in der Action aufgeloesten Namen. */
 type FollowUpStamp = {

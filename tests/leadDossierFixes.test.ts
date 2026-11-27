@@ -143,9 +143,7 @@ function contact(partial: Partial<DossierContact> = {}): DossierContact {
     email: null,
     phone: null,
     linkedin_url: null,
-    target_group: null,
     notes: null,
-    meeting_notes: null,
     answer_text: null,
     answer_category: null,
     answered: null,
@@ -153,7 +151,6 @@ function contact(partial: Partial<DossierContact> = {}): DossierContact {
     follow_up_number: 1,
     // Morgen — landet also in „Steht an" und nicht im Verlauf.
     next_follow_up_at: "2026-09-10",
-    last_contacted_at: null,
     appointment_set: null,
     appointment_at: null,
     blocked_at: null,

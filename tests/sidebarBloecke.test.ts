@@ -27,7 +27,7 @@ function read(relative: string): string {
 
 const SIDEBAR = read("src/components/Sidebar.tsx");
 const MOBILE = read("src/components/MobileHeader.tsx");
-const NACHFASSEN_ACTION = read("src/app/actions/nachfassen.ts");
+const NACHFASS_REGEL = read("src/lib/nachfassRegel.ts");
 
 /** Der Abschnitt ab einem Anker bis zum nächsten `</CollapsibleSection>`. */
 function block(id: string): string {
@@ -78,9 +78,8 @@ describe("Gliederung", () => {
     // drei unabhängigen Werkzeugen, von denen man zwei nie öffnet.
     //
     // /erinnerungen stand hier als vierte Zeile, bis der Rückbau die
-    // Erinnerungs-Kaskade abgeräumt hat; die Route leitet nur noch weiter, und
-    // eine Navigationszeile auf eine Weiterleitung wäre eine Sackgasse mit
-    // Zähler.
+    // Erinnerungs-Kaskade abgeräumt hat; inzwischen ist die Route ganz
+    // gelöscht, und eine Navigationszeile dorthin wäre eine 404 mit Zähler.
     const arbeit = block("arbeit");
     for (const href of ["/termine", "/nachfassen", "/ablage"]) {
       assert.ok(arbeit.includes(`href="${href}"`), `${href} steht nicht in „Meine Arbeit"`);
@@ -94,6 +93,22 @@ describe("Gliederung", () => {
     assert.doesNotMatch(SIDEBAR, /href="\/erinnerungen"/, "die Erinnerungs-Zeile ist zurück in der Seitenleiste");
     assert.doesNotMatch(SIDEBAR, /ARBEIT_HREFS = \[[^\]]*erinnerungen/, "/erinnerungen hält weiterhin einen Block offen");
     assert.doesNotMatch(SIDEBAR, /BellRing/, "das Erinnerungs-Icon wird noch importiert");
+  });
+
+  test("Nachfassen steht oben, dann Termine, dann Ablage", () => {
+    // Seit dem Nachfass-Eingang (docs/nachfassen-umbau/PLAN-nachfass-eingang.md)
+    // ist /nachfassen die tägliche Arbeitsliste — die Zeile, die man morgens
+    // zuerst braucht. /termine ist wieder Kalender und Erinnerungen, /ablage die
+    // Gegenrichtung. Dieselbe Reihenfolge wie der Quicklink-Streifen.
+    const arbeit = block("arbeit");
+    const nachfassen = arbeit.indexOf('href="/nachfassen"');
+    const termine = arbeit.indexOf('href="/termine"');
+    const ablage = arbeit.indexOf('href="/ablage"');
+    assert.ok(nachfassen !== -1 && termine !== -1 && ablage !== -1);
+    assert.ok(nachfassen < termine, "Nachfassen ist hinter Termine gerutscht");
+    assert.ok(termine < ablage, "die Ablage steht vor den Terminen");
+    assert.ok(arbeit.includes('label="Nachfassen"'), "die Zeile heißt nicht „Nachfassen“");
+    assert.doesNotMatch(arbeit, /label="Recycling"/);
   });
 
   test("Einstieg und Anlege-Aktion liegen vor jeder Aufklappung", () => {
@@ -172,9 +187,10 @@ describe("Die geöffnete Seite verschwindet nie in einem zugeklappten Block", ()
   });
 
   test("Unterseiten halten ihren Block offen, nicht nur die Übersichtsseite", () => {
-    // /lists/<id>, /ansicht/<id> und /analyse/vergleich müssen mitzählen —
-    // sonst ließe sich der Block zuklappen, in dem man gerade arbeitet.
-    assert.match(SIDEBAR, /const LINKEDIN_HREFS = \["\/listen", "\/lists", "\/ansicht"\]/);
+    // /lists/<id> und /analyse/vergleich müssen mitzählen — sonst ließe sich
+    // der Block zuklappen, in dem man gerade arbeitet. (/ansicht/<id> stand
+    // hier, bis die Smart Views mit dem Nachfass-Eingang gelöscht wurden.)
+    assert.match(SIDEBAR, /const LINKEDIN_HREFS = \["\/listen", "\/lists"\] as const;/);
     assert.match(SIDEBAR, /const AUSWERTUNG_HREFS = \["\/team", "\/analyse"\]/);
     // Beide Seiten derselben Regel: NavLink färbt danach, der Block klappt
     // danach auf. Zwei Fassungen liefen früher oder später auseinander.
@@ -239,35 +255,29 @@ describe("Navigations-Zähler", () => {
  * ------------------------------------------------------------------ */
 
 describe("Tooltips", () => {
-  test("Nachfassen nennt die Quelle, die dort wirklich steht", () => {
-    // Der LinkedIn-Zweig ist aus /nachfassen entfernt; der Tooltip war danach
-    // die letzte Stelle der Oberfläche, die ihn noch behauptete. Ein Tooltip,
-    // der eine Quelle verspricht, die auf der Seite fehlt, ist schlimmer als
-    // gar keiner — man sucht dann dort, wo nichts ist.
+  test("Nachfassen nennt die Quellen, die dort wirklich stehen", () => {
+    // Ein Tooltip, der eine Quelle verspricht, die auf der Seite fehlt, ist
+    // schlimmer als gar keiner — man sucht dann dort, wo nichts ist. Und
+    // umgekehrt: Fehlt eine Quelle, sucht man sie woanders.
+    //
+    // Nach dem Rückbau stand hier nur das Recycling. Seit dem Nachfass-Eingang
+    // trägt /nachfassen wieder drei Quellen (Plan §4.2): Termine ohne nächsten
+    // Schritt, Telefon-Rückrufe, fällige Recycling-Leads. LinkedIn-Follow-ups
+    // bleiben im Listen-Board (Entscheidung N1) — der Tooltip darf sie deshalb
+    // nicht als Quelle nennen.
     const arbeit = block("arbeit");
-    assert.doesNotMatch(arbeit, /Tägliche Wiedervorlage: LinkedIn-Follow-ups/);
-    assert.ok(arbeit.includes("Recycling-Versuche"), "Der Nachfassen-Tooltip nennt die Recycling-Versuche nicht");
-    // Das LinkedIn-RECYCLING ist geblieben — nur die Follow-ups sind weg. Der
-    // Tooltip muss beides sagen, sonst liest er sich wie „LinkedIn kommt hier
-    // gar nicht mehr vor".
-    assert.ok(arbeit.includes("LinkedIn-Follow-ups erledigt das Listen-Board"));
-
-    // WAS HIER NICHT MEHR STEHT, und warum: „Telefon-Rückrufe" und „Setting-
-    // und Closing-Wiedervorlagen" waren bis zum Rückbau Pflichtbestandteile
-    // dieses Tooltips. Beide Quellen sind aus /nachfassen in die Terminliste
-    // gewandert; sie hier weiter einzufordern hieße, den Tooltip auf eine
-    // Aussage festzunageln, die inzwischen falsch ist — genau der Fehler, den
-    // die erste Zeile dieses Tests verhindern soll. Der Tooltip-TEXT selbst
-    // wird zentral nachgezogen (Sidebar.tsx gehört keiner Spur dieser Welle).
+    const zeile = arbeit.slice(arbeit.indexOf('href="/nachfassen"'), arbeit.indexOf('href="/termine"'));
+    assert.match(zeile, /title="[^"]{40,}"/, "die Nachfassen-Zeile hat keinen Tooltip");
+    for (const quelle of ["Termine ohne nächsten Schritt", "Telefon-Rückrufe", "Recycling-Leads"]) {
+      assert.ok(zeile.includes(quelle), `Der Nachfassen-Tooltip nennt „${quelle}" nicht`);
+    }
+    assert.doesNotMatch(zeile, /Tägliche Wiedervorlage: LinkedIn-Follow-ups/);
   });
 
   test("die Quellenliste des Tooltips deckt sich mit dem Typ der Seite", () => {
-    // Die eine Stelle, an der steht, was /nachfassen zeigt. Aus vier Quellen
-    // ist eine geworden — und damit aus der `source`-Union der URSPRUNG des
-    // Leads: dieselbe Zeile beantwortet jetzt, aus welcher der vier
-    // Ursprungstabellen er stammt.
-    assert.doesNotMatch(NACHFASSEN_ACTION, /export type NachfassenSource/);
-    assert.match(NACHFASSEN_ACTION, /export type RecycleTask = \{\n {2}origin: RecycleOrigin;/);
+    // Die eine Stelle, an der steht, was /nachfassen zeigt: der Quellen-Typ der
+    // Regel-Bibliothek. Drei Werte — genau die drei, die der Tooltip nennt.
+    assert.match(NACHFASS_REGEL, /export type NachfassQuelle = "termin" \| "rueckruf" \| "recycling";/);
   });
 
   test("es gibt keine Erinnerungs-Zeile mehr, die eine Kaskade verspricht", () => {

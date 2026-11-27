@@ -7,6 +7,7 @@ import {
   buildDossier,
   isDossierEntityKind,
   type DossierAttempt,
+  type DossierNachfassKontakt,
   type DossierClosing,
   type DossierContact,
   type DossierEntityKind,
@@ -75,16 +76,15 @@ const RECYCLE_COLUMNS =
   "recycle_responded_at, recycle_reason_code";
 
 const CONTACT_COLUMNS =
-  "id, list_id, name, company, email, phone, linkedin_url, target_group, notes, meeting_notes, " +
+  "id, list_id, name, company, email, phone, linkedin_url, notes, " +
   "answer_text, answer_category, answered, pitched_at, follow_up_number, next_follow_up_at, " +
-  "last_contacted_at, appointment_set, appointment_at, blocked_at, setting_call_id, created_at, " +
+  "appointment_set, appointment_at, blocked_at, setting_call_id, created_at, " +
   `updated_at, ${RECYCLE_COLUMNS}, lists(name, owner_name)`;
 
 const PHONE_LEAD_COLUMNS =
-  "id, list_id, decider_name, company, phone, decider_direct_dial, email, website, target_group, " +
+  "id, list_id, decider_name, company, phone, email, website, target_group, " +
   "script_label, status, first_call_at, call_attempt, gatekeeper_reached, decider_reached, " +
-  "pitch_delivered, mailbox, answer_sentiment, callback_at, appointment_set, appointment_at, " +
-  "no_transfer_reason, no_pitch_reason, no_appointment_reason, objection_notes, notes, created_at, " +
+  "pitch_delivered, mailbox, callback_at, appointment_set, appointment_at, notes, created_at, " +
   `updated_at, ${RECYCLE_COLUMNS}, phone_lists!list_id(name, owner_name)`;
 
 /**
@@ -102,10 +102,9 @@ const PHONE_LEAD_COLUMNS =
 const FOLLOW_UP_STAMP_COLUMNS = "follow_up_last_contacted_at, follow_up_last_contacted_by_user_id";
 
 const SETTING_COLUMNS =
-  "id, lead_name, company, phone, wa_phone, wa_consent_at, wa_refused_at, source_type, source_detail, " +
+  "id, lead_name, company, phone, source_type, source_detail, " +
   "source_contact_id, source_phone_lead_id, appointment_at, call_at, meeting_kind, meet_link, status, " +
-  "show_status, branche, has_budget_8k, sole_decider, can_decide_now, clear_need, ist_pain, warmth, " +
-  "soll_ziel, script_answers, notes, objections_handled, objections_open, follow_up_due, no_show_count, " +
+  "show_status, script_answers, notes, follow_up_due, no_show_count, " +
   "no_show_resolution, cancelled_at, cancel_reason_code, cancel_reason, cancel_outlook, reschedule_count, " +
   "last_reschedule_at, revived_at, disqualify_reason_code, disqualify_reason, assigned_user_id, " +
   `created_by_user_id, created_at, updated_at, ${FOLLOW_UP_STAMP_COLUMNS}, ${RECYCLE_COLUMNS}`;
@@ -113,7 +112,7 @@ const SETTING_COLUMNS =
 const CLOSING_COLUMNS =
   "id, setting_call_id, lead_name, company, call_at, meet_link, status, show_status, deal_volume, " +
   "payment_type, signature_received, contract_start, onboarding_at, lost_reason_code, lost_reason, " +
-  "follow_up_due, follow_up_due_at, script_answers, notes, objections_handled, objections_open, " +
+  "follow_up_due, follow_up_due_at, script_answers, notes, " +
   "cancelled_at, cancel_reason_code, cancel_reason, cancel_outlook, reschedule_count, last_reschedule_at, " +
   `revived_at, assigned_user_id, created_by_user_id, created_at, updated_at, ${FOLLOW_UP_STAMP_COLUMNS}, ` +
   RECYCLE_COLUMNS;
@@ -288,6 +287,32 @@ export async function getLeadDossier(kind: string, id: string): Promise<LeadDoss
       ...allClosings.map((c) => c.follow_up_last_contacted_by_user_id as string | null),
     ]);
 
+    const settingIdsAll = uuids(allSettings.map((r) => r.id as string));
+    const closingIdsAll = uuids(allClosings.map((r) => r.id as string));
+    const contactIdsAll = uuids(allContacts.map((r) => r.id as string));
+    // Kontakt-Protokoll des Nachfass-Eingangs (Migration 0049) — fail-soft:
+    // fehlt die Tabelle, bleibt die Zeitleiste ohne diese Einträge.
+    const kontaktFilter = [
+      settingIdsAll.length ? `setting_call_id.in.(${settingIdsAll.join(",")})` : null,
+      closingIdsAll.length ? `closing_call_id.in.(${closingIdsAll.join(",")})` : null,
+      contactIdsAll.length ? `contact_id.in.(${contactIdsAll.join(",")})` : null,
+      leadIds.length ? `phone_lead_id.in.(${leadIds.join(",")})` : null,
+    ].filter(Boolean);
+    const kontaktRes = kontaktFilter.length
+      ? await supabase
+          .from("nachfass_kontakte")
+          .select("id, setting_call_id, closing_call_id, contact_id, phone_lead_id, ergebnis, folge, kanal, notiz, created_at, created_by_user_id")
+          .or(kontaktFilter.join(","))
+          .order("created_at", { ascending: true })
+          .limit(500)
+      : { data: [], error: null };
+    if (kontaktRes.error) console.error("[leadDossier] nachfass_kontakte:", kontaktRes.error.message);
+    const kontaktRows = (kontaktRes.error ? [] : kontaktRes.data ?? []) as unknown as (Omit<
+      DossierNachfassKontakt,
+      "created_by_username"
+    > & { created_by_user_id: string | null })[];
+    for (const k of kontaktRows) if (k.created_by_user_id) personIds.push(k.created_by_user_id);
+
     const [attemptRes, profileRes] = await Promise.all([
       leadIds.length > 0
         ? supabase
@@ -342,6 +367,10 @@ export async function getLeadDossier(kind: string, id: string): Promise<LeadDoss
         follow_up_last_contacted_username: stampNameOf(r),
       })),
       attempts: (attemptRes.data ?? []) as unknown as DossierAttempt[],
+      nachfassKontakte: kontaktRows.map((k) => ({
+        ...k,
+        created_by_username: k.created_by_user_id ? (usernameById.get(k.created_by_user_id) ?? null) : null,
+      })),
       now: new Date().toISOString(),
     });
 

@@ -448,3 +448,31 @@ geschützt hat: Der Nutzer sieht keinen Fehler, sondern einen anderen Text. Zu e
 die persönliche Ebene eine kleine Oberfläche zurückbekommt oder ob die Zeilen als endgültig
 abgelöst gelten — im zweiten Fall gehört das in `docs/data-model.md` §3 als abgeschlossene
 Aussage, nicht als offener Punkt.
+
+## Nachtrag 2026-11-27 — Der Nachfass-Eingang
+
+Simon lehnt das Konzept nach dem Rückbau ab („soll eine vollwertige Ansicht sein, wo ich immer
+reinschauen kann und sehe, wenn ich nochmal nerven muss“). Live-Daten belegen es: „Genervt“
+wurde insgesamt 28-mal gestempelt, einmal in den letzten 7 Tagen. Recycling-Versuche gibt es
+7 bei rund 3.200 wartenden Leads. Entschieden:
+
+- **N1** `/nachfassen` wird der eine Eingang: Termine ohne nächsten Schritt + Telefon-Rückrufe +
+  fällige Recycling-Leads. LinkedIn-Follow-ups bleiben im Listen-Board.
+- **N2** „Nächster Kontakt am“-Datum je Vorgang statt „jeden Tag“ (für Termine: `follow_up_due`).
+- **N3** Jeder Kontakt wird mit Ergebnis protokolliert (neue Tabelle `nachfass_kontakte`).
+- **N4** Altbestand wird beim Start einmal gesichtet (Reiter „Aufräumen“, mit Sammelaktion).
+
+Vollständiger Plan: `PLAN-nachfass-eingang.md`. Er hebt R4 (Rückruf als eigener Reiter) und
+den Teil „jeden Tag“ aus R1/R5 auf. Kaskade, Vorlagen und Stufen bleiben gefallen.
+
+**Detailfragen O1–O6 (27.11.2026): alle nach Empfehlung.** „Kein Termin“ bekommt vorerst kein
+Recycling · ein Recycling-Kontakt mit Kanal „Anruf“ bei einem Telefon-Lead schreibt zusätzlich
+eine Anwahl ins Anruf-Log · `/termine` öffnet im Kalender (Woche) · Startseite bleibt das Dashboard, die Kachel
+„Nachfassen“ steht vorn · „Aufgeben?“-Hinweis ab 5 Versuchen in Folge · Termin-Erinnerungen
+stehen nicht im Eingang.
+
+**Gebaut (Release Dezember 2026, Welle 1):** Regel-Bibliothek `src/lib/nachfassRegel.ts`,
+Loader `src/lib/nachfassenData.ts` (derselbe für Seite und Badge), Actions
+`src/app/actions/nachfassKontakt.ts`, Board `src/components/nachfassen/NachfassEingang.tsx`,
+Migration 0049. Welle 2 (Abarbeiten-Modus, Auswertung „Wird konsequent nachgefasst?“) wartet
+wie geplant auf zwei Wochen echte Protokolldaten.

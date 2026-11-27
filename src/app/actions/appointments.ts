@@ -366,20 +366,18 @@ export async function convertPhoneLeadToSetting(input: {
   const supabase = await createClient();
   const { data: lead } = await supabase
     .from("phone_leads")
-    .select("id, list_id, status, decider_name, company, phone, decider_direct_dial, first_call_at")
+    .select("id, list_id, status, decider_name, company, phone, first_call_at")
     .eq("id", input.phoneLeadId)
     .maybeSingle();
   if (!lead) return { error: "Lead nicht gefunden." };
 
-  // Fallback auf die Nummern des Leads, bevor die Pflichtprüfung greift.
+  // Fallback auf die Nummer des Leads, bevor die Pflichtprüfung greift.
   // Bei einem Telefon-Lead ist die Nummer per Definition bekannt — ihn im
   // Call-Modus nach ihr zu fragen wäre eine Rückfrage nach etwas, das
-  // buchstäblich gerade gewählt wurde. Durchwahl vor Zentrale: das Setting
-  // findet mit dem Entscheider statt, nicht mit dem Gatekeeper.
-  const leadRow = lead as { phone?: string | null; decider_direct_dial?: string | null };
+  // buchstäblich gerade gewählt wurde.
   const meeting = normalizeMeeting({
     ...input,
-    phone: input.phone ?? leadRow.decider_direct_dial ?? leadRow.phone ?? null,
+    phone: input.phone ?? lead.phone ?? null,
   });
   if (meeting.error) return { error: meeting.error };
   const { meetLink, meetingKind, phone } = meeting;

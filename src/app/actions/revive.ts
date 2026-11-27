@@ -115,13 +115,10 @@ const CLOSING_COLUMNS =
  *    (Entscheidung E9, „frischer Anlauf"). Damit ist die Obergrenze aus E6
  *    theoretisch umgehbar; sichtbar wird das über die Zähler der
  *    Vorgängerzeile, die die Ablage-Karte danebenstellt (K10/§5.3).
- *  · Qualifizierung, Skript-Antworten, Notizen, Einwände — sie beschreiben ein
- *    Gespräch, das stattgefunden hat, und gehören zur alten Zeile. Ein zweiter
- *    Anlauf, der mit „Budget ja, Pain 8" vorbelegt startet, behauptet Wissen
- *    von vor Monaten als aktuellen Stand.
- *  · `wa_phone`/`wa_consent_at` — eine dokumentierte Einwilligung ist ein
- *    Nachweis mit Zeitpunkt, keine Eigenschaft, die man kopiert. Der zweite
- *    Anlauf sammelt sie im Gespräch neu ein, statt eine alte zu behaupten.
+ *  · Skript-Antworten und Notizen — sie beschreiben ein Gespräch, das
+ *    stattgefunden hat, und gehören zur alten Zeile. Ein zweiter Anlauf, der
+ *    damit vorbelegt startet, behauptet Wissen von vor Monaten als aktuellen
+ *    Stand.
  *  · Der Zustand der QUELLE (`contacts.setting_call_id`, `appointment_set`,
  *    `phone_leads.status`) — ein Umbiegen dorthin schriebe die Vergangenheit
  *    um: `contacts.setting_call_id` trägt die Umsatz-je-Liste-Auswertung, und

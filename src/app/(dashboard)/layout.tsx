@@ -4,7 +4,6 @@ import { MobileHeader } from "@/components/MobileHeader";
 import { QuickAddLinkedIn } from "@/components/quicktrack/QuickAddLinkedIn";
 import { SidebarContent } from "@/components/Sidebar";
 import { ForeignOrgBanner } from "@/components/ForeignOrgBanner";
-import { buildViewTree, type ViewRow } from "@/lib/listViews";
 import { getNavCounts } from "@/lib/navCountsData";
 import { getInternNav } from "@/lib/internData";
 import { AktionsPuls } from "@/components/kunden/AktionsPuls";
@@ -31,13 +30,6 @@ export default async function DashboardLayout({
     .or(ownScope)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
-  // Smart Views fuer den Sidebar-Baum. Gleicher Scope wie die Listen.
-  const viewsQuery = supabase
-    .from("list_views")
-    .select("id, name, parent_id, sort_order, filters")
-    .eq("workspace_id", access.workspace_id)
-    .or(ownScope)
-    .order("sort_order", { ascending: true });
   const phoneListsQuery = supabase
     .from("phone_lists")
     .select("id, name, owner_name, list_kind, created_by_user_id")
@@ -47,11 +39,10 @@ export default async function DashboardLayout({
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
 
-  const [{ data: lists }, { data: phoneListsData }, { data: viewRows }, dataViewUsers, navCounts, intern] =
+  const [{ data: lists }, { data: phoneListsData }, dataViewUsers, navCounts, intern] =
     await Promise.all([
       listsQuery,
       phoneListsQuery,
-      viewsQuery,
       access.can_switch_view ? listDataViewUsers(access.workspace_id) : Promise.resolve([]),
       // Faellige Aufgaben je Navigationseintrag. Haengt sich in dieses Buendel
       // ein, statt danach zu laufen — die Zaehler kosten dadurch einen
@@ -75,11 +66,6 @@ export default async function DashboardLayout({
     name: l.name,
     owner_name: (l as { owner_name?: string | null }).owner_name ?? null,
   }));
-
-  // list_views existiert erst nach Migration 0023 — bis dahin liefert die
-  // Abfrage einen Fehler und `viewRows` ist null. Der Baum bleibt dann leer,
-  // statt die ganze App zu blockieren.
-  const viewTree = buildViewTree((viewRows ?? []) as ViewRow[]);
 
   // Nur Plattform-Admins bekommen den Umschalter — fuer alle anderen bleibt
   // orgSwitch undefined und die Sidebar rendert exakt wie bisher.
@@ -121,7 +107,6 @@ export default async function DashboardLayout({
           workspaceId={access.workspace_id}
           lists={sidebarLists}
           phoneLists={phoneLists}
-          viewTree={viewTree}
           dataScope={access.data_scope}
           dataView={{
             canSwitch: access.can_switch_view,
@@ -149,8 +134,7 @@ export default async function DashboardLayout({
             workspaceId={access.workspace_id}
             lists={sidebarLists}
             phoneLists={phoneLists}
-            viewTree={viewTree}
-            dataScope={access.data_scope}
+              dataScope={access.data_scope}
             dataView={{
               canSwitch: access.can_switch_view,
               activeUserId: access.effective_user_id,

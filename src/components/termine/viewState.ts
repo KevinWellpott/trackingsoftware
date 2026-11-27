@@ -18,7 +18,7 @@ import { addDaysISO, buildWeekDays, monthLabelDe, weekStart } from "@/lib/dates"
 // Auftraggebers, also ist die persönliche Sicht die Vorgabe und „Alle" die
 // bewusste Ausnahme (siehe `TermineWer`).
 
-export type TerminView = "liste" | "monat" | "woche" | "tag" | "rueckruf";
+export type TerminView = "liste" | "monat" | "woche" | "tag";
 
 /**
  * Wessen Zeilen? Zwei Werte, keine Personen-Auswahlliste.
@@ -82,7 +82,7 @@ export type TermineWer = "mein" | "alle";
  * abbilden. Die Werte sind bewusst neu benannt statt umgedeutet, damit ein
  * geteilter Link nicht unbemerkt etwas anderes zeigt als beim Teilen.
  */
-export type TerminZeit = "zu_tun" | "erinnerung_setting" | "erinnerung_closing" | "alle";
+export type TerminZeit = "erinnerung_setting" | "erinnerung_closing" | "alle";
 
 /**
  * Welche Termin-Art zeigt dieser Ausschnitt? — `null` heißt „beide" und damit
@@ -112,8 +112,8 @@ export type TerminSort = "zeit" | "lead" | "person" | "status";
 
 export type SortDir = "asc" | "desc";
 
-const VIEWS: readonly TerminView[] = ["liste", "monat", "woche", "tag", "rueckruf"];
-const ZEITEN: readonly TerminZeit[] = ["zu_tun", "erinnerung_setting", "erinnerung_closing", "alle"];
+const VIEWS: readonly TerminView[] = ["liste", "monat", "woche", "tag"];
+const ZEITEN: readonly TerminZeit[] = ["erinnerung_setting", "erinnerung_closing", "alle"];
 const SORTS: readonly TerminSort[] = ["zeit", "lead", "person", "status"];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -140,7 +140,9 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * geteilter Link auf `?view=woche` funktioniert unverändert, aber jeder
  * frische Aufruf von `/termine` beginnt bei der Arbeit.
  */
-const DEFAULT_VIEW: TerminView = "liste";
+// Seit dem Nachfass-Eingang öffnet die Seite im Kalender (Woche): „Wen muss ich
+// nerven?" beantwortet /nachfassen, hier steht „wann habe ich was?" (Plan O3).
+const DEFAULT_VIEW: TerminView = "woche";
 
 export type TermineParams = {
   view: TerminView;
@@ -172,7 +174,7 @@ export function parseTermineParams(
   const date = rawDate && ISO_DATE.test(rawDate) ? rawDate : today;
 
   const rawZeit = get("zeit");
-  const zeit = ZEITEN.includes(rawZeit as TerminZeit) ? (rawZeit as TerminZeit) : "zu_tun";
+  const zeit = ZEITEN.includes(rawZeit as TerminZeit) ? (rawZeit as TerminZeit) : "alle";
 
   const rawSort = get("sort");
   const sort = SORTS.includes(rawSort as TerminSort) ? (rawSort as TerminSort) : "zeit";
@@ -206,11 +208,10 @@ export function daysForView(view: TerminView, date: string): string[] {
  * Zwei Ebenen in einer Leiste voller gleichrangiger Knöpfe zu mischen war
  * genau der Grund, warum die Liste bisher niemand fand.
  */
-export type TerminTab = "liste" | "kalender" | "rueckruf";
+export type TerminTab = "liste" | "kalender";
 
 export function tabForView(view: TerminView): TerminTab {
   if (view === "liste") return "liste";
-  if (view === "rueckruf") return "rueckruf";
   return "kalender";
 }
 
@@ -244,7 +245,6 @@ const DAY_FMT = new Intl.DateTimeFormat("de-DE", {
 export function periodLabel(view: TerminView, date: string, zeit?: TerminZeit): string {
   const [y, m, d] = date.split("-").map(Number);
   if (view === "liste" && zeit && erinnerungsArt(zeit)) return "Termin-Erinnerung";
-  if (view === "rueckruf") return "Rückrufe";
   if (view === "tag") return DAY_FMT.format(new Date(y, m - 1, d));
   if (view === "monat") return monthLabelDe(y, m);
   if (view === "woche") {
@@ -258,12 +258,12 @@ export function periodLabel(view: TerminView, date: string, zeit?: TerminZeit): 
       ? `${short(fd, fm)} – ${short(td, tm)}${tm === fm ? ` ${ty}` : ` ${ty}`}`
       : `${short(fd, fm)}${fy} – ${short(td, tm)}${ty}`;
   }
-  return "Arbeitsliste";
+  return "Terminliste";
 }
 
 /** Sichtbarer Datumsbereich einer Ansicht — für Liste und Rückrufe ohne Grenze. */
 export function rangeForView(view: TerminView, date: string): { from: string; to: string } | null {
-  if (view === "liste" || view === "rueckruf") return null;
+  if (view === "liste") return null;
   if (view === "tag") return { from: date, to: date };
   if (view === "woche") {
     const start = weekStart(date);

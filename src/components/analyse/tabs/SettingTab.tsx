@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-  BadgeCheck, BarChart3, Briefcase, CalendarCheck, CalendarClock, ChevronRight, Eye, Filter,
-  Gauge as GaugeIcon, Handshake, ListChecks, PieChart, Timer, TrendingUp, Video, Wallet,
+  BadgeCheck, BarChart3, CalendarCheck, CalendarClock, ChevronRight, Eye, Filter,
+  Handshake, ListChecks, PieChart, Timer, TrendingUp, Video,
 } from "lucide-react";
 import type { AccessContext } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
@@ -18,7 +18,7 @@ import { ComparisonTable, type ComparisonRow } from "@/components/analyse/Compar
 import { Footnote, MetricTable, type MetricRow } from "@/components/analyse/AnalyseTables";
 import { BucketBarChart } from "@/components/analyse/AnalyseCharts";
 import { CumulativeProgressChart } from "@/components/analyse/CumulativeProgressChart";
-import { DistBars, DonutChart, GaugeBar, KpiHero, QuoteColumns, KpiRow } from "@/components/analyse/AnalyseViz";
+import { DonutChart, KpiHero, QuoteColumns, KpiRow } from "@/components/analyse/AnalyseViz";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import type { SettingStatus } from "@/lib/types";
 
@@ -87,10 +87,6 @@ type Totals = {
 const ZERO = (): Totals => ({ termine: 0, shows: 0, noShows: 0, quali: 0, closing: 0 });
 
 const INT = new Intl.NumberFormat("de-DE");
-// Eine Nachkommastelle für die Ø-Werte in der Meta-Zeile der zugeklappten
-// Qualitäts-Sektion. Rein für die Anzeige — gerechnet wird nichts Neues.
-const DEC1 = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const fmt1 = (v: number | null): string => (v === null ? "—" : DEC1.format(v));
 
 // ── Info-Texte ───────────────────────────────────────────────
 // Die Methodik-Erklärungen standen bis hierher als Fußnote unter jeder
@@ -144,13 +140,6 @@ const LEAD_LABELS = ["Selber Tag", "1 Tag", "2–3 Tage", "4–7 Tage", "8–14 
 // Uhrzeit-Blöcke in Berliner Wandzeit (Minuten ab Mitternacht).
 const HOUR_BOUNDS = [10 * 60 - 1, 12 * 60 - 1, 14 * 60 - 1, 16 * 60 - 1, 18 * 60 - 1] as const;
 const HOUR_LABELS = ["vor 10", "10–12", "12–14", "14–16", "16–18", "ab 18"];
-
-const BRANCHE_LABELS: Record<string, string> = {
-  agentur: "Agentur",
-  coach: "Coach",
-  consultant: "Consultant",
-  sonstiges: "Sonstiges",
-};
 
 /**
  * Quelle eines Termins als Auswertungs-Schlüssel.
@@ -305,8 +294,6 @@ export async function SettingTab({
   const showsByBucket: Record<string, number> = {};
   const qualiByBucket: Record<string, number> = {};
   const closingByBucket: Record<string, number> = {};
-  const budget = { ja: 0, nein: 0, unklar: 0 };
-  let painSum = 0, painN = 0, warmthSum = 0, warmthN = 0;
 
   // Schnitte (jeweils Menge + Quoten)
   const leadCells = LEAD_LABELS.map(ZERO_CELL);
@@ -315,21 +302,12 @@ export async function SettingTab({
   const hourCells = HOUR_LABELS.map(ZERO_CELL);
   let timeUnknown = 0;
   const kindCells = new Map<string, Cell>();
-  const brancheCells = new Map<string, Cell>();
   // Quellen-Auswertung auf zwei Ebenen: `channelCounts` grob je Kanal (Donut),
   // `sourceCells` fein je `source_detail` (Tabelle). `sourceMeta` hält Label
   // und Kanal-Zugehörigkeit des zuerst gesehenen Datensatzes.
   const sourceCells = new Map<string, Cell>();
   const sourceMeta = new Map<string, { label: string; channel: string | null }>();
   const channelCounts = new Map<string, number>();
-  const criteria: Record<string, { ja: Cell; nein: Cell }> = {
-    budget: { ja: ZERO_CELL(), nein: ZERO_CELL() },
-    sole_decider: { ja: ZERO_CELL(), nein: ZERO_CELL() },
-    can_decide_now: { ja: ZERO_CELL(), nein: ZERO_CELL() },
-    clear_need: { ja: ZERO_CELL(), nein: ZERO_CELL() },
-  };
-  const painBins = [0, 0, 0, 0, 0];
-  const warmthBins = [0, 0, 0, 0, 0];
   const noShowRepeat = { einmal: 0, mehrfach: 0 };
 
   const bucketOfMap = (map: Map<string, Cell>, key: string): Cell => {
@@ -396,21 +374,6 @@ export async function SettingTab({
     // Segmente mit demselben Namen entstehen.
     channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + 1);
 
-    if (r.has_budget_8k === "ja") budget.ja += 1;
-    else if (r.has_budget_8k === "nein") budget.nein += 1;
-    else if (r.has_budget_8k === "unklar") budget.unklar += 1;
-
-    if (r.ist_pain != null) {
-      painSum += Number(r.ist_pain);
-      painN += 1;
-      painBins[Math.min(Math.floor((Number(r.ist_pain) - 1) / 2), 4)] += 1;
-    }
-    if (r.warmth != null) {
-      warmthSum += Number(r.warmth);
-      warmthN += 1;
-      warmthBins[Math.min(Math.floor((Number(r.warmth) - 1) / 2), 4)] += 1;
-    }
-
     if ((r.no_show_count ?? 0) === 1) noShowRepeat.einmal += 1;
     else if ((r.no_show_count ?? 0) > 1) noShowRepeat.mehrfach += 1;
 
@@ -429,20 +392,10 @@ export async function SettingTab({
     }
 
     addCell(bucketOfMap(kindCells, r.meeting_kind ?? "offen"), r);
-    addCell(bucketOfMap(brancheCells, (r.branche ?? "").trim() || "ohne"), r);
 
     const src = sourceKeyOf(r);
     addCell(bucketOfMap(sourceCells, src.key), r);
     if (!sourceMeta.has(src.key)) sourceMeta.set(src.key, { label: src.label, channel: src.channel });
-
-    if (r.has_budget_8k === "ja") addCell(criteria.budget.ja, r);
-    else if (r.has_budget_8k === "nein") addCell(criteria.budget.nein, r);
-    if (r.sole_decider === true) addCell(criteria.sole_decider.ja, r);
-    else if (r.sole_decider === false) addCell(criteria.sole_decider.nein, r);
-    if (r.can_decide_now === true) addCell(criteria.can_decide_now.ja, r);
-    else if (r.can_decide_now === false) addCell(criteria.can_decide_now.nein, r);
-    if (r.clear_need === true) addCell(criteria.clear_need.ja, r);
-    else if (r.clear_need === false) addCell(criteria.clear_need.nein, r);
   }
 
   const names = selectedMembers.map((m) => m.username);
@@ -507,16 +460,6 @@ export async function SettingTab({
     color: c.color,
   })).filter((d) => d.value > 0);
 
-  // ── Qualität ─────────────────────────────────────────────────
-  const budgetTotal = budget.ja + budget.nein + budget.unklar;
-  const budgetItems = [
-    { label: "Ja", value: budget.ja, color: "var(--success)" },
-    { label: "Nein", value: budget.nein, color: "var(--danger)" },
-    { label: "Unklar", value: budget.unklar, color: "var(--warning)" },
-  ];
-  const avgPain = painN > 0 ? painSum / painN : null;
-  const avgWarmth = warmthN > 0 ? warmthSum / warmthN : null;
-
   // ── Schnitt-Tabellen ─────────────────────────────────────────
   const cellRows = (
     entries: [string, Cell][],
@@ -538,12 +481,6 @@ export async function SettingTab({
     (k) => (k === "link" ? "Video-Link" : k === "telefon" ? "Telefon" : "Ohne Angabe"),
     sum.termine,
   );
-  const brancheRows = cellRows([...brancheCells.entries()], (k) => BRANCHE_LABELS[k] ?? "Ohne Angabe", sum.termine);
-  // Für die Meta-Zeile der zugeklappten Sektion: „ohne" ist keine Branche,
-  // sondern eine Erfassungslücke. Sie darf die Anzahl nicht aufblähen, gehört
-  // aber genannt — sie begrenzt die Aussagekraft der Tabelle dahinter.
-  const brancheKnown = brancheRows.filter((r) => r.key !== "ohne").length;
-  const brancheOhne = brancheCells.get("ohne")?.n ?? 0;
 
   const sourceRows: MetricRow[] = [...sourceCells.entries()]
     .filter(([, c]) => c.n > 0)
@@ -560,38 +497,6 @@ export async function SettingTab({
         values: cellValues(c),
       };
     });
-
-  const CRITERIA_LABELS: Record<string, string> = {
-    budget: "Budget 8k+",
-    sole_decider: "Alleinentscheider",
-    can_decide_now: "Kann sofort entscheiden",
-    clear_need: "Klarer Bedarf",
-  };
-  const criteriaRows: MetricRow[] = Object.entries(criteria)
-    .filter(([, v]) => v.ja.n + v.nein.n > 0)
-    .map(([key, v]) => ({
-      key,
-      label: CRITERIA_LABELS[key],
-      sub: `${INT.format(v.ja.n + v.nein.n)} von ${INT.format(sum.termine)} Terminen beantwortet`,
-      values: {
-        jaN: v.ja.n,
-        jaClosing: pct(v.ja.closing, v.ja.shows),
-        neinN: v.nein.n,
-        neinClosing: pct(v.nein.closing, v.nein.shows),
-        spread:
-          pct(v.ja.closing, v.ja.shows) === null || pct(v.nein.closing, v.nein.shows) === null
-            ? null
-            : Math.round(((pct(v.ja.closing, v.ja.shows) ?? 0) - (pct(v.nein.closing, v.nein.shows) ?? 0)) * 10) / 10,
-      },
-    }));
-
-  const mutedNote: CSSProperties = {
-    fontSize: "var(--fs-xs)",
-    color: "var(--text-muted)",
-    margin: "var(--sp-3) 0 0",
-  };
-
-  const scaleLabels = ["1–2", "3–4", "5–6", "7–8", "9–10"];
 
   return (
     <>
@@ -821,7 +726,7 @@ export async function SettingTab({
       {/* ── Alles Weitere: eingeklappt ──────────────────────────
              Auftraggeber: „rest kann raus erstmal, unnötig". Das „erstmal"
              ist der Grund, warum es hier steht statt gelöscht zu sein. */}
-      <MoreAnalyses meta="Zeitfenster · Termin-Art · Branche · Kriterien · Qualität · Status">
+      <MoreAnalyses meta="Zeitfenster · Termin-Art · Status">
         {/* ── Wann erscheinen Leads? ─────────────────────────────
                Vorlaufzeit, Wochentag und Uhrzeit sind drei Antworten auf EINE
                Frage — als drei Karten nebeneinander liest man sie als drei
@@ -891,153 +796,26 @@ export async function SettingTab({
           </div>
         </AnalyseSection>
 
-        {/* ── Termin-Art + Branche ──────────────────────────────
-               Zugeklappt, und zwar BEIDE: Die Karten stehen nebeneinander in
-               einem Raster und werden auf gleiche Höhe gezogen — eine offene
-               neben einer geschlossenen ergäbe eine halb leere Karte. */}
-        <div className="analyse-row">
-          <div style={{ display: "grid" }}>
-            <AnalyseSection
-              title="Termin-Art"
-              icon={Video}
-              meta={`${kindRows.length} Arten · ${INT.format(sum.termine)} Termine`}
-              collapsible
-              defaultOpen={false}
-            >
-              <MetricTable
-                label="Art"
-                columns={[
-                  { key: "n", label: "Termine", format: "int" },
-                  { key: "showRate", label: "Show-Quote", format: "pct", emphasis: true },
-                  { key: "qualiRate", label: "Qualifiziert", format: "pct" },
-                  { key: "zuClosing", label: "Zu Closing", format: "pct" },
-                ]}
-                rows={kindRows}
-                minWidth={420}
-              />
-            </AnalyseSection>
-          </div>
-          <div style={{ display: "grid" }}>
-            <AnalyseSection
-              title="Branche"
-              icon={Briefcase}
-              meta={`${brancheKnown} Branchen · ${INT.format(brancheOhne)} ohne Angabe`}
-              collapsible
-              defaultOpen={false}
-            >
-              <MetricTable
-                label="Branche"
-                columns={[
-                  { key: "n", label: "Termine", format: "int" },
-                  { key: "showRate", label: "Show-Quote", format: "pct" },
-                  { key: "qualiRate", label: "Qualifiziert", format: "pct", emphasis: true },
-                  { key: "zuClosing", label: "Zu Closing", format: "pct" },
-                ]}
-                rows={brancheRows}
-                minWidth={420}
-                emptyHint="Keine Branche erfasst."
-              />
-            </AnalyseSection>
-          </div>
-        </div>
-
-        {/* ── Qualifikations-Kriterien ───────────────────────── */}
+        {/* ── Termin-Art ─────────────────────────────────────── */}
         <AnalyseSection
-          title="Welches Kriterium sagt den Abschluss voraus?"
-          icon={ListChecks}
-          meta={`${criteriaRows.length} Kriterien · Ja vs. Nein`}
+          title="Termin-Art"
+          icon={Video}
+          meta={`${kindRows.length} Arten · ${INT.format(sum.termine)} Termine`}
           collapsible
           defaultOpen={false}
-          info={
-            <InfoText>
-              <p style={INFO_P}>
-                Δ ist der Abstand der beiden Closing-Quoten in Prozentpunkten — je größer, desto trennschärfer
-                ist die Frage. &bdquo;Unklar&ldquo; beim Budget bleibt außen vor, weil es keine Aussage ist.
-              </p>
-              <p style={INFO_P}>
-                Bewusst anderer Nenner als bei der KPI-Kachel: Hier wird gegen die{" "}
-                <strong style={INFO_STRONG}>Erschienenen</strong> gerechnet, weil genau die Frage ist, ob das
-                Kriterium den Weg durch die Qualifizierung ins Closing vorhersagt — die Qualifizierung gehört
-                hier also in den Nenner.
-              </p>
-            </InfoText>
-          }
         >
           <MetricTable
-            label="Kriterium"
+            label="Art"
             columns={[
-              { key: "jaN", label: "Ja", format: "int" },
-              { key: "jaClosing", label: "Closing bei Ja", format: "pct", emphasis: true },
-              { key: "neinN", label: "Nein", format: "int" },
-              { key: "neinClosing", label: "Closing bei Nein", format: "pct" },
-              { key: "spread", label: "Δ pp", format: "num1" },
+              { key: "n", label: "Termine", format: "int" },
+              { key: "showRate", label: "Show-Quote", format: "pct", emphasis: true },
+              { key: "qualiRate", label: "Qualifiziert", format: "pct" },
+              { key: "zuClosing", label: "Zu Closing", format: "pct" },
             ]}
-            rows={criteriaRows}
-            minWidth={560}
-            emptyHint="Noch keine Qualifikations-Antworten erfasst."
+            rows={kindRows}
+            minWidth={420}
           />
         </AnalyseSection>
-
-        {/* ── Qualitäts-Reihe ──────────────────────────────────
-               Ebenfalls beide zugeklappt — gleiches Raster, gleiche Begründung
-               wie eine Reihe darüber. */}
-        <div className="analyse-row" data-split="auto">
-          <AnalyseSection
-            title="Budget (8k+)"
-            icon={Wallet}
-            meta={`${INT.format(budgetTotal)} Angaben`}
-            collapsible
-            defaultOpen={false}
-          >
-            <DistBars items={budgetItems} total={budgetTotal} />
-          </AnalyseSection>
-          {/* Durchschnitt und Verteilung gehören zusammen: ein Ø 5,5 kann
-              „alle mittelmäßig" oder „halb heiß, halb kalt" heißen. */}
-          <AnalyseSection
-            title="Lead-Qualität"
-            icon={GaugeIcon}
-            // Kernwert statt Skalenhinweis: „Skala 1–10" sagt zugeklappt nur,
-            // WIE gemessen wird, nicht WAS herauskam. Die beiden Ø-Werte sind
-            // genau die Zahl, wegen der man aufklappt (oder eben nicht).
-            meta={
-              avgPain === null && avgWarmth === null
-                ? "noch keine Bewertungen"
-                : `Ø Pain ${fmt1(avgPain)} · Ø Wärme ${fmt1(avgWarmth)}`
-            }
-            collapsible
-            defaultOpen={false}
-            info={
-              <InfoText>
-                <p style={INFO_P}>
-                  Ø-Wert und Verteilung stehen bewusst zusammen: Ein Ø 5,5 kann &bdquo;alle
-                  mittelmäßig&ldquo; oder &bdquo;halb heiß, halb kalt&ldquo; heißen — erst die Balken darunter
-                  entscheiden das.
-                </p>
-                <p style={INFO_P}>
-                  Gerechnet wird nur über die Termine, bei denen der Wert erfasst wurde; die Zeile unter jedem
-                  Balken nennt die Anzahl.
-                </p>
-              </InfoText>
-            }
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
-              <div>
-                <GaugeBar label="Ø Pain" value={avgPain} />
-                <p style={mutedNote}>aus {INT.format(painN)} Bewertungen</p>
-                <div style={{ marginTop: "var(--sp-5)" }}>
-                  <DistBars items={scaleLabels.map((l, i) => ({ label: l, value: painBins[i], color: "var(--viz-1)" }))} />
-                </div>
-              </div>
-              <div>
-                <GaugeBar label="Ø Wärme" value={avgWarmth} />
-                <p style={mutedNote}>aus {INT.format(warmthN)} Bewertungen</p>
-                <div style={{ marginTop: "var(--sp-5)" }}>
-                  <DistBars items={scaleLabels.map((l, i) => ({ label: l, value: warmthBins[i], color: "var(--viz-2)" }))} />
-                </div>
-              </div>
-            </div>
-          </AnalyseSection>
-        </div>
 
         {/* ── Status-Verteilung ──────────────────────────────── */}
         <AnalyseSection

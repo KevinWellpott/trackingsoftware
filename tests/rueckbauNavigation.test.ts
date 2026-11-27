@@ -12,12 +12,16 @@
 //   · die Kachel „Erinnerungen" im Quicklink-Streifen des Dashboards
 //   · den Zweig `erinnerungen` in `NavCounts` und die Abfrage auf
 //     `reminder_touches`, die ihn füllte
-//   · die Seite unter /erinnerungen — sie ist zu einer Weiterleitung geworden
+//   · die Seite unter /erinnerungen — sie war zuerst eine Weiterleitung und
+//     ist mit dem Nachfass-Eingang (27.11.2026) ganz gelöscht, zusammen mit
+//     den drei älteren Weiterleitungen /organic, /crm und /follow-up und den
+//     Smart Views unter /ansicht
 //
-// Was der Rückbau ausdrücklich NICHT genommen hat, und was diese Datei deshalb
-// mitprüft: die Route selbst (Lesezeichen dürfen nicht ins Leere laufen) und
-// die Doktrin `null` heißt „nicht ermittelbar" (docs §5.4) für die beiden
-// verbliebenen Zähler.
+// Was diese Datei deshalb mitprüft: dass keine Fläche mehr auf eine dieser
+// Routen zeigt (eine gelöschte Route mit einem Link davor ist eine 404 mit
+// Ansage), und die Doktrin `null` heißt „nicht ermittelbar" (docs §5.4) für
+// den verbliebenen Zähler — der seit dem Nachfass-Eingang aus
+// src/lib/navCountsData.ts kommt.
 //
 // GEPRÜFT WIRD AM QUELLTEXT — dieselbe Bauart wie sidebarBloecke.test.ts und
 // dashboardQuicklinks.test.ts: Seitenleiste und Streifen sind Client
@@ -25,7 +29,7 @@
 // nicht laden kann. Das VERHALTEN der Zähler prüft navCounts.test.ts.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
@@ -44,43 +48,41 @@ function code(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
-const ROUTE = read("src/app/(dashboard)/erinnerungen/page.tsx");
+const NAVCOUNTS_DATA = read("src/lib/navCountsData.ts");
 const NAVCOUNTS = read("src/lib/navCounts.ts");
 const SIDEBAR = read("src/components/Sidebar.tsx");
 const QUICKLINKS = read("src/components/dashboard/QuickLinks.tsx");
 const MOBILE = read("src/components/MobileHeader.tsx");
 
 /* ------------------------------------------------------------------ *
- * 1 — Die Route: abgeklemmt, nicht gelöscht
+ * 1 — Die abgeklemmten Routen sind gelöscht
  * ------------------------------------------------------------------ */
 
-describe("Die Route /erinnerungen ist eine Weiterleitung", () => {
-  test("sie leitet auf die Terminliste, statt zu verschwinden", () => {
-    // Ein `rm -rf` auf den Ordner hätte jedes Lesezeichen und jeden offenen Tab
-    // auf eine 404 geschickt. Das Haus hat dafür ein Muster (/organic, /crm,
-    // /follow-up, /setting) — eine Datei, ein `redirect`, ein Satz warum.
-    assert.match(ROUTE, /import \{ redirect \} from "next\/navigation";/);
-    assert.match(ROUTE, /redirect\("\/termine"\)/);
-  });
+describe("Die abgeklemmten Routen sind gelöscht, nicht nur umgeleitet", () => {
+  // HIER STAND: „Die Route /erinnerungen ist eine Weiterleitung" — samt den
+  // drei Vorbildern /organic, /crm und /follow-up. Mit dem Nachfass-Eingang
+  // sind alle vier Weiterleitungen gelöscht (dazu die Smart Views unter
+  // /ansicht). Eine Weiterleitung auf eine Seite, die selbst nicht mehr die
+  // gemeinte Arbeit trägt, ist kein Lesezeichen-Schutz mehr, sondern ein
+  // Umweg.
+  const GELOESCHT = ["erinnerungen", "organic", "crm", "follow-up", "ansicht"] as const;
 
-  test("sie lädt nichts mehr — kein Zugriff, keine Abfrage, kein Board", () => {
-    // Eine Weiterleitung, die vorher noch Daten holt, ist keine: Sie kostet
-    // jeden Aufruf einen Roundtrip auf Tabellen, die niemand mehr anzeigt.
-    for (const rest of ["getAccessContext", "createClient", "ErinnerungenBoard", "getDueReminderTouches", "PageHeader"]) {
-      assert.ok(!ROUTE.includes(rest), `Die Weiterleitung schleppt noch „${rest}" mit`);
+  test("die Ordner existieren nicht mehr", () => {
+    for (const route of GELOESCHT) {
+      const ordner = fileURLToPath(new URL(`../src/app/(dashboard)/${route}`, import.meta.url));
+      assert.equal(existsSync(ordner), false, `/${route} ist wieder da`);
     }
-    // Und sie ist klein genug, dass man das auf einen Blick sieht.
-    assert.ok(ROUTE.split("\n").length < 20, "Die Weiterleitung ist wieder zu einer Seite gewachsen");
   });
 
-  test("dasselbe Muster wie die drei abgeklemmten Vorbilder", () => {
-    // Vier Routen, ein Bauplan. Wer die fünfte abklemmt, findet hier, wie.
-    for (const vorbild of [
-      "src/app/(dashboard)/organic/page.tsx",
-      "src/app/(dashboard)/crm/page.tsx",
-      "src/app/(dashboard)/follow-up/page.tsx",
-    ]) {
-      assert.match(read(vorbild), /redirect\("\/[a-z-]*"\)/, `${vorbild} folgt dem Muster nicht mehr`);
+  test("und keine Navigationsfläche verlinkt auf sie", () => {
+    for (const [name, quelle] of [
+      ["Seitenleiste", SIDEBAR],
+      ["Quicklinks", QUICKLINKS],
+      ["MobileHeader", MOBILE],
+    ] as const) {
+      for (const route of GELOESCHT) {
+        assert.doesNotMatch(code(quelle), new RegExp(`["'\`]/${route}\\b`), `${name} verlinkt weiterhin auf /${route}`);
+      }
     }
   });
 });
@@ -124,33 +126,33 @@ describe("Kein Erinnerungs-Zähler mehr", () => {
     assert.match(NAVCOUNTS, /if \(recycle\.count == null\) return null;/);
   });
 
-  test("der Nachfassen-Zähler liest die Quelle der SEITE — und nur die", () => {
-    // Diese Zusicherung stand hier als „behält beide Quellen", mit dem
-    // ausdrücklichen Vorbehalt: „Zieht der Telefon-Rückruf in die Terminliste
-    // um, muss dieser Zähler mitziehen." Genau das ist passiert, und der Zähler
-    // wurde nicht nachgezogen — das Badge zählte drei Zweige weiter, die die
-    // Seite nicht mehr zeigt.
-    //
-    // `/nachfassen` trägt jetzt eine Quelle, also fragt der Zähler eine.
-    // Geprüft am CODE, nicht am Fließtext: Der Kopf der Datei erklärt, welche
-    // Quellen weggefallen sind, und muss sie dafür beim Namen nennen dürfen.
-    assert.match(NAVCOUNTS, /\.rpc\(\s*"recycle_tasks",/);
-    assert.doesNotMatch(code(NAVCOUNTS), /nachfassen_tasks/);
-    assert.doesNotMatch(code(NAVCOUNTS), /dropout_lists/);
-    assert.doesNotMatch(code(NAVCOUNTS), /ersatztermin_offen/);
+  test("der Nachfassen-Zähler liest den Loader der SEITE — und nur den", () => {
+    // Die Bindungspflicht aus docs §5.4: Ein Badge, das anders zählt als die
+    // Seite darunter, ist ein Fehler. Zuerst hieß das „dieselbe RPC wie die
+    // Seite" (`recycle_tasks` in lib/navCounts.ts). Seit dem Nachfass-Eingang
+    // liest die Seite den Loader `ladeNachfassen` — also liest ihn auch das
+    // Badge, mit derselben Gruppierung (`gruppiere`) und der Zählregel
+    // `badgeZahl` aus src/lib/nachfassRegel.ts. Eine eigene Abfrage daneben
+    // wäre eine zweite Definition von „fällig".
+    assert.match(NAVCOUNTS_DATA, /import \{ ladeNachfassen \} from "@\/lib\/nachfassenData";/);
+    assert.match(NAVCOUNTS_DATA, /import \{ badgeZahl, gruppiere \} from "@\/lib\/nachfassRegel";/);
+    assert.match(NAVCOUNTS_DATA, /ladeNachfassen\("mein"\)/);
+    assert.match(NAVCOUNTS_DATA, /nachfassen: badgeZahl\(gruppiere\(daten\.eintraege, daten\.today, daten\.nowMs\)\)/);
+    const nurCode = code(NAVCOUNTS_DATA);
+    assert.doesNotMatch(nurCode, /\.rpc\(|\.from\(/, "Das Badge fragt wieder selbst die Datenbank.");
+    assert.doesNotMatch(nurCode, /nachfassen_tasks|dropout_lists|ersatztermin_offen|loadNavCounts/);
+  });
 
-    // Die Alles-oder-nichts-Regel bleibt, wo sie etwas trägt: Fällt die Abfrage
-    // aus, gibt es kein Badge statt einer 0.
-    assert.match(NAVCOUNTS, /if \(recycle\.error\) return null;/);
-
-    // NACHGEZOGEN. Hier stand zusätzlich `if (recycle.count > rows.length)
-    // return null;` — der Fall „das 500er-Fenster wurde abgeschnitten". Er hing
-    // AM ALTLASTEN-SCHNITT: `count` zählt vor dem Fenster, geschnitten wurde
-    // danach, oberhalb des Deckels war die gefilterte Zahl also nicht mehr zu
-    // ermitteln. Der Schnitt ist gestrichen (tests/altlastenSchnittGefallen),
-    // damit ist `count` wieder exakt und das Badge kann die Zahl nennen.
-    // Gedeckelt bleibt nur der Überfällig-Anteil.
-    assert.doesNotMatch(code(NAVCOUNTS), /recycle\.count > rows\.length/);
+  test("ein Ausfall oder eine Zeitüberschreitung gibt kein Badge — keine 0", () => {
+    // docs §5.4: Fehlt die Zahl, verschwindet das Badge. `EMPTY_NAV_COUNTS`
+    // trägt `null`, und genau das liefert die Hülle in allen drei Fällen:
+    // nicht angemeldet, Frist abgelaufen, Fehler.
+    assert.match(NAVCOUNTS_DATA, /if \(!access\) return EMPTY_NAV_COUNTS;/);
+    // Auch eine unvollständige Ladung (gescheiterte Grundabfrage) gibt kein Badge.
+    assert.match(NAVCOUNTS_DATA, /if \(!daten \|\| !daten\.vollstaendig\) return EMPTY_NAV_COUNTS;/);
+    assert.match(NAVCOUNTS_DATA, /\} catch \{\s*return EMPTY_NAV_COUNTS;/);
+    assert.match(NAVCOUNTS_DATA, /const DEADLINE_MS = 1500;/);
+    assert.doesNotMatch(NAVCOUNTS_DATA, /\?\? 0/);
   });
 });
 

@@ -4,8 +4,6 @@ import { setDataViewForm, signOut } from "@/app/actions/workspace";
 import { setActiveOrgForm } from "@/app/actions/platform";
 import { createListForm } from "@/app/actions/lists";
 import { SearchTrigger } from "@/components/search/SearchDialog";
-import { ViewTree } from "@/components/listen/ViewTree";
-import type { ViewNode } from "@/lib/listViews";
 import { type NavCount, type NavCounts } from "@/lib/navCounts";
 import {
   Archive,
@@ -111,7 +109,7 @@ function containsActive(pathname: string, hrefs: readonly string[]): boolean {
 // /lists/<id>, /ansicht/<id> und /analyse/vergleich sollen ihren Block genauso
 // aufgeklappt halten wie die Uebersichtsseite darueber.
 const ARBEIT_HREFS = ["/termine", "/nachfassen", "/ablage"] as const;
-const LINKEDIN_HREFS = ["/listen", "/lists", "/ansicht"] as const;
+const LINKEDIN_HREFS = ["/listen", "/lists"] as const;
 const TELEFON_HREFS = ["/telefon"] as const;
 const AUSWERTUNG_HREFS = ["/team", "/analyse"] as const;
 const VERWALTUNG_HREFS = ["/export", "/settings", "/admin"] as const;
@@ -276,7 +274,6 @@ type Props = {
   navCounts?: NavCounts;
   lists: SidebarList[];
   /** Smart-View-Baum unter der LinkedIn-Sektion. */
-  viewTree?: ViewNode[];
   phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
@@ -1020,7 +1017,6 @@ export function SidebarContent({
   username,
   workspaceId,
   lists,
-  viewTree = [],
   phoneLists = [],
   dataScope = "workspace",
   dataView,
@@ -1305,34 +1301,24 @@ export function SidebarContent({
               lib/navCounts.ts). Der Tooltip bleibt trotzdem Pflicht: Er ist
               die einzige Stelle, an der steht, welche Frage diese Zeile
               beantwortet — bei drei aehnlich klingenden Nachbarn. */}
+          {/* Seit dem Nachfass-Eingang (docs/nachfassen-umbau/PLAN-nachfass-eingang.md)
+              ist /nachfassen die tägliche Arbeitsliste und steht deshalb oben;
+              das Badge zählt dieselbe Menge wie die Seite (src/lib/navCountsData.ts). */}
+          <NavLink
+            href="/nachfassen"
+            icon={Clock}
+            label="Nachfassen"
+            onClick={onClose}
+            title="Wen musst du heute kontaktieren? Termine ohne nächsten Schritt, Telefon-Rückrufe und fällige Recycling-Leads — jeder mit seinem Datum für den nächsten Kontakt."
+            count={navCounts?.nachfassen}
+            countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
+          />
           <NavLink
             href="/termine"
             icon={CalendarDays}
             label="Termine"
             onClick={onClose}
-            title="Die tägliche Arbeitsliste: wer liegt in der Luft und muss heute genervt werden, wer ist mit einem Termin versorgt. Dazu Kalender und fällige Telefon-Rückrufe."
-          />
-          {/* DIE TOOLTIPS SIND DIE ABGRENZUNG, nicht Beiwerk: Sie sind die
-              einzige Stelle, an der jemand ohne Doku erfaehrt, welche der drei
-              Zeilen welche Frage beantwortet. Deshalb muessen sie mitwandern,
-              wenn sich eine Seite aendert — der Nachfassen-Tooltip nannte nach
-              dem Wegfall des LinkedIn-Zweigs monatelang eine Quelle, die es
-              dort nicht mehr gibt. */}
-          {/* „Recycling", nicht „Nachfassen" — die Seite selbst heißt so, seit
-              drei der vier Quellen in die Terminliste gewandert sind (die
-              Begründung steht vollständig im Kopf von
-              src/app/(dashboard)/nachfassen/page.tsx). Wer auf „Nachfassen"
-              klickte, suchte die tägliche Arbeit und fand tote Leads vom
-              Frühjahr. Die ROUTE bleibt `/nachfassen`: Lesezeichen und der
-              Rückweg der Detailseiten (`?from=nachfassen`) hängen daran. */}
-          <NavLink
-            href="/nachfassen"
-            icon={Clock}
-            label="Recycling"
-            onClick={onClose}
-            title="Fällige Recycling-Versuche: Leads, die schon einmal aus dem Funnel gefallen sind — verlorene Closings, tote Telefon- und Erstgespräch-Leads, LinkedIn-Kontakte ohne Antwort. Telefon-Rückrufe sowie Setting- und Closing-Wiedervorlagen stehen in der Terminliste, LinkedIn-Follow-ups erledigt das Listen-Board."
-            count={navCounts?.nachfassen}
-            countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
+            title="Kalender und Terminliste: wann steht was an, und bekommt jeder seine zwei Erinnerungen vor dem Termin."
           />
           {/* Die Gegenrichtung zu den Zeilen darueber: dort steht, was noch
               ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
@@ -1477,21 +1463,6 @@ export function SidebarContent({
             </p>
           )}
 
-          {/* Gefilterte Ansichten und Ordner — additiv neben den echten
-              Listen, die weiterhin die Heimat der Kontakte sind. Eigene
-              Ueberschrift statt nur einer Trennlinie: sonst verschwimmen
-              Listen und Ansichten zu einem einzigen langen Block. */}
-          {viewTree.length > 0 && (
-            <div style={{ marginTop: "var(--sp-4)" }}>
-              <div
-                className="eyebrow eyebrow-muted"
-                style={{ padding: "0 var(--sp-3) var(--sp-2) var(--sp-8)", fontSize: "var(--fs-2xs)" }}
-              >
-                Ansichten
-              </div>
-              <ViewTree tree={viewTree} lists={lists} onNavigate={onClose} />
-            </div>
-          )}
         </CollapsibleSection>
 
         {/* ── Telefon ── */}
@@ -1706,7 +1677,6 @@ export function MobileDrawer({
   username,
   workspaceId,
   lists,
-  viewTree,
   phoneLists,
   dataScope,
   dataView,
@@ -1720,7 +1690,6 @@ export function MobileDrawer({
   username: string;
   workspaceId: string;
   lists: SidebarList[];
-  viewTree?: ViewNode[];
   phoneLists?: SidebarPhoneList[];
   dataScope?: DataScope;
   dataView?: DataViewState;
@@ -1771,7 +1740,6 @@ export function MobileDrawer({
           username={username}
           workspaceId={workspaceId}
           lists={lists}
-          viewTree={viewTree}
           phoneLists={phoneLists}
           dataScope={dataScope}
           dataView={dataView}

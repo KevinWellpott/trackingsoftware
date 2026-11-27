@@ -8,9 +8,19 @@
 //   1. Der Zustand einer Zeile wird ABGELEITET, nicht gespeichert. Die
 //      gefährlichste Stelle des ganzen Vorhabens, weil `status='offen'` in der
 //      Datenbank das GEGENTEIL des angezeigten „Offen" bedeutet.
-//   2. „Du bist dran" ist EINE Regel für zwei Listen, nicht zwei.
+//   2. „Du bist dran“ ist EINE Regel für zwei Listen, nicht zwei.
 //   3. Die Arbeitsliste ist die Vorgabe, nicht mehr der Kalender.
 //   4. Die Liste ist die des Angemeldeten, und sie kann schreiben.
+//
+// ── NACHGEZOGEN: der Nachfass-Eingang (27.11.2026) ──────────────────────────
+// Die Tagesarbeit ist von /termine nach /nachfassen gewandert
+// (docs/nachfassen-umbau/PLAN-nachfass-eingang.md §4.7). Für diese Datei heißt
+// das: Punkt 1 gilt unverändert (der Eingang nimmt seine Termine über dieselbe
+// Ableitung auf). Punkt 2 hat sich verschoben — in der Terminliste heißt Gold
+// nur noch „eine Termin-Erinnerung ist offen", das Gold der Arbeitsmenge trägt
+// der Eingang. Punkt 3 hat sich umgedreht: /termine öffnet im Kalender, „Zu
+// tun" und der Rückruf-Reiter leiten nach /nachfassen. Die Rückrufe (Blöcke 7
+// und 8) prüfen deshalb jetzt den Eingang.
 //
 // Zwei Bauarten, dieselbe Aufteilung wie in terminRiegel.test.ts: Was eine
 // reine Funktion entscheidet, wird als VERHALTEN geprüft (dranRegel und
@@ -37,6 +47,7 @@ import {
 } from "@/lib/dranRegel";
 import { buildEvents, type WithCancellation } from "@/lib/termine";
 import { parseTermineParams, tabForView } from "@/components/termine/viewState";
+import { gruppeVon, istJetztDran, plusWerktage, type NachfassEintrag } from "@/lib/nachfassRegel";
 import type { SettingCall } from "@/lib/types";
 
 function read(relative: string): string {
@@ -64,7 +75,9 @@ function code(source: string): string {
 const DRAN_REGEL = read("src/lib/dranRegel.ts");
 const LIST_BOARD = read("src/components/ListBoardV2.tsx");
 const TERMINE_LIST = read("src/components/termine/TermineList.tsx");
-const RUECKRUF = read("src/components/termine/RueckrufListe.tsx");
+const EINGANG = read("src/components/nachfassen/NachfassEingang.tsx");
+const EINGANG_DATEN = read("src/lib/nachfassenData.ts");
+const EINGANG_AKTION = read("src/app/actions/nachfassKontakt.ts");
 const VIEW_STATE = read("src/components/termine/viewState.ts");
 const BOARD = read("src/components/termine/TermineBoard.tsx");
 const SEITE = read("src/app/(dashboard)/termine/page.tsx");
@@ -242,7 +255,7 @@ describe("2 · „Du bist dran“ steht EINMAL da", () => {
     // Der Wiedererkennungswert ist der Grund, warum die LinkedIn-Liste zum
     // Vorbild geworden ist; ein zweites, leicht anderes Gold hätte ihn zerlegt.
     assert.deepEqual({ ...DRAN_TONE }, { bg: "var(--warning-bg)", fg: "var(--warning-fg)", border: "var(--warning)" });
-    for (const [datei, quelle] of [["ListBoardV2", LIST_BOARD], ["TermineList", TERMINE_LIST], ["RueckrufListe", RUECKRUF]] as const) {
+    for (const [datei, quelle] of [["ListBoardV2", LIST_BOARD], ["TermineList", TERMINE_LIST], ["NachfassEingang", EINGANG]] as const) {
       assert.match(quelle, /DRAN_TONE/, `${datei} malt sein Gold selbst`);
     }
     // Gegenprobe: Der Ton kommt aus vorhandenen Tokens, es gibt keine neue Farbe.
@@ -264,16 +277,55 @@ describe("2 · „Du bist dran“ steht EINMAL da", () => {
     assert.equal(istKontaktDran({ ...basis, next_follow_up_at: null }, HEUTE), false);
   });
 
-  test("der Stempel macht die Zeile für HEUTE ruhig — und morgen leuchtet sie wieder", () => {
-    // Der ganze Sinn des Ein-Klick-Knopfes. Ohne ihn leuchtete jede Zeile jeden
-    // Tag gleich hell: Es gäbe nichts abzuhaken, und niemand sähe, ob heute
-    // schon jemand drangewesen ist.
-    assert.equal(istTerminDran("offen", null, HEUTE), true);
-    assert.equal(istTerminDran("offen", `${HEUTE}T18:00:00.000Z`, HEUTE), false);
-    assert.equal(istTerminDran("offen", GESTERN, HEUTE), true);
-    // Gebucketet über den Berliner Kalendertag, nicht über 24 Stunden (docs §6).
+  test("in der Terminliste heißt Gold nur noch „Erinnerung offen“", () => {
+    // NACHGEZOGEN (Nachfass-Eingang, Plan §4.7). Hier stand: „Der Stempel macht
+    // die Zeile für HEUTE ruhig — und morgen leuchtet sie wieder", also Gold =
+    // Arbeitsmenge und heute nicht gestempelt. Diese Frage beantwortet jetzt
+    // allein /nachfassen; zwei Definitionen von „du bist dran" auf zwei Seiten
+    // wären der alte Fehler. In der Terminliste leuchtet nur noch, was dort
+    // NICHT steht: eine offene Termin-Erinnerung.
+    assert.equal(istTerminDran("offen", null, HEUTE), false);
+    assert.equal(istTerminDran("offen", GESTERN, HEUTE), false);
+    assert.equal(istTerminDran("verlegt", null, HEUTE, "vortag"), true);
+    assert.equal(istTerminDran("verlegt", null, HEUTE, "stunde"), true);
+    assert.equal(istTerminDran("verlegt", null, HEUTE, null), false);
+    // Der Stempel bleibt die Tagesfrage „heute schon dran gewesen?", gebucketet
+    // über den Berliner Kalendertag, nicht über 24 Stunden (docs §6).
     assert.equal(istHeuteKontaktiert(`${HEUTE}T21:30:00.000Z`, HEUTE), true);
     assert.equal(istHeuteKontaktiert(undefined, HEUTE), false);
+  });
+
+  test("im Eingang macht ein eingetragener Kontakt die Zeile ruhig — bis zum nächsten Datum", () => {
+    // Der Nachfolger des Stempels: „Kontakt eintragen" setzt das Datum des
+    // nächsten Kontakts (Plan §4.3). Ohne Datum ist der Vorgang sofort fällig
+    // und leuchtet; mit einem Datum in der Zukunft rutscht er nach „Demnächst"
+    // und leuchtet nicht, bis der Tag kommt.
+    const basis: NachfassEintrag = {
+      key: "setting:s1",
+      quelle: "termin",
+      art: "setting",
+      id: "s1",
+      name: "Meier",
+      firma: null,
+      faelligAm: null,
+      koernung: "tag",
+      ergebnisFehlt: false,
+      lebenszeichen: HEUTE,
+      kontakte: [],
+    };
+    const jetzt = Date.parse(`${HEUTE}T08:00:00.000Z`);
+    assert.equal(gruppeVon(basis, HEUTE, jetzt, "2026-09-01"), "heute");
+    assert.equal(istJetztDran(basis, HEUTE, jetzt), true);
+    const nachKontakt: NachfassEintrag = {
+      ...basis,
+      faelligAm: plusWerktage(HEUTE, 1),
+      kontakte: [{ ergebnis: "nicht_erreicht", created_at: `${HEUTE}T08:00:00.000Z` }],
+    };
+    assert.equal(gruppeVon(nachKontakt, HEUTE, jetzt, "2026-09-01"), "demnaechst");
+    assert.equal(istJetztDran(nachKontakt, HEUTE, jetzt), false);
+    // … und am Tag selbst ist er wieder dran.
+    const morgen = plusWerktage(HEUTE, 1);
+    assert.equal(gruppeVon(nachKontakt, morgen, jetzt, "2026-09-01"), "heute");
   });
 
   test("was nicht in der Arbeitsmenge liegt, leuchtet nie", () => {
@@ -324,30 +376,34 @@ describe("3 · buildEvents reicht Zustand und Gold an die Oberfläche durch", ()
     assert.equal(event({ status: "dead" }).statusPill.label, "Tot");
   });
 
-  test("ein Termin ohne Zeitpunkt liegt in der Luft und leuchtet", () => {
+  test("ein Termin ohne Zeitpunkt liegt in der Luft — und steht in der Liste", () => {
     // Er ist der einzige Fall, den es nur in der Liste gibt — im Kalenderraster
     // hat er keinen Platz. Genau deshalb war die Liste nicht zu löschen.
+    // Golden ist er in der Terminliste seit dem Nachfass-Eingang nicht mehr: Er
+    // hat keine Termin-Erinnerung, und die Tagesarbeit steht auf /nachfassen.
     const e = event({ appointment_at: null });
     assert.equal(e.dayISO, null);
     assert.equal(e.zustand, "offen");
-    assert.equal(e.dran, true);
+    assert.equal(istInArbeitsmenge(e.zustand), true);
+    assert.equal(e.dran, false);
   });
 
-  test("der Stempel von heute nimmt das Gold, der Zustand bleibt", () => {
+  test("der Stempel verändert den Zustand nicht", () => {
     const e = event({ appointment_at: null, follow_up_last_contacted_at: `${HEUTE}T09:00:00.000Z` });
     assert.equal(e.zustand, "offen", "der Stempel darf den Zustand nicht verändern");
+    assert.equal(e.lastContactedAt, `${HEUTE}T09:00:00.000Z`);
     assert.equal(e.dran, false);
   });
 
   test("fehlt Migration 0041, verhält sich die Zeile wie „noch nie genervt“", () => {
     // Der Rückfall, an dem die ganze Seite hängt: Solange 0041 nicht
     // eingespielt ist, kommen die beiden Spalten schlicht nicht mit (die Seite
-    // lädt mit `select("*")`). `undefined` heißt dann „noch nie" — die Zeile
-    // leuchtet weiter, statt dass irgendetwas leer bleibt.
+    // lädt mit `select("*")`). `undefined` heißt dann „noch nie" — statt dass
+    // irgendetwas leer bleibt.
     const e = event({ appointment_at: null });
     assert.equal(e.lastContactedAt, null);
     assert.equal(e.lastContactedBy, null);
-    assert.equal(e.dran, true);
+    assert.equal(e.zustand, "offen");
   });
 
   test("der Stempler bekommt einen Namen — „hast du den angerufen oder ich?“", () => {
@@ -362,22 +418,36 @@ describe("3 · buildEvents reicht Zustand und Gold an die Oberfläche durch", ()
  * 4 — Die Liste ist die Vorgabe
  * ------------------------------------------------------------------ */
 
-describe("4 · Die Arbeitsliste ist der erste Reiter, der Kalender der zweite", () => {
-  test("ohne Parameter beginnt die Seite bei der Arbeit", () => {
-    // Vorher lag die Liste hinter einem unbeschrifteten Umschalt-Knopf ganz
-    // rechts außen: Sie war da, aber niemand fand sie.
-    assert.equal(parseTermineParams({}, HEUTE).view, "liste");
-    assert.equal(tabForView("liste"), "liste");
+describe("4 · /termine öffnet im Kalender — die Tagesarbeit steht auf /nachfassen", () => {
+  // UMGEDREHT mit dem Nachfass-Eingang (Plan §4.7, Detailfrage O3). Hier stand
+  // „Die Arbeitsliste ist der erste Reiter, der Kalender der zweite": Wer
+  // /termine morgens öffnete, wollte wissen, wen er nerven muss. Diese Frage
+  // beantwortet jetzt /nachfassen; /termine beantwortet „wann habe ich was?"
+  // und öffnet deshalb in der Woche.
+  test("ohne Parameter beginnt die Seite im Kalender (Woche)", () => {
+    assert.equal(parseTermineParams({}, HEUTE).view, "woche");
+    assert.equal(tabForView("woche"), "kalender");
   });
 
-  test("geteilte Links auf den Kalender funktionieren unverändert", () => {
+  test("geteilte Links auf Liste und Kalender funktionieren unverändert", () => {
     for (const v of ["monat", "woche", "tag"] as const) {
       assert.equal(parseTermineParams({ view: v }, HEUTE).view, v);
       assert.equal(tabForView(v), "kalender");
     }
-    assert.equal(tabForView("rueckruf"), "rueckruf");
-    // Unbekanntes fällt auf die Vorgabe, nicht auf den Kalender.
-    assert.equal(parseTermineParams({ view: "quatsch" }, HEUTE).view, "liste");
+    assert.equal(parseTermineParams({ view: "liste" }, HEUTE).view, "liste");
+    assert.equal(tabForView("liste"), "liste");
+    // Unbekanntes fällt auf die Vorgabe.
+    assert.equal(parseTermineParams({ view: "quatsch" }, HEUTE).view, "woche");
+  });
+
+  test("der Rückruf-Reiter und „Zu tun“ leiten nach /nachfassen", () => {
+    // Alte Lesezeichen sollen nicht im Kalender stranden, sondern dort landen,
+    // wo die Arbeit jetzt steht.
+    assert.match(SEITE, /if \(sp\.view === "rueckruf"\) redirect\("\/nachfassen\?quelle=rueckruf"\);/);
+    assert.match(SEITE, /if \(sp\.zeit === "zu_tun"\) redirect\("\/nachfassen"\);/);
+    // Und `rueckruf` ist kein Ansichtswert mehr — ohne die Umleitung fiele der
+    // Link auf die Vorgabe.
+    assert.equal(parseTermineParams({ view: "rueckruf" }, HEUTE).view, "woche");
   });
 
   test("die Vorliebe wird NICHT gemerkt — anders als bei der Seitenleiste", () => {
@@ -395,21 +465,19 @@ describe("4 · Die Arbeitsliste ist der erste Reiter, der Kalender der zweite", 
 
   test("der Ausschnitt der Liste schneidet nach ZUSTAND, nicht nach Zeit", () => {
     // „Anstehend / Vergangen" war eine Kalenderfrage in einer Arbeitsliste und
-    // beantwortete die falsche: Ein Termin von letzter Woche, bei dem niemand
-    // nachgefasst hat, ist keine Vergangenheit, sondern Arbeit.
-    assert.equal(parseTermineParams({}, HEUTE).zeit, "zu_tun");
+    // beantwortete die falsche. Seit dem Nachfass-Eingang kennt die Liste drei
+    // Ausschnitte: die beiden Erinnerungs-Ansichten und „Alle" (Vorgabe).
+    assert.equal(parseTermineParams({}, HEUTE).zeit, "alle");
     assert.equal(parseTermineParams({ zeit: "erinnerung_setting" }, HEUTE).zeit, "erinnerung_setting");
     assert.equal(parseTermineParams({ zeit: "erinnerung_closing" }, HEUTE).zeit, "erinnerung_closing");
-    // Alte Links fallen auf die Vorgabe zurück, statt still etwas anderes zu zeigen
-    // — und `verlegt` ist seit der Aufteilung genau so ein alter Link: Der
-    // Schlüssel meinte BEIDE Termin-Arten und lässt sich nicht ohne Verlust auf
-    // eine der beiden Hälften abbilden.
-    assert.equal(parseTermineParams({ zeit: "anstehend" }, HEUTE).zeit, "zu_tun");
-    assert.equal(parseTermineParams({ zeit: "verlegt" }, HEUTE).zeit, "zu_tun");
-    // `istZuTun` = Arbeitsmenge ODER offene Erinnerung — die zweite Tür ist
-    // ausdrücklich KEIN Zeitschnitt: Sie nimmt nichts heraus, sie holt einen
-    // anstehenden Termin für die Stunden herein, in denen anzukündigen ist.
-    assert.match(TERMINE_LIST, /zeit === "zu_tun"[\s\S]{0,320}istZuTun\(e\.zustand, e\.erinnerung\)/);
+    // Alte Links fallen auf die Vorgabe zurück, statt still etwas anderes zu
+    // zeigen. (`zu_tun` selbst erreicht diese Stelle nicht — die Seite leitet
+    // vorher nach /nachfassen um.)
+    assert.equal(parseTermineParams({ zeit: "anstehend" }, HEUTE).zeit, "alle");
+    assert.equal(parseTermineParams({ zeit: "verlegt" }, HEUTE).zeit, "alle");
+    assert.equal(parseTermineParams({ zeit: "zu_tun" }, HEUTE).zeit, "alle");
+    // Die Erinnerungs-Ansichten schneiden nach ZUSTAND („Termin steht") und Art.
+    assert.match(TERMINE_LIST, /all\.filter\(\(e\) => e\.zustand === "verlegt" && e\.kind === art\)/);
   });
 });
 
@@ -446,11 +514,14 @@ describe("5 · Die Liste zeigt, was der Angemeldete zu tun hat", () => {
 
   test("die Rückrufe folgen der ANDEREN Personenachse — dem Listen-Owner", () => {
     // Die zwei Achsen des Datenmodells laufen nebeneinander (docs §5.1): Listen
-    // hängen am Owner, Termine an `personOf()`. Sie zu vermischen schriebe
-    // einen Telefon-Lead demjenigen zu, der zufällig den Termin angelegt hat.
-    assert.match(SEITE, /ownerUserIdOfList/);
-    assert.match(SEITE, /matchesOwnScope/);
-    assert.match(BOARD, /r\.ownerUserId !== scopeUserId/);
+    // hängen am Owner, Termine an der Person, die erinnert. Sie zu vermischen
+    // schriebe einen Telefon-Lead demjenigen zu, der zufällig den Termin
+    // angelegt hat. Seit dem Nachfass-Eingang stehen beide in DERSELBEN Liste
+    // (src/lib/nachfassenData.ts) — und jede behält ihre Achse.
+    assert.match(EINGANG_DATEN, /const owner = list \? ownerUserIdOfList\(list, idByName\) : null;\s*if \(!alle && owner !== scopeUser\) continue;/);
+    assert.match(EINGANG_DATEN, /const person = erinnererOf\(r, zustand\);\s*if \(!alle && person !== scopeUser\) continue;/);
+    // „ich" ist bei aktiver Datensicht der Kollege — dieselbe Regel wie hier.
+    assert.match(EINGANG_DATEN, /const scopeUser = access\.effective_user_id \?\? access\.user\.id;/);
   });
 });
 
@@ -524,13 +595,13 @@ describe("7 · Migration 0041 fehlt noch — die Seite darf davon nichts merken"
     assert.doesNotMatch(code(SEITE), /follow_up_last_contacted/, "die Seite selektiert die neue Spalte namentlich");
   });
 
-  test("die Rückrufe haben dagegen einen echten `available`-Rückfall", () => {
-    // Muster `loadCallAttempts` (docs §5.1): „nicht ermittelbar" darf nicht wie
-    // „nichts zu tun" aussehen — und eine gescheiterte Telefon-Abfrage darf die
-    // Seite nicht mitnehmen, deren Hauptaufgabe woanders liegt.
-    assert.match(SEITE, /ladeRueckrufe\([\s\S]{0,120}\.catch\(\(\) => null\)/);
-    assert.match(SEITE, /rueckrufeVerfuegbar=\{rueckrufe != null\}/);
-    assert.match(RUECKRUF, /Rückrufe nicht ermittelbar/);
+  test("die Rückrufe lädt die Terminseite gar nicht mehr", () => {
+    // Hier stand: „die Rückrufe haben dagegen einen echten `available`-
+    // Rückfall" (`ladeRueckrufe` + `RueckrufListe`). Mit dem Nachfass-Eingang
+    // sind die Rückrufe nach /nachfassen gewandert; eine Telefon-Abfrage auf
+    // /termine wäre jetzt eine Abfrage ohne Anzeige.
+    assert.doesNotMatch(code(SEITE), /ladeRueckrufe|rueckrufeVerfuegbar|\.eq\("status", "rueckruf"\)/);
+    assert.doesNotMatch(code(BOARD), /RueckrufListe|rueckrufe/);
   });
 });
 
@@ -538,31 +609,65 @@ describe("7 · Migration 0041 fehlt noch — die Seite darf davon nichts merken"
  * 8 — Der Rückruf behält seine Uhrzeit
  * ------------------------------------------------------------------ */
 
-describe("8 · Zwei Zeitkörnungen bleiben getrennt", () => {
-  test("der Rückruf misst auf die Minute, alles andere auf den Tag", () => {
+describe("8 · Zwei Zeitkörnungen bleiben getrennt — auch in EINER Liste", () => {
+  // Hier stand die Prüfung der `RueckrufListe` auf /termine. Seit dem
+  // Nachfass-Eingang stehen Rückrufe und Termine in derselben Liste
+  // (/nachfassen). Das hat R4 seinerzeit verhindert; gelöst ist es über die
+  // Körnung je Eintrag (Plan §4.2): Ein Rückruf ist ab der verabredeten MINUTE
+  // dran, ein Termin ab dem TAG.
+  const jetzt10 = Date.parse(`${HEUTE}T08:00:00.000Z`); // 10:00 Berlin
+  const jetzt16 = Date.parse(`${HEUTE}T14:00:00.000Z`); // 16:00 Berlin
+  const START = "2026-09-01";
+
+  function eintrag(patch: Partial<NachfassEintrag>): NachfassEintrag {
+    return {
+      key: "x:1",
+      quelle: "termin",
+      art: "setting",
+      id: "1",
+      name: "Meier",
+      firma: null,
+      faelligAm: null,
+      koernung: "tag",
+      ergebnisFehlt: false,
+      lebenszeichen: HEUTE,
+      kontakte: [],
+      ...patch,
+    };
+  }
+
+  test("der Loader gibt dem Rückruf die Minute, dem Termin den Tag", () => {
+    assert.match(EINGANG_DATEN, /faelligAm: l\.callback_at,\s*koernung: "minute",/);
+    assert.match(EINGANG_DATEN, /faelligAm: r\.follow_up_due,\s*koernung: "tag",/);
+  });
+
+  test("der Rückruf ist ab der verabredeten Minute dran, der Termin ab dem Tag", () => {
     // Ein Rückruf ist die einzige Aufgabe der Software mit einer MIT DEM LEAD
-    // VERABREDETEN Uhrzeit (docs §1, §6). Er ist in der Minute nach der
-    // verabredeten Zeit versäumt, ein Follow-up erst am Folgetag. Die Regel
-    // steht in dueState und wird gelesen, nicht nachgebaut.
-    assert.match(RUECKRUF, /isOverdue\(r\.callbackAt, "moment", dueRefAt\(nowMs\)\)/);
-    assert.match(RUECKRUF, /from "@\/lib\/dueState"/);
+    // VERABREDETEN Uhrzeit (docs §1, §6).
+    const rueckruf = eintrag({
+      quelle: "rueckruf",
+      art: "phone_lead",
+      faelligAm: `${HEUTE}T14:00:00.000Z`,
+      koernung: "minute",
+    });
+    assert.equal(gruppeVon(rueckruf, HEUTE, jetzt10, START), "heute");
+    assert.equal(istJetztDran(rueckruf, HEUTE, jetzt10), false, "vor 16:00 ist der Rückruf noch nicht dran");
+    assert.equal(istJetztDran(rueckruf, HEUTE, jetzt16), true);
+
+    const termin = eintrag({ faelligAm: HEUTE });
+    assert.equal(istJetztDran(termin, HEUTE, jetzt10), true, "ein Tagesdatum ist ab Tagesbeginn dran");
   });
 
-  test("die Rückrufe werden hier geladen, nicht über das Nachfassen-Board", () => {
-    // Dieselbe Frage, aber die Zuständigkeit für diese Seite liegt hier. Ein
-    // zweiter Aufrufer einer Board-Action wäre eine Kopplung zwischen zwei
-    // Bereichen, die sonst nichts miteinander zu tun haben.
-    for (const [datei, quelle] of [["page", SEITE], ["TermineBoard", BOARD], ["RueckrufListe", RUECKRUF]] as const) {
-      assert.doesNotMatch(code(quelle), /actions\/nachfassen/, `${datei} hängt am Nachfassen-Board`);
-    }
-    assert.match(SEITE, /\.eq\("status", "rueckruf"\)/);
-  });
-
-  test("abgehakt wird im Call-Modus, nicht hier", () => {
-    // Ein Rückruf wird nicht abgehakt, sondern GEFÜHRT — und nur im Call-Modus
-    // entsteht der Eintrag im Anruf-Log (docs §3). Migration 0041 legt den
-    // Nachfass-Stempel deshalb bewusst nur auf den Termin-Tabellen an.
-    assert.match(RUECKRUF, /\/telefon\/\$\{r\.listId\}/);
-    assert.doesNotMatch(code(RUECKRUF), /markFollowUpContacted/);
+  test("ein Rückruf wird nicht ins Nachfass-Protokoll geschrieben, sondern GEFÜHRT", () => {
+    // Nur über `setPhoneLeadOutcome` entsteht der Eintrag im Anruf-Log
+    // (docs §3). Ein zweites Protokoll für dieselbe Anwahl gäbe doppelte
+    // Zahlen — `kontaktEintragen` kennt deshalb keine Quelle `rueckruf`.
+    assert.match(EINGANG_AKTION, /quelle: "termin" \| "recycling";\s*ergebnis: Ergebnis;/);
+    const start = EINGANG.indexOf('e.quelle === "rueckruf" ? (');
+    assert.notEqual(start, -1, "der Rückruf-Zweig der Zeile fehlt");
+    const zweig = EINGANG.slice(start, EINGANG.indexOf(") : (", start));
+    assert.match(zweig, /telefonAktion\("nicht_erreicht"/);
+    assert.doesNotMatch(zweig, /kontaktToggle/);
+    assert.doesNotMatch(code(EINGANG), /markFollowUpContacted/);
   });
 });

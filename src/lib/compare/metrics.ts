@@ -164,8 +164,8 @@ const MEASURE_SOURCE: Record<MeasureKey, MetricSource> = {
 /**
  * Was eine Quelltabelle an Dimensionen überhaupt trägt (Spiegel von facts.ts).
  *
- * `person` und `zielgruppe` stehen nicht drin, weil alle vier Quellen sie
- * setzen — dort kann es strukturell keinen Widerspruch geben.
+ * `person` steht nicht drin, weil alle vier Quellen sie setzen — dort kann es
+ * strukturell keinen Widerspruch geben.
  */
 const SOURCE_DIMS: Record<
   MetricSource,
@@ -176,15 +176,17 @@ const SOURCE_DIMS: Record<
     liste: "linkedin" | "telefon" | null;
     /** Trägt die Zeile den Skript-Testarm? */
     skript: boolean;
+    /** Trägt die Zeile eine Zielgruppe? Nur der Telefon-Lead (`target_group`). */
+    zielgruppe: boolean;
   }
 > = {
-  linkedin: { kanal: "linkedin", liste: "linkedin", skript: false },
-  telefon: { kanal: "telefon", liste: "telefon", skript: true },
+  linkedin: { kanal: "linkedin", liste: "linkedin", skript: false, zielgruppe: false },
+  telefon: { kanal: "telefon", liste: "telefon", skript: true, zielgruppe: true },
   // Termine und Abschlüsse hängen an keiner Liste und an keinem Testarm: Ein
   // Setting kennt seinen Quellkontakt, aber der Mapper hebt dessen Liste nicht
   // an den Termin hoch — ein Filter darauf träfe null Zeilen.
-  setting: { kanal: null, liste: null, skript: false },
-  closing: { kanal: null, liste: null, skript: false },
+  setting: { kanal: null, liste: null, skript: false, zielgruppe: false },
+  closing: { kanal: null, liste: null, skript: false, zielgruppe: false },
 };
 
 /** Präfix der Telefonlisten auf der Listen-Achse (vergeben in facts.ts). */
@@ -230,7 +232,7 @@ export function filterConflict(m: CompareMetric, dim: DimensionKey, value: strin
   if (dim === "liste") {
     const worlds = sources.map((s) => SOURCE_DIMS[s].liste);
     if (worlds.some((w) => w === null)) {
-      return `${q(m.label)} hängt an keiner Liste — Termine und Abschlüsse tragen Person, Kanal und Zielgruppe, nicht die Herkunftsliste`;
+      return `${q(m.label)} hängt an keiner Liste — Termine und Abschlüsse tragen Person und Kanal, nicht die Herkunftsliste`;
     }
     const world = value.startsWith(PHONE_LIST_PREFIX) ? "telefon" : "linkedin";
     if (!worlds.includes(world)) {
@@ -247,7 +249,14 @@ export function filterConflict(m: CompareMetric, dim: DimensionKey, value: strin
     return null;
   }
 
-  return null; // person, zielgruppe: von allen vier Quellen getragen
+  if (dim === "zielgruppe") {
+    if (!sources.every((s) => SOURCE_DIMS[s].zielgruppe)) {
+      return `${q(m.label)} kennt keine Zielgruppe — die trägt nur der Telefon-Lead`;
+    }
+    return null;
+  }
+
+  return null; // person: von allen vier Quellen getragen
 }
 
 /**

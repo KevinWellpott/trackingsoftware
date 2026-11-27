@@ -229,22 +229,25 @@ describe("Tote Reste", () => {
 });
 
 describe("Der Seitenname ist entschieden", () => {
-  test("die Seite unter /nachfassen heißt „Recycling“", () => {
-    // Das Wort des ganzen Systems für diese Sache: `/settings` („Recycling —
-    // Wartezeit"), der Analyse-Bereich („Lohnt das Recycling?"), die RPC
-    // `recycle_tasks`, docs §1. „Nachfassen" war die Sammelbezeichnung für DREI
-    // Mechanismen; die anderen beiden stehen jetzt in der Terminliste.
-    assert.match(NACHFASSEN_PAGE, /eyebrow="Wiedervorlage"/);
-    assert.match(NACHFASSEN_PAGE, /\n\s*Recycling\n/);
+  test("die Seite unter /nachfassen heißt wieder „Nachfassen“", () => {
+    // Zwischen Rückbau und Nachfass-Eingang hieß die Seite „Recycling" — sie
+    // zeigte nur noch das. Seit dem Nachfass-Eingang (docs/nachfassen-umbau/
+    // PLAN-nachfass-eingang.md) trägt sie wieder alle drei Quellen: Termine ohne
+    // nächsten Schritt, Telefon-Rückrufe und fällige Recycling-Leads. Damit ist
+    // „Nachfassen" wieder die zutreffende Sammelbezeichnung, und sie steht im
+    // Block „Meine Arbeit".
+    assert.match(NACHFASSEN_PAGE, /eyebrow="Meine Arbeit"/);
+    assert.match(NACHFASSEN_PAGE, /\n\s*Nachfassen\n/);
+    assert.doesNotMatch(NACHFASSEN_PAGE, /\n\s*Recycling\n/);
     // Die ROUTE bleibt: Lesezeichen und `?from=nachfassen` hängen daran.
-    assert.match(NACHFASSEN_PAGE, /Die ROUTE behält ihren Namen/);
+    assert.match(NACHFASSEN_PAGE, /`\?from=nachfassen` behalten ihren Namen/);
   });
 
   test("die Entscheidung steht in der Datei, nicht nur im Diff", () => {
     // Ein Name, dessen Begründung nur im Commit steht, wird beim nächsten
-    // „klingt komisch" zurückgedreht. Hier steht auch, was noch nachzuziehen ist
-    // (Seitenleiste und Quicklink liegen in anderen Dateien).
-    assert.match(NACHFASSEN_PAGE, /DER NAME IST ENTSCHIEDEN/);
-    assert.match(NACHFASSEN_PAGE, /NOCH NACHZUZIEHEN/);
+    // „klingt komisch" zurückgedreht. Der Dateikopf verweist deshalb auf den
+    // Plan, in dem der Nachfass-Eingang entschieden ist.
+    assert.match(NACHFASSEN_PAGE, /PLAN-nachfass-eingang\.md/);
+    assert.match(NACHFASSEN_PAGE, /EIN\n\/\/ Ort für alles/);
   });
 });

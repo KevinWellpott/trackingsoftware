@@ -66,6 +66,7 @@ function code(source: string): string {
 const BOARD = read("src/components/termine/TermineBoard.tsx");
 const SEITE = read("src/app/(dashboard)/termine/page.tsx");
 const SIDEBAR = read("src/components/Sidebar.tsx");
+const EINGANG = read("src/lib/nachfassenData.ts");
 
 const HEUTE = "2026-09-15";
 const MORGEN = "2026-09-16T08:00:00.000Z";
@@ -138,7 +139,12 @@ describe("1 · Was in der Ablage liegt, steht nicht zugleich in der Tagesarbeit"
     const z = zustand({ cancelledAt: ABGESAGT_AM, cancelOutlook: "neuer_termin" });
     assert.equal(z, "offen");
     assert.equal(istInArbeitsmenge(z), true);
-    assert.equal(istTerminDran(z, null, HEUTE), true);
+    // Die Tagesarbeit steht seit dem Nachfass-Eingang auf /nachfassen, und der
+    // Loader dort nimmt genau die Arbeitsmenge auf (Plan §4.2). In der
+    // Terminliste leuchtet die Zeile dafür nicht mehr — Gold heißt dort nur
+    // noch „Termin-Erinnerung offen" (`istTerminDran`).
+    assert.match(EINGANG, /if \(!istInArbeitsmenge\(zustand\) && !closingNachfassen\) continue;/);
+    assert.equal(istTerminDran(z, null, HEUTE), false);
   });
 
   test("… und ein zurückgeholter Vorgang ebenfalls: `revived_at` hebt die Absage auf", () => {
@@ -255,7 +261,9 @@ describe("3 · Was eine Zeile von der Liste nimmt — und was nicht", () => {
     // eingezogener Zwischenschritt fiele hier auf.
     assert.match(BOARD, /events=\{filtered\}/);
     assert.match(BOARD, /ohneTermin=\{ohneTermin\}/);
-    assert.match(BOARD, /aufgaben=\{rueckrufeGefiltert\}/);
+    // Der Rückruf-Reiter ist mit dem Nachfass-Eingang nach /nachfassen
+    // gewandert — eine dritte, eigens gefilterte Menge gibt es hier nicht mehr.
+    assert.doesNotMatch(code(BOARD), /rueckrufeGefiltert|RueckrufListe/);
   });
 
   test("der Kalender blendet weiterhin NICHTS aus", () => {
@@ -281,21 +289,27 @@ describe("3 · Was eine Zeile von der Liste nimmt — und was nicht", () => {
  * ------------------------------------------------------------------ */
 
 describe("4 · Der Block „Meine Arbeit“", () => {
-  test("/termine trägt einen Tooltip — es war die einzige Zeile ohne", () => {
+  // Seit dem Nachfass-Eingang steht /nachfassen oben im Block (die tägliche
+  // Arbeit), darunter /termine (Kalender und Erinnerungen), dann /ablage.
+  const termineZeile = () => SIDEBAR.slice(SIDEBAR.indexOf('href="/termine"'), SIDEBAR.indexOf('href="/ablage"'));
+
+  test("/termine trägt einen Tooltip — es war einmal die einzige Zeile ohne", () => {
     // Die Tooltips SIND die Abgrenzung der drei Zeilen; sie sind die einzige
     // Stelle, an der ohne Doku steht, welche Zeile welche Frage beantwortet.
-    // Ausgerechnet die zentrale Arbeitsfläche hatte keinen.
-    const block = SIDEBAR.slice(SIDEBAR.indexOf('href="/termine"'), SIDEBAR.indexOf('href="/nachfassen"'));
-    assert.match(block, /title="[^"]{40,}"/, "die Termine-Zeile hat weiterhin keinen Tooltip");
-    assert.match(block, /Arbeitsliste/);
+    const block = termineZeile();
+    assert.ok(block.length > 0, "die Termine-Zeile steht nicht mehr zwischen Nachfassen und Ablage");
+    assert.match(block, /title="[^"]{40,}"/, "die Termine-Zeile hat keinen Tooltip");
+    // Und er verspricht, was die Seite jetzt ist: Kalender und Erinnerungen —
+    // nicht mehr die Arbeitsliste, die steht auf /nachfassen.
+    assert.match(block, /Kalender/);
+    assert.match(block, /Erinnerungen/);
+    assert.doesNotMatch(block, /Arbeitsliste/);
   });
 
   test("… und bewusst keinen Zähler", () => {
-    // Das ist eine Entscheidung, keine Lücke, und sie steht als Begründung
-    // daneben: Das Gold der Liste ist ABGELEITET (lib/dranRegel.ts) — ein Badge
-    // müsste dieselben Zeilen laden wie die Seite oder die Regel ein zweites
-    // Mal als Filter formulieren.
-    const block = SIDEBAR.slice(SIDEBAR.indexOf('href="/termine"'), SIDEBAR.indexOf('href="/nachfassen"'));
-    assert.doesNotMatch(block, /count=/);
+    // Die Tagesarbeit hat ihren einen Zähler an /nachfassen. Ein zweites Badge
+    // an /termine zählte entweder dieselbe Menge (zweimal dieselbe Nachricht)
+    // oder eine andere (zwei Wahrheiten über „was ist heute dran").
+    assert.doesNotMatch(termineZeile(), /count=/);
   });
 });

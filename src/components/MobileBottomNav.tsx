@@ -34,7 +34,7 @@ const TABS: Tab[] = [
     href: "/listen",
     label: "LinkedIn",
     icon: MessageSquare,
-    match: (p) => p.startsWith("/listen") || p.startsWith("/lists") || p.startsWith("/ansicht"),
+    match: (p) => p.startsWith("/listen") || p.startsWith("/lists"),
   },
 ];
 

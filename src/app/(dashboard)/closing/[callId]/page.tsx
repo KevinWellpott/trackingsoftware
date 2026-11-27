@@ -97,7 +97,7 @@ export default async function ClosingCallPage({
       // dem Literal ab — eine Konkatenation mit + macht daraus `string` und
       // die Inferenz kippt auf GenericStringError.
       .select(
-        "script_answers, notes, ist_pain, warmth, soll_ziel, objections_handled, objections_open, has_budget_8k, branche, sole_decider, can_decide_now, clear_need, show_status, status, appointment_at, recording_link",
+        "script_answers, notes, show_status, status, appointment_at",
       )
       .eq("id", call.setting_call_id)
       .maybeSingle();

@@ -2,6 +2,11 @@
 
 Kontext für KI-gestützte Datenauswertung über den read-only Supabase-MCP.
 Quellen: `supabase/migrations/` (maßgeblich für Schema) + tatsächliche Nutzung in `src/`.
+
+> **Stand Dezember 2026: zuerst §0 lesen.** Der Release (Live-Test-Korrekturen, Aufräumen,
+> Nachfass-Eingang, Optimierungen; Migrationen 0048–0050) löst mehrere Aussagen der folgenden
+> Abschnitte ab — §0 nennt jede davon.
+
 Stand: 11. September 2026, **nach dem Rückbau des Nachfass-Systems** (drei Wellen am
 10. September: `4189cbd` Oberfläche · `d8c654f` Arbeitsliste · `e87a924` Kaskaden-Kern,
 dazu `0fdfce8` die Befunde einer adversarischen Prüfung). Schema live bis Migration
@@ -103,6 +108,117 @@ Korrektur-Migrationen ergänzt; ihr Inhalt steckt jetzt verteilt in 0031–0034.
 Wer eine ältere Fassung dieses Dokuments oder Commit `b145b35` liest, findet dort
 die alten Nummern — und die Tabellen `reminder_settings` und `recycle_settings`,
 die es **nicht mehr gibt** (§3).
+
+## 0. Release Dezember 2026 — was dieses Dokument weiter unten NICHT mehr richtig sagt
+
+> **Lies das vor jedem anderen Abschnitt.** Der Release bündelt vier Pläne: Rechenfehler
+> aus dem Live-Test vom 26.11.2026, das Aufräumen ungenutzter Teile, den Nachfass-Eingang
+> und die Optimierungen der Prüfliste. Wo die Abschnitte §1–§9 etwas anderes sagen, gilt
+> dieser Abschnitt. Migrationen: **0048** (Live-Test-Korrekturen) und **0049**
+> (`nachfass_kontakte`) laufen VOR dem Deploy; **0050** (Aufräumen in der Datenbank) erst eine
+> Woche nach dem Livegang. Die nächste Schema-Änderung braucht **0051**.
+
+### 0.1 Nachfassen: der Eingang ersetzt Arbeitsliste, Rückruf-Reiter und Recycling-Seite
+
+- **`/nachfassen` ist die eine tägliche Arbeitsliste** (Plan
+  `docs/nachfassen-umbau/PLAN-nachfass-eingang.md`, Entscheidungen N1–N4 in `ENTSCHEIDUNGEN.md`).
+  Darin stehen: Termine ohne nächsten Schritt (abgeleiteter Zustand `offen`/`no_show`/`show`
+  aus `terminZustand()`, dazu Closings im Status `nachfassen`), Telefon-Rückrufe
+  (`phone_leads.status='rueckruf'`) und fällige Recycling-Leads (`recycle_tasks()`).
+  Regeln: `src/lib/nachfassRegel.ts`, Loader `src/lib/nachfassenData.ts`, Actions
+  `src/app/actions/nachfassKontakt.ts`, Board `src/components/nachfassen/NachfassEingang.tsx`.
+- **„Nächster Kontakt am" je Vorgang.** Termine: **`follow_up_due` steuert wieder** (der Kasten
+  „`follow_up_due` steuert keine Arbeitsliste mehr" in §1 ist überholt). Rückrufe:
+  `callback_at` (Minute). Recycling: `next_recycle_at`. Ohne Datum = sofort fällig, Hinweis
+  „kein nächster Schritt". Gruppen: Ergebnis fehlt · Überfällig · Heute · Demnächst (7 Tage) ·
+  Wartet · Aufräumen.
+- **Auslöser** (Plan §4.6): No-Show (Setting und Closing) → `follow_up_due = heute`;
+  erschienen ohne Ergebnis → nächster Werktag; Absage mit Aussicht „neuer Termin" → heute
+  (`faelligNachShowStatus()`, `updateSettingCall`/`updateClosingCall`, `cancelAppointment`).
+- **Kontakt-Protokoll `nachfass_kontakte`** (Migration 0049): eine Zeile je Klick, genau ein Bezug
+  (`setting_call_id` | `closing_call_id` | `contact_id` | `phone_lead_id`, CHECK), `quelle`
+  (`termin`|`recycling` — Rückrufe protokollieren weiter in `phone_call_attempts`), `ergebnis`
+  (`nicht_erreicht`|`erreicht`), `folge`, optional `kanal`/`notiz`, Snapshot
+  `naechster_kontakt_am`, `created_by_user_id` = **Audit**. **Kein `workspace_id`** (Muster
+  `termin_mails`), RLS über den Eltern-Vorgang, kein update/delete für `authenticated`
+  („Rückgängig" per Service-Schlüssel, nur eigener Eintrag < 10 min). **Kein Backfill.** Ein
+  Recycling-Kontakt mit Kanal „Anruf" bei einem Telefon-Lead schreibt zusätzlich eine Anwahl.
+  Der Stempel aus 0041 wird weiter mitgeschrieben (Dossier, Termin-Mails).
+- **Versuche** = Einträge mit `nicht_erreicht` seit dem letzten `erreicht` (gerechnet). Ab
+  `AUFGEBEN_AB_VERSUCHEN = 5` schlägt die Zeile „Aufgeben?" vor — nie automatisch.
+- **Aufräumen**: Altfall = fällig, letztes Lebenszeichen mehr als 14 Tage vor
+  `NACHFASSEN_START` (Konstante in `nachfassRegel.ts`, **beim Deploy auf den Livegang-Tag
+  setzen**), kein Protokolleintrag. Steht nur im Reiter „Aufräumen" (Sammelaktionen: nochmal
+  versuchen / aufgeben / sperren) — sichtbar und gezählt, kein versteckter Altersschnitt.
+- **`/termine`** hat keinen Ausschnitt „Zu tun" und keinen Reiter „Rückrufe" mehr (`?zeit=zu_tun`
+  und `?view=rueckruf` leiten nach `/nachfassen` um). Vorgabe-Ansicht ist der Kalender (Woche);
+  die Liste kennt „Erinnerung Setting · Erinnerung Closing · Alle". **Gold in der Terminliste
+  heißt nur noch „Termin-Erinnerung offen"** (`istTerminDran`); „dran" im Sinne der
+  Arbeitsmenge gibt es nur im Eingang. Termine, die begonnen haben und kein Ergebnis tragen,
+  zeigen statt Genervt/Termin/Tot die Ergebnis-Schnellknöpfe (`ErgebnisSchnell.tsx`).
+- **Navigations-Badge** zählt dieselbe Menge wie die Seite: überfällig + heute + „Ergebnis
+  fehlt", ohne „Aufräumen" (`getNavCounts()` in `src/lib/navCountsData.ts` liest
+  `ladeNachfassen`). `loadNavCounts` in `navCounts.ts` (Zähler über `recycle_tasks`) ist
+  abgelöst. In Seitenleiste und Quicklinks heißt der Eintrag wieder „Nachfassen" und steht vor
+  „Termine".
+- **Nachfolger aus der Ablage**: `terminZustand()` kennt `hatNachfolger` — eine Zeile, auf die
+  `revived_from_*` zeigt, ist Historie (`tot`/`kein_close`).
+- **Dossier**: jeder Protokolleintrag ist ein Ereignis („Nachgefasst · nicht erreicht",
+  „Aufgegeben", „Gesperrt"); der Hinweis „frühere Kontakte hält die App nicht fest" entfällt
+  für Vorgänge mit Protokoll.
+- **SQL-Nachbau des Eingangs** (Termin-Teil, je Setting; Closing analog mit `call_at` und
+  `status in ('offen','nachfassen')`): die Arbeitsmengen-Abfrage aus §1 plus
+  `coalesce(sc.follow_up_due, current_date)` als Fälligkeit; überfällig =
+  Fälligkeit < Berliner Heute.
+
+### 0.2 Korrekturen aus dem Live-Test (Zählweisen, die sich geändert haben)
+
+| Thema | Neu | Wo |
+|---|---|---|
+| **Absage wirkt** | EINE Regel `absageWirktNoch(row, hatNachfolger)` in `src/lib/terminMeta.ts`: `cancelled_at` gesetzt UND (`revived_at` leer ODER Nachfolger aus der Ablage). Analyse lädt `revived_at` und leitet `absage_wirkt` ab. Funnel, Closing-Show-Quote und Vergleich schließen nur WIRKENDE Absagen aus; die **Absagequote zählt weiter jede erfasste Absage**. Eine zweite Absage nach dem Neu-Terminieren ist eine neue Absage (`cancelled_at` neu, `revived_at` geleert). | P1-3 |
+| **Erstkontakt** | Ein Termin aus dem Call-Modus setzt `first_call_at` (Berliner Tag), falls leer. Backfill in 0048 aus der frühesten Anwahl, sonst dem frühesten Telefon-Termin. | P1-1 |
+| **Entscheider** | „Termin" und „Kein Termin" setzen `decider_reached = true` am Lead (und damit im Anruf-Log-Snapshot). Backfill in 0048. | N5 |
+| **/telefon** | Alle Zahlen sind Ereignisse im Zeitraum: Anwahlen, Entscheider, Rückrufe, Dead aus dem Anruf-Log, **Termine = gelegte Telefon-Termine** (`setting_calls.created_at`, `source_type='telefon'`, Person = Zuweisung). Kein Gatekeeper mehr. | P1-2, E1 |
+| **Dashboard** | Closings/Gewonnen/Umsatz nach `gespraechsPersonOf` (Durchgeführt von → Zuweisung → Ersteller). „Setting offen" ohne wirkende Absagen. Telefon-Karte: „Termine gelegt" und Entscheider aus dem Anruf-Log. | P1-5, P2-4, N12 |
+| **Telefon-Tab** | Nur angerufene Leads (`first_call_at` gesetzt). Gatekeeper-, Pitch- und Mailbox-Kennzahlen, Abbruch-Gründe und „Der Weg zum Entscheider" entfernt. Quoten mit Nenner < 20 oder Zähler > Nenner zeigen „—". Termine heißen dort „Termine aus Erstkontakten". | P2-1, E2, N4, N13 |
+| **Show-Quote Closing** | **Neuer Nenner: Closings mit erfasstem Ergebnis** (`show` + `no_show`), wie am Erstgespräch (`closingShowRate(shows, noShows)`; Vergleichsseite: Messgröße `closing_decided`). Die Begründung in §5 („Nenner = alle nicht abgesagten") ist abgelöst. | N10 |
+| **Abschlussrate** | Bleibt gegen die Shows; zusätzlich gegen entschiedene Deals („Abschluss entschieden") und die Zahl „Ohne Ergebnis" (vergangene, nicht abgesagte Closings im Status `offen`). | N9 |
+| **Personen (Übersicht)** | Zwei Spalten: „Termine gelegt" (Buchung, `personOf`) und „Termine geführt" (stattgefunden, `gespraechsPersonOf`). | N11 |
+| **Funnel-Meta** | „ohne N abgesagte Settingtermine" nennt genau die abgezogene Menge. | N13 |
+| **No-Show am Termintag** | Steht sofort im Eingang: am Termintag schlägt ein erfasster Show-Status das Datum. | P2-2 |
+| **Recycling „Reagiert"** | Setzt `recycle_last_contacted_at`, falls leer; die Wiederbelebungsquote nimmt Reaktionen ohne Versuch auf den Reaktionstag. | P1-7 |
+| **Eigene Sicht** | Closings zu den eigenen Erstgesprächen werden über `setting_call_id` nachgeladen (soweit RLS sie zeigt). | P2-3 |
+| **Tages-RPCs** | Paginiert geladen (`rpcAll`); 0048 rechnet den Rückfall `created_at` auf den Berliner Tag. | P3-1, P3-2 |
+| **Kundenspace** | Gewonnen → zurückgenommen: Kunde ohne Rate/Zahlung wird gelöscht, sonst Vertrag „abgebrochen", Kunde „abgesprungen" (Trigger in 0048, Bestand mitgezogen). Monatsansicht: abgeschriebene Raten nicht in „Fällig". | P1-6, P3-5 |
+| **Listen-Inhaber** | Muss beim Anlegen ein Mitglied sein. Bestand: 12 Listen mit Nicht-Mitglied als Inhaber sind von Hand zu pflegen (0048, Abfrage V5). | P2-5 |
+| **„Durchgeführt von"** | Wird beim Eintragen eines Ergebnisses mit der angemeldeten Person vorbelegt, wenn leer. | O3 |
+| **LinkedIn-Follow-ups** | Über 14 Tage überfällig = „ausgelaufen" (`FU_AUSGELAUFEN_TAGE`, `istKontaktDran`): nicht mehr in Fällig-Zahl und Liste, in der Auswertung weiter als überfällig gezählt. | F1/O9 |
+
+### 0.3 Aufgeräumt (Code jetzt, Datenbank mit 0050)
+
+Weg aus der App: Smart Views (`/ansicht`, `list_views`), Organic, altes CRM (`pipeline_stages`
+und die CRM-Spalten an `contacts`, keine Stufen mehr beim Anlegen einer Liste), die neun
+Qualifizierungsfelder am Erstgespräch samt Setting-Tab-Sektionen (Kriterien, Budget, Branche,
+Qualität), Aufnahme-Link und Einwände (Setting und Closing), die Telefon-Zusatzfelder
+(Stimmung, Einwand-Notizen, Video-Link, Durchwahl, Gatekeeper-Versuche, Skript je Lead, drei
+Abbruch-Gründe), der Gesprächsleitfaden je Telefonliste (`script_text`), die WhatsApp-Felder
+(schließt O1 aus `ENTSCHEIDUNGEN.md`), die Routen `/crm`, `/organic`, `/follow-up`,
+`/erinnerungen`, sieben ungenutzte Dateien. **0050 löscht danach** die Tabellen `list_views`,
+`organic_*`, `pipeline_stages`, `reminder_touches`, `cascade_steps`, `message_templates`,
+`template_catalog`, `call_assignees`, `followup_templates`, `_appt_tz_backup_20260727`, die RPCs
+`nachfassen_tasks`, `apply_reminder_touches` und die genannten Spalten; sie schreibt
+`seed_workspace_defaults` (nur noch `pipeline_settings`), `move_user_scope` (Views/Organic als
+leere Arrays, Signatur unverändert), `preview_move_user`, `admin_move_user_to_workspace` und
+`preview_delete_workspace` ohne die gelöschten Tabellen neu. **Alle Abschnitte unten, die diese
+Tabellen als „eingefroren" beschreiben, gelten bis 0050 und danach nur noch als Historie.**
+Bleiben: `contacts.company`/`email`, `setting_calls.call_at`, `phone_leads.pitch_delivered`/
+`mailbox`/`gatekeeper_reached` (Gatekeeper optional im Call-Modus), CSV-Export (ob Kunden ihn
+nutzen, ließ sich ohne Zugriff auf die Vercel-Logs nicht prüfen).
+
+### 0.4 Call-Modus und Erstgespräch
+
+Fällige Rückrufe stehen im Call-Modus vorn, nach Uhrzeit (Prüfliste O4). Das Skript im
+Erstgespräch ist einklappbar (offen, solange kein Ergebnis steht; O8).
 
 ## 1. Was die App trackt (Lifecycle)
 

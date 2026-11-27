@@ -32,7 +32,6 @@ import {
 } from "@/lib/analyseData";
 import { channelLabel, channelOf, type ChannelKey } from "@/lib/channels";
 import { gespraechsPersonOf } from "@/lib/personResolution";
-import { BRANCHE_LABEL } from "@/lib/settingLabels";
 import {
   DIMENSION_KEYS,
   type CompareData,
@@ -114,16 +113,6 @@ function channelKeyOf(sourceType: string | null | undefined): ChannelKey {
 }
 
 /**
- * Anzeigetext einer Zielgruppe. `setting_calls.branche` ist ein Enum mit
- * deutschem Label, `target_group` an Kontakt/Lead ist Freitext — beide landen
- * auf derselben Achse, weil beide dieselbe Frage beantworten („wen sprechen
- * wir an"). Der Schlüssel bleibt der Rohwert, damit ein Deep-Link stabil ist.
- */
-function zielgruppeLabel(value: string): string {
-  return BRANCHE_LABEL[value] ?? value;
-}
-
-/**
  * Baut die Faktentabelle. Reine Funktion — sie lädt nichts, sondern bekommt
  * die bereits über `fetchAllRows` geholten Zeilen (Pflicht: PostgREST
  * schneidet sonst still bei 1000 Zeilen ab, docs §5.1).
@@ -174,10 +163,15 @@ export function buildFacts(src: CompareSources): CompareData {
     return key;
   };
 
+  /**
+   * Zielgruppe = `phone_leads.target_group` (Freitext, Rückfall auf den
+   * Listen-Default). Nur der Telefon-Lead trägt sie; der Schlüssel ist der
+   * Rohwert, damit ein Deep-Link stabil bleibt.
+   */
   const addZielgruppe = (raw: string | null): string | null => {
     const v = clean(raw);
     if (!v) return null;
-    opts.add("zielgruppe", v, zielgruppeLabel(v));
+    opts.add("zielgruppe", v, v);
     return v;
   };
 
@@ -197,7 +191,6 @@ export function buildFacts(src: CompareSources): CompareData {
       opts.add("liste", c.list_id, clean(c.lists?.name) ?? "Ohne Namen", "LinkedIn");
       dims.liste = c.list_id;
     }
-    dims.zielgruppe = addZielgruppe(c.target_group);
     push(contactDay(c), dims, {
       dms: 1,
       answers: c.answered === true ? 1 : 0,
@@ -248,11 +241,10 @@ export function buildFacts(src: CompareSources): CompareData {
   }
 
   // ── Setting-Calls ──────────────────────────────────────────
-  // Nebenprodukt: Kanal und Zielgruppe je Setting-ID. Die Closings erben
-  // beides von ihrem Setting — ohne diese Kette landete jeder Umsatz unter
-  // „ohne Kanal", und „Umsatz pro DM" wäre nicht kanalrein.
+  // Nebenprodukt: Kanal je Setting-ID. Die Closings erben ihn von ihrem
+  // Setting — ohne diese Kette landete jeder Umsatz unter „ohne Kanal", und
+  // „Umsatz pro DM" wäre nicht kanalrein.
   const kanalOfSetting = new Map<string, ChannelKey>();
-  const zielgruppeOfSetting = new Map<string, string>();
 
   for (const r of src.settings) {
     const dims = emptyDims();
@@ -260,9 +252,6 @@ export function buildFacts(src: CompareSources): CompareData {
     const kanal = addKanal(channelKeyOf(r.source_type));
     dims.kanal = kanal;
     kanalOfSetting.set(r.id, kanal);
-    const zg = addZielgruppe(r.branche);
-    dims.zielgruppe = zg;
-    if (zg) zielgruppeOfSetting.set(r.id, zg);
     push(settingEffDate(r), dims, {
       settings: 1,
       setting_shows: r.show_status === "show" ? 1 : 0,
@@ -287,8 +276,6 @@ export function buildFacts(src: CompareSources): CompareData {
     dims.person = personDim(gespraechsPersonOf(r));
     const kanal = r.setting_call_id ? kanalOfSetting.get(r.setting_call_id) : undefined;
     if (kanal) dims.kanal = addKanal(kanal);
-    const zg = r.setting_call_id ? zielgruppeOfSetting.get(r.setting_call_id) : undefined;
-    if (zg) dims.zielgruppe = addZielgruppe(zg);
     const won = r.status === "gewonnen";
     push(closingEffDate(r), dims, {
       closings: 1,

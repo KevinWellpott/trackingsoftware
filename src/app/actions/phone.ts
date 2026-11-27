@@ -197,11 +197,10 @@ export async function createPhoneList(input: {
 }
 
 /**
- * Skript, Testarm und Ziel-Branche einer Telefonliste pflegen (Migration 0029).
+ * Testarm und Ziel-Branche einer Telefonliste pflegen (Migration 0029).
  *
- * Warum an der LISTE und nicht am Lead: `phone_leads.script` existiert zwar,
- * ist aber pro Zeile und damit als Testachse unbrauchbar. Die Liste ist die
- * kleinste Einheit, die ein Setter tatsächlich am Stück abtelefoniert.
+ * Warum an der LISTE: Die Liste ist die kleinste Einheit, die ein Setter
+ * tatsächlich am Stück abtelefoniert.
  *
  * `script_label` ist dabei das Wichtigste: Jeder CSV-Import legt eine neue
  * Liste an — ohne ein gemeinsames Label zerfällt der Test in so viele Arme wie
@@ -213,7 +212,7 @@ export async function createPhoneList(input: {
  */
 export async function updatePhoneListScript(
   listId: string,
-  patch: { script_text?: string | null; script_label?: string | null; target_group?: string | null },
+  patch: { script_label?: string | null; target_group?: string | null },
 ): Promise<{ error?: string }> {
   if (!(await canAccessPhoneList(listId))) return { error: "Keine Berechtigung." };
   const supabase = await createClient();
@@ -244,9 +243,8 @@ export async function updatePhoneListScriptForm(formData: FormData) {
   const listId = String(formData.get("list_id") ?? "");
   if (!listId) return;
   await updatePhoneListScript(listId, {
-    // Leerer Text = Feld geleert, deshalb explizit null statt "" — sonst stünde
-    // in der Auswertung ein Testarm namens "".
-    script_text: String(formData.get("script_text") ?? "").trim() || null,
+    // Leeres Feld = geleert: `cleanGroupValue` liefert dann null statt "" —
+    // sonst stünde in der Auswertung ein Testarm namens "".
     script_label: cleanGroupValue(formData.get("script_label")),
     target_group: cleanGroupValue(formData.get("target_group")),
   });
@@ -259,23 +257,14 @@ export type PhoneLeadInput = {
   phone?: string | null;
   website?: string | null;
   email?: string | null;
-  decider_direct_dial?: string | null;
   first_call_at?: string | null;
   call_attempt?: number | null;
   gatekeeper_reached?: "ja" | "nein" | "direkt" | null;
-  gatekeeper_attempts?: number | null;
-  script?: string | null;
   decider_reached?: boolean | null;
   /** Der Pitch kam durch — seit Migration 0028 getrennt von `decider_reached`. */
   pitch_delivered?: boolean | null;
   callback_at?: string | null;
-  answer_sentiment?: "positiv" | "neutral" | "negativ" | null;
-  objection_notes?: string | null;
-  no_transfer_reason?: string | null;
-  no_pitch_reason?: string | null;
-  no_appointment_reason?: string | null;
   mailbox?: boolean | null;
-  yt_video_link?: string | null;
   target_group?: string | null;
   notes?: string | null;
 };

@@ -1,7 +1,6 @@
 "use client";
 
 import { SearchTrigger } from "@/components/search/SearchDialog";
-import type { ViewNode } from "@/lib/listViews";
 import type { NavCounts } from "@/lib/navCounts";
 import { Menu } from "lucide-react";
 import Link from "next/link";
@@ -26,7 +25,6 @@ type Props = {
   username: string;
   workspaceId: string;
   lists: { id: string; name: string; owner_name: string | null }[];
-  viewTree?: ViewNode[];
   phoneLists?: {
     id: string;
     name: string;
@@ -51,7 +49,7 @@ type Props = {
   intern?: InternNav;
 };
 
-export function MobileHeader({ workspaceName, username, workspaceId, lists, viewTree, phoneLists, dataScope, dataView, orgSwitch, navCounts, intern }: Props) {
+export function MobileHeader({ workspaceName, username, workspaceId, lists, phoneLists, dataScope, dataView, orgSwitch, navCounts, intern }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Seitenwechsel schliesst den Drawer — auch über Wege, die selbst kein
   // onClose rufen (Suche, Dialoge, Zurück-Taste). Muster „State beim Rendern
@@ -125,7 +123,6 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, view
         username={username}
         workspaceId={workspaceId}
         lists={lists}
-        viewTree={viewTree}
         phoneLists={phoneLists}
         dataScope={dataScope}
         dataView={dataView}

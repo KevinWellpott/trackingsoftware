@@ -36,16 +36,6 @@ export type PitchList = {
   created_at: string;
 };
 
-export type PipelineStage = {
-  id: string;
-  list_id: string;
-  name: string;
-  probability_pct: number | null;
-  sort_order: number;
-  exclude_from_followup: boolean;
-  created_at: string;
-};
-
 // ─── Telefonakquise (Tracking 2.0) ─────────────────────────────
 export type PhoneListKind = "akquise" | "rueckruf" | "nicht_erreicht" | "kein_termin";
 
@@ -57,11 +47,6 @@ export type PhoneList = {
   name: string;
   list_kind: PhoneListKind;
   source_import_id: string | null;
-  /**
-   * Gesprächsleitfaden dieser Liste (Migration 0029). `phone_leads.script`
-   * existiert zwar schon, ist aber pro Lead und damit als Testachse unbrauchbar.
-   */
-  script_text: string | null;
   /**
    * Testarm des Skripts — die GRUPPIERUNGSachse des A/B-Tests.
    * Ohne Label zersplittert jeder CSV-Import den Test in eine eigene Liste
@@ -127,34 +112,14 @@ export type SettingCall = {
    * Nullable — die Pflicht sitzt im Formular, nicht in der Tabelle.
    */
   phone: string | null;
-  /**
-   * Persönliche WhatsApp-/Handynummer des Entscheiders (Migration 0031) —
-   * NICHT dieselbe wie `phone` (Einwahlnummer bei meeting_kind='telefon').
-   * Grundlage der Closing-/Nachfass-Erinnerungskaskade.
-   */
-  wa_phone: string | null;
-  /** Zeitstempel der dokumentierten Einwilligung zur WhatsApp-Kontaktierung (UWG). */
-  wa_consent_at: string | null;
   source_contact_id: string | null;
   source_phone_lead_id: string | null;
   lead_name: string | null;
   company: string | null;
   call_at: string | null;
-  branche: "agentur" | "coach" | "consultant" | "sonstiges" | null;
-  offer_type: string | null;
   show_status: "show" | "no_show" | null;
-  has_budget_8k: "ja" | "nein" | "unklar" | null;
-  sole_decider: boolean | null;
-  can_decide_now: boolean | null;
-  clear_need: boolean | null;
-  ist_pain: number | null;
-  soll_ziel: string | null;
-  warmth: number | null;
   closing_scheduled: boolean;
   closing_at: string | null;
-  recording_link: string | null;
-  objections_handled: string | null;
-  objections_open: string | null;
   meet_link: string | null;
   /** Termin-Art: 'link' (Meet o. ä.), 'telefon', null = keine Angabe. */
   meeting_kind: "link" | "telefon" | null;
@@ -268,9 +233,6 @@ export type ClosingCall = {
   follow_up_due: string | null;
   /** Präziser Nachfass-Zeitpunkt (Migration 0031) — Basis der Erinnerungs-Kaskade, follow_up_due bleibt synchron. */
   follow_up_due_at: string | null;
-  recording_link: string | null;
-  objections_handled: string | null;
-  objections_open: string | null;
   script_answers: Record<string, string>;
   status: "offen" | "gewonnen" | "verloren" | "nachfassen";
   notes: string | null;
@@ -299,7 +261,6 @@ export type PhoneLead = {
   phone: string | null;
   website: string | null;
   email: string | null;
-  decider_direct_dial: string | null;
   call_attempt: number | null;
   /**
    * Testarm des Skripts, beim Import AM LEAD festgeschrieben (Migration 0030).
@@ -309,8 +270,6 @@ export type PhoneLead = {
    */
   script_label: string | null;
   gatekeeper_reached: "ja" | "nein" | "direkt" | null;
-  gatekeeper_attempts: number | null;
-  script: string | null;
   /** Entscheider war am Apparat. */
   decider_reached: boolean | null;
   /**
@@ -322,17 +281,11 @@ export type PhoneLead = {
    */
   pitch_delivered: boolean | null;
   callback_at: string | null;
-  answer_sentiment: "positiv" | "neutral" | "negativ" | null;
-  objection_notes: string | null;
-  no_transfer_reason: string | null;
-  no_pitch_reason: string | null;
-  no_appointment_reason: string | null;
   status: PhoneLeadStatus;
   mailbox: boolean | null;
   appointment_set: boolean;
   appointment_at: string | null;
   meet_link: string | null;
-  yt_video_link: string | null;
   target_group: string | null;
   notes: string | null;
   created_at: string;
@@ -397,11 +350,7 @@ export type Contact = {
   email: string | null;
   phone: string | null;
   notes: string | null;
-  stage_id: string | null;
-  last_contacted_at: string | null;
   next_follow_up_at: string | null;
-  deal_value: number | null;
-  custom_fields: Record<string, unknown>;
   // Neue Felder
   pitched_at: string | null;
   follow_up_number: 1 | 2 | 3 | null;
@@ -409,23 +358,15 @@ export type Contact = {
   appointment_set: boolean | null;
   answer_text: string | null;
   answer_category: string | null;
-  meeting_notes: string | null;
-  deal_closed: boolean;
-  deal_lost_reason: string | null;
   // Tracking 2.0
   linkedin_url: string | null;
   appointment_at: string | null;
   meet_link: string | null;
-  target_group: string | null;
   setting_call_id: string | null;
   /** Lead hat uns auf LinkedIn blockiert → raus aus dem Follow-up-Flow. */
   blocked_at: string | null;
   created_at: string;
   updated_at: string;
-};
-
-export type ContactWithStage = Contact & {
-  pipeline_stages: PipelineStage | null;
 };
 
 /** Schlanke Projektion für das Listen-Board — nur die Spalten, die die

@@ -172,9 +172,9 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
   const kind = KIND_META[list.list_kind];
   const oc = list.owner_name ? ownerColor(list.owner_name) : null;
 
-  // Standardmäßig offen, solange nichts hinterlegt ist — ein leeres Skript darf
-  // nicht hinter einem zugeklappten Deckel unsichtbar bleiben.
-  const scriptEmpty = !(list.script_text ?? "").trim() && !(list.script_label ?? "").trim();
+  // Standardmäßig offen, solange kein Testarm hinterlegt ist — ein fehlendes
+  // Label darf nicht hinter einem zugeklappten Deckel unsichtbar bleiben.
+  const scriptEmpty = !(list.script_label ?? "").trim();
   const scriptSummary = [
     (list.script_label ?? "").trim() ? `Arm „${list.script_label}"` : null,
     (list.target_group ?? "").trim() || null,
@@ -285,26 +285,6 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
         <form action={updatePhoneListScriptForm} style={{ padding: "0 var(--sp-8) var(--sp-8)" }}>
           <input type="hidden" name="list_id" value={listId} />
 
-          <label htmlFor="script_text" style={fieldLabel}>
-            Gesprächsleitfaden
-          </label>
-          <textarea
-            id="script_text"
-            name="script_text"
-            defaultValue={list.script_text ?? ""}
-            rows={5}
-            className="input"
-            style={{
-              resize: "vertical",
-              fontSize: "var(--fs-base)",
-              marginBottom: "var(--sp-3)",
-              lineHeight: "var(--lh-base)",
-              padding: "var(--sp-5)",
-            }}
-            placeholder="Opener, Einwandbehandlung, Terminfrage — der Text, der bei dieser Liste tatsächlich gesprochen wird."
-          />
-          <p style={fieldHint}>Arbeitstext für den Call-Mode. Ausgewertet wird nicht er, sondern das Label darunter.</p>
-
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--sp-6)" }}>
             <div>
               <label htmlFor="script_label" style={fieldLabel}>
@@ -365,7 +345,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
       </details>
 
       {/* ── Call-Mode ── */}
-      <CallModeRunner leads={leads} script={list.script_text} />
+      <CallModeRunner leads={leads} />
     </div>
   );
 }

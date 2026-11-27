@@ -169,10 +169,7 @@ export async function createUser(
 const OWNER_NAME_TABLES = [
   "lists",
   "phone_lists",
-  "list_views",
   "csv_imports",
-  "organic_lists",
-  "organic_posts",
 ] as const;
 
 export async function deleteUser(userId: string) {
@@ -449,10 +446,8 @@ export async function renameUser(userId: string, newUsername: string) {
   // owner_name-Kopien auf Bestandslisten nachziehen — sonst greift der
   // owner_name-Fallback (ownScopeFilter in access.ts) nach der Umbenennung
   // nicht mehr und Listen 404en wie im "Neukundengewinnung A"-Fall.
-  // Dieselbe Tabellenliste wie beim Loeschen: Vorher wurden nur lists,
-  // phone_lists und list_views nachgezogen — csv_imports, organic_lists und
-  // organic_posts behielten den alten Namen und wurden damit unauffindbar,
-  // sobald jemand nach dem neuen filtert.
+  // Dieselbe Tabellenliste wie beim Loeschen. Smart Views und Organic sind
+  // mit dem Aufraeumen (Migration 0050) entfallen.
   for (const table of OWNER_NAME_TABLES) {
     await admin
       .from(table)

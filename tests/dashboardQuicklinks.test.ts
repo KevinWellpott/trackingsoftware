@@ -67,15 +67,18 @@ describe("Ziele", () => {
     assert.doesNotMatch(QUICKLINKS, /BellRing/, "das Erinnerungs-Icon wird noch importiert");
   });
 
-  test("Termine steht vorn — die zentrale Arbeitsfläche zuerst", () => {
-    // Die Terminliste wird die eine Liste je Person; die erste Kachel ist die,
-    // auf die morgens der Blick fällt. Vorher stand dort „Erinnerungen".
+  test("Nachfassen steht vorn — der Nachfass-Eingang ist die tägliche Arbeitsfläche", () => {
+    // Seit dem Nachfass-Eingang (docs/nachfassen-umbau/PLAN-nachfass-eingang.md,
+    // Detailfrage O4) ist /nachfassen der EINE Ort, an dem steht, wen man heute
+    // kontaktieren muss. Die erste Kachel ist die, auf die morgens der Blick
+    // fällt. Vorher stand dort „Termine" — die Terminliste ist seither wieder
+    // eine Terminliste (Kalender und Erinnerungen), keine Arbeitsliste.
     const termine = QUICKLINKS.indexOf('href: "/termine"');
     const nachfassen = QUICKLINKS.indexOf('href: "/nachfassen"');
     const ablage = QUICKLINKS.indexOf('href: "/ablage"');
     assert.ok(termine !== -1 && nachfassen !== -1 && ablage !== -1);
-    assert.ok(termine < nachfassen, "Termine ist hinter Nachfassen gerutscht");
-    assert.ok(nachfassen < ablage, "die Ablage steht vor der Tagesarbeit");
+    assert.ok(nachfassen < termine, "Nachfassen ist hinter Termine gerutscht");
+    assert.ok(termine < ablage, "die Ablage steht vor den Terminen");
   });
 
   test("jeder Weg sagt, welche Frage er beantwortet", () => {
@@ -84,31 +87,29 @@ describe("Ziele", () => {
     // Tooltips stehen. Hier ist der Hinweis sichtbar statt versteckt: Auf einer
     // Kachel ist Platz dafür.
     //
-    // „Kalender" stand hier als Soll und war seit dem Rückbau falsch: /termine
-    // öffnet in der ARBEITSLISTE, der Kalender ist der zweite Reiter. Ein
-    // Hinweis, der die falsche Sache verspricht, ist schlimmer als keiner —
-    // ausgerechnet auf der Kachel, die morgens als erste angeklickt wird.
-    //
-    // Aus demselben Grund ist „Heute fällig" gefallen: Die Kachel führt auf
-    // das RECYCLING, und dessen Wartezeiten liegen bei 14 bis 270 Tagen
-    // (`pipeline_settings`, docs §5). „Heute fällig" versprach die tägliche
-    // Arbeit — die steht in der Terminliste, also auf der Kachel daneben.
-    for (const hint of ["Zweiter Anlauf fällig", "Wer liegt in der Luft", "Aus dem Funnel gefallen"]) {
+    // Die Hinweise folgen dem Nachfass-Eingang: /nachfassen trägt die tägliche
+    // Arbeit („Wer heute dran ist"), /termine ist wieder Kalender plus die zwei
+    // Termin-Erinnerungen. Die früheren Hinweise „Wer liegt in der Luft"
+    // (Terminliste als Arbeitsliste) und „Zweiter Anlauf fällig" (/nachfassen
+    // als reines Recycling) beschreiben Seiten, die es so nicht mehr gibt.
+    for (const hint of ["Wer heute dran ist", "Kalender und Erinnerungen", "Aus dem Funnel gefallen"]) {
       assert.ok(QUICKLINKS.includes(`hint: "${hint}"`), `Der Hinweis „${hint}" fehlt`);
     }
-    assert.doesNotMatch(QUICKLINKS, /hint: "Kalender"/, "die Kachel verspricht wieder den Kalender");
-    assert.doesNotMatch(QUICKLINKS, /hint: "Heute fällig"/, "die Kachel verspricht wieder Tagesarbeit");
+    assert.doesNotMatch(QUICKLINKS, /hint: "Wer liegt in der Luft"/, "die Terminliste verspricht wieder die Tagesarbeit");
+    assert.doesNotMatch(QUICKLINKS, /hint: "Zweiter Anlauf fällig"/, "die Kachel verspricht wieder nur das Recycling");
   });
 
   test("die Kachel heißt wie die Seite, auf die sie führt", () => {
-    // „Nachfassen" war die Sammelbezeichnung für DREI Mechanismen; zwei davon
-    // stehen seit dem Rückbau in der Terminliste, und die Seite unter
-    // /nachfassen heißt seither „Recycling" (tests/rueckbauTexteUndDeckel).
-    // Solange Kachel und Seitenleiste das alte Wort trugen, klickte man auf
-    // „Nachfassen" und landete bei „Recycling" — die ROUTE bleibt, der NAME
-    // wandert mit der Seite.
-    assert.ok(QUICKLINKS.includes('label: "Recycling"'), "Die Kachel heißt wieder „Nachfassen“.");
-    assert.doesNotMatch(QUICKLINKS, /label: "Nachfassen"/);
+    // Zwischen Rückbau und Nachfass-Eingang hieß die Seite unter /nachfassen
+    // „Recycling" — sie zeigte nur das. Seit sie wieder Termine, Rückrufe und
+    // Recycling in einem Eingang trägt, heißt sie auf dem Bildschirm wieder
+    // „Nachfassen" (app/(dashboard)/nachfassen/page.tsx), und die Kachel wandert
+    // mit: Wer auf „Recycling" klickt und bei „Nachfassen" landet, verliert den
+    // Faden genauso wie umgekehrt.
+    assert.ok(QUICKLINKS.includes('label: "Nachfassen"'), "Die Kachel heißt nicht „Nachfassen“.");
+    assert.doesNotMatch(QUICKLINKS, /label: "Recycling"/);
+    const seite = read("src/app/(dashboard)/nachfassen/page.tsx");
+    assert.match(seite, /title=\{\s*<span[^>]*>\s*Nachfassen\s*</);
   });
 
   test("die eine Anlege-Aktion ist dabei — und es bleibt bei einer", () => {
@@ -164,12 +165,11 @@ describe("Zähler", () => {
     assert.ok(QUICKLINKS.includes('href: "/ablage"'));
   });
 
-  test("die Arbeitsliste bekommt bewusst keinen Zähler", () => {
-    // Ihr Gold ist ABGELEITET (lib/dranRegel.ts): Zustand, Absage,
-    // Nachfass-Stempel, Berliner Tagesgrenze. Ein Badge müsste dieselben Zeilen
-    // laden wie die Seite — auf jeder Seite — oder die Regel ein zweites Mal
-    // als Filter formulieren; genau dagegen gibt es dranRegel.ts. Und /termine
-    // ist die Fläche, die man ohnehin öffnet.
+  test("die Termine-Kachel bekommt bewusst keinen Zähler", () => {
+    // Die Tagesarbeit hat ihren EINEN Zähler an „Nachfassen" (Nachfass-
+    // Eingang, Plan M8). Eine Zahl an „Termine" zählte entweder dieselbe Menge
+    // ein zweites Mal oder eine andere — zwei Wahrheiten über „was ist heute
+    // dran" nebeneinander.
     assert.match(QUICKLINKS, /label: "Termine",[\s\S]{0,1200}?count: null,/);
   });
 

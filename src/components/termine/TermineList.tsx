@@ -22,6 +22,8 @@ import Link from "next/link";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { kindLabel } from "./EventChip";
+import { ErgebnisSchnell } from "./ErgebnisSchnell";
+import { brauchtErgebnis } from "@/lib/nachfassRegel";
 import { TerminAktionen } from "./TerminAktionen";
 import { erinnerungsArt, type SortDir, type TerminSort, type TerminZeit } from "./viewState";
 
@@ -176,6 +178,7 @@ export function TermineList({
   dir,
   onSort,
   onError,
+  nowMs = null,
 }: {
   events: TerminEvent[];
   ohneTermin: TerminEvent[];
@@ -186,8 +189,31 @@ export function TermineList({
   onSort: (col: TerminSort) => void;
   /** Fehler landen in der EINEN Fehlerzeile des Boards, nicht in der Zeile. */
   onError: (message: string | null) => void;
+  /** Uhr des Boards — `null` bis zum ersten Tick (keine Hydrations-Abweichung). */
+  nowMs?: number | null;
 }) {
   const router = useRouter();
+  // Ergebnis-Schnellknöpfe (Prüfliste O1/O2): Termin hat begonnen, kein
+  // Ergebnis → statt Genervt/Termin/Tot die Frage „Was ist passiert?".
+  const schnell = (e: TerminEvent) =>
+    brauchtErgebnis({
+      kind: e.kind,
+      status: e.status,
+      showStatus: e.showStatus,
+      at: e.at,
+      abgesagt: e.cancelled,
+      nowMs,
+    }) ? (
+      <ErgebnisSchnell
+        kind={e.kind}
+        id={e.refId}
+        onDone={() => {
+          onError(null);
+          router.refresh();
+        }}
+        onError={(m) => onError(m)}
+      />
+    ) : null;
   const [pending, startTransition] = useTransition();
   /** Welche Zeile schreibt gerade? Nur sie sperrt ihre Knöpfe. */
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -217,11 +243,7 @@ export function TermineList({
     // jetzt zu tun" (das steht in „Zu tun"), sondern „bekommt jeder seine zwei
     // Erinnerungen" — und die lässt sich nur an der vollständigen Liste
     // beantworten.
-    const pool = art
-      ? all.filter((e) => e.zustand === "verlegt" && e.kind === art)
-      : zeit === "zu_tun"
-        ? all.filter((e) => istZuTun(e.zustand, e.erinnerung))
-        : all;
+    const pool = art ? all.filter((e) => e.zustand === "verlegt" && e.kind === art) : all;
 
     const factor = dir === "asc" ? 1 : -1;
     return [...pool].sort((a, b) => {
@@ -230,7 +252,7 @@ export function TermineList({
       // jedem Re-Render, weil Array.sort nicht garantiert stabil gefüllt wird.
       return cmp !== 0 ? cmp * factor : sortKey(a, "zeit").localeCompare(sortKey(b, "zeit"));
     });
-  }, [events, ohneTermin, art, zeit, sort, dir]);
+  }, [events, ohneTermin, art, sort, dir]);
 
   /**
    * Ein Handgriff, eine Server-Antwort, ein Neuladen.
@@ -287,7 +309,7 @@ export function TermineList({
     [confirm, run],
   );
 
-  if (rows.length === 0) return <EmptyState zeit={zeit} art={art} />;
+  if (rows.length === 0) return <EmptyState art={art} />;
 
   // Die Erinnerungs-Spalte tritt AN DIE STELLE von „Status" (Begründung an
   // `STUFEN_TON`), die Spaltenzahl bleibt damit in jeder Ansicht dieselbe.
@@ -312,6 +334,7 @@ export function TermineList({
           onGenervt={() => onGenervt(e)}
           onNeuerTermin={(input) => onNeuerTermin(e, input)}
           onTot={() => void onTot(e)}
+          ergebnis={schnell(e)}
         />
       ))}
     </div>
@@ -379,6 +402,7 @@ export function TermineList({
           {rows.map((e) => (
             <Row
               key={e.id}
+              ergebnis={schnell(e)}
               event={e}
               today={today}
               erinnerungsSpalte={art !== null}
@@ -410,11 +434,13 @@ function TerminKarte({
   onGenervt,
   onNeuerTermin,
   onTot,
+  ergebnis = null,
 }: {
   event: TerminEvent;
   today: string;
   erinnerungsAnsicht: boolean;
   pending: boolean;
+  ergebnis?: React.ReactNode;
   onGenervt: () => void;
   onNeuerTermin: (berlinInput: string) => void;
   onTot: () => void;
@@ -536,16 +562,17 @@ function TerminKarte({
         </div>
       )}
 
-      {anfassbar && (
-        <TerminAktionen
-          event={event}
-          pending={pending}
-          onGenervt={onGenervt}
-          onNeuerTermin={onNeuerTermin}
-          onTot={onTot}
-          layout="card"
-        />
-      )}
+      {ergebnis ??
+        (anfassbar && (
+          <TerminAktionen
+            event={event}
+            pending={pending}
+            onGenervt={onGenervt}
+            onNeuerTermin={onNeuerTermin}
+            onTot={onTot}
+            layout="card"
+          />
+        ))}
     </div>
   );
 }
@@ -558,12 +585,14 @@ function Row({
   onGenervt,
   onNeuerTermin,
   onTot,
+  ergebnis = null,
 }: {
   event: TerminEvent;
   today: string;
   /** Steht an vierter Stelle die Erinnerung statt des Status? */
   erinnerungsSpalte: boolean;
   pending: boolean;
+  ergebnis?: React.ReactNode;
   onGenervt: () => void;
   onNeuerTermin: (berlinInput: string) => void;
   onTot: () => void;
@@ -820,7 +849,9 @@ function Row({
              Tag: „Genervt" schließt die fällige Erinnerung, „Termin" verlegt
              ihn, „Tot" schreibt ihn ab. */}
       <td>
-        {anfassbar ? (
+        {ergebnis ? (
+          ergebnis
+        ) : anfassbar ? (
           <TerminAktionen
             event={event}
             pending={pending}
@@ -875,12 +906,10 @@ function OwnerCell({ username }: { username: string }) {
   );
 }
 
-function EmptyState({ zeit, art }: { zeit: TerminZeit; art: TerminKind | null }) {
+function EmptyState({ art }: { art: TerminKind | null }) {
   const titel = art
     ? `Kein ${art === "setting" ? "Erstgespräch" : "Closing"} steht an`
-    : zeit === "zu_tun"
-      ? "Nichts zu tun"
-      : "Keine Termine";
+    : "Keine Termine";
 
   // Der Leerzustand zeigt auf die EINE Aktion dieser Seite — und die steht seit
   // der Design-Runde oben rechts im Seitenkopf, nicht mehr „in der Navigation".
@@ -888,9 +917,7 @@ function EmptyState({ zeit, art }: { zeit: TerminZeit; art: TerminKind | null })
   // Knopf, der 40 Pixel darüber steht (COMPONENTS.md §14.1).
   const text = art
     ? `Hier stehen alle ${art === "setting" ? "Erstgespräche" : "Closings"} mit einem Termin in der Zukunft — jedes mit seinen zwei Erinnerungen, einen Tag und eine Stunde vorher. Sobald ein Termin gebucht ist, erscheint er hier.`
-    : zeit === "zu_tun"
-      ? "Niemand liegt in der Luft: Jeder offene Vorgang hat entweder einen Termin oder ist abgeschlossen — und kein Termin steht so nah bevor, dass daran zu erinnern wäre."
-      : "Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder oben rechts über „Termin buchen“.";
+    : "Termine entstehen automatisch, sobald ein LinkedIn-Kontakt oder Telefon-Lead einen Termin bekommt — oder oben rechts über „Termin buchen“.";
 
   return (
     <div className="card dot-grid">

@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
+import { redirect } from "next/navigation";
 import { TermineBoard } from "@/components/termine/TermineBoard";
 import { TerminBuchenAktion } from "@/components/termine/TerminBuchenAktion";
-import { getAccessContext, listDataViewUsers, matchesOwnScope } from "@/lib/access";
+import { getAccessContext, listDataViewUsers } from "@/lib/access";
 import { berlinDateISO } from "@/lib/apptTime";
-import { ownerUserIdOfList } from "@/lib/personResolution";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
-import type { RueckrufAufgabe } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { InfoPopover } from "@/components/ui/InfoPopover";
@@ -50,96 +49,6 @@ function personScope(userId: string): string {
   // ⚠ Dieser Zweig nennt die Spalte NAMENTLICH: Ohne 0042 wiese PostgREST die
   // Abfrage bei aktiver Datensicht ab. Deshalb läuft 0042 vor dem Deploy.
   return `assigned_user_id.eq.${userId},and(assigned_user_id.is.null,created_by_user_id.eq.${userId}),conducted_by_user_id.eq.${userId}`;
-}
-
-/* ------------------------------------------------------------------ *
- * Telefon-Rückrufe
- * ------------------------------------------------------------------ */
-
-type LeadRow = {
-  id: string;
-  company: string | null;
-  decider_name: string | null;
-  phone: string | null;
-  callback_at: string | null;
-  list_id: string | null;
-};
-
-type ListRow = {
-  id: string;
-  name: string | null;
-  owner_name: string | null;
-  created_by_user_id: string | null;
-};
-
-/**
- * Fällige Rückrufe für den dritten Reiter — bewusst HIER geladen und nicht über
- * `actions/nachfassen.ts`: Die Frage ist dieselbe, aber die Zuständigkeit für
- * diese Seite liegt hier, und ein zweiter Aufrufer einer Board-Action wäre eine
- * Kopplung zwischen zwei Bereichen, die sonst nichts miteinander zu tun haben.
- *
- * Zwei einfache Abfragen statt eines eingebetteten Selects: `phone_leads` trägt
- * den Owner nicht, der steht an der LISTE (`list_owned_by_user()`, docs §2).
- * Der Join in JS kostet nichts (Telefonlisten sind eine Handvoll Zeilen) und
- * erspart der Seite eine PostgREST-Einbettung, deren Rückgabeform sich je nach
- * Version zwischen Objekt und Array unterscheidet.
- *
- * Der Personenfilter läuft über `matchesOwnScope` — dieselbe Regel wie der
- * PostgREST-Filter `buildOwnScope`, nur in JS. `owner_name` hat Vorrang vor dem
- * Ersteller: Eine Liste, die ein Admin FÜR ein Mitglied angelegt hat, gehört
- * dem Mitglied.
- */
-async function ladeRueckrufe(
-  workspaceId: string,
-  access: Awaited<ReturnType<typeof getAccessContext>>,
-  usernameToUserId: Map<string, string>,
-): Promise<RueckrufAufgabe[]> {
-  const supabase = await createClient();
-  const [leads, lists] = await Promise.all([
-    fetchAllRows<LeadRow>((from, to) =>
-      supabase
-        .from("phone_leads")
-        .select("id, company, decider_name, phone, callback_at, list_id")
-        .eq("workspace_id", workspaceId)
-        .eq("status", "rueckruf")
-        .not("callback_at", "is", null)
-        .order("callback_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to),
-    ),
-    fetchAllRows<ListRow>((from, to) =>
-      supabase
-        .from("phone_lists")
-        .select("id, name, owner_name, created_by_user_id")
-        .eq("workspace_id", workspaceId)
-        .order("id", { ascending: true })
-        .range(from, to),
-    ),
-  ]);
-
-  const byId = new Map(lists.map((l) => [l.id, l]));
-  const aufgaben: RueckrufAufgabe[] = [];
-  for (const lead of leads) {
-    if (!lead.callback_at) continue;
-    const list = lead.list_id ? byId.get(lead.list_id) : undefined;
-    // Ein Lead ohne auffindbare Liste hat keinen Owner und damit keinen Platz
-    // in einer persönlichen Liste — er fällt weg, statt allen zu erscheinen.
-    if (!list) continue;
-    if (access && !matchesOwnScope(access, list)) continue;
-    const ownerUserId = ownerUserIdOfList(list, usernameToUserId);
-    aufgaben.push({
-      id: lead.id,
-      company: lead.company,
-      decider: lead.decider_name,
-      phone: lead.phone,
-      callbackAt: lead.callback_at,
-      listId: list.id,
-      listName: list.name,
-      ownerUserId,
-      ownerName: list.owner_name,
-    });
-  }
-  return aufgaben;
 }
 
 /* ------------------------------------------------------------------ *
@@ -254,7 +163,17 @@ function ChipLegende() {
   );
 }
 
-export default async function TerminePage() {
+export default async function TerminePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string; zeit?: string }>;
+}) {
+  // „Zu tun" und „Rückrufe" leben seit dem Nachfass-Eingang auf /nachfassen
+  // (Plan §4.7). Alte Lesezeichen landen dort, statt im Kalender zu stranden.
+  const sp = await searchParams;
+  if (sp.view === "rueckruf") redirect("/nachfassen?quelle=rueckruf");
+  if (sp.zeit === "zu_tun") redirect("/nachfassen");
+
   const access = await getAccessContext();
   if (!access) return null;
 
@@ -283,11 +202,6 @@ export default async function TerminePage() {
     listDataViewUsers(access.workspace_id).catch(() => []),
   ]);
 
-  const usernameToUserId = new Map(members.map((m) => [m.username, m.user_id]));
-  // `available`-Rückfall wie bei `loadCallAttempts` (docs §5.1): Eine
-  // gescheiterte Abfrage darf nicht wie „keine Rückrufe" aussehen — und schon
-  // gar nicht die ganze Seite mitnehmen, deren Hauptaufgabe woanders liegt.
-  const rueckrufe = await ladeRueckrufe(access.workspace_id, access, usernameToUserId).catch(() => null);
 
   // ⚠ „HEUTE" KOMMT VOM SERVER UND IST BERLIN — beides ist tragend.
   //
@@ -314,7 +228,7 @@ export default async function TerminePage() {
           beantwortet dagegen eine Frage zum Inhalt darunter — dieselbe Stelle
           wie auf /ablage. */}
       <PageHeader
-        eyebrow="Arbeitsfläche"
+        eyebrow="Kalender"
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
             Termine
@@ -323,7 +237,7 @@ export default async function TerminePage() {
             </InfoPopover>
           </span>
         }
-        meta="Wer liegt in der Luft, wer ist versorgt · Setting 30 min · Closing 60 min"
+        meta="Wann steht was an · Erinnerungen vor jedem Termin · Setting 30 min · Closing 60 min"
         // ── HIER STAND EINE ZAHL, UND SIE WIDERSPRACH DER FLÄCHE DARUNTER ──
         // „N Termine" zählte `settings.length + closings.length`, also JEDEN je
         // angelegten Termin. Der Vorgabe-Ausschnitt darunter ist „Zu tun" und
@@ -344,8 +258,6 @@ export default async function TerminePage() {
         settings={settings}
         closings={closings}
         members={members.map((m) => ({ user_id: m.user_id, username: m.username }))}
-        rueckrufe={rueckrufe ?? []}
-        rueckrufeVerfuegbar={rueckrufe != null}
         today={today}
         // „Eine Liste pro Person": Vorgabe ist die persönliche Sicht. Bei
         // aktiver Datensicht ist das der Kollege, dessen Liste man abarbeitet

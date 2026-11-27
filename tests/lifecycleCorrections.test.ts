@@ -173,13 +173,13 @@ describe("Ein Pflichtfeld prüft, was die Folge-Logik wirklich braucht", () => {
     // ohne Oberfläche zum Korrigieren und ohne Weg, sie auf Widerruf zu löschen.
     //
     // Richtig ist die Umkehrung: nicht den Fremd-Schreiber normalisieren,
-    // sondern ihm die Spalten wegnehmen. `ohneWhatsApp` streift die drei Felder
-    // ab, bevor der Patch an `.update()` geht — und zwar zur LAUFZEIT, weil ein
-    // TypeScript-Typ keinen POST aufhält. Die CHECKs aus 0032 sind danach nicht
-    // etwa ungeschützt, sondern unerreichbar: Es schreibt die Spalten nichts
-    // mehr. Die volle Zusicherung steht in arbeitslisteNeuerTermin.test.ts.
+    // sondern ihm die Spalten wegnehmen. Zuerst streifte `ohneWhatsApp` die
+    // drei Felder zur Laufzeit ab; inzwischen sind die Spalten selbst gefallen,
+    // und mit ihnen der Riegel. Die volle Zusicherung steht in
+    // arbeitslisteNeuerTermin.test.ts.
     assert.doesNotMatch(SETTING_CALLS, /function withWaConsentDerived/);
-    assert.match(SETTING_CALLS, /withNoShowResolutionCleared\(ohneWhatsApp\(patch\)\)/);
+    assert.doesNotMatch(SETTING_CALLS, /ohneWhatsApp/);
+    assert.match(SETTING_CALLS, /withNoShowResolutionCleared\(patch\)/);
     // Und der Editor schickt wirklich nichts mehr: sonst stünde die Pflicht
     // halb entfernt da — kein Feld, aber weiterhin ein Schreibpfad.
     assert.doesNotMatch(SETTING_EDITOR, /wa_phone|wa_consent_at|wa_refused_at/);

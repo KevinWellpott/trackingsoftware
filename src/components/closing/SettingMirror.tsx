@@ -1,14 +1,7 @@
 import { ALL_SETTING_BLOCKS, LEGACY_SETTING_BLOCKS } from "@/lib/scripts";
 import { formatTermin } from "@/lib/apptTime";
-import {
-  BRANCHE_LABEL,
-  BUDGET_LABEL,
-  jaNein,
-  SETTING_STATUS_LABEL,
-  SHOW_STATUS_LABEL,
-} from "@/lib/settingLabels";
+import { SETTING_STATUS_LABEL, SHOW_STATUS_LABEL } from "@/lib/settingLabels";
 import type { SettingStatus } from "@/lib/types";
-import { ExternalLink } from "lucide-react";
 
 // Read-only-Spiegel des Setting-Calls, gedacht als gleichwertige Spalte NEBEN
 // dem Closing-Script. Die Masse sind bewusst 1:1 aus ScriptRunner uebernommen
@@ -21,33 +14,12 @@ import { ExternalLink } from "lucide-react";
 export type SettingContext = {
   script_answers: Record<string, string> | null;
   notes: string | null;
-  ist_pain: number | null;
-  warmth: number | null;
-  soll_ziel: string | null;
-  objections_handled: string | null;
-  objections_open: string | null;
-  has_budget_8k: "ja" | "nein" | "unklar" | null;
-  branche: string | null;
-  sole_decider: boolean | null;
-  can_decide_now: boolean | null;
-  clear_need: boolean | null;
   show_status: "show" | "no_show" | null;
   status: SettingStatus | null;
   appointment_at: string | null;
-  recording_link: string | null;
 };
 
 const BLOCK_INDENT = "1.875rem";
-
-const factLabel: React.CSSProperties = {
-  fontSize: "var(--fs-xs)",
-  fontWeight: 500,
-  textTransform: "uppercase",
-  letterSpacing: "var(--ls-eyebrow)",
-  color: "var(--text-muted)",
-  flexShrink: 0,
-  minWidth: 132,
-};
 
 const proseLabel: React.CSSProperties = {
   display: "block",
@@ -80,36 +52,11 @@ function ProseBlock({ label, text }: { label: string; text: string | null }) {
 }
 
 export function SettingMirror({ setting }: { setting: SettingContext }) {
-  // Kernfakten — nur befuellte. Heute bleibt die Liste meist leer, weil keine
-  // Setting-Oberflaeche diese Felder schreibt; sobald sie es tut (oder Daten
-  // importiert werden), erscheinen sie hier ohne weitere Aenderung.
-  const facts: { label: string; value: string }[] = [];
-  if (setting.has_budget_8k) {
-    facts.push({ label: "Budget (8k+)", value: BUDGET_LABEL[setting.has_budget_8k] ?? setting.has_budget_8k });
-  }
-  if (setting.branche) {
-    facts.push({ label: "Branche", value: BRANCHE_LABEL[setting.branche] ?? setting.branche });
-  }
-  if (setting.ist_pain != null) facts.push({ label: "Ist-Pain", value: `${Number(setting.ist_pain)} / 10` });
-  if (setting.warmth != null) facts.push({ label: "Wärme", value: `${Number(setting.warmth)} / 10` });
-  if (setting.soll_ziel?.trim()) facts.push({ label: "Soll-Ziel", value: setting.soll_ziel });
-
-  const soleDecider = jaNein(setting.sole_decider);
-  if (soleDecider) facts.push({ label: "Allein-Entscheider", value: soleDecider });
-  const canDecideNow = jaNein(setting.can_decide_now);
-  if (canDecideNow) facts.push({ label: "Kann jetzt entscheiden", value: canDecideNow });
-  const clearNeed = jaNein(setting.clear_need);
-  if (clearNeed) facts.push({ label: "Klarer Bedarf", value: clearNeed });
-
   const answers = setting.script_answers ?? {};
   const answeredCount = ALL_SETTING_BLOCKS.filter((b) => (answers[b.key] ?? "").trim().length > 0).length;
 
   const termin = formatTermin(setting.appointment_at);
-  const hasProse =
-    Boolean(setting.notes?.trim()) ||
-    Boolean(setting.objections_handled?.trim()) ||
-    Boolean(setting.objections_open?.trim());
-  const isEmpty = facts.length === 0 && answeredCount === 0 && !hasProse;
+  const isEmpty = answeredCount === 0 && !setting.notes?.trim();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
@@ -142,17 +89,6 @@ export function SettingMirror({ setting }: { setting: SettingContext }) {
             </span>
           )}
           {setting.status && <span className="badge badge-gray">{SETTING_STATUS_LABEL[setting.status]}</span>}
-          {setting.recording_link?.trim() && (
-            <a
-              href={setting.recording_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="badge badge-gray"
-              style={{ textDecoration: "none" }}
-            >
-              <ExternalLink size={11} /> Aufzeichnung
-            </a>
-          )}
         </div>
       </div>
 
@@ -160,27 +96,6 @@ export function SettingMirror({ setting }: { setting: SettingContext }) {
         <p style={{ margin: 0, fontSize: "var(--fs-base)", color: "var(--text-muted)" }}>
           Der Setter hat keine Angaben hinterlassen.
         </p>
-      )}
-
-      {/* ── Kernfakten ── */}
-      {facts.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
-          {facts.map((f) => (
-            <div key={f.label} style={{ display: "flex", gap: "var(--sp-4)", alignItems: "baseline" }}>
-              <span style={factLabel}>{f.label}</span>
-              <span
-                style={{
-                  fontSize: "var(--fs-base)",
-                  fontWeight: 500,
-                  color: "var(--text-primary)",
-                  wordBreak: "break-word",
-                }}
-              >
-                {f.value}
-              </span>
-            </div>
-          ))}
-        </div>
       )}
 
       {/* ── Script-Blöcke ──
@@ -265,9 +180,7 @@ export function SettingMirror({ setting }: { setting: SettingContext }) {
         );
       })}
 
-      {/* ── Freitexte des Setters ── */}
-      <ProseBlock label="Einwände behandelt" text={setting.objections_handled} />
-      <ProseBlock label="Einwände offen" text={setting.objections_open} />
+      {/* ── Freitext des Setters ── */}
       <ProseBlock label="Notizen des Setters" text={setting.notes} />
     </div>
   );
