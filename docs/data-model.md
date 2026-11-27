@@ -146,7 +146,7 @@ die es **nicht mehr gibt** (§3).
   Der Stempel aus 0041 wird weiter mitgeschrieben (Dossier, Termin-Mails).
 - **Versuche** = Einträge mit `nicht_erreicht` seit dem letzten `erreicht` (gerechnet). Ab
   `AUFGEBEN_AB_VERSUCHEN = 5` schlägt die Zeile „Aufgeben?" vor — nie automatisch.
-- **Aufräumen**: Altfall = fällig, letztes Lebenszeichen mehr als 14 Tage vor
+- **Aufräumen**: Altfall = fällig (auch „Ergebnis fehlt"), letztes Lebenszeichen mehr als 14 Tage vor
   `NACHFASSEN_START` (Konstante in `nachfassRegel.ts`, **beim Deploy auf den Livegang-Tag
   setzen**), kein Protokolleintrag. Steht nur im Reiter „Aufräumen" (Sammelaktionen: nochmal
   versuchen / aufgeben / sperren) — sichtbar und gezählt, kein versteckter Altersschnitt.
@@ -159,8 +159,8 @@ die es **nicht mehr gibt** (§3).
 - **Navigations-Badge** zählt dieselbe Menge wie die Seite: überfällig + heute + „Ergebnis
   fehlt", ohne „Aufräumen" (`getNavCounts()` in `src/lib/navCountsData.ts` liest
   `ladeNachfassen`). `loadNavCounts` in `navCounts.ts` (Zähler über `recycle_tasks`) ist
-  abgelöst. In Seitenleiste und Quicklinks heißt der Eintrag wieder „Nachfassen" und steht vor
-  „Termine".
+  abgelöst. In der Navigation heißt der Eintrag **„Heute"** (Route bleibt `/nachfassen`, die
+  Seite trägt „Nachfassen" als Überzeile), siehe §0.5.
 - **Nachfolger aus der Ablage**: `terminZustand()` kennt `hatNachfolger` — eine Zeile, auf die
   `revived_from_*` zeigt, ist Historie (`tot`/`kein_close`).
 - **Dossier**: jeder Protokolleintrag ist ein Ereignis („Nachgefasst · nicht erreicht",
@@ -217,8 +217,38 @@ nutzen, ließ sich ohne Zugriff auf die Vercel-Logs nicht prüfen).
 
 ### 0.4 Call-Modus und Erstgespräch
 
-Fällige Rückrufe stehen im Call-Modus vorn, nach Uhrzeit (Prüfliste O4). Das Skript im
-Erstgespräch ist einklappbar (offen, solange kein Ergebnis steht; O8).
+Fällige Rückrufe stehen im Call-Modus vorn, nach Uhrzeit (Prüfliste O4); die Warteschlange ist
+gruppiert in Rückruf fällig → Wiederholen → Noch nie angerufen. Das Skript im Erstgespräch ist
+einklappbar (offen, solange kein Ergebnis steht; O8).
+
+**Für Auswertungen wichtig — das Ergebnis wird 5 Sekunden verzögert gespeichert** (Entscheidung
+T1). Rückruf, Nicht erreicht, Kein Termin und Tot gehen erst nach Ablauf des
+„Rückgängig"-Fensters an `setPhoneLeadOutcome`; wer zurücknimmt, erzeugt **keine** Anwahl und
+keinen Statuswechsel. `phone_call_attempts.called_at` liegt dadurch bis zu fünf Sekunden nach
+dem Klick. Termin speichert sofort (Formular mit Pflichtfeldern). Der Grund für „Tot" steht als
+Zeile „Tot: …" in `phone_leads.notes` — es gibt dafür bewusst keine Spalte. Die Warnung vor dem
+dritten „Nicht erreicht" liest dieselbe Serie wie der Server (letzte zwei Anwahlen nach
+`attempt_no`); entscheiden tut weiterhin der Server. Gatekeeper ist ein freiwilliges Feld.
+`/telefon/[listId]` öffnet als Übersicht, der Call-Modus mit `?modus=anrufen`.
+
+### 0.5 Oberfläche (Redesign „Liquid Glass")
+
+- **Navigation**: Übersicht (`/`) · **Heute** (`/nachfassen`, einziges Badge) · **Kalender**
+  (`/termine`) · Akquise (Telefon, LinkedIn) · Vertrieb (Setting, Closing, No-Shows, Ablage) ·
+  Kunden (nur intern) · Auswertung (Analyse, Vergleich, Team) · Verwaltung. Handy-Tabs: Heute ·
+  Kalender · Telefon · Mehr.
+- **Neue Routen**: `/setting` und `/closing` sind Listen (vorher Umleitung nach `/termine`),
+  Segmente nach dem abgeleiteten Zustand (`src/lib/vorgangSegmente.ts`; das erste heißt „Ohne
+  Ergebnis", nicht „Offen" — §1, Verwechslungsgefahr). `/no-shows` zeigt Erstgespräch
+  (strikt persönlich wie die Setting-No-Show-Listen, dazu direkt gebuchte No-Shows ohne Lead
+  nach `personOf`) und Closing (`terminZustand = no_show`).
+- **Dashboard**: Kennzahl-Module, „Heute dran" aus `ladeNachfassen` (dieselbe Zahl wie das
+  Badge), „Heute im Kalender", Trichter „Von Termin zu Geld" — beginnt beim Termin, addiert nie
+  DMs und Anwahlen; zwischen Qualifiziert und Closings steht ein Bruch ohne Prozentzahl, weil die
+  beiden Teile auf verschiedenen Stichtagen zählen.
+- **Darstellung**: Cookies `tt-theme` (`system`|`light`|`dark`) und `tt-material`
+  (`glass`|`solid`) je Gerät, gesetzt in `src/lib/appearance.ts`. Keine Daten.
+- Design-Grundlagen: `docs/DESIGN.md`.
 
 ## 1. Was die App trackt (Lifecycle)
 

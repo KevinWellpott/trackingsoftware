@@ -139,7 +139,9 @@ export function faelligkeitsTag(e: Pick<NachfassEintrag, "faelligAm" | "koernung
  * „Nochmal versuchen" setzt es und holt den Vorgang damit nach „Fällig".
  */
 export function istAltfall(e: NachfassEintrag, today: string, start: string = NACHFASSEN_START): boolean {
-  if (e.ergebnisFehlt) return false;
+  // Auch ein alter Termin ohne Ergebnis ist Altbestand: Sonst stünden am
+  // ersten Tag Dutzende Monate alte Termine unter „Ergebnis fehlt" (Prüfung
+  // 27.11.: bis zu 23 je Person). Aufgeräumt wird er wie jeder Altfall.
   if (e.kontakte.length > 0) return false;
   const grenze = addDaysISO(start, -ALTFALL_TAGE);
   const tag = faelligkeitsTag(e, today);
@@ -157,8 +159,8 @@ export function istAltfall(e: NachfassEintrag, today: string, start: string = NA
  * (`isOverdue(…, "moment")`-Logik), alles andere ab dem Tag.
  */
 export function gruppeVon(e: NachfassEintrag, today: string, nowMs: number, start: string = NACHFASSEN_START): NachfassGruppe {
-  if (e.ergebnisFehlt) return "ergebnis_fehlt";
   if (istAltfall(e, today, start)) return "aufraeumen";
+  if (e.ergebnisFehlt) return "ergebnis_fehlt";
   const tag = faelligkeitsTag(e, today);
   if (tag < today) return "ueberfaellig";
   if (tag === today) {

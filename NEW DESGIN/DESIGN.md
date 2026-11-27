@@ -1,5 +1,8 @@
 # Titan Design System — „Ember Glass"
 
+> **Abgelöst** durch `docs/DESIGN.md` („Liquid Glass", hell und dunkel) mit dem Release Dezember
+> 2026. Dieses Dokument bleibt als Historie stehen.
+
 > **Status:** v1 · 2026-07 · verbindlich für die **CRM/Akquise-Produktlinie**
 > **Dateien:** `DESIGN.md` (dieses Dokument) · `COMPONENTS.md` (CRM-Komponenten) · `tokens.css` (Custom Properties) · `style-tile.html` (Live-Vorschau)
 > **Herkunft:** abgeleitet aus dem **LinkedIn-Banner** (`titan-landing-v2/LinkedIN/titan-linkedin-banner-v2.png`) und der **titan-landing-v2 Landing Page** — Near-Black, `titan.`-Wortmarke, Orange `#F97316`, 1px-Border-Ästhetik, Liquid Glass. Schrift: **Inter** (bewusste Abweichung von Geist auf der Landing Page).

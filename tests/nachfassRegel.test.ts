@@ -77,6 +77,11 @@ describe("Fälligkeit und Gruppen", () => {
 });
 
 describe("Altfall (Aufräumen)", () => {
+  test("auch ein alter Termin ohne Ergebnis landet im Aufräumen, ein frischer nicht", () => {
+    assert.equal(gruppeVon(e({ ergebnisFehlt: true, lebenszeichen: "2026-09-10" }), HEUTE, NOW, START), "aufraeumen");
+    assert.equal(gruppeVon(e({ ergebnisFehlt: true, lebenszeichen: "2026-12-05" }), HEUTE, NOW, START), "ergebnis_fehlt");
+  });
+
   test("altes Lebenszeichen, nie angefasst → Aufräumen", () => {
     assert.equal(istAltfall(e({ lebenszeichen: "2026-10-01" }), HEUTE, START), true);
   });

@@ -13,7 +13,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAccessContext } from "@/lib/access";
-import { berlinDateISO } from "@/lib/apptTime";
+import { berlinDateISO, berlinInputToIso } from "@/lib/apptTime";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { markTerminDead } from "@/app/actions/followUpStamp";
@@ -420,7 +420,11 @@ export async function nochmalVersuchen(
   let patch: Record<string, string | null>;
   if (quelle === "termin") patch = { follow_up_due: tag, ...(art === "closing" ? { follow_up_due_at: null } : {}) };
   else if (quelle === "recycling") patch = { next_recycle_at: tag };
-  else return { error: "Einen Rückruf bitte über „Rückruf verschieben“ neu terminieren." };
+  // Rückruf: neuer verabredeter Zeitpunkt am gewählten Tag, 10:00 Berliner
+  // Zeit. Ohne diesen Zweig scheiterte die Sammelaktion an jedem alten Rückruf
+  // (Prüfung 27.11.: 91 Rückrufe älter als 14 Tage).
+  else if (quelle === "rueckruf" && art === "phone_lead") patch = { callback_at: berlinInputToIso(`${tag}T10:00`) };
+  else return { error: "Nicht gefunden." };
 
   const { error } = await supabase.from(TABELLE[art]).update(patch).eq("id", id).eq("workspace_id", access.workspace_id);
   if (error) return { error: error.message };
