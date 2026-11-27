@@ -141,7 +141,7 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
-        className="ui-modal"
+        className="ui-modal glass-dense"
         // Das fokussierte Feld nach dem Aufgehen der Tastatur in die Mitte
         // holen — sonst steht es unter der klebenden Knopf-Reihe.
         onFocus={(e) => {
@@ -153,12 +153,10 @@ export function Modal({
         style={{
           width: "100%",
           maxWidth: width,
-          // Dialoge sind bewusst SOLID (surface-4) — Inhalte muessen ruhig
-          // lesbar sein. Glas bleibt Nav, Popover und Palette vorbehalten.
-          background: "var(--surface-4)",
-          border: "1px solid var(--border-default)",
+          // Glas dicht (globals.css, .glass-dense): Der Scrim beruhigt den
+          // Hintergrund, die dichte Fuellung haelt den Inhalt lesbar. Mit
+          // Material „Solide" wird der Dialog deckend.
           borderRadius: "var(--r-xl)",
-          boxShadow: "var(--shadow-overlay)",
           overflow: "hidden",
           maxHeight: "80vh",
           display: "flex",

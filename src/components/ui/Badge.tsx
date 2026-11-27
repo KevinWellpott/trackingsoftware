@@ -2,55 +2,18 @@
 
 import { type CSSProperties, type ReactNode } from "react";
 
-// Badges des Ember-Glass-Systems (COMPONENTS.md §4).
+// Plaketten des Liquid-Glass-Systems.
 //
-// Regel aus DESIGN.md §3.5: Markenorange traegt NIEMALS Status.
-// „warning" ist Gold, nicht Orange. Der Ton `accent` existiert nur fuer
-// Fokus-/Heute-Marker — nicht fuer Ergebnisse.
-// Status wird zusaetzlich immer durch Icon oder Text getragen, nie durch
-// Farbe allein (CVD).
+// Regel: Markenorange traegt NIEMALS Status. „warning" ist Gold, nicht
+// Orange. Der Ton `accent` existiert nur fuer Fokus-/Heute-Marker — nicht fuer
+// Ergebnisse. Status wird zusaetzlich immer durch Icon oder Text getragen, nie
+// durch Farbe allein (CVD).
+//
+// Die Toene stehen in globals.css (.badge[data-tone=…]) — fuer beide Modi an
+// einer Stelle. Status ist die Regel als Punkt + Text (`.status`), die
+// Plakette die Ausnahme (No-Show, Abgesagt, Ueberfaellig).
 
 export type BadgeTone = "success" | "error" | "warning" | "info" | "neutral" | "brand" | "accent";
-
-const TONE_STYLES: Record<BadgeTone, CSSProperties> = {
-  success: {
-    backgroundColor: "var(--success-bg)",
-    color: "var(--success-fg)",
-    border: "1px solid rgb(63 179 127 / 0.28)",
-  },
-  error: {
-    backgroundColor: "var(--danger-bg)",
-    color: "var(--danger-fg)",
-    border: "1px solid rgb(214 90 82 / 0.28)",
-  },
-  warning: {
-    backgroundColor: "var(--warning-bg)",
-    color: "var(--warning-fg)",
-    border: "1px solid rgb(209 162 79 / 0.28)",
-  },
-  info: {
-    backgroundColor: "var(--info-bg)",
-    color: "var(--info-fg)",
-    border: "1px solid rgb(78 128 214 / 0.28)",
-  },
-  neutral: {
-    backgroundColor: "var(--surface-3)",
-    color: "var(--text-secondary)",
-    border: "1px solid var(--border-default)",
-  },
-  // brand/accent sind derselbe Fokus-Ton — „brand" bleibt als Alias fuer
-  // bestehende Aufrufer erhalten.
-  brand: {
-    backgroundColor: "var(--accent-muted)",
-    color: "var(--orange-300)",
-    border: "1px solid var(--border-accent)",
-  },
-  accent: {
-    backgroundColor: "var(--accent-muted)",
-    color: "var(--orange-300)",
-    border: "1px solid var(--border-accent)",
-  },
-};
 
 export function Badge({
   tone = "neutral",
@@ -64,11 +27,7 @@ export function Badge({
   title?: string;
 }) {
   return (
-    <span
-      title={title}
-      className="badge"
-      style={{ ...TONE_STYLES[tone], ...style }}
-    >
+    <span title={title} className="badge" data-tone={tone} style={style}>
       {children}
     </span>
   );
@@ -140,12 +99,7 @@ export function StageBadge({
   title?: string;
 }) {
   return (
-    <span
-      title={title}
-      className="badge"
-      data-stage={stage}
-      style={{ ...TONE_STYLES.neutral, ...style }}
-    >
+    <span title={title} className="badge" data-tone="neutral" data-stage={stage} style={style}>
       {children}
     </span>
   );

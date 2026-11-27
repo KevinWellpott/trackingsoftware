@@ -70,7 +70,7 @@ export function Toggle({
             width: 16,
             height: 16,
             borderRadius: "50%",
-            background: disabled ? "var(--text-disabled)" : "#fafafa",
+            background: disabled ? "var(--text-disabled)" : "var(--knob)",
             transition: "left var(--dur-1) var(--ease-in-out)",
           }}
         />

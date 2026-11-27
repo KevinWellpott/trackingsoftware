@@ -25,7 +25,10 @@ import {
   SECTION_HEAD,
   SECTION_TITLE,
 } from "@/components/settings/settingsStyles";
-import { Plus, Shield, Target, UserCheck, Users } from "lucide-react";
+import { Plus, Shield, SunMoon, Target, UserCheck, Users } from "lucide-react";
+import { cookies } from "next/headers";
+import { AppearanceControls } from "@/components/ui/Appearance";
+import { MATERIAL_COOKIE, THEME_COOKIE, parseMaterialPref, parseThemePref } from "@/lib/appearance";
 
 const TARGET_FIELDS: {
   label: string;
@@ -57,6 +60,11 @@ export default async function SettingsPage({
   if (!access) return null;
 
   const q = await searchParams;
+  // Darstellung je Geraet (lib/appearance.ts) — der Server-Wert traegt den
+  // ersten Render der Schalter, bis der Browser uebernimmt.
+  const cookieStore = await cookies();
+  const themePref = parseThemePref(cookieStore.get(THEME_COOKIE)?.value);
+  const materialPref = parseMaterialPref(cookieStore.get(MATERIAL_COOKIE)?.value);
   const isOwner = access.role === "owner";
   // Strenger als `isOwner`: die Pipeline-Werte gelten für das ganze Team —
   // die Verschiebe-Warnung an jedem Termin, die Recycling-Frist an jedem toten
@@ -94,6 +102,19 @@ export default async function SettingsPage({
       {q.userErr && (
         <div role="alert" style={FEEDBACK_ERR}>{q.userErr}</div>
       )}
+
+      {/* ── Darstellung ── */}
+      {/* Gespiegelt aus dem Sonnen-Knopf unten in der Seitenleiste: dieselben
+          zwei Schalter, dieselbe Speicherung (Cookie je Geraet). */}
+      <div className="card" style={{ overflow: "hidden" }}>
+        <div style={SECTION_HEAD}>
+          <SunMoon size={16} color="var(--text-muted)" />
+          <span style={SECTION_TITLE}>Darstellung</span>
+        </div>
+        <div style={{ padding: "var(--sp-7) var(--sp-8)" }}>
+          <AppearanceControls serverTheme={themePref} serverMaterial={materialPref} />
+        </div>
+      </div>
 
       {/* ── Workspace ── */}
       <div className="card" style={{ overflow: "hidden" }}>

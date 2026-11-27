@@ -223,7 +223,7 @@ export function ReviveDialog({
                 fontSize: "var(--fs-sm)",
                 color: "var(--danger-fg)",
                 background: "var(--danger-bg)",
-                border: "1px solid rgb(214 90 82 / 0.28)",
+                border: "1px solid var(--danger-line)",
                 borderRadius: "var(--r-sm)",
                 padding: "var(--sp-4) var(--sp-5)",
               }}

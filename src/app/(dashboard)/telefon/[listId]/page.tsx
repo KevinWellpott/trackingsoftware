@@ -266,7 +266,7 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
           }}
         >
           <ChevronRight size={14} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-          <FileText size={14} style={{ color: "var(--orange-500)", flexShrink: 0 }} />
+          <FileText size={14} style={{ color: "var(--accent-text)", flexShrink: 0 }} />
           <span className="eyebrow">Skript &amp; A/B-Test</span>
           <span
             style={{

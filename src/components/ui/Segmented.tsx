@@ -1,10 +1,12 @@
 "use client";
 
-// Segmented-Control (COMPONENTS.md §3.6).
-// Container = Pill auf surface-1. Aktives Segment = Orange-Pill mit dunklem
-// Text (#0A0A0B auf Orange = 7.1:1 — die barrierefreie Variante; weisser
-// Text auf Orange waere nur 2.8:1). Pfeiltasten wechseln Segmente.
-// Touch-Bump (≥44px) via .ui-segmented button in globals.css.
+import { useLayoutEffect, useRef, useState } from "react";
+
+// Segmented-Control: Kapsel (Mulde) mit gleitendem Glas-Daumen unter dem
+// aktiven Segment. Der aktive Text bleibt Text 1 — Orange ist Aktion, nicht
+// Auswahl. Pfeiltasten wechseln Segmente.
+// Optik in globals.css (.ui-segmented, .ui-seg-thumb); Touch-Bump (≥44px)
+// ueber `.ui-segmented button`.
 
 export type SegmentedOption<T extends string> = { value: T; label: string };
 
@@ -23,7 +25,27 @@ export function Segmented<T extends string>({
   ariaLabel?: string;
   fullWidth?: boolean;
 }) {
-  const height = size === "md" ? 32 : 28;
+  const groupRef = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ left: number; width: number } | null>(null);
+
+  // Den Daumen an das aktive Segment legen — und neu messen, wenn sich die
+  // Kapsel veraendert (Schrift geladen, Breite umgebrochen, Zaehler gewachsen).
+  useLayoutEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const measure = () => {
+      const active = group.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
+      const next = active ? { left: active.offsetLeft, width: active.offsetWidth } : null;
+      setThumb((prev) =>
+        prev && next && prev.left === next.left && prev.width === next.width ? prev : next,
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(group);
+    return () => ro.disconnect();
+  }, [value, options]);
 
   function onKeyDown(e: React.KeyboardEvent, index: number) {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -35,19 +57,17 @@ export function Segmented<T extends string>({
 
   return (
     <div
+      ref={groupRef}
       className="ui-segmented"
       role="group"
       aria-label={ariaLabel}
-      style={{
-        display: fullWidth ? "flex" : "inline-flex",
-        alignItems: "stretch",
-        gap: 2,
-        padding: 2,
-        background: "var(--surface-1)",
-        border: "1px solid var(--border-default)",
-        borderRadius: "var(--r-full)",
-      }}
+      data-size={size}
+      data-full={fullWidth ? "" : undefined}
+      data-thumb={thumb ? "" : undefined}
     >
+      {thumb && (
+        <span className="ui-seg-thumb" aria-hidden="true" style={{ left: thumb.left, width: thumb.width }} />
+      )}
       {options.map((opt, i) => {
         const active = opt.value === value;
         return (
@@ -57,24 +77,6 @@ export function Segmented<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
             onKeyDown={(e) => onKeyDown(e, i)}
-            style={{
-              flex: fullWidth ? 1 : undefined,
-              minHeight: height,
-              padding: size === "md" ? "0 16px" : "0 12px",
-              fontSize: size === "md" ? "var(--fs-base)" : "var(--fs-sm)",
-              fontWeight: active ? 600 : 500,
-              fontFamily: "inherit",
-              color: active ? "#0a0a0b" : "var(--text-muted)",
-              // Aktive Pille traegt denselben CTA-Verlauf wie die Buttons —
-              // dunkler Text darauf, weisser waere auf Orange nur 2.8:1.
-              background: active ? "var(--grad-cta)" : "transparent",
-              boxShadow: active ? "var(--lip-control)" : undefined,
-              border: "none",
-              borderRadius: "var(--r-full)",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              transition: "background var(--transition-fast), color var(--transition-fast)",
-            }}
           >
             {opt.label}
           </button>

@@ -1,7 +1,10 @@
-// Datenvisualisierung — Ember Glass (DESIGN.md §3.7, COMPONENTS.md §9).
+// Datenvisualisierung — Liquid Glass, hell und dunkel.
 //
-// Recharts kann CSS-Variablen nicht in allen Props lesen (Gradient-Stops,
-// Berechnungen), deshalb liegt die Palette hier zusaetzlich als Konstante.
+// Die Farben sind CSS-Variablen (globals.css, --viz-*): Recharts schreibt sie
+// als `fill`/`stroke`-Attribute ins SVG, und dort loest der Browser `var()`
+// je Modus auf. Feste Hexwerte waeren im Hellmodus falsch (Raster, Achsen,
+// die helle Rampenstufe auf Weiss). Wer eine Farbe RECHNEN muss, nimmt
+// `tint()` — color-mix versteht `var()`.
 //
 // WICHTIG: Die kategoriale Palette ist computational validiert — alle Farben
 // ≥ 3:1 gegen den Canvas #0A0A0B, benachbarte Slots CVD-unterscheidbar
@@ -9,13 +12,28 @@
 // Farbe „mal eben" tauschen; das bricht die Validierung.
 
 /** Kategoriale Palette in fixer Slot-Reihenfolge. Serie 1 → VIZ[0] usw. */
-export const VIZ = ["#ea580c", "#4e80d6", "#3fa36f", "#d946ef", "#0d9488", "#8b5cf6"] as const;
+export const VIZ = [
+  "var(--viz-1)",
+  "var(--viz-2)",
+  "var(--viz-3)",
+  "var(--viz-4)",
+  "var(--viz-5)",
+  "var(--viz-6)",
+] as const;
 
-/** Sequenzielle Rampe (eine Hue) — fuer Funnel, Heatmaps, Intensitaet. */
-export const VIZ_RAMP = ["#431407", "#7c2d12", "#c2410c", "#ea580c", "#f97316", "#fdba74"] as const;
+/** Sequenzielle Rampe (eine Hue) — fuer Funnel, Heatmaps, Intensitaet.
+    Der Index steigt mit der Betonung; im Hellmodus laeuft sie nach dunkel. */
+export const VIZ_RAMP = [
+  "var(--viz-ramp-0)",
+  "var(--viz-ramp-1)",
+  "var(--viz-ramp-2)",
+  "var(--viz-ramp-3)",
+  "var(--viz-ramp-4)",
+  "var(--viz-ramp-5)",
+] as const;
 
 /** Divergierend (Abweichung vom Ziel): Blau ← Neutral → Orange. */
-export const VIZ_DIVERGING = ["#4e80d6", "#6e7076", "#ea580c"] as const;
+export const VIZ_DIVERGING = ["var(--viz-2)", "var(--viz-neutral)", "var(--viz-1)"] as const;
 
 /**
  * Neutral-Ton fuer Segmente ohne eigene Kategorie („keine Antwort", „offen").
@@ -23,10 +41,10 @@ export const VIZ_DIVERGING = ["#4e80d6", "#6e7076", "#ea580c"] as const;
  * (#151519) sichtbar zu bleiben, und ueber 3:1 gegen den Canvas. Surface-
  * Toene sind dafuer ungeeignet: sie verschwinden im Hintergrund.
  */
-export const VIZ_NEUTRAL = "#6e7076";
+export const VIZ_NEUTRAL = "var(--viz-neutral)";
 
-export const VIZ_GRID = "rgba(255, 255, 255, 0.06)";
-export const VIZ_AXIS = "#8a8b90";
+export const VIZ_GRID = "var(--viz-grid)";
+export const VIZ_AXIS = "var(--viz-axis)";
 
 /** Serienfarbe nach Slot — waelzt bei > 6 Serien um (dann besser gruppieren). */
 export function vizSlot(index: number): string {
@@ -81,7 +99,7 @@ export const TOOLTIP_LABEL_STYLE: React.CSSProperties = {
   marginBottom: 2,
 };
 
-export const CURSOR_FILL = { fill: "rgba(255, 255, 255, 0.04)" } as const;
+export const CURSOR_FILL = { fill: "var(--viz-cursor)" } as const;
 
 export const LEGEND_STYLE: React.CSSProperties = {
   fontSize: "var(--fs-xs)",

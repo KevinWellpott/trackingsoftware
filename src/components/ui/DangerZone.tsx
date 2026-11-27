@@ -61,7 +61,7 @@ export function DangerZone({
   return (
     <div
       style={{
-        border: "1px solid rgb(214 90 82 / 0.40)",
+        border: "1px solid var(--danger-line)",
         borderRadius: "var(--r-lg)",
         background: "var(--surface-2)",
         padding: "var(--sp-7) var(--sp-8)",

@@ -189,7 +189,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
               }}
             >
               <ChevronRight size={14} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-              <TrendingUp size={14} style={{ color: "var(--orange-500)", flexShrink: 0 }} />
+              <TrendingUp size={14} style={{ color: "var(--accent-text)", flexShrink: 0 }} />
               <span className="eyebrow">Verlauf</span>
               <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginLeft: "auto", whiteSpace: "nowrap" }}>
                 Letzte 30 Tage · Antwortverteilung
@@ -241,7 +241,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
           style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", padding: "var(--sp-6) var(--sp-8)", cursor: "pointer", userSelect: "none" }}
         >
           <ChevronRight size={14} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-          <FileText size={14} style={{ color: "var(--orange-500)", flexShrink: 0 }} />
+          <FileText size={14} style={{ color: "var(--accent-text)", flexShrink: 0 }} />
           <span className="eyebrow">Pitch-Text &amp; Follow-ups</span>
           <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", marginLeft: "auto", whiteSpace: "nowrap" }}>
             {sequenceEmpty ? "noch nicht hinterlegt" : `Pitch + ${fuFilled}/3 Follow-ups`}

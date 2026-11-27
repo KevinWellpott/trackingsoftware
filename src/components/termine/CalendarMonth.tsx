@@ -116,7 +116,7 @@ export function CalendarMonth({
                     // Dunkler Text auf Orange (7.1:1). Weiss auf Orange waere
                     // nur 2.8:1 und faellt unter jede WCAG-Schwelle.
                     color: isToday
-                      ? "#0a0a0b"
+                      ? "var(--on-accent)"
                       : cell.inMonth
                         ? "var(--text-secondary)"
                         : "var(--text-disabled)",

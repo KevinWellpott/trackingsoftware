@@ -201,7 +201,7 @@ export function CalendarTimeGrid({
                       fontWeight: 600,
                       lineHeight: 1,
                       // Dunkler Text auf Orange (7.1:1), nie Weiss.
-                      color: isToday ? "#0a0a0b" : "var(--text-primary)",
+                      color: isToday ? "var(--on-accent)" : "var(--text-primary)",
                       background: isToday ? "var(--orange-500)" : "transparent",
                       borderRadius: "50%",
                       width: 22,

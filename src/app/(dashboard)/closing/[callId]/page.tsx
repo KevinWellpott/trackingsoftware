@@ -20,13 +20,13 @@ const STATUS_META: Record<ClosingCall["status"], { label: string; color: string;
     label: "Gewonnen",
     color: "var(--success-fg)",
     bg: "var(--success-bg)",
-    border: "rgb(63 179 127 / 0.28)",
+    border: "var(--success-line)",
   },
   verloren: {
     label: "Verloren",
     color: "var(--danger-fg)",
     bg: "var(--danger-bg)",
-    border: "rgb(214 90 82 / 0.28)",
+    border: "var(--danger-line)",
   },
   nachfassen: {
     label: "Nachfassen",

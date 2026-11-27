@@ -49,7 +49,7 @@ export function MobileBottomNav({
   const pathname = usePathname() ?? "/";
 
   return (
-    <nav className="mobile-bottom-nav glass-nav" aria-label="Hauptnavigation">
+    <nav className="mobile-bottom-nav glass" aria-label="Hauptnavigation">
       {TABS.map((t) => {
         const active = t.match(pathname);
         const Icon = t.icon;

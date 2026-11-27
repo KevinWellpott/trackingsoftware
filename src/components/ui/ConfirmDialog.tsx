@@ -56,12 +56,9 @@ export function ConfirmDialog({
           onClick={onConfirm}
           loading={loading}
           // Erst im Bestaetigungs-Dialog wird die Flaeche voll --danger mit
-          // dunklem Text (COMPONENTS.md §2.4) — nie Orange fuer Destruktives.
-          style={
-            destructive
-              ? { background: "var(--danger)", color: "#0a0a0b", borderColor: "var(--danger)", fontWeight: 600 }
-              : undefined
-          }
+          // dunkler Tinte (globals.css, `[data-solid]`) — nie Orange fuer
+          // Destruktives.
+          data-solid={destructive ? "" : undefined}
         >
           {confirmLabel}
         </Button>

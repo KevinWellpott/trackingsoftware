@@ -140,7 +140,7 @@ export function CalendarPopover({
                 border: isToday && !selected ? "1px solid var(--border-accent)" : "1px solid transparent",
                 borderRadius: "var(--r-sm)",
                 background: selected ? "var(--orange-500)" : "transparent",
-                color: selected ? "#0a0a0b" : cell.inMonth ? "var(--text-secondary)" : "var(--text-disabled)",
+                color: selected ? "var(--on-accent)" : cell.inMonth ? "var(--text-secondary)" : "var(--text-disabled)",
                 fontSize: "var(--fs-xs)",
                 fontWeight: selected || isToday ? 600 : 400,
                 fontVariantNumeric: "tabular-nums",

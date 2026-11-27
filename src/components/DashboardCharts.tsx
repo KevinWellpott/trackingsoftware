@@ -27,7 +27,7 @@ export const METRIC_COLORS = {
   dms: VIZ[0],
   answers: VIZ[1],
   appointments: VIZ[2],
-  followups: "#d1a24f",
+  followups: "var(--warning)",
 };
 
 export { tint, TOOLTIP_STYLE };

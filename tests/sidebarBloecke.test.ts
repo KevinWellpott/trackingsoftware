@@ -356,9 +356,11 @@ describe("Aufklapp-Zustand", () => {
 describe("Design-Schema", () => {
   test("keine neuen Farben — Graustufen, Orange und der eine Überfällig-Ton", () => {
     // Die Farbregel steht als Kopfkommentar in der Datei. Ein eingeschleuster
-    // Hexwert wäre die leiseste Art, sie zu brechen.
+    // Hexwert wäre die leiseste Art, sie zu brechen. Seit dem Liquid-Glass-
+    // Umbau trägt die Leiste gar keinen Hexwert mehr — die dunkle Tinte auf
+    // Orange kommt aus `--on-accent` (Hell- und Dunkelmodus).
     const hex = SIDEBAR.match(/#[0-9a-fA-F]{3,8}/g) ?? [];
-    assert.deepEqual([...new Set(hex)], ["#0a0a0b"], "neuer Hexwert in der Seitenleiste");
+    assert.deepEqual([...new Set(hex)], [], "neuer Hexwert in der Seitenleiste");
     assert.doesNotMatch(SIDEBAR, /\brgba?\(/);
   });
 

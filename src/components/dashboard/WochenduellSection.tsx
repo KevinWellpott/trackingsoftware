@@ -139,7 +139,7 @@ export function WochenduellSection({
           {/* Orange nur als Tint, nie als Vollflaeche (DESIGN.md §3.8) — das
               haelt den einen Markenfunken der Karte, ohne zu leuchten. */}
           <div style={{ width: 32, height: 32, borderRadius: "var(--r-md)", background: "var(--accent-muted)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Trophy size={16} color="var(--orange-500)" aria-hidden />
+            <Trophy size={16} color="var(--accent-text)" aria-hidden />
           </div>
           <div>
             <div style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--text-primary)", letterSpacing: "var(--ls-tight)" }}>Wochenduell — Wer bezahlt das Essen?</div>

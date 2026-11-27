@@ -201,7 +201,7 @@ export function ListPerformanceTable({
         >
           {col.label}
           {/* Sortierpfeil 12px in --orange-500 (COMPONENTS.md §6). */}
-          {active && <Icon size={12} color="var(--orange-500)" aria-hidden />}
+          {active && <Icon size={12} color="var(--accent-text)" aria-hidden />}
         </button>
       </th>
     );
@@ -247,9 +247,9 @@ export function ListPerformanceTable({
                 Liste
                 {sort === "name" &&
                   (asc ? (
-                    <ArrowUp size={12} color="var(--orange-500)" aria-hidden />
+                    <ArrowUp size={12} color="var(--accent-text)" aria-hidden />
                   ) : (
-                    <ArrowDown size={12} color="var(--orange-500)" aria-hidden />
+                    <ArrowDown size={12} color="var(--accent-text)" aria-hidden />
                   ))}
               </button>
             </th>

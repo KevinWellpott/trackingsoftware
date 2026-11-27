@@ -22,19 +22,19 @@ const TONE: Record<StatTileTone, { rail: string; fg: string; bg: string; border:
     rail: "var(--success)",
     fg: "var(--success-fg)",
     bg: "var(--success-bg)",
-    border: "rgb(63 179 127 / 0.32)",
+    border: "var(--success-line)",
   },
   error: {
     rail: "var(--danger)",
     fg: "var(--danger-fg)",
     bg: "var(--danger-bg)",
-    border: "rgb(214 90 82 / 0.32)",
+    border: "var(--danger-line)",
   },
   warning: {
     rail: "var(--warning)",
     fg: "var(--warning-fg)",
     bg: "var(--warning-bg)",
-    border: "rgb(209 162 79 / 0.32)",
+    border: "var(--warning-line)",
   },
   // „brand" = Fokus/Ziel uebertroffen — der einzige Orange-Ton der Kachel.
   brand: {
@@ -87,10 +87,18 @@ export function StatTile({
         ...(solid ? { background: t.bg, borderColor: t.border } : null),
       }}
     >
+      {/* Ton als Lichthof oben rechts statt als Kante — auf der runden
+          Karte (Radius 20) liefe eine 2px-Kante in die Ecke hinein. */}
       {accent && !solid && (
         <span
           aria-hidden
-          style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 2, background: t.rail }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "inherit",
+            pointerEvents: "none",
+            background: `radial-gradient(70% 60% at 100% 0%, ${t.bg}, transparent 70%)`,
+          }}
         />
       )}
 
@@ -98,7 +106,7 @@ export function StatTile({
         {icon && (
           <span
             aria-hidden
-            style={{ display: "inline-flex", color: solid ? t.fg : "var(--orange-500)", flexShrink: 0 }}
+            style={{ display: "inline-flex", color: solid ? t.fg : "var(--accent-text)", flexShrink: 0 }}
           >
             {icon}
           </span>

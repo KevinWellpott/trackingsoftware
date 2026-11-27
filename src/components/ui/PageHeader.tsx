@@ -1,11 +1,16 @@
 import type { ReactNode } from "react";
 
-// Einheitlicher Seitenkopf fuer alle Views.
+// Einheitlicher Seitenkopf: die klebende Glasleiste (globals.css, .page-bar).
 //
-// Anatomie: Eyebrow (12px uppercase, Orange) → Seiten-Titel (22px/600,
-// --ls-display) → optionale Meta-Zeile · rechts der Aktionsbereich.
-// Genau EIN Primaer-CTA pro View gehoert hierher; alles Weitere ist
-// Sekundaer oder Ghost (DESIGN.md §3.8).
+// Anatomie: Eyebrow (11px, Text 3) ueber dem Titel (17px/600) · Meta daneben
+// in Text 2 · rechts die Aktionen. Genau EIN Primaerknopf pro View gehoert
+// hierher; alles Weitere ist Sekundaer oder Ghost.
+//
+// Die Leiste ist KEIN Kind eines eigenen Wrappers, sondern steht direkt in der
+// Seite: Ein klebendes Element klebt nur innerhalb seines Elternblocks — in
+// einem Wrapper, der genau so hoch ist wie die Leiste, kaeme es nie zum
+// Kleben. Zusatzinhalt (`children`, z. B. eine Reiterleiste) folgt deshalb
+// als Geschwister und bekommt den Abstand der Seite.
 
 export function PageHeader({
   eyebrow,
@@ -17,48 +22,29 @@ export function PageHeader({
   eyebrow?: string;
   title: ReactNode;
   meta?: ReactNode;
-  /** Aktionsbereich rechts — hoechstens eine Signature-Pill. */
+  /** Aktionsbereich rechts — hoechstens ein Primaerknopf. */
   actions?: ReactNode;
   /** Zusatzinhalt unter dem Kopf (z. B. Filterleiste). */
   children?: ReactNode;
 }) {
   return (
-    <header style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
-      <div
-        className="section-header-mobile"
-        style={{ display: "flex", alignItems: "flex-end", gap: "var(--sp-6)", flexWrap: "wrap" }}
-      >
-        <div style={{ minWidth: 0 }}>
-          {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-          <h1 className="page-title" style={{ margin: eyebrow ? "var(--sp-3) 0 0" : 0 }}>
-            {title}
-          </h1>
-          {meta && (
-            <div style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)", marginTop: "var(--sp-3)" }}>
-              {meta}
-            </div>
-          )}
-        </div>
-        {actions && (
-          <div
-            style={{
-              marginLeft: "auto",
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--sp-4)",
-              flexWrap: "wrap",
-            }}
-          >
-            {actions}
+    <>
+      <header className="page-bar glass">
+        <div className="page-bar-title">
+          {eyebrow && <div className="page-bar-eyebrow">{eyebrow}</div>}
+          <div className="page-bar-tt">
+            <h1 className="page-title">{title}</h1>
+            {meta && <span className="page-bar-meta">{meta}</span>}
           </div>
-        )}
-      </div>
+        </div>
+        {actions && <div className="page-bar-actions">{actions}</div>}
+      </header>
       {children}
-    </header>
+    </>
   );
 }
 
-/** Leerzustand: ein Satz Zustand + eine Aktion (COMPONENTS.md §14.1). */
+/** Leerzustand: ein Satz Zustand + eine Aktion. */
 export function EmptyState({
   icon,
   message,

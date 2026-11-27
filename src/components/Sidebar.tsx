@@ -17,6 +17,7 @@ import {
   CalendarPlus,
   ChevronDown,
   ChevronRight,
+  ChevronsUpDown,
   Clock,
   Download,
   GitCompare,
@@ -38,10 +39,14 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore }
 import { AnchoredPopover, useAnchor } from "@/components/ui/AnchoredPopover";
 import { ManualAppointmentModal } from "@/components/appointment/ManualAppointmentModal";
 import { ownerInitials } from "@/lib/ownerColor";
+import { AppearanceButton } from "@/components/ui/Appearance";
 
-// Sidebar im Ember-Glass-System (COMPONENTS.md §10.1):
-// 248px, Flaeche surface-2 (SOLID — kein Glas im Body), rechte Kante als
-// 1px-Linie. Nav-Item 36px mit 2px-Orange-Rail im Aktiv-Zustand.
+// Seitenleiste im Liquid-Glass-System: ein schwebendes Glas-Tablett (240px,
+// Radius 26, 10px vom Rand — Flaeche und Rahmen setzt die Shell in
+// app/(dashboard)/layout.tsx bzw. MobileDrawer unten). Oben steht NUR die
+// Wortmarke und die Suche; Organisation und Datensicht liegen im
+// Personenmenue unten (Entscheidung vom 27.11.). Aktive Zeile = Glas-Daumen
+// mit Akzent-Icon (globals.css §6.7).
 //
 // FARBREGEL DIESER DATEI: ausschliesslich Graustufen + Orange. Keine Kanal-,
 // Owner- oder Semantikfarben — die Navigation ist die ruhigste Flaeche der
@@ -436,202 +441,26 @@ const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht" | "kein_termin", { 
 };
 
 // ---------------------------------------------------------------------------
-// Kontext-Umschalter
+// Person, Organisation, Datensicht
 // ---------------------------------------------------------------------------
-// Frueher waren das vier Elemente: zwei Banner ("du bist in Org X" / "du siehst
-// die Daten von Y") plus zwei dauerhaft aufgeklappte Listen zum Wechseln. Sie
-// sagen dasselbe, also sind sie jetzt EIN Element pro Achse: eine 36px-Zeile,
-// die den aktiven Kontext zeigt und ihn per Klick aufklappt. Der Zustand steckt
-// in der Faerbung — neutral = Normalfall, Orange = fremde Datensicht,
-// Rot = fremde Organisation.
+// Frueher standen zwei Kontext-Umschalter oben in der Leiste. Seit dem
+// Liquid-Glass-Umbau liegen beide im Personenmenue UNTEN — oben steht nur noch
+// die Wortmarke. Damit der Kontext dabei nicht unsichtbar wird, gilt:
 //
-// Die Auswahlliste liegt bewusst NICHT im Textfluss der Sidebar. Als Kind des
-// Kontext-Blocks wuchs sie beim Aufklappen um bis zu 240px und schob die
-// komplette Navigation darunter nach unten — bei zwei Umschaltern uebereinander
-// sprang sie zweimal, und der Eintrag, auf den man gerade zielte, war weg.
-// Sie rendert deshalb als Portal-Popover (position: fixed) ueber der Seite,
-// genau wie Select, DatePicker und CalendarPopover. Aufklappen veraendert das
-// Layout der Sidebar damit gar nicht mehr.
+//  · Solange ein FREMDER Kontext aktiv ist, steht er als farbige Zeile ueber
+//    der Person, mit eigenem Zuruecksetzen-Knopf (StatusZeile). Rot (fremde
+//    Organisation) steht ueber Orange (fremde Datensicht) — aeussere Grenze
+//    zuerst (docs/data-model.md §2).
+//  · Der Personen-Knopf selbst traegt denselben Ton als Rahmen.
+//  · ForeignOrgBanner und ViewingBanner auf der Seite bleiben unberuehrt.
+//
+// Die Auswahl liegt als Portal-Popover (AnchoredPopover) ueber der Seite —
+// Aufklappen veraendert das Layout der Leiste nicht.
 
-type ContextTone = "neutral" | "accent" | "danger";
-
-const CONTEXT_PALETTE: Record<
-  ContextTone,
-  { border: string; background: string; fg: string; caption: string }
-> = {
-  neutral: {
-    border: "var(--border-default)",
-    background: "var(--surface-1)",
-    fg: "var(--text-secondary)",
-    caption: "var(--text-muted)",
-  },
-  accent: {
-    border: "var(--border-accent)",
-    background: "var(--accent-muted)",
-    fg: "var(--orange-300)",
-    caption: "var(--orange-300)",
-  },
-  danger: {
-    border: "var(--danger)",
-    background: "var(--danger-bg)",
-    fg: "var(--danger-fg)",
-    caption: "var(--danger-fg)",
-  },
-};
-
-/**
- * Mindestbreite des Popovers. Der Trigger misst in der 248px-Sidebar rund
- * 224px; weil das Popover als Overlay ueber der Seite liegt, darf es die
- * Sidebar-Kante ueberragen — lange Organisations- und Nutzernamen bleiben so
- * lesbar, statt sofort in die Ellipse zu laufen. AnchoredPopover haelt es
- * ausserdem immer im Viewport (Rand-Clamping), auch im Mobil-Panel.
- */
-const CONTEXT_POPOVER_WIDTH = 264;
-/** Danach scrollt die Liste — DESIGN.md §5.3: Popover max. 288px hoch. */
-const CONTEXT_POPOVER_MAX_HEIGHT = 288;
-
-function ContextSwitcher({
-  icon,
-  caption,
-  label,
-  tone,
-  reset,
-  children,
-}: {
-  icon: React.ReactNode;
-  caption: string;
-  label: string;
-  tone: ContextTone;
-  /** Formular zum Zuruecksetzen — nur wenn ein Nicht-Standard-Kontext aktiv ist. */
-  reset?: React.ReactNode;
-  /** Render-Prop wie bei CollapsibleSection: die Zeilen brauchen `close`,
-      um das Popover nach ihrer Auswahl wieder zuzuklappen. */
-  children: (ctx: { close: () => void }) => React.ReactNode;
-}) {
-  // Gleiche Mechanik wie Select/DatePicker: Trigger-Rect merken, zweiter Klick
-  // schliesst. AnchoredPopover uebernimmt Aussenklick, Escape, Scroll, Resize.
-  const { anchor, ref, toggle, close } = useAnchor();
-  const isOpen = Boolean(anchor);
-  const c = CONTEXT_PALETTE[tone];
-  const Chevron = isOpen ? ChevronDown : ChevronRight;
-  // useId statt einer aus `caption` gebauten ID: Desktop-Sidebar und
-  // Mobil-Panel koennen gleichzeitig im DOM stehen — die ID muss trotzdem
-  // eindeutig bleiben.
-  const panelId = `ctx-panel-${useId()}`;
-  // AnchoredPopover schliesst bereits beim mousedown AUSSERHALB des Popovers —
-  // und der Trigger liegt ausserhalb. Der darauffolgende click wuerde den
-  // Umschalter also sofort wieder aufklappen; per Klick liesse er sich nie
-  // schliessen. Wir merken uns deshalb beim Druecken, ob er offen war, und
-  // verschlucken genau diesen einen click. Die Tastatur loest kein mousedown
-  // aus, dort bleibt es beim normalen Umschalten.
-  const wasOpenOnPress = useRef(false);
-
-  return (
-    <>
-      {/* Kein `overflow: hidden` mehr: das brauchte frueher nur die Liste im
-          Fluss (fuer die runden Ecken). Jetzt sitzt hier allein der Trigger —
-          und der globale Fokusring ist ein Box-Shadow, den ein Overflow-Clip
-          abgeschnitten haette. */}
-      <div
-        style={{
-          border: `1px solid ${c.border}`,
-          background: c.background,
-          borderRadius: "var(--r-md)",
-          display: "flex",
-          alignItems: "center",
-        }}
-      >
-        <button
-          ref={ref as React.RefObject<HTMLButtonElement>}
-          type="button"
-          onMouseDown={() => {
-            wasOpenOnPress.current = isOpen;
-          }}
-          onKeyDown={() => {
-            wasOpenOnPress.current = false;
-          }}
-          onClick={() => {
-            const swallow = wasOpenOnPress.current;
-            wasOpenOnPress.current = false;
-            if (!swallow) toggle();
-          }}
-          aria-haspopup="dialog"
-          aria-expanded={isOpen}
-          aria-controls={isOpen ? panelId : undefined}
-          title={`${caption}: ${label} — wechseln`}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--sp-3)",
-            height: 36,
-            padding: "0 var(--sp-4)",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: c.fg,
-            fontFamily: "inherit",
-          }}
-        >
-          <span style={{ display: "flex", flexShrink: 0 }}>{icon}</span>
-          <span style={{ flex: 1, minWidth: 0, textAlign: "left", lineHeight: 1.15 }}>
-            <span
-              style={{
-                display: "block",
-                fontSize: "var(--fs-2xs)",
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: c.caption,
-                opacity: 0.75,
-              }}
-            >
-              {caption}
-            </span>
-            <span
-              style={{
-                display: "block",
-                fontSize: "var(--fs-sm)",
-                fontWeight: 500,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {label}
-            </span>
-          </span>
-          <Chevron size={12} style={{ flexShrink: 0, opacity: 0.7 }} />
-        </button>
-        {reset}
-      </div>
-
-      {anchor && (
-        <AnchoredPopover
-          anchor={anchor}
-          onClose={close}
-          id={panelId}
-          label={`${caption} wechseln`}
-          width={Math.max(Math.round(anchor.width), CONTEXT_POPOVER_WIDTH)}
-          maxHeight={CONTEXT_POPOVER_MAX_HEIGHT}
-          style={{
-            padding: "var(--sp-2)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 1,
-            // Der Umschalter traegt seinen Zustand in der Kante (rot = fremde
-            // Organisation, orange = fremde Datensicht). Das Popover erbt sie,
-            // sonst wirkte die Liste wie ein fremdes, neutrales Element —
-            // ausgerechnet im gefaehrlichsten Zustand der App.
-            borderColor: tone === "neutral" ? undefined : c.border,
-          }}
-        >
-          {children({ close })}
-        </AnchoredPopover>
-      )}
-    </>
-  );
-}
+/** Mindestbreite des Personenmenues; es darf die Leistenkante ueberragen. */
+const PERSON_MENU_WIDTH = 264;
+/** Danach scrollt das Menue — lange Organisations- und Teamlisten. */
+const PERSON_MENU_MAX_HEIGHT = 480;
 
 /** Eine Auswahlzeile innerhalb eines Kontext-Umschalters. */
 function ContextOption({
@@ -817,6 +646,220 @@ function ContextReset({
 }
 
 /**
+ * Ein aktiver fremder Kontext als farbige Zeile ueber der Person — nur, solange
+ * er gilt. Der X-Knopf setzt ihn zurueck, ohne das Menue zu oeffnen.
+ */
+function StatusZeile({
+  tone,
+  icon,
+  caption,
+  label,
+  reset,
+}: {
+  tone: "danger" | "accent";
+  icon: React.ReactNode;
+  caption: string;
+  label: string;
+  reset: React.ReactNode;
+}) {
+  return (
+    <div className="side-ctx" data-tone={tone} title={`${caption}: ${label}`}>
+      <span style={{ display: "flex", flexShrink: 0 }}>{icon}</span>
+      <span className="side-ctx-text">
+        <small>{caption}</small>
+        <b>{label}</b>
+      </span>
+      {reset}
+    </div>
+  );
+}
+
+/**
+ * Person unten in der Leiste: Avatar, Name, aktive Organisation. Klick oeffnet
+ * das Menue mit Organisation (nur Plattform-Admins), Datensicht (nur Owner mit
+ * Team-Sicht) und Abmelden.
+ */
+function PersonMenu({
+  username,
+  workspaceName,
+  orgSwitch,
+  dataView,
+  teamUsers,
+  canSwitchDataView,
+  isForeignOrg,
+  isImpersonating,
+  pathname,
+  onClose,
+}: {
+  username: string;
+  workspaceName: string;
+  orgSwitch?: OrgSwitchState;
+  dataView?: DataViewState;
+  teamUsers: DataViewUser[];
+  canSwitchDataView: boolean;
+  isForeignOrg: boolean;
+  isImpersonating: boolean;
+  pathname: string;
+  onClose?: () => void;
+}) {
+  const { anchor, ref, toggle, close } = useAnchor();
+  const isOpen = Boolean(anchor);
+  // useId: Desktop-Leiste und Mobil-Blatt koennen gleichzeitig im DOM stehen.
+  const panelId = `me-panel-${useId()}`;
+  // AnchoredPopover schliesst schon beim mousedown ausserhalb — und der Knopf
+  // liegt ausserhalb. Der folgende click oeffnete es sofort wieder; deshalb
+  // merken wir uns beim Druecken, ob es offen war, und verschlucken genau
+  // diesen einen click. Die Tastatur loest kein mousedown aus.
+  const wasOpenOnPress = useRef(false);
+  const tone = isForeignOrg ? "danger" : isImpersonating ? "accent" : undefined;
+  const caption = orgSwitch?.activeName ?? workspaceName;
+
+  return (
+    <>
+      <button
+        ref={ref as React.RefObject<HTMLButtonElement>}
+        type="button"
+        className="side-me"
+        data-tone={tone}
+        onMouseDown={() => {
+          wasOpenOnPress.current = isOpen;
+        }}
+        onKeyDown={() => {
+          wasOpenOnPress.current = false;
+        }}
+        onClick={() => {
+          const swallow = wasOpenOnPress.current;
+          wasOpenOnPress.current = false;
+          if (!swallow) toggle();
+        }}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? panelId : undefined}
+        title="Konto, Organisation und Datensicht"
+      >
+        <span className="side-avatar" aria-hidden="true">
+          {username.charAt(0).toUpperCase()}
+        </span>
+        <span className="side-me-text">
+          <b>{username}</b>
+          <small>{caption}</small>
+        </span>
+        <ChevronsUpDown size={14} style={{ flexShrink: 0, opacity: 0.55 }} aria-hidden />
+      </button>
+
+      {anchor && (
+        <AnchoredPopover
+          anchor={anchor}
+          onClose={close}
+          id={panelId}
+          label="Konto, Organisation und Datensicht"
+          width={Math.max(Math.round(anchor.width), PERSON_MENU_WIDTH)}
+          maxHeight={PERSON_MENU_MAX_HEIGHT}
+          style={{ padding: "var(--sp-3)" }}
+        >
+          <div className="menu-list">
+            {/* Organisation (aeussere Grenze) vor Datensicht (innere). */}
+            {orgSwitch && (
+              <>
+                <div className="menu-h" data-tone={isForeignOrg ? "danger" : undefined}>
+                  <Building2 size={12} aria-hidden /> Organisation
+                </div>
+                {orgSwitch.orgs.map((o) => (
+                  <ContextOption
+                    key={o.id}
+                    action={setActiveOrgForm}
+                    fields={[{ name: "workspace_id", value: o.id }]}
+                    label={o.name}
+                    badge={o.id === orgSwitch.homeId ? "eigen" : undefined}
+                    active={o.id === orgSwitch.activeId}
+                    title={o.id === orgSwitch.activeId ? `${o.name} — aktiv` : `Zu ${o.name} wechseln`}
+                    avatar={<Building2 size={11} />}
+                    onDone={close}
+                  />
+                ))}
+                <ContextAction
+                  href="/admin"
+                  icon={<ShieldCheck size={11} />}
+                  label="Organisationen verwalten"
+                  onClick={() => {
+                    close();
+                    onClose?.();
+                  }}
+                />
+                <ContextAction
+                  href="/admin#neue-organisation"
+                  icon={<Plus size={11} />}
+                  label="Neue Organisation"
+                  onClick={() => {
+                    close();
+                    onClose?.();
+                  }}
+                />
+                <hr className="menu-sep" />
+              </>
+            )}
+
+            {canSwitchDataView && dataView && (
+              <>
+                <div className="menu-h" data-tone={isImpersonating ? "accent" : undefined}>
+                  <Users size={12} aria-hidden /> Datensicht
+                </div>
+                <ContextOption
+                  action={setDataViewForm}
+                  fields={[
+                    { name: "next", value: pathname },
+                    { name: "view_user_id", value: "" },
+                  ]}
+                  label="Alle Daten"
+                  active={!isImpersonating}
+                  title="Datensicht zurücksetzen"
+                  avatar={<Users size={11} />}
+                  onDone={close}
+                />
+                {teamUsers.map((u) => (
+                  <ContextOption
+                    key={u.user_id}
+                    action={setDataViewForm}
+                    fields={[
+                      { name: "next", value: pathname },
+                      { name: "view_user_id", value: u.user_id },
+                    ]}
+                    label={u.username}
+                    active={u.user_id === dataView.activeUserId}
+                    title={`Datensicht von ${u.username} anzeigen`}
+                    avatar={ownerInitials(u.username)}
+                    onDone={close}
+                  />
+                ))}
+                <hr className="menu-sep" />
+              </>
+            )}
+
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="sidebar-link"
+                style={{
+                  width: "100%",
+                  color: "var(--text-secondary)",
+                  border: "none",
+                  background: "none",
+                  cursor: "pointer",
+                  fontSize: "var(--fs-sm)",
+                }}
+              >
+                <LogOut size={15} />
+                <span>Abmelden</span>
+              </button>
+            </form>
+          </div>
+        </AnchoredPopover>
+      )}
+    </>
+  );
+}
+
+/**
  * Einklappbarer Block: Eyebrow-Kopf + optionale Aktion rechts.
  *
  * Drei Eigenschaften, ohne die eine Gliederung mehr kostet als sie bringt:
@@ -989,13 +1032,13 @@ function SectionAction({
     width: 22,
     height: 22,
     borderRadius: "var(--r-sm)",
-    background: active ? "var(--orange-500)" : "var(--surface-3)",
+    background: active ? "var(--orange-500)" : "var(--ctl)",
     border: "none",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: active ? "#0a0a0b" : "var(--text-muted)",
+    color: active ? "var(--on-accent)" : "var(--text-muted)",
     transition: "background var(--transition-fast), color var(--transition-fast)",
     flexShrink: 0,
   };
@@ -1014,6 +1057,7 @@ function SectionAction({
 }
 
 export function SidebarContent({
+  workspaceName,
   username,
   workspaceId,
   lists,
@@ -1062,191 +1106,31 @@ export function SidebarContent({
   const canSwitchDataView = Boolean(dataView?.canSwitch) && teamUsers.length > 0;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        background: "var(--surface-2)",
-      }}
-    >
-      {/* Kopf: Wortmarke. Sitzt auf Topbar-Hoehe, damit die Kanten fluchten. */}
-      <div
-        style={{
-          height: "var(--h-topbar)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "var(--sp-4)",
-          padding: "0 var(--sp-6)",
-          borderBottom: "1px solid var(--border-default)",
-          flexShrink: 0,
-        }}
-      >
-        <Link href="/" onClick={onClose} className="wordmark" style={{ textDecoration: "none" }}>
+    <div className="side-inner">
+      {/* Kopf: NUR die Wortmarke (Entscheidung vom 27.11.: kein Org-Feld
+          oben). Im Mobil-Blatt rechts das Schliessen. */}
+      <div className="side-head">
+        <Link href="/" onClick={onClose} className="wordmark" data-size="lg" style={{ textDecoration: "none" }}>
           titan
         </Link>
         {onClose && (
-          <button
-            onClick={onClose}
-            aria-label="Menü schließen"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--text-muted)",
-              padding: 4,
-              display: "flex",
-            }}
-          >
+          <button type="button" onClick={onClose} aria-label="Menü schließen" className="side-iconbtn">
             <X size={18} />
           </button>
         )}
       </div>
 
-      {/* Kontext-Block: Organisation (aeussere Grenze) ueber Datensicht
-          (innere). Beide nur, wenn es etwas zu wechseln gibt — ein normales
-          Mitglied sieht hier gar nichts. */}
-      {(canSwitchOrg || canSwitchDataView) && (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--sp-3)",
-            padding: "var(--sp-5)",
-            borderBottom: "1px solid var(--border-subtle)",
-            flexShrink: 0,
-          }}
-        >
-          {canSwitchOrg && orgSwitch && (
-            <ContextSwitcher
-              icon={<Building2 size={14} />}
-              caption="Organisation"
-              label={orgSwitch.activeName}
-              tone={isForeignOrg ? "danger" : "neutral"}
-              reset={
-                isForeignOrg ? (
-                  <ContextReset
-                    action={setActiveOrgForm}
-                    fields={[{ name: "workspace_id", value: "" }]}
-                    title="Zurück zur eigenen Organisation"
-                    color="var(--danger-fg)"
-                  />
-                ) : undefined
-              }
-            >
-              {({ close }) => (
-                <>
-                  {orgSwitch.orgs.map((o) => (
-                    <ContextOption
-                      key={o.id}
-                      action={setActiveOrgForm}
-                      fields={[{ name: "workspace_id", value: o.id }]}
-                      label={o.name}
-                      badge={o.id === orgSwitch.homeId ? "eigen" : undefined}
-                      active={o.id === orgSwitch.activeId}
-                      title={o.id === orgSwitch.activeId ? `${o.name} — aktiv` : `Zu ${o.name} wechseln`}
-                      avatar={<Building2 size={11} />}
-                      onDone={close}
-                    />
-                  ))}
-                  <div style={{ height: 1, background: "var(--border-subtle)", margin: "var(--sp-2) var(--sp-3)" }} />
-                  <ContextAction
-                    href="/admin"
-                    icon={<ShieldCheck size={11} />}
-                    label="Organisationen verwalten"
-                    onClick={() => {
-                      close();
-                      onClose?.();
-                    }}
-                  />
-                  <ContextAction
-                    href="/admin#neue-organisation"
-                    icon={<Plus size={11} />}
-                    label="Neue Organisation"
-                    onClick={() => {
-                      close();
-                      onClose?.();
-                    }}
-                  />
-                </>
-              )}
-            </ContextSwitcher>
-          )}
-
-          {canSwitchDataView && dataView && (
-            <ContextSwitcher
-              icon={<Users size={14} />}
-              caption="Datensicht"
-              label={isImpersonating ? dataView.activeLabel : "Alle Daten"}
-              tone={isImpersonating ? "accent" : "neutral"}
-              reset={
-                isImpersonating ? (
-                  <ContextReset
-                    action={setDataViewForm}
-                    fields={[
-                      { name: "next", value: pathname },
-                      { name: "view_user_id", value: "" },
-                    ]}
-                    title="Datensicht zurücksetzen"
-                    color="var(--orange-300)"
-                  />
-                ) : undefined
-              }
-            >
-              {({ close }) => (
-                <>
-                  <ContextOption
-                    action={setDataViewForm}
-                    fields={[
-                      { name: "next", value: pathname },
-                      { name: "view_user_id", value: "" },
-                    ]}
-                    label="Alle Daten"
-                    active={!isImpersonating}
-                    title="Datensicht zurücksetzen"
-                    avatar={<Users size={11} />}
-                    onDone={close}
-                  />
-                  {teamUsers.map((u) => (
-                    <ContextOption
-                      key={u.user_id}
-                      action={setDataViewForm}
-                      fields={[
-                        { name: "next", value: pathname },
-                        { name: "view_user_id", value: u.user_id },
-                      ]}
-                      label={u.username}
-                      active={u.user_id === dataView.activeUserId}
-                      title={`Datensicht von ${u.username} anzeigen`}
-                      avatar={ownerInitials(u.username)}
-                      onDone={close}
-                    />
-                  ))}
-                </>
-              )}
-            </ContextSwitcher>
-          )}
-        </div>
-      )}
+      {/* Suche ueber ALLE Listen — direkt unter der Wortmarke, vor jeder
+          Aufklappung. */}
+      <div className="side-search">
+        <SearchTrigger onNavigate={onClose} />
+      </div>
 
       {/* Nav */}
-      <nav
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "var(--sp-5) var(--sp-5)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 1,
-        }}
-      >
-        {/* Suche ueber ALLE Listen — ein Name muss nicht mehr in drei, vier
-            Listen einzeln gesucht werden. */}
-        {/* Ohne Block: Suche, Heimweg und die eine Anlege-Aktion. Sie gehoeren
-            zu keinem Thema, sondern sind der Einstieg — und duerfen deshalb
-            nie hinter einer Aufklappung liegen. */}
-        <SearchTrigger onNavigate={onClose} />
+      <nav className="side-nav">
+        {/* Ohne Block: Heimweg und die eine Anlege-Aktion. Sie gehoeren zu
+            keinem Thema, sondern sind der Einstieg — und duerfen deshalb nie
+            hinter einer Aufklappung liegen. */}
         <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
 
         {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).
@@ -1260,7 +1144,7 @@ export function SidebarContent({
             border: "none",
             background: "none",
             cursor: "pointer",
-            color: "var(--orange-300)",
+            color: "var(--accent-text)",
             textAlign: "left",
           }}
           title="Termin ohne Liste manuell buchen"
@@ -1399,7 +1283,7 @@ export function SidebarContent({
                     style={{
                       flex: 1,
                       background: "var(--orange-500)",
-                      color: "#0a0a0b",
+                      color: "var(--on-accent)",
                       border: "none",
                       borderRadius: "var(--r-full)",
                       height: 28,
@@ -1599,72 +1483,60 @@ export function SidebarContent({
         </div>
       </nav>
 
-      {/* Footer */}
-      <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-5)", flexShrink: 0 }}>
-        {isOwnScope && (
-          <div
-            style={{
-              marginBottom: "var(--sp-4)",
-              border: "1px solid var(--border-default)",
-              background: "var(--surface-1)",
-              color: "var(--text-muted)",
-              borderRadius: "var(--r-sm)",
-              padding: "var(--sp-3) var(--sp-4)",
-              fontSize: "var(--fs-xs)",
-              fontWeight: 500,
-            }}
-          >
-            Eigene Datensicht aktiv
-          </div>
+      {/* Fuss: fremder Kontext als Status (Rot ueber Orange), darunter die
+          Person mit Organisation/Datensicht im Menue und die Darstellung. */}
+      <div className="side-foot">
+        {isForeignOrg && orgSwitch && (
+          <StatusZeile
+            tone="danger"
+            icon={<Building2 size={14} />}
+            caption="Fremde Organisation"
+            label={orgSwitch.activeName}
+            reset={
+              <ContextReset
+                action={setActiveOrgForm}
+                fields={[{ name: "workspace_id", value: "" }]}
+                title="Zurück zur eigenen Organisation"
+                color="var(--danger-fg)"
+              />
+            }
+          />
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", padding: "0 var(--sp-3) var(--sp-4)" }}>
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: "var(--r-full)",
-              background: "var(--surface-3)",
-              color: "var(--text-secondary)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "var(--fs-xs)",
-              fontWeight: 600,
-              flexShrink: 0,
-            }}
-          >
-            {username.charAt(0).toUpperCase()}
-          </div>
-          <span
-            style={{
-              fontSize: "var(--fs-sm)",
-              fontWeight: 500,
-              color: "var(--text-secondary)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {username}
-          </span>
+        {isImpersonating && dataView && (
+          <StatusZeile
+            tone="accent"
+            icon={<Users size={14} />}
+            caption="Datensicht"
+            label={dataView.activeLabel}
+            reset={
+              <ContextReset
+                action={setDataViewForm}
+                fields={[
+                  { name: "next", value: pathname },
+                  { name: "view_user_id", value: "" },
+                ]}
+                title="Datensicht zurücksetzen"
+                color="var(--accent-text)"
+              />
+            }
+          />
+        )}
+        {isOwnScope && <div className="side-note">Eigene Datensicht aktiv</div>}
+        <div className="side-foot-row">
+          <PersonMenu
+            username={username}
+            workspaceName={workspaceName}
+            orgSwitch={canSwitchOrg ? orgSwitch : undefined}
+            dataView={dataView}
+            teamUsers={teamUsers}
+            canSwitchDataView={canSwitchDataView}
+            isForeignOrg={isForeignOrg}
+            isImpersonating={isImpersonating}
+            pathname={pathname}
+            onClose={onClose}
+          />
+          <AppearanceButton />
         </div>
-        <form action={signOut}>
-          <button
-            type="submit"
-            className="sidebar-link"
-            style={{
-              width: "100%",
-              color: "var(--text-muted)",
-              border: "none",
-              background: "none",
-              cursor: "pointer",
-              fontSize: "var(--fs-sm)",
-            }}
-          >
-            <LogOut size={15} />
-            <span>Abmelden</span>
-          </button>
-        </form>
       </div>
     </div>
   );
@@ -1718,23 +1590,7 @@ export function MobileDrawer({
     <>
       {/* Scrim ueber dem FAB (zIndex 40), Panel darueber */}
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "var(--surface-scrim)", zIndex: 60 }} />
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          bottom: 0,
-          // Am Handy etwas breiter als die Desktop-Leiste: längere Listennamen
-          // bleiben lesbar, rechts bleibt ein Streifen Scrim zum Wegtippen.
-          width: "min(300px, 86vw)",
-          paddingTop: "env(safe-area-inset-top)",
-          paddingBottom: "env(safe-area-inset-bottom)",
-          background: "var(--surface-0)",
-          zIndex: 70,
-          borderRight: "1px solid var(--border-default)",
-          boxShadow: "var(--shadow-overlay)",
-        }}
-      >
+      <div className="side-sheet glass dense">
         <SidebarContent
           workspaceName={workspaceName}
           username={username}

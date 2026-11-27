@@ -207,7 +207,7 @@ function ChannelRow({ channel }: { channel: DossierChannel }) {
           height: 24,
           padding: 0,
           borderRadius: "var(--r-xs)",
-          border: `1px solid ${copied ? "rgb(63 179 127 / 0.28)" : "transparent"}`,
+          border: `1px solid ${copied ? "var(--success-line)" : "transparent"}`,
           background: copied ? "var(--success-bg)" : "transparent",
           color: copied ? "var(--success-fg)" : "var(--text-muted)",
           cursor: "pointer",
@@ -468,7 +468,7 @@ export function LeadDossierPanel({ dossier }: { dossier: LeadDossier }) {
               gap: "var(--sp-4)",
               padding: "var(--sp-4) var(--sp-5)",
               background: "var(--warning-bg)",
-              border: "1px solid rgb(209 162 79 / 0.28)",
+              border: "1px solid var(--warning-line)",
               borderRadius: "var(--r-sm)",
             }}
           >
@@ -615,7 +615,7 @@ export function LeadDossierEmpty({
         gap: "var(--sp-5)",
         alignItems: "flex-start",
         background: alarm ? "var(--danger-bg)" : undefined,
-        borderColor: alarm ? "rgb(214 90 82 / 0.28)" : undefined,
+        borderColor: alarm ? "var(--danger-line)" : undefined,
       }}
     >
       {alarm ? (

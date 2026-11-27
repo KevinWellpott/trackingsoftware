@@ -43,7 +43,7 @@ export function DeleteListButton({ listId, listName, contactCount }: Props) {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--surface-scrim)", backdropFilter: "blur(4px)" }}>
       <div style={{ background: "var(--surface-100)", border: "1px solid var(--color-error-border)", borderRadius: 16, padding: "1.75rem 2rem", maxWidth: 420, width: "calc(100% - 2rem)", boxShadow: "var(--shadow-lg)" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.25rem" }}>
@@ -107,7 +107,7 @@ export function DeleteListButton({ listId, listName, contactCount }: Props) {
               // Bestaetigter Destruktiv-Button: volle Danger-Flaeche mit
               // dunklem Text (COMPONENTS.md 2.4) — nie Orange, nie Weiss auf Rot.
               background: confirmed ? "var(--danger)" : "var(--surface-3)",
-              color: confirmed ? "#0a0a0b" : "var(--text-disabled)",
+              color: confirmed ? "var(--on-accent)" : "var(--text-disabled)",
               fontSize: "var(--fs-base)",
               fontFamily: "inherit",
               fontWeight: 600,

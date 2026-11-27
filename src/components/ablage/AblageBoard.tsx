@@ -484,7 +484,7 @@ function DropoutCard({
             padding: "var(--sp-4) var(--sp-5)",
             borderRadius: "var(--r-sm)",
             background: "var(--info-bg)",
-            border: "1px solid rgb(78 128 214 / 0.28)",
+            border: "1px solid var(--info-line)",
             fontSize: "var(--fs-xs)",
             lineHeight: "var(--lh-base)",
             color: "var(--text-secondary)",
@@ -753,7 +753,7 @@ export function AblageBoard({
           gap: "var(--sp-5)",
           alignItems: "flex-start",
           background: "var(--danger-bg)",
-          borderColor: "rgb(214 90 82 / 0.28)",
+          borderColor: "var(--danger-line)",
         }}
       >
         <Database size={18} style={{ flexShrink: 0, marginTop: 2, color: "var(--danger-fg)" }} />
@@ -804,7 +804,7 @@ export function AblageBoard({
             gap: "var(--sp-4)",
             alignItems: "center",
             background: "var(--info-bg)",
-            borderColor: "rgb(78 128 214 / 0.28)",
+            borderColor: "var(--info-line)",
           }}
         >
           <Users size={16} style={{ flexShrink: 0, color: "var(--info-fg)" }} />

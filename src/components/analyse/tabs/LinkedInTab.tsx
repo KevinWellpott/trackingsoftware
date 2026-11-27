@@ -253,7 +253,7 @@ function TileShell({
       )}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--sp-4)" }}>
         <span className="eyebrow">{label}</span>
-        {icon && <span style={{ color: "var(--orange-500)", display: "inline-flex", flexShrink: 0 }}>{icon}</span>}
+        {icon && <span style={{ color: "var(--accent-text)", display: "inline-flex", flexShrink: 0 }}>{icon}</span>}
       </div>
       {children}
     </div>

@@ -87,37 +87,31 @@ export default async function DashboardLayout({
   }));
 
   return (
-    <div style={{ display: "flex", minHeight: "100dvh", background: "var(--surface-0)" }}>
-      {/* Desktop Sidebar — 248px, solid, rechte Kante als 1px-Linie. */}
-      <aside
-        style={{
-          width: "var(--w-sidebar)",
-          flexShrink: 0,
-          borderRight: "1px solid var(--border-default)",
-          position: "sticky",
-          top: 0,
-          height: "100dvh",
-          overflow: "hidden",
-        }}
-        className="hidden md:block"
-      >
-        <SidebarContent
-          workspaceName={access.workspaces.name}
-          username={access.username}
-          workspaceId={access.workspace_id}
-          lists={sidebarLists}
-          phoneLists={phoneLists}
-          dataScope={access.data_scope}
-          dataView={{
-            canSwitch: access.can_switch_view,
-            activeUserId: access.effective_user_id,
-            activeLabel: access.effective_username ?? "Alle Daten",
-            users: dataViewUsers,
-          }}
-          orgSwitch={orgSwitch}
-          navCounts={navCounts}
-          intern={intern}
-        />
+    // Ohne eigene Flaeche: Hinter der Shell liegt das Lichtfeld (globals.css,
+    // body::before) — eine deckende Flaeche hier wuerde es verdecken.
+    <div className="app-shell">
+      {/* Desktop-Seitenleiste: schwebendes Glas-Tablett, 240px, 10px vom Rand
+          (globals.css §6.14). */}
+      <aside className="app-side hidden md:block" aria-label="Navigation">
+        <div className="side-panel glass">
+          <SidebarContent
+            workspaceName={access.workspaces.name}
+            username={access.username}
+            workspaceId={access.workspace_id}
+            lists={sidebarLists}
+            phoneLists={phoneLists}
+            dataScope={access.data_scope}
+            dataView={{
+              canSwitch: access.can_switch_view,
+              activeUserId: access.effective_user_id,
+              activeLabel: access.effective_username ?? "Alle Daten",
+              users: dataViewUsers,
+            }}
+            orgSwitch={orgSwitch}
+            navCounts={navCounts}
+            intern={intern}
+          />
+        </div>
       </aside>
       {intern.kunden && <AktionsPuls />}
 
@@ -147,7 +141,9 @@ export default async function DashboardLayout({
           />
         </div>
 
-        {/* Content-Maxbreite 1440px (DESIGN.md §8), Blockabstand ueber --sp-9. */}
+        {/* Content-Maxbreite 1440px. Oben nur 10px: Dort sitzt die klebende
+            Glas-Kopfleiste (PageHeader), auf derselben Hoehe wie die
+            Seitenleiste. */}
         <main
           className="main-content"
           style={{
@@ -155,7 +151,7 @@ export default async function DashboardLayout({
             width: "100%",
             maxWidth: 1440,
             margin: "0 auto",
-            padding: "var(--sp-9)",
+            padding: "var(--side-gap) var(--sp-8) var(--sp-10)",
           }}
         >
           {access.is_foreign_org && <ForeignOrgBanner name={access.workspaces.name} />}

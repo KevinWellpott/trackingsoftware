@@ -2,59 +2,28 @@
 
 import { type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
 
-// Button-Familie des Ember-Glass-Systems (COMPONENTS.md §2).
+// Knopf-Familie des Liquid-Glass-Systems.
 //
-//   primary   → „Signature Pill": Gradient, Pill-Radius, Licht-Lippe.
+//   primary   → Orange-Verlauf mit Tinte (E1), Lichtkante, Glanz am Zeiger.
 //               Genau EINER pro View — nie in Tabellenzeilen oder Listen.
-//   secondary → der Arbeits-Button fuer alles Nicht-Primaere.
+//   secondary → der Arbeitsknopf fuer alles Nicht-Primaere (Mulde; auf einer
+//               Karte angehoben).
 //   ghost     → Inline-Aktionen in Toolbars und Karten-Footern.
 //   danger    → destruktiv; nie Orange.
 //   success   → Bestaetigungen im Gespraechsfluss.
 //
-// Hover/Active/Disabled + Touch-Bump kommen aus den .ui-btn-Regeln
-// in globals.css, damit die Zustaende an einer Stelle liegen.
+// Die OPTIK der Varianten steht ausschliesslich in globals.css
+// (.ui-btn[data-variant=…]) — Hover, Aktiv, Deaktiviert und der Touch-Bump
+// liegen damit an einer Stelle, fuer beide Modi. Hier stehen nur die Groessen.
 
 export type ButtonVariant = "primary" | "secondary" | "danger" | "success" | "ghost";
 export type ButtonSize = "sm" | "md" | "lg";
 
-// Alle Varianten sind Pills mit Licht von oben (Radius/Lippe kommen aus
-// .ui-btn in globals.css). Unterschieden wird ueber die FUELLUNG:
-// Farbverlauf in Markenfarbe = der eine CTA, Surface-Verlauf = sekundaer,
-// nichts = Ghost. Genau daran haengt die Hierarchie aus DESIGN.md §3.8.
-const VARIANT_STYLES: Record<ButtonVariant, CSSProperties> = {
-  primary: {
-    background: "var(--grad-cta)",
-    color: "var(--text-on-accent)",
-    border: "none",
-  },
-  secondary: {
-    background: "var(--grad-surface)",
-    color: "var(--text-primary)",
-    border: "1px solid var(--border-default)",
-  },
-  danger: {
-    background: "transparent",
-    color: "var(--danger-fg)",
-    border: "1px solid rgb(214 90 82 / 0.40)",
-  },
-  success: {
-    background: "transparent",
-    color: "var(--success-fg)",
-    border: "1px solid rgb(63 179 127 / 0.40)",
-  },
-  ghost: {
-    background: "transparent",
-    color: "var(--text-secondary)",
-    border: "1px solid transparent",
-  },
-};
-
-// Pills brauchen mehr Seitenluft als Rechtecke, sonst kleben die Labels
-// an der Rundung.
+// Groessen 28 · 34 · 44 (Prototyp).
 const SIZE_STYLES: Record<ButtonSize, CSSProperties> = {
-  sm: { minHeight: 28, padding: "0 14px", fontSize: "var(--fs-sm)" },
-  md: { minHeight: "var(--h-control)", padding: "0 18px", fontSize: "var(--fs-base)" },
-  lg: { minHeight: "var(--h-control-lg)", padding: "0 24px", fontSize: "var(--fs-base)" },
+  sm: { minHeight: 28, padding: "0 10px", fontSize: "var(--fs-sm)" },
+  md: { minHeight: "var(--h-control)", padding: "0 14px", fontSize: "13px" },
+  lg: { minHeight: "var(--h-control-lg)", padding: "0 18px", fontSize: "14.5px" },
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -85,11 +54,11 @@ export function Button({
       {...rest}
       type={type}
       data-variant={variant}
+      data-size={size}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={className ? `ui-btn ${className}` : "ui-btn"}
       style={{
-        ...VARIANT_STYLES[variant],
         ...SIZE_STYLES[size],
         ...(fullWidth ? { width: "100%" } : null),
         ...style,
@@ -102,7 +71,7 @@ export function Button({
 }
 
 /**
- * 32x32-Icon-Button im Ghost-Stil (COMPONENTS.md §2.5).
+ * 32x32-Icon-Knopf im Ghost-Stil.
  * Braucht immer ein `label` — es wird zu aria-label und Tooltip.
  */
 export function IconButton({
@@ -120,8 +89,6 @@ export function IconButton({
   size?: number;
   tone?: "neutral" | "accent" | "danger";
 }) {
-  const color =
-    tone === "accent" ? "var(--orange-300)" : tone === "danger" ? "var(--danger-fg)" : "var(--text-muted)";
   return (
     <button
       {...rest}
@@ -129,6 +96,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       data-variant="ghost"
+      data-tone={tone}
       className={className ? `ui-btn ui-icon-btn ${className}` : "ui-btn ui-icon-btn"}
       style={{
         width: size,
@@ -136,9 +104,7 @@ export function IconButton({
         minHeight: size,
         padding: 0,
         flexShrink: 0,
-        background: "transparent",
-        border: "1px solid transparent",
-        color,
+        borderRadius: 10,
         ...style,
       }}
     >
