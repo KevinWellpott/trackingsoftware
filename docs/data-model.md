@@ -146,6 +146,20 @@ die es **nicht mehr gibt** (§3).
   Der Stempel aus 0041 wird weiter mitgeschrieben (Dossier, Termin-Mails).
 - **Versuche** = Einträge mit `nicht_erreicht` seit dem letzten `erreicht` (gerechnet). Ab
   `AUFGEBEN_AB_VERSUCHEN = 5` schlägt die Zeile „Aufgeben?" vor — nie automatisch.
+- **Recycling: ein Versuch des Deckels ist eine RUNDE.** `recycle_attempt_count` steigt nur bei
+  „Aufgeben" (Ende der Runde, nächste Wiedervorlage über `schedule_recycle()`), nicht bei jedem
+  „nicht erreicht" im Eingang. Vorher nahmen zwei verpasste Anrufe an zwei Tagen einen Lead
+  endgültig heraus (Deckel 2).
+- **Neue Buchung auf einen abgeschlossenen Vorgang** (Call-Modus, LinkedIn-Liste): Ist das
+  jüngste Erstgespräch des Leads tot, nicht qualifiziert, ins Closing weitergegeben oder wirksam
+  abgesagt, entsteht eine NEUE Zeile mit `revived_from_setting_call_id`; die alte bekommt
+  `revived_at` und verliert ihr Recycling-Datum (wie `reviveDropout`). Nur ein laufendes
+  Erstgespräch (`offen`/`no_show`) bekommt den Termin in derselben Zeile.
+- **Closing nicht erschienen, „keine Antwort"** = verloren mit Grund `ghosting` (Recycling nach
+  der Frist). **„Termin" auf einem Closing im Status `nachfassen`** setzt es zurück auf `offen`.
+- **Kalender, Terminliste, Dashboard** zeigen eine Absage nur, solange sie wirkt
+  (`absageWirktNoch`, Nachfolger aus den geladenen Zeilen); „Durchgeführt von" wird in der
+  Datensicht eines Kollegen nicht automatisch belegt.
 - **Aufräumen**: Altfall = fällig (auch „Ergebnis fehlt"), letztes Lebenszeichen mehr als 14 Tage vor
   `NACHFASSEN_START` (Konstante in `nachfassRegel.ts`, **beim Deploy auf den Livegang-Tag
   setzen**), kein Protokolleintrag. Steht nur im Reiter „Aufräumen" (Sammelaktionen: nochmal

@@ -183,7 +183,7 @@ function isLostReasonCode(v: unknown): v is ClosingLostReasonCode {
  */
 async function durchfuehrungVorbelegen(tabelle: "setting_calls" | "closing_calls", id: string): Promise<void> {
   const access = await getAccessContext();
-  if (!access || access.is_foreign_org) return;
+  if (!access || access.is_foreign_org || (access.effective_user_id && access.effective_user_id !== access.user.id)) return;
   const supabase = await createClient();
   await supabase
     .from(tabelle)
@@ -274,12 +274,15 @@ export async function setClosingOutcome(input: {
   if (input.outcome === "gewonnen") {
     patch.closed = true;
     patch.deal_volume = input.dealVolume ?? null;
-    patch.payment_type = input.paymentType ?? null;
-    patch.contract_start = input.contractStart ?? null;
+    // Nur, was der Aufrufer mitschickt: Die Schnellknöpfe (ErgebnisSchnell)
+    // senden keinen Vertrag — sie dürfen bereits Eingetragenes nicht leeren
+    // (Ablauf-Prüfung 27.11.). `null` heißt weiterhin bewusst „leer".
+    if (input.paymentType !== undefined) patch.payment_type = input.paymentType;
+    if (input.contractStart !== undefined) patch.contract_start = input.contractStart;
     // Ohne Angabe bewusst NULL statt eines geratenen Datums: „Onboarding steht
     // noch nicht" ist eine gültige Aussage, ein erfundener Tag wäre eine falsche.
-    patch.onboarding_at = input.onboardingAt ?? null;
-    patch.signature_received = input.signatureReceived ?? null;
+    if (input.onboardingAt !== undefined) patch.onboarding_at = input.onboardingAt;
+    if (input.signatureReceived !== undefined) patch.signature_received = input.signatureReceived;
     patch.follow_up_due = null;
     patch.follow_up_due_at = null;
   } else if (input.outcome === "verloren") {

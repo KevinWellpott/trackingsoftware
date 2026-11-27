@@ -95,7 +95,7 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
  */
 async function durchfuehrungVorbelegen(tabelle: "setting_calls" | "closing_calls", id: string): Promise<void> {
   const access = await getAccessContext();
-  if (!access || access.is_foreign_org) return;
+  if (!access || access.is_foreign_org || (access.effective_user_id && access.effective_user_id !== access.user.id)) return;
   const supabase = await createClient();
   await supabase
     .from(tabelle)

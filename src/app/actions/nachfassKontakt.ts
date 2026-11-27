@@ -209,29 +209,13 @@ export async function kontaktEintragen(input: {
         statusBefore: (lead as { status?: string | null } | null)?.status ?? null,
       });
     }
-    // Recycling: Versuch zählen (der Deckel bleibt wirksam), dann das Datum.
-    // Bei „erreicht" kein Versuch — es ist eine Antwort, kein Fehlschlag.
-    if (input.ergebnis === "nicht_erreicht") {
-      const { data: count, error } = await supabase.rpc("recycle_attempt", {
-        p_workspace_id: access.workspace_id,
-        p_origin: ORIGIN[input.art],
-        p_entity_id: input.id,
-        p_today: berlinDateISO(now),
-      });
-      if (error) {
-        await protokollZuruecknehmen(kontakt.id);
-        return { error: error.message };
-      }
-      // Am Deckel hat `recycle_attempt()` die Wiedervorlage genullt — der
-      // Lead verschwindet endgültig, das Datum wird NICHT wieder gesetzt.
-      const { data: nach } = await supabase.from(tabelle).select("next_recycle_at").eq("id", input.id).maybeSingle();
-      if (!(nach as { next_recycle_at: string | null } | null)?.next_recycle_at && typeof count === "number") {
-        revalidate();
-        return {
-          undo: { kontaktId: kontakt.id, art: input.art, id: input.id, quelle: input.quelle, vorher },
-        };
-      }
-    }
+    // Recycling: Ein einzelnes „nicht erreicht" verbraucht KEINEN Versuch des
+    // Deckels (`max_attempts`, ausgeliefert 2). Ein Versuch ist eine RUNDE —
+    // sie endet mit „Aufgeben" (`aufgeben()` zählt sie und plant die nächste).
+    // Vorher zählte jeder Klick: Zwei verpasste Anrufe an zwei Tagen nahmen
+    // einen Lead, der 100 Tage gewartet hatte, endgültig heraus
+    // (Ablauf-Prüfung 27.11.). Die Fehlversuche innerhalb der Runde zählt das
+    // Protokoll; ab fünf schlägt die Zeile „Aufgeben?" vor.
     const { error } = await supabase
       .from(tabelle)
       .update({ next_recycle_at: input.naechsterKontaktAm, recycle_last_contacted_at: now })

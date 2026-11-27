@@ -140,7 +140,7 @@ describe("2 · Ein Terminwechsel löscht keine erfasste Tatsache", () => {
     // Vorher trugen zwei Knöpfe mit demselben Label zwei Bedeutungen: Das
     // Closing verschob nur den Zeitpunkt, das Erstgespräch räumte nebenbei das
     // Ergebnis ab.
-    assert.match(NEUER_TERMIN, /updateClosingCall\(id, \{ call_at: iso \}\)/);
+    assert.match(NEUER_TERMIN, /updateClosingCall\(id, \{\s*call_at: iso,/);
     const closingZweig = NEUER_TERMIN.slice(NEUER_TERMIN.indexOf("updateClosingCall("));
     assert.doesNotMatch(closingZweig, /show_status: null/, "der Closing-Zweig räumt jetzt auch ab");
   });

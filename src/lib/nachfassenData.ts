@@ -126,7 +126,7 @@ async function ladeNachfolger(supabase: Client, ws: string): Promise<{ settings:
         .or("revived_from_setting_call_id.not.is.null,revived_from_closing_call_id.not.is.null")
         .order("id")
         .range(f, t),
-  ).catch(() => []);
+  );
   return {
     settings: new Set(rows.map((r) => r.revived_from_setting_call_id).filter((v): v is string => Boolean(v))),
     closings: new Set(rows.map((r) => r.revived_from_closing_call_id).filter((v): v is string => Boolean(v))),
@@ -226,7 +226,9 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
     )
       .then((rows) => rows as unknown as TerminRow[])
       .catch(luecke([] as TerminRow[])),
-    ladeNachfolger(supabase, ws),
+    // Ohne Nachfolger-Liste stünde ein aus der Ablage neu angesetzter Lead
+    // doppelt da — eine Lücke, kein „keine Nachfolger".
+    ladeNachfolger(supabase, ws).catch(luecke({ settings: new Set<string>(), closings: new Set<string>() })),
     listDataViewUsers(ws).catch(luecke([] as Awaited<ReturnType<typeof listDataViewUsers>>)),
     fetchAllRows<{ id: string; company: string | null; decider_name: string | null; phone: string | null; email: string | null; callback_at: string; list_id: string | null }>(
       (f, t) =>

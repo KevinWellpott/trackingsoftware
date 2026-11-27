@@ -220,7 +220,7 @@ describe("4 · Ein Fehlklick ist kein Endzustand", () => {
   test("fail-closed: Scheitert das Datum, wird der Protokolleintrag zurückgenommen", () => {
     // Jede Fehlerbehandlung endet in „bleibt Arbeit", nie in „ist versorgt".
     const koerper = slice(ACTION, "export async function kontaktEintragen(", "export async function nachfassRueckgaengig(");
-    assert.equal(countOf(koerper, "await protokollZuruecknehmen(kontakt.id);"), 3, "Termin-Update, Versuchszähler, Recycling-Datum");
+    assert.equal(countOf(koerper, "await protokollZuruecknehmen(kontakt.id);"), 2, "Termin-Update, Recycling-Datum");
   });
 
   test("welche Spalten Rückgängig schreibt, bestimmt der Server — nicht das Token", () => {
@@ -249,12 +249,16 @@ describe("4 · Ein Fehlklick ist kein Endzustand", () => {
  * ------------------------------------------------------------------ */
 
 describe("5 · Der Recycling-Deckel wirkt auch aus dem Eingang", () => {
-  test("ein Versuch beim Recycling läuft über recycle_attempt()", () => {
-    // `recycle_attempt()` nullt am Deckel `next_recycle_at` (0033, eingefroren).
-    // Setzte der Eingang das Datum danach einfach wieder, wäre der Deckel aus.
-    const koerper = slice(ACTION, "export async function kontaktEintragen(", "export async function nachfassRueckgaengig(");
-    assert.match(koerper, /supabase\.rpc\("recycle_attempt", \{/);
-    assert.match(koerper, /das Datum wird NICHT wieder gesetzt/);
+  test("ein Versuch ist eine RUNDE: erst „Aufgeben“ zählt ihn über recycle_attempt()", () => {
+    // Ein einzelnes „nicht erreicht" verbraucht keinen Versuch — sonst nahmen
+    // zwei verpasste Anrufe an zwei Tagen einen Lead endgültig heraus
+    // (Ablauf-Prüfung 27.11.). `aufgeben()` zählt die Runde und plant die
+    // nächste über `scheduleRecycle`, das am Deckel kein Datum mehr setzt.
+    const eintragen = slice(ACTION, "export async function kontaktEintragen(", "export async function nachfassRueckgaengig(");
+    assert.doesNotMatch(eintragen, /supabase\.rpc\("recycle_attempt"/);
+    const aufgeben = slice(ACTION, "export async function aufgeben(", "export async function sperren(");
+    assert.match(aufgeben, /supabase\.rpc\("recycle_attempt", \{/);
+    assert.match(aufgeben, /scheduleRecycle\(ORIGIN\[art\], id\)/);
   });
 });
 

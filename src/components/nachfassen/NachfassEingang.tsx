@@ -5,6 +5,7 @@
 // Kontakt am"; erledigt wird in einem Schritt: Ergebnis protokollieren und das
 // nächste Datum setzen (vorbelegt).
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { CalendarPlus, Check, Phone, PhoneCall, Skull, Undo2 } from "lucide-react";
@@ -352,6 +353,8 @@ function Zeile({
     start(async () => {
       const res = await setPhoneLeadOutcome({ leadId: e.id, listId, outcome });
       if (res.error) onError(res.error);
+      // Der dritte „Nicht erreicht" in Folge beendet den Lead (NICHT_ERREICHT_LIMIT).
+      else if (res.autoDead) onDone(null, `${e.name}: dreimal nicht erreicht — als tot markiert, kommt ins Recycling`);
       else onDone(null, `${e.name}: ${label}`);
     });
 
@@ -378,7 +381,14 @@ function Zeile({
       <span className="dran-mark" data-dran={dran ? "true" : undefined} aria-label={dran ? "Jetzt dran" : undefined} />
       <div style={{ minWidth: 0, display: "grid", gap: 2 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-3)", flexWrap: "wrap" }}>
-          <span style={{ fontWeight: dran ? 600 : 550, color: "var(--text-primary)" }}>{e.name}</span>
+          {e.quelle === "termin" && e.href ? (
+            // Zur Detailseite — dort stehen Qualifizierung und Closing anlegen.
+            <Link href={e.href} style={{ fontWeight: dran ? 600 : 550, color: "var(--text-primary)" }}>
+              {e.name}
+            </Link>
+          ) : (
+            <span style={{ fontWeight: dran ? 600 : 550, color: "var(--text-primary)" }}>{e.name}</span>
+          )}
           {e.firma && <span style={{ color: "var(--text-muted)", fontSize: "var(--fs-sm)" }}>{e.firma}</span>}
           <span
             style={{

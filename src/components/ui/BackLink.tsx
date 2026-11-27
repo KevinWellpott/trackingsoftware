@@ -22,6 +22,7 @@ const BACK_TARGETS: Record<string, BackTarget> = {
   setting: { href: "/setting", label: "Setting" },
   closing: { href: "/closing", label: "Closing" },
   "no-shows": { href: "/no-shows", label: "No-Shows" },
+  ablage: { href: "/ablage", label: "Ablage" },
 };
 
 /**

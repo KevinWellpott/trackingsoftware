@@ -7,6 +7,7 @@ import { SELECTABLE_CHANNELS, type SelectableChannelKey } from "@/lib/channels";
 import { ownerUserIdOfList } from "@/lib/personResolution";
 import { logCallAttempt } from "@/app/actions/phoneAttempts";
 import { rescheduleSetting } from "@/app/actions/settingCalls";
+import { absageWirktNoch } from "@/lib/terminMeta";
 import { revalidatePath } from "next/cache";
 
 // Termin=Ja → erzeugt automatisch einen Setting-Call-Eintrag und nimmt den Lead
@@ -198,6 +199,9 @@ export async function convertContactToSetting(input: {
   // Falls schon ein Setting-Eintrag existiert: nur Termin/Link aktualisieren
   // — AUSSER er steht auf No-Show (s. `neuerTerminAmBestehendenSetting`).
   let settingCallId = (contact as { setting_call_id?: string | null }).setting_call_id ?? null;
+  // Abgeschlossener Vorgang: neue Zeile mit Rückverweis statt Überschreiben.
+  const vorgaengerLinkedIn = settingCallId && !(await settingLaeuftNoch(settingCallId)) ? settingCallId : null;
+  if (vorgaengerLinkedIn) settingCallId = null;
 
   if (settingCallId) {
     const res = await neuerTerminAmBestehendenSetting(settingCallId, {
@@ -220,6 +224,7 @@ export async function convertContactToSetting(input: {
         assigned_user_id: assignedUserId,
         source_type: "linkedin",
         source_contact_id: contact.id,
+        ...(vorgaengerLinkedIn ? { revived_from_setting_call_id: vorgaengerLinkedIn } : {}),
         lead_name: contact.name,
         company: (contact as { company?: string | null }).company ?? null,
         meet_link: meetLink,
@@ -232,6 +237,7 @@ export async function convertContactToSetting(input: {
       .single();
     if (scErr || !sc) return { error: scErr?.message ?? "Setting-Eintrag fehlgeschlagen." };
     settingCallId = sc.id;
+    if (vorgaengerLinkedIn) await alsVorgaengerAbschliessen(vorgaengerLinkedIn);
   }
 
   // Kontakt terminieren + aus dem Follow-up-Flow nehmen. Kein revalidatePath:
@@ -406,10 +412,12 @@ export async function convertPhoneLeadToSetting(input: {
   // Ausnahme: ein No-Show. Den terminiert man aus der Liste „Setting No-Show"
   // heraus neu — dafür WURDE gewählt, und genau dieser Anruf hat zum
   // Ersatztermin geführt. Er gehört deshalb ins Log wie ein neuer Termin.
-  const isNewSetting = !existingSc?.id;
-  const warNoShow = (existingSc as { status?: string | null } | null)?.status === "no_show";
+  // Abgeschlossener Vorgang: neue Zeile mit Rückverweis statt Überschreiben.
+  const vorgaengerTelefon = existingSc?.id && !(await settingLaeuftNoch(existingSc.id)) ? existingSc.id : null;
+  const isNewSetting = !existingSc?.id || Boolean(vorgaengerTelefon);
+  const warNoShow = !vorgaengerTelefon && (existingSc as { status?: string | null } | null)?.status === "no_show";
 
-  let settingCallId: string | null = existingSc?.id ?? null;
+  let settingCallId: string | null = vorgaengerTelefon ? null : existingSc?.id ?? null;
   if (settingCallId) {
     const res = await neuerTerminAmBestehendenSetting(settingCallId, {
       meetLink,
@@ -437,6 +445,7 @@ export async function convertPhoneLeadToSetting(input: {
         assigned_user_id: assignedUserId,
         source_type: "telefon",
         source_phone_lead_id: lead.id,
+        ...(vorgaengerTelefon ? { revived_from_setting_call_id: vorgaengerTelefon } : {}),
         lead_name: (lead as { decider_name?: string | null }).decider_name ?? null,
         company: (lead as { company?: string | null }).company ?? null,
         meet_link: meetLink,
@@ -449,6 +458,7 @@ export async function convertPhoneLeadToSetting(input: {
       .single();
     if (scErr || !sc) return { error: scErr?.message ?? "Setting-Eintrag fehlgeschlagen." };
     settingCallId = sc.id;
+    if (vorgaengerTelefon) await alsVorgaengerAbschliessen(vorgaengerTelefon);
   }
 
   const { error: upErr } = await supabase
@@ -557,4 +567,40 @@ export async function clearContactAppointment(input: {
     .eq("list_id", input.listId);
   if (error) return { error: error.message };
   return {};
+}
+
+/**
+ * Läuft dieser Setting-Vorgang noch? Nur dann bekommt er einen neuen Termin
+ * in DERSELBEN Zeile. Ein abgeschlossener (tot, nicht qualifiziert, ins
+ * Closing weitergegeben) oder wirksam abgesagter Vorgang ist Historie: Ein
+ * neues Datum darauf stünde als „Tot"/„Qualifiziert" da (das Ergebnis schlägt
+ * jedes Datum), bekäme keine Erinnerungen, behielte sein Recycling-Datum und
+ * verschöbe die Zahlen eines abgeschlossenen Zeitraums (Ablauf-Prüfung 27.11.).
+ */
+async function settingLaeuftNoch(settingCallId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("setting_calls")
+    .select("status, cancelled_at, revived_at")
+    .eq("id", settingCallId)
+    .maybeSingle();
+  const row = data as { status: string | null; cancelled_at: string | null; revived_at: string | null } | null;
+  if (!row) return false;
+  if (row.status !== "offen" && row.status !== "no_show") return false;
+  return !absageWirktNoch(row);
+}
+
+/**
+ * Den alten Vorgang als Vorgänger abschließen, nachdem die neue Zeile steht —
+ * dieselben drei Felder wie `reviveDropout`: zurückgeholt, keine Wiedervorlage
+ * mehr. Fail-soft: Scheitert es, bleibt schlimmstenfalls ein Recycling-Eintrag
+ * zu viel, der Termin steht trotzdem.
+ */
+async function alsVorgaengerAbschliessen(settingCallId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from("setting_calls")
+    .update({ revived_at: new Date().toISOString(), next_recycle_at: null, recycle_reason_code: null })
+    .eq("id", settingCallId)
+    .is("revived_at", null);
 }

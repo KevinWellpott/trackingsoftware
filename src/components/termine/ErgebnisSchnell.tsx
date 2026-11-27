@@ -36,6 +36,7 @@ export function ErgebnisSchnell({ kind, id, onDone, onError, size = "sm" }: Prop
   const { anchor: lostAnchor, ref: lostRef, toggle: lostToggle, close: lostClose } = useAnchor();
   const { anchor: nfAnchor, ref: nfRef, toggle: nfToggle, close: nfClose } = useAnchor();
   const [betrag, setBetrag] = useState("");
+  const [zahlung, setZahlung] = useState<"Einmal" | "Raten">("Einmal");
   const [grund, setGrund] = useState<ClosingLostReasonCode | "">("");
   const [nf, setNf] = useState("");
 
@@ -98,7 +99,7 @@ export function ErgebnisSchnell({ kind, id, onDone, onError, size = "sm" }: Prop
               Hat geantwortet
             </Button>
             <Button size="sm" variant="ghost" onClick={() => nichtErschienen("ohne_antwort")}>
-              Keine Antwort — in die Ablage
+              {kind === "closing" ? "Keine Antwort — verloren (Ghosting)" : "Keine Antwort — in die Ablage"}
             </Button>
           </div>
         </AnchoredPopover>
@@ -125,13 +126,21 @@ export function ErgebnisSchnell({ kind, id, onDone, onError, size = "sm" }: Prop
                   onError("Betrag nicht lesbar — z. B. 4900 oder 4.900,50.");
                   return;
                 }
-                run(() => closingErgebnis(id, { outcome: "gewonnen", dealVolume: n }), "Gewonnen", wonClose);
+                run(() => closingErgebnis(id, { outcome: "gewonnen", dealVolume: n, paymentType: zahlung }), "Gewonnen", wonClose);
               }}
             >
               Speichern
             </Button>
+            <div className="eyebrow eyebrow-muted">Zahlung</div>
+            <span style={{ display: "inline-flex", gap: "var(--sp-2)" }}>
+              {(["Einmal", "Raten"] as const).map((z) => (
+                <Button key={z} size="sm" variant={zahlung === z ? "primary" : "secondary"} onClick={() => setZahlung(z)}>
+                  {z}
+                </Button>
+              ))}
+            </span>
             <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-              Zahlungsart und Vertrag auf der Detailseite.
+              Vertragsbeginn und Unterschrift auf der Detailseite.
             </span>
           </div>
         </AnchoredPopover>

@@ -18,6 +18,7 @@ import {
 } from "@/lib/dranRegel";
 import { erinnererOf, type AssignableRow } from "@/lib/personResolution";
 import {
+  absageWirktNoch,
   moveLockReason,
   outlineFor,
   TERMINAL_CLOSING_STATUS,
@@ -233,9 +234,13 @@ function fromSetting(
   names: UsernameById,
   today: string,
   nowMs: number | null,
+  hatNachfolger = false,
 ): TerminEvent {
   const slot = c.appointment_at ? toBerlinSlot(c.appointment_at) : null;
-  const cancelled = Boolean(c.cancelled_at);
+  // Die Absage WIRKT nur, solange kein neuer Termin sie überholt hat
+  // (`revived_at`) — sonst stünde ein neu terminierter Lead als „Abgesagt"
+  // im Kalender, während der Eingang ihn als „Termin steht" führt.
+  const cancelled = absageWirktNoch(c, hatNachfolger);
   const zustand = terminZustand(
     {
       kind: "setting",
@@ -246,6 +251,7 @@ function fromSetting(
       cancelOutlook: c.cancel_outlook ?? null,
       noShowResolution: c.no_show_resolution ?? null,
       revivedAt: c.revived_at ?? null,
+      hatNachfolger,
     },
     today,
     nowMs,
@@ -293,9 +299,10 @@ function fromClosing(
   names: UsernameById,
   today: string,
   nowMs: number | null,
+  hatNachfolger = false,
 ): TerminEvent {
   const slot = c.call_at ? toBerlinSlot(c.call_at) : null;
-  const cancelled = Boolean(c.cancelled_at);
+  const cancelled = absageWirktNoch(c, hatNachfolger);
   const zustand = terminZustand(
     {
       kind: "closing",
@@ -306,6 +313,7 @@ function fromClosing(
       cancelOutlook: c.cancel_outlook ?? null,
       noShowResolution: c.no_show_resolution ?? null,
       revivedAt: c.revived_at ?? null,
+      hatNachfolger,
     },
     today,
     nowMs,
@@ -374,9 +382,19 @@ export function buildEvents(
   today: string,
   nowMs: number | null,
 ): { events: TerminEvent[]; ohneTermin: TerminEvent[] } {
+  // Nachfolger aus der Ablage: Eine NEUERE Erstgesprächs-Zeile zeigt per
+  // `revived_from_*` auf die alte, die damit Historie ist (`hatNachfolger`,
+  // dieselbe Regel wie im Eingang). Abgeleitet aus den übergebenen Zeilen.
+  const nachfolgerSetting = new Set<string>();
+  const nachfolgerClosing = new Set<string>();
+  for (const s of settings) {
+    const r = s as { revived_from_setting_call_id?: string | null; revived_from_closing_call_id?: string | null };
+    if (r.revived_from_setting_call_id) nachfolgerSetting.add(r.revived_from_setting_call_id);
+    if (r.revived_from_closing_call_id) nachfolgerClosing.add(r.revived_from_closing_call_id);
+  }
   const all = [
-    ...settings.map((c) => fromSetting(c, names, today, nowMs)),
-    ...closings.map((c) => fromClosing(c, names, today, nowMs)),
+    ...settings.map((c) => fromSetting(c, names, today, nowMs, nachfolgerSetting.has(c.id))),
+    ...closings.map((c) => fromClosing(c, names, today, nowMs, nachfolgerClosing.has(c.id))),
   ];
   const events: TerminEvent[] = [];
   const ohneTermin: TerminEvent[] = [];

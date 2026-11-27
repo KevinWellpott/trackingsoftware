@@ -235,7 +235,14 @@ export async function setNeuerTermin(
         : vorher?.show_status === "show"
           ? await moveSettingAppointment(id, iso)
           : await rescheduleSetting(id, berlinInput)
-      : await updateClosingCall(id, { call_at: iso });
+      : await updateClosingCall(id, {
+          call_at: iso,
+          // Ein neuer Closing-Termin beendet „Nachfassen": Sonst bliebe die
+          // Zeile im Eingang fällig, und nach dem Termin fehlten die
+          // Ergebnis-Knöpfe (die verlangen `offen`). `follow_up_due_at: null`
+          // räumt über `withFollowUpDateSynced` auch `follow_up_due`.
+          ...(vorher?.status === "nachfassen" ? { status: "offen" as const, follow_up_due_at: null } : {}),
+        });
 
   // Schritt 3 — die Rücknahme. Best effort wie in `reviveDropout`: Schlägt auch
   // sie fehl, ist die Meldung des Schreibpfads die wichtigere.

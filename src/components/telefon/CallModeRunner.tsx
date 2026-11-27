@@ -568,9 +568,24 @@ export function CallModeRunner({
       p.run();
       e.preventDefault();
     }
+    // Tab geht in den Hintergrund (Handy: Tipp auf die Nummer, App-Wechsel):
+    // sofort speichern. Ein verworfener Hintergrund-Tab führt sonst keinen
+    // Timer mehr aus, und das Ergebnis wäre weg (Ablauf-Prüfung 27.11.).
+    function onHidden() {
+      if (document.visibilityState !== "hidden") return;
+      const p = pendingRef.current;
+      if (!p) return;
+      clearTimeout(p.timer);
+      pendingRef.current = null;
+      p.run();
+      // Gespeichert ist gespeichert: kein „Rückgängig" mehr anbieten.
+      setToast((t) => (t ? { ...t, undo: false } : t));
+    }
     window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("visibilitychange", onHidden);
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("visibilitychange", onHidden);
       const p = pendingRef.current;
       if (p) {
         clearTimeout(p.timer);

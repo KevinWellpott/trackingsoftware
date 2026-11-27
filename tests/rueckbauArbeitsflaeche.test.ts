@@ -566,7 +566,9 @@ describe("6 · Genervt · Neuer Termin · Tot", () => {
 
   test("… und schreibt das Datum über die vorhandenen Actions", () => {
     assert.match(STEMPEL, /rescheduleSetting\(id, berlinInput\)/);
-    assert.match(STEMPEL, /updateClosingCall\(id, \{ call_at: iso \}\)/);
+    assert.match(STEMPEL, /updateClosingCall\(id, \{\s*call_at: iso,/);
+    // „Nachfassen" endet mit dem neuen Termin (Ablauf-Prüfung 27.11.).
+    assert.match(STEMPEL, /vorher\?\.status === "nachfassen" \? \{ status: "offen" as const, follow_up_due_at: null \}/);
   });
 
   test("die drei Knöpfe stehen in der Zeile, nicht auf einer Detailseite", () => {

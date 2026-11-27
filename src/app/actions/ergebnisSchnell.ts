@@ -17,7 +17,9 @@ type Ausgang = "antwort" | "ohne_antwort" | null;
 
 async function vorbelegen(tabelle: "setting_calls" | "closing_calls", id: string): Promise<void> {
   const access = await getAccessContext();
-  if (!access || access.is_foreign_org) return;
+  // Nicht in der Datensicht eines Kollegen: Sonst stünde der Betrachter als
+  // „Durchgeführt von" da und bekäme Gespräch und Umsatz zugerechnet.
+  if (!access || access.is_foreign_org || (access.effective_user_id && access.effective_user_id !== access.user.id)) return;
   const supabase = await createClient();
   await supabase
     .from(tabelle)
@@ -43,11 +45,21 @@ export async function settingNichtErschienen(id: string, ausgang: Ausgang): Prom
   return {};
 }
 
-/** Closing: nicht erschienen, optional mit Ausgang. */
+/**
+ * Closing: nicht erschienen, optional mit Ausgang. „Keine Antwort" beendet das
+ * Closing als verloren (Ghosting) — nur so bekommt es ein Recycling-Datum;
+ * ein bloßer Ausgang ließe es als „offen" ohne Wiedervorlage liegen
+ * (Ablauf-Prüfung 27.11.).
+ */
 export async function closingNichtErschienen(id: string, ausgang: Ausgang): Promise<{ error?: string }> {
   const res = await updateClosingCall(id, { show_status: "no_show" });
   if (res.error) return res;
-  if (ausgang) return setNoShowResolution("closing", id, ausgang);
+  if (!ausgang) return {};
+  const aus = await setNoShowResolution("closing", id, ausgang);
+  if (aus.error) return aus;
+  if (ausgang === "ohne_antwort") {
+    return setClosingOutcome({ closingId: id, outcome: "verloren", lostReasonCode: "ghosting" });
+  }
   return {};
 }
 
@@ -55,12 +67,19 @@ export async function closingNichtErschienen(id: string, ausgang: Ausgang): Prom
 export async function closingErgebnis(
   id: string,
   input:
-    | { outcome: "gewonnen"; dealVolume: number | null }
+    | { outcome: "gewonnen"; dealVolume: number | null; paymentType?: "Einmal" | "Raten" }
     | { outcome: "verloren"; lostReasonCode: ClosingLostReasonCode }
     | { outcome: "nachfassen"; berlinInput: string },
 ): Promise<{ error?: string }> {
   if (input.outcome === "gewonnen") {
-    return setClosingOutcome({ closingId: id, outcome: "gewonnen", dealVolume: input.dealVolume });
+    return setClosingOutcome({
+      closingId: id,
+      outcome: "gewonnen",
+      dealVolume: input.dealVolume,
+      // Die Zahlungsart bestimmt den Kunden-Zahlungsplan (kunde_aus_closing);
+      // ohne Angabe legte er immer „Raten" an.
+      ...(input.paymentType ? { paymentType: input.paymentType } : {}),
+    });
   }
   if (input.outcome === "verloren") {
     return setClosingOutcome({ closingId: id, outcome: "verloren", lostReasonCode: input.lostReasonCode });
