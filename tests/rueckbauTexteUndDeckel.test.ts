@@ -229,15 +229,19 @@ describe("Tote Reste", () => {
 });
 
 describe("Der Seitenname ist entschieden", () => {
-  test("die Seite unter /nachfassen heißt wieder „Nachfassen“", () => {
+  test("die Seite unter /nachfassen heißt „Heute“, die Zeile darüber „Nachfassen“", () => {
     // Zwischen Rückbau und Nachfass-Eingang hieß die Seite „Recycling" — sie
     // zeigte nur noch das. Seit dem Nachfass-Eingang (docs/nachfassen-umbau/
     // PLAN-nachfass-eingang.md) trägt sie wieder alle drei Quellen: Termine ohne
     // nächsten Schritt, Telefon-Rückrufe und fällige Recycling-Leads. Damit ist
     // „Nachfassen" wieder die zutreffende Sammelbezeichnung, und sie steht im
     // Block „Meine Arbeit".
-    assert.match(NACHFASSEN_PAGE, /eyebrow="Meine Arbeit"/);
-    assert.match(NACHFASSEN_PAGE, /\n\s*Nachfassen\n/);
+    // GEÄNDERT (Redesign Phase 4): Der Navigationspunkt heißt „Heute", die
+    // Seite heißt wie er; „Nachfassen" bleibt als Zeile darüber stehen, damit
+    // das gewohnte Wort nicht verschwindet. Der Block „Meine Arbeit" ist in
+    // der neuen Gliederung aufgegangen.
+    assert.match(NACHFASSEN_PAGE, /eyebrow="Nachfassen"/);
+    assert.match(NACHFASSEN_PAGE, /\n\s*Heute\n/);
     assert.doesNotMatch(NACHFASSEN_PAGE, /\n\s*Recycling\n/);
     // Die ROUTE bleibt: Lesezeichen und `?from=nachfassen` hängen daran.
     assert.match(NACHFASSEN_PAGE, /`\?from=nachfassen` behalten ihren Namen/);

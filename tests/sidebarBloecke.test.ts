@@ -27,6 +27,7 @@ function read(relative: string): string {
 
 const SIDEBAR = read("src/components/Sidebar.tsx");
 const MOBILE = read("src/components/MobileHeader.tsx");
+const TABBAR = read("src/components/MobileBottomNav.tsx");
 const NACHFASS_REGEL = read("src/lib/nachfassRegel.ts");
 
 /** Der Abschnitt ab einem Anker bis zum nächsten `</CollapsibleSection>`. */
@@ -43,80 +44,110 @@ function zaehle(haystack: string, needle: string): number {
 }
 
 /* ------------------------------------------------------------------ *
- * Die Blöcke selbst
+ * Die Gliederung selbst (Redesign Phase 4 — Prototyp-Navigation)
  * ------------------------------------------------------------------ */
 
+// GEÄNDERTE ERWARTUNG (27.11.2026, Redesign „Liquid Glass" Phase 4): Aus den
+// fünf aufklappbaren Blöcken („Meine Arbeit", LinkedIn, Telefon, Auswertung,
+// Verwaltung) wurde die Gliederung des Prototyps — Einstieg oben offen
+// (Übersicht · Heute · Kalender), darunter benannte Gruppen. Aufklappbar
+// bleiben nur die zwei Listenbäume und die Verwaltung. Geprüft wird weiter die
+// ANORDNUNG und die Prinzipien dahinter (eine Zeile je Seite, ein Badge, das
+// die Menge der Seite zählt, Tooltips mit der Frage, keine toten Routen).
+
+/** Position einer Gruppen-Überschrift. */
+function gruppe(label: string): number {
+  const pos = SIDEBAR.indexOf(`<NavGroup label="${label}" />`);
+  assert.notEqual(pos, -1, `Gruppe „${label}" fehlt`);
+  return pos;
+}
+
+/** Der Quelltext eines NavLink mit diesem href (bis zum schließenden `/>`). */
+function navLink(href: string): string {
+  const start = SIDEBAR.indexOf(`href="${href}"`);
+  assert.notEqual(start, -1, `${href} fehlt in der Seitenleiste`);
+  const von = SIDEBAR.lastIndexOf("<NavLink", start);
+  const bis = SIDEBAR.indexOf("/>", start);
+  return SIDEBAR.slice(von, bis);
+}
+
 describe("Gliederung", () => {
-  test("es gibt genau fünf benannte Blöcke — nicht mehr", () => {
-    // „Wenige, benannte Blöcke" ist die Anforderung. Ein sechster wäre wieder
-    // eine Liste, die man liest statt überfliegt; deshalb steht die Zahl hier.
-    const bloecke: [id: string, label: string][] = [
-      ["arbeit", "Meine Arbeit"],
-      ["linkedin", "LinkedIn"],
-      ["telefon", "Telefon"],
-      ["auswertung", "Auswertung"],
-      ["verwaltung", "Verwaltung"],
-    ];
-    for (const [id, label] of bloecke) {
-      assert.match(SIDEBAR, new RegExp(`id="${id}"`), `Block "${id}" fehlt`);
-      assert.ok(block(id).includes(`label="${label}"`), `Block "${id}" heißt nicht mehr „${label}"`);
+  test("oben, offen und in dieser Reihenfolge: Übersicht · Heute · Kalender", () => {
+    const uebersicht = SIDEBAR.indexOf('label="Übersicht"');
+    const heute = SIDEBAR.indexOf('href="/nachfassen"');
+    const kalender = SIDEBAR.indexOf('href="/termine"');
+    assert.ok(uebersicht !== -1 && heute !== -1 && kalender !== -1);
+    assert.ok(uebersicht < heute && heute < kalender, "Reihenfolge Übersicht · Heute · Kalender verloren");
+    // Vor jeder Gruppe und jeder Aufklappung — der Tageseinstieg liegt nie
+    // hinter einem zugeklappten Kopf.
+    const ersteGruppe = SIDEBAR.indexOf("<NavGroup");
+    const ersterBlock = SIDEBAR.indexOf("<CollapsibleSection");
+    for (const pos of [uebersicht, heute, kalender]) {
+      assert.ok(pos < ersteGruppe && pos < ersterBlock, "Ein Einstieg ist in eine Gruppe gerutscht");
     }
-    // GEÄNDERTE ERWARTUNG (8. November 2026, Migration 0047): Dazu kommt
-    // genau EIN bedingter Block „Intern" (Kunden · Umsatz). Er erscheint nur
-    // in der Titan-Organisation (`intern?.kunden`), für jeden Kunden bleibt
-    // es bei den fünf. Bedingt heißt hier: Er steht hinter genau dieser
-    // Abfrage und nirgends sonst — ein sechster Block für alle wäre wieder
-    // die Liste, gegen die diese Gliederung steht.
-    assert.equal(zaehle(SIDEBAR, "<CollapsibleSection"), bloecke.length + 1);
-    assert.match(SIDEBAR, /\{intern\?\.kunden && \(\s*<CollapsibleSection\s+id="intern"/);
+    assert.ok(navLink("/nachfassen").includes('label="Heute"'), "„Heute“ zeigt nicht auf /nachfassen");
+    assert.ok(navLink("/termine").includes('label="Kalender"'), "„Kalender“ zeigt nicht auf /termine");
   });
 
-  test("die Tagesarbeit steht zusammen in einem Block", () => {
-    // docs/data-model.md §1: /termine (wer steht an), /nachfassen (heute
-    // fällig) und /ablage (aus dem Funnel gefallen) beantworten dieselbe Frage
-    // auf verschiedenen Zeitkörnungen. Getrennt in der Navigation werden sie zu
-    // drei unabhängigen Werkzeugen, von denen man zwei nie öffnet.
-    //
-    // /erinnerungen stand hier als vierte Zeile, bis der Rückbau die
-    // Erinnerungs-Kaskade abgeräumt hat; inzwischen ist die Route ganz
-    // gelöscht, und eine Navigationszeile dorthin wäre eine 404 mit Zähler.
-    const arbeit = block("arbeit");
-    for (const href of ["/termine", "/nachfassen", "/ablage"]) {
-      assert.ok(arbeit.includes(`href="${href}"`), `${href} steht nicht in „Meine Arbeit"`);
-      // ... und nirgends sonst: eine zweite Zeile derselben Seite wäre ein
-      // zweiter Zähler, der irgendwann etwas anderes zählt.
+  test("die Gruppen stehen in der Reihenfolge des Prototyps", () => {
+    const reihe = ["Akquise", "Vertrieb", "Kunden", "Auswertung"].map(gruppe);
+    for (let i = 1; i < reihe.length; i++) assert.ok(reihe[i - 1] < reihe[i], "Gruppen-Reihenfolge verloren");
+    // Die Verwaltung bleibt unten, hinter dem Abstandhalter.
+    assert.ok(SIDEBAR.indexOf('id="verwaltung"') > gruppe("Auswertung"));
+  });
+
+  test("Akquise trägt Telefon und LinkedIn mit ihren Listenbäumen", () => {
+    const telefon = SIDEBAR.indexOf('id="telefon"');
+    const linkedin = SIDEBAR.indexOf('id="linkedin"');
+    assert.ok(telefon > gruppe("Akquise") && telefon < gruppe("Vertrieb"));
+    assert.ok(linkedin > gruppe("Akquise") && linkedin < gruppe("Vertrieb"));
+    assert.ok(block("telefon").includes("visiblePhoneLists.map"), "der Telefon-Listenbaum fehlt");
+    assert.ok(block("linkedin").includes("visibleLists.map"), "der LinkedIn-Listenbaum fehlt");
+  });
+
+  test("Vertrieb: Setting · Closing · No-Shows · Ablage", () => {
+    const pos = ["/setting", "/closing", "/no-shows", "/ablage"].map((h) => SIDEBAR.indexOf(`href="${h}"`));
+    for (const p of pos) assert.ok(p > gruppe("Vertrieb") && p < gruppe("Kunden"), "eine Vertriebs-Zeile steht außerhalb der Gruppe");
+    for (let i = 1; i < pos.length; i++) assert.ok(pos[i - 1] < pos[i], "Reihenfolge in „Vertrieb“ verloren");
+  });
+
+  test("Kunden nur dort, wo der interne Bereich sichtbar ist", () => {
+    // Dieselbe Sichtbarkeitsregel wie der frühere Block „Intern" (Migration
+    // 0047): nur in der Titan-Organisation, Umsatz nur mit Recht.
+    assert.match(SIDEBAR, /\{intern\?\.kunden && \(\s*<>\s*<NavGroup label="Kunden" \/>/);
+    assert.match(SIDEBAR, /\{intern\.umsatz && \(\s*<NavLink\s+href="\/umsatz"/);
+    assert.ok(navLink("/umsatz").includes('label="Umsatz & Collect"'));
+  });
+
+  test("Team nur für Owner mit Team-Sicht", () => {
+    assert.match(SIDEBAR, /\{dataView\?\.canSwitch && \(\s*<NavLink\s+href="\/team"/);
+    // „Analyse" exakt — /analyse/vergleich hat eine eigene Zeile.
+    assert.ok(navLink("/analyse").includes("exact"));
+  });
+
+  test("genau drei aufklappbare Blöcke: die zwei Listenbäume und die Verwaltung", () => {
+    assert.equal(zaehle(SIDEBAR, "<CollapsibleSection"), 3);
+    for (const id of ["telefon", "linkedin", "verwaltung"]) assert.match(SIDEBAR, new RegExp(`id="${id}"`));
+  });
+
+  test("jede Seite hat genau EINE Zeile", () => {
+    // Eine zweite Zeile derselben Seite wäre ein zweiter Ort für einen Zähler,
+    // der irgendwann etwas anderes zählt.
+    for (const href of ["/nachfassen", "/termine", "/ablage", "/setting", "/closing", "/no-shows", "/analyse", "/team"]) {
       assert.equal(zaehle(SIDEBAR, `href="${href}"`), 1, `${href} kommt mehrfach vor`);
     }
-    // Und die abgeklemmte Seite ist wirklich raus — auch aus der Liste, die
-    // einen Block aufgeklappt hält. (Geprüft am CODE, nicht am Fließtext: Der
-    // Kommentarkopf darf weiter erklären, warum es die Zeile nicht mehr gibt.)
+  });
+
+  test("keine Zeile auf gelöschte Routen", () => {
     assert.doesNotMatch(SIDEBAR, /href="\/erinnerungen"/, "die Erinnerungs-Zeile ist zurück in der Seitenleiste");
-    assert.doesNotMatch(SIDEBAR, /ARBEIT_HREFS = \[[^\]]*erinnerungen/, "/erinnerungen hält weiterhin einen Block offen");
+    assert.doesNotMatch(SIDEBAR, /_HREFS = \[[^\]]*erinnerungen/, "/erinnerungen hält weiterhin einen Block offen");
     assert.doesNotMatch(SIDEBAR, /BellRing/, "das Erinnerungs-Icon wird noch importiert");
   });
 
-  test("Nachfassen steht oben, dann Termine, dann Ablage", () => {
-    // Seit dem Nachfass-Eingang (docs/nachfassen-umbau/PLAN-nachfass-eingang.md)
-    // ist /nachfassen die tägliche Arbeitsliste — die Zeile, die man morgens
-    // zuerst braucht. /termine ist wieder Kalender und Erinnerungen, /ablage die
-    // Gegenrichtung. Dieselbe Reihenfolge wie der Quicklink-Streifen.
-    const arbeit = block("arbeit");
-    const nachfassen = arbeit.indexOf('href="/nachfassen"');
-    const termine = arbeit.indexOf('href="/termine"');
-    const ablage = arbeit.indexOf('href="/ablage"');
-    assert.ok(nachfassen !== -1 && termine !== -1 && ablage !== -1);
-    assert.ok(nachfassen < termine, "Nachfassen ist hinter Termine gerutscht");
-    assert.ok(termine < ablage, "die Ablage steht vor den Terminen");
-    assert.ok(arbeit.includes('label="Nachfassen"'), "die Zeile heißt nicht „Nachfassen“");
-    assert.doesNotMatch(arbeit, /label="Recycling"/);
-  });
-
   test("Einstieg und Anlege-Aktion liegen vor jeder Aufklappung", () => {
-    // Suche, Heimweg und „Termin buchen" dürfen nie hinter einem zugeklappten
-    // Block liegen — sie gehören zu keinem Thema.
     const ersterBlock = SIDEBAR.indexOf("<CollapsibleSection");
     assert.notEqual(ersterBlock, -1);
-    for (const anker of ["<SearchTrigger", 'label="Dashboard"', ">Termin buchen<"]) {
+    for (const anker of ["<SearchTrigger", 'label="Übersicht"', ">Termin buchen<"]) {
       const pos = SIDEBAR.indexOf(anker);
       assert.notEqual(pos, -1, `${anker} nicht gefunden`);
       assert.ok(pos < ersterBlock, `${anker} ist in einen Block gerutscht`);
@@ -124,26 +155,9 @@ describe("Gliederung", () => {
   });
 
   test("ALLE Blöcke starten zugeklappt", () => {
-    // Die Rückmeldung war „standardmäßig alles eingeklappt". Früher startete
-    // nur „Verwaltung" zu; jetzt gilt die Vorbelegung für die ganze Leiste und
-    // steht deshalb als EINE Konstante da, nicht als Prop je Block. Ein
-    // `defaultOpen` an einer einzelnen Zeile wäre die leiseste Art, die Regel
-    // bei der nächsten Änderung wieder aufzuweichen.
     assert.match(SIDEBAR, /const SECTION_DEFAULT_OPEN = false;/);
-    // Weder als Prop-Deklaration (`defaultOpen?:`, `defaultOpen =`) noch als
-    // JSX-Attribut (`defaultOpen={…}`). Im Fließtext des Kommentars darf das
-    // Wort stehen — dort steht, warum es die Prop nicht mehr gibt.
     assert.doesNotMatch(SIDEBAR, /defaultOpen\s*[=?:]/, "ein Block nimmt sich eine eigene Vorbelegung");
     assert.match(SIDEBAR, /useSyncExternalStore\([\s\S]{0,200}?readSectionDefault,/);
-  });
-
-  test("die Quicklinks sind die Gegenleistung fürs Zuklappen", () => {
-    // Die beiden Änderungen gehören zusammen: Zugeklappt verliert die Leiste
-    // den Überblick auf einen Blick, und den gibt der Dashboard-Streifen
-    // zurück. Steht der Hinweis nicht mehr in der Datei, hat jemand das eine
-    // ohne das andere angefasst.
-    assert.match(SIDEBAR, /SECTION_DEFAULT_OPEN/);
-    assert.match(SIDEBAR, /QuickLinks\.tsx/);
   });
 });
 
@@ -153,7 +167,7 @@ describe("Gliederung", () => {
 
 describe("Die geöffnete Seite verschwindet nie in einem zugeklappten Block", () => {
   test("jeder Block weiß, ob die aktuelle Seite in ihm steckt", () => {
-    for (const id of ["arbeit", "linkedin", "telefon", "auswertung", "verwaltung"]) {
+    for (const id of ["linkedin", "telefon", "verwaltung"]) {
       assert.match(
         block(id),
         /hasActive=\{containsActive\(pathname, [A-Z_]+_HREFS\)\}/,
@@ -163,139 +177,124 @@ describe("Die geöffnete Seite verschwindet nie in einem zugeklappten Block", ()
   });
 
   test("auch zugeklappt vorbelegt bleibt der aktive Block offen", () => {
-    // Die schärfste Fassung der Anforderung: Seit ALLE Blöcke zu starten, ist
-    // dies der einzige Grund, aus dem beim ersten Aufruf überhaupt noch etwas
-    // aufgeklappt ist. Fiele `hasActive` weg, stünde man auf /nachfassen vor
-    // fünf geschlossenen Köpfen und ohne jede Markierung, wo man ist.
     assert.match(SIDEBAR, /const open = stored \|\| hasActive;/);
     assert.match(SIDEBAR, /const forcedOpen = hasActive && !stored;/);
-    // …und der Grund steht sichtbar auf dem Bildschirm, nicht nur im Code:
-    // der Titel färbt sich, der Schalter erklärt sich im Tooltip.
     assert.match(SIDEBAR, /enthält die geöffnete Seite und bleibt aufgeklappt/);
   });
 
   test("der gespeicherte Zustand kann einen aktiven Block nicht zuklappen", () => {
-    // `stored || hasActive`: Der Block bleibt offen, egal was gespeichert ist.
     assert.match(SIDEBAR, /const open = stored \|\| hasActive;/);
-    // Und der Schalter ist sichtbar gesperrt statt wirkungslos — ein Klick,
-    // der nichts tut, ist schlimmer als einer, der fehlt.
     assert.match(SIDEBAR, /if \(!hasActive\) writeSectionOpen\(id, !open\);/);
     assert.match(SIDEBAR, /aria-disabled=\{hasActive \|\| undefined\}/);
-    // `disabled` wäre falsch: es nimmt in mehreren Browsern die Maus-Ereignisse
-    // mit und damit den Tooltip, der die einzige Erklärung dafür ist.
     assert.doesNotMatch(SIDEBAR, /disabled=\{hasActive\}/);
   });
 
-  test("Unterseiten halten ihren Block offen, nicht nur die Übersichtsseite", () => {
-    // /lists/<id> und /analyse/vergleich müssen mitzählen — sonst ließe sich
-    // der Block zuklappen, in dem man gerade arbeitet. (/ansicht/<id> stand
-    // hier, bis die Smart Views mit dem Nachfass-Eingang gelöscht wurden.)
+  test("Unterseiten halten ihren Block offen und färben ihre Zeile", () => {
+    // /lists/<id> muss den LinkedIn-Block offen halten; /setting/<id> färbt
+    // die Zeile „Setting" (Präfix-Regel in matchesHref).
     assert.match(SIDEBAR, /const LINKEDIN_HREFS = \["\/listen", "\/lists"\] as const;/);
-    assert.match(SIDEBAR, /const AUSWERTUNG_HREFS = \["\/team", "\/analyse"\]/);
-    // Beide Seiten derselben Regel: NavLink färbt danach, der Block klappt
-    // danach auf. Zwei Fassungen liefen früher oder später auseinander.
     assert.match(SIDEBAR, /const isActive = matchesHref\(pathname, href, exact\);/);
     assert.match(SIDEBAR, /return hrefs\.some\(\(h\) => matchesHref\(pathname, h\)\);/);
+    assert.match(SIDEBAR, /pathname === href \|\| \(href !== "\/" && pathname\.startsWith\(href \+ "\/"\)\)/);
   });
 });
 
 /* ------------------------------------------------------------------ *
- * Anforderung 2 — der Zähler überlebt das Zuklappen
+ * Anforderung 2 — der Zähler zählt, was die Seite zeigt
  * ------------------------------------------------------------------ */
 
 describe("Navigations-Zähler", () => {
-  test("der zugeklappte Block trägt die Summe seiner Zähler", () => {
-    // Ein Abzeichen, das man nur nach dem Aufklappen sieht, ist keine
-    // Benachrichtigung. Gezeigt wird es NUR zugeklappt (aufgeklappt stehen
-    // daneben die Einzelzahlen), und es erbt den Überfällig-Ton.
-    //
-    // Es waren drei, dann zwei, jetzt einer: Der Erinnerungs-Zähler ist mit
-    // seiner Seite gefallen, der Ablage-Zähler mit der Liste, die er zählte
-    // („Ersatztermin steht aus" — sie steht seit dem Rückbau in der
-    // Terminliste, nicht mehr in der Ablage; lib/navCounts.ts).
-    //
-    // Die Summenform bleibt trotzdem stehen, obwohl sie über einen Zweig
-    // summiert: Sie ist die Stelle, an der sich der nächste Zähler einhängt,
-    // und ihre Regel („null heißt nicht ermittelbar") ist die gleiche.
-    assert.match(SIDEBAR, /const badge = !open && count && count\.total > 0 \? count : null;/);
-    assert.match(SIDEBAR, /data-tone=\{badge\.overdue > 0 \? "overdue" : undefined\}/);
-    assert.ok(block("arbeit").includes("count={arbeitCount}"));
-    assert.match(SIDEBAR, /const arbeitCount = sumNavCounts\(\[navCounts\?\.nachfassen\]\);/);
-  });
-
-  test("die Zeile mit einer abarbeitbaren Zahl trägt sie — die beiden anderen nicht", () => {
-    const arbeit = block("arbeit");
-    assert.ok(arbeit.includes("count={navCounts?.nachfassen}"));
-    // Die Ablage ist seit dem Rückbau ein reines Archiv: Ein Badge darauf ginge
-    // nie auf null und wäre eine Mahnung ohne Adressat (docs §5.4). Und
-    // /termine bekommt bewusst keines — sein Gold ist abgeleitet, ein Zähler
-    // müsste die Regel ein zweites Mal formulieren (lib/navCounts.ts).
-    assert.doesNotMatch(arbeit, /count=\{navCounts\?\.ablage\}/);
-    assert.doesNotMatch(arbeit, /ABLAGE_COUNT_LABEL/);
+  test("das einzige Abzeichen steht an „Heute“ (Entscheidung E2)", () => {
+    // Es zählt dieselbe Menge wie /nachfassen (navCountsData.ts liest den
+    // Loader der Seite, docs §5.4). Weitere Abzeichen nur, wenn sie exakt die
+    // Menge ihrer Seite zählen — No-Shows und Ablage tun das nicht.
+    assert.equal(zaehle(SIDEBAR, "count={navCounts?.nachfassen}"), 1);
+    assert.ok(navLink("/nachfassen").includes("count={navCounts?.nachfassen}"));
+    for (const href of ["/termine", "/ablage", "/no-shows", "/setting", "/closing"]) {
+      assert.doesNotMatch(navLink(href), /count=/, `${href} trägt ein Abzeichen`);
+    }
     assert.doesNotMatch(SIDEBAR, /ABLAGE_COUNT_LABEL/);
   });
 
+  test("ein zugeklappter Block trägt die Summe seiner Zähler — im selben Ton", () => {
+    // Die Bauweise bleibt für jeden Block, der einmal einen Zähler trägt.
+    assert.match(SIDEBAR, /const badge = !open && count && count\.total > 0 \? count : null;/);
+    assert.match(SIDEBAR, /data-tone=\{badge\.overdue > 0 \? "overdue" : undefined\}/);
+  });
+
   test("nicht ermittelbar wird nicht zur beruhigenden 0", () => {
-    // lib/navCounts.ts: `null` heißt „keine Datengrundlage". Ist der Zweig
-    // null, darf am Kopf keine 0 stehen, sondern gar kein Abzeichen.
     assert.match(SIDEBAR, /return known \? \{ total, overdue \} : null;/);
   });
 
-  test("Seitenleiste und mobiler Menü-Punkt bilden dieselbe Summe", () => {
-    // Zwei eigene Summen wären zwei Gelegenheiten, dieselbe Zahl verschieden
-    // zu bilden — auf genau den beiden Flächen, die nebeneinander stehen.
+  test("Seitenleiste und Tab-Leiste zeigen dieselbe Zahl", () => {
+    // Am Handy steht die Zahl am Tab „Heute" — aus derselben Summe.
     assert.match(MOBILE, /import \{ MobileDrawer, sumNavCounts(, type InternNav)? \} from "\.\/Sidebar";/);
     assert.match(MOBILE, /sumNavCounts\(\[navCounts\?\.nachfassen\]\)/);
-    assert.doesNotMatch(MOBILE, /reduce\(\(n, c\) => n \+ \(c\?\./);
+    assert.match(MOBILE, /heute=\{pending\}/);
+    assert.match(TABBAR, /className="count-pill mobile-tab-count"/);
+    assert.match(TABBAR, /data-tone=\{zaehler\.overdue > 0 \? "overdue" : undefined\}/);
+    assert.doesNotMatch(TABBAR, /total \?\? 0/);
   });
 });
 
 /* ------------------------------------------------------------------ *
- * Die Tooltips sind die Abgrenzung der drei Mechanismen
+ * Tooltips: jede Zeile nennt die Frage, die sie beantwortet
  * ------------------------------------------------------------------ */
 
 describe("Tooltips", () => {
-  test("Nachfassen nennt die Quellen, die dort wirklich stehen", () => {
-    // Ein Tooltip, der eine Quelle verspricht, die auf der Seite fehlt, ist
-    // schlimmer als gar keiner — man sucht dann dort, wo nichts ist. Und
-    // umgekehrt: Fehlt eine Quelle, sucht man sie woanders.
-    //
-    // Nach dem Rückbau stand hier nur das Recycling. Seit dem Nachfass-Eingang
-    // trägt /nachfassen wieder drei Quellen (Plan §4.2): Termine ohne nächsten
-    // Schritt, Telefon-Rückrufe, fällige Recycling-Leads. LinkedIn-Follow-ups
-    // bleiben im Listen-Board (Entscheidung N1) — der Tooltip darf sie deshalb
-    // nicht als Quelle nennen.
-    const arbeit = block("arbeit");
-    const zeile = arbeit.slice(arbeit.indexOf('href="/nachfassen"'), arbeit.indexOf('href="/termine"'));
-    assert.match(zeile, /title="[^"]{40,}"/, "die Nachfassen-Zeile hat keinen Tooltip");
-    for (const quelle of ["Termine ohne nächsten Schritt", "Telefon-Rückrufe", "Recycling-Leads"]) {
-      assert.ok(zeile.includes(quelle), `Der Nachfassen-Tooltip nennt „${quelle}" nicht`);
+  test("jede Navigationszeile trägt einen Tooltip", () => {
+    const zeilen = SIDEBAR.match(/<NavLink\b[\s\S]*?\/>/g) ?? [];
+    assert.ok(zeilen.length >= 12, "zu wenige Navigationszeilen gefunden");
+    for (const z of zeilen) {
+      const href = z.match(/href="([^"]+)"/)?.[1] ?? "?";
+      // Die Verwaltung (Export, Einstellungen, Organisationen) erklärt sich
+      // selbst; alle übrigen Zeilen beantworten eine Frage.
+      if (["/export", "/settings", "/admin"].includes(href)) continue;
+      assert.match(z, /title="[^"]{20,}"/, `${href} hat keinen Tooltip`);
     }
-    assert.doesNotMatch(zeile, /Tägliche Wiedervorlage: LinkedIn-Follow-ups/);
+  });
+
+  test("Heute nennt die Quellen, die dort wirklich stehen", () => {
+    const zeile = navLink("/nachfassen");
+    for (const quelle of ["Termine ohne nächsten Schritt", "Telefon-Rückrufe", "Recycling-Leads"]) {
+      assert.ok(zeile.includes(quelle), `Der Heute-Tooltip nennt „${quelle}" nicht`);
+    }
+    assert.doesNotMatch(zeile, /LinkedIn-Follow-ups/);
   });
 
   test("die Quellenliste des Tooltips deckt sich mit dem Typ der Seite", () => {
-    // Die eine Stelle, an der steht, was /nachfassen zeigt: der Quellen-Typ der
-    // Regel-Bibliothek. Drei Werte — genau die drei, die der Tooltip nennt.
     assert.match(NACHFASS_REGEL, /export type NachfassQuelle = "termin" \| "rueckruf" \| "recycling";/);
   });
 
   test("es gibt keine Erinnerungs-Zeile mehr, die eine Kaskade verspricht", () => {
-    // Die Zeile beschrieb die stundengenaue Kaskade („Stundengenau vor
-    // Setting-, Closing- und Nachfass-Terminen … Ketten nach No-Show"). Mit dem
-    // Rückbau gibt es weder Stufen noch Ketten; ein Tooltip, der sie weiterhin
-    // verspricht, schickt jemanden auf eine Weiterleitung.
-    const arbeit = block("arbeit");
-    assert.doesNotMatch(arbeit, /Stundengenau/);
-    assert.doesNotMatch(arbeit, /label="Erinnerungen"/);
+    assert.doesNotMatch(SIDEBAR, /Stundengenau/);
+    assert.doesNotMatch(SIDEBAR, /label="Erinnerungen"/);
   });
 
   test("Ablage grenzt sich als Gegenrichtung ab", () => {
-    // Die beiden Zeilen darüber zeigen, was ansteht — diese, was herausgefallen
-    // ist. Ohne diesen Satz sind es drei ähnlich klingende Wörter.
-    const arbeit = block("arbeit");
-    assert.ok(arbeit.includes("Ausgeschiedene Vorgänge"));
-    assert.ok(arbeit.includes("Sperrliste"));
+    const zeile = navLink("/ablage");
+    assert.ok(zeile.includes("Ausgeschiedene Vorgänge"));
+    assert.ok(zeile.includes("Sperrliste"));
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Handy: die Tab-Leiste
+ * ------------------------------------------------------------------ */
+
+describe("Tab-Leiste am Handy", () => {
+  test("Heute · Kalender · Telefon · Mehr", () => {
+    const heute = TABBAR.indexOf('href: "/nachfassen", label: "Heute"');
+    const kalender = TABBAR.indexOf('href: "/termine", label: "Kalender"');
+    const telefon = TABBAR.indexOf('href: "/telefon", label: "Telefon"');
+    const mehr = TABBAR.indexOf("<span>Mehr</span>");
+    assert.ok(heute !== -1 && kalender !== -1 && telefon !== -1 && mehr !== -1);
+    assert.ok(heute < kalender && kalender < telefon && telefon < mehr);
+    assert.equal(zaehle(TABBAR, "href: \""), 3);
+  });
+
+  test("im Call-Modus ausgeblendet", () => {
+    assert.match(read("src/app/globals.css"), /body\[data-dialer\] \.mobile-bottom-nav \{ display: none; \}/);
   });
 });
 

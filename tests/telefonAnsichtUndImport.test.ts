@@ -149,13 +149,16 @@ describe("3 · Was aus der Ansicht verschwunden ist", () => {
     assert.ok(!RUNNER.includes("commitText"), "commitText ist zurück");
   });
 
-  test("genau EIN Textfeld ist zurück: die Notiz, einklappbar", () => {
-    // Auf Wunsch zurückgeholt — als einziges Freitextfeld, in einem
-    // <details>, das über alle Leads offen oder zu bleibt.
+  test("genau EIN Textfeld ist zurück: die Notiz, immer sichtbar, speichert selbst", () => {
+    // Auf Wunsch zurückgeholt — als einziges Freitextfeld. Seit dem Redesign
+    // (Phase 5) nicht mehr einklappbar, sondern immer sichtbar mit Autosave:
+    // kurz nach der letzten Eingabe und sofort beim Verlassen des Felds.
     assert.equal((RUNNER.match(/<textarea/g) ?? []).length, 1, "mehr als ein Textfeld im Call-Mode");
     assert.match(RUNNER, /aria-label="Notizen zum Lead"/);
     assert.match(RUNNER, /onCommit=\{\(next\) => setAndSave\(current\.id, \{ notes: next \}, \{ notes: next \}\)\}/);
-    assert.match(RUNNER, /<details\s+open=\{notesOpen\}/);
+    assert.ok(!RUNNER.includes("<details"), "die Notiz steckt wieder in einem <details>");
+    assert.match(RUNNER, /timer\.current = setTimeout\(speichern, 900\)/);
+    assert.match(RUNNER, /onBlur=\{speichern\}/);
     assert.match(RUNNER, /<NotesField\s+key=\{current\.id\}/);
   });
 

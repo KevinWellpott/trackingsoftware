@@ -13,12 +13,10 @@ import { MobileDrawer, sumNavCounts, type InternNav } from "./Sidebar";
 // bei Scroll nicht aus — das hier ist eine App, kein Marketing-Header.
 // Auf Mobile traegt sie zusaetzlich den Drawer-Trigger.
 //
-// Der Punkt am „Mehr"-Tab der unteren Leiste ist die mobile Haelfte der Aufgaben-Zaehler: Auf
-// dem Desktop stehen sie in der Seitenleiste, hier liegt die komplette
-// Navigation hinter einem Knopf. Ohne den Punkt waere die Zahl auf genau dem
-// Geraet unsichtbar, auf dem sie am ehesten gebraucht wird. Bewusst nur ein
-// Punkt und keine Zahl: WELCHER Eintrag etwas hat, steht eine Beruehrung
-// weiter — mehrere Zahlen auf einem 36px-Knopf waeren keine.
+// Der Zaehler am Tab „Heute" der unteren Leiste ist die mobile Haelfte des
+// Navigations-Zaehlers: Auf dem Desktop steht er an der Zeile „Heute" der
+// Seitenleiste, hier am gleichnamigen Tab — dieselbe Zahl aus derselben
+// Quelle (sumNavCounts ueber getNavCounts()).
 
 type Props = {
   workspaceName: string;
@@ -67,8 +65,6 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, phon
   // Der Ablage-Zweig ist mit seiner Liste gefallen (lib/navCounts.ts); die
   // Summenform bleibt, damit sich der naechste Zaehler an EINER Stelle einhaengt.
   const pending = sumNavCounts([navCounts?.nachfassen]);
-  const total = pending?.total ?? 0;
-  const overdue = pending?.overdue ?? 0;
 
   return (
     <>
@@ -111,10 +107,10 @@ export function MobileHeader({ workspaceName, username, workspaceId, lists, phon
         </div>
       </header>
 
-      <MobileBottomNav
-        onOpenMenu={() => setDrawerOpen(true)}
-        menuDot={total > 0 ? (overdue > 0 ? "overdue" : "pending") : null}
-      />
+      {/* Der Zaehler sitzt am Tab „Heute" — genau auf der Flaeche, die er
+          zaehlt. Hinter „Mehr" liegt seit der neuen Tab-Leiste nichts mehr,
+          was gezaehlt wird; ein Punkt dort waere eine Mahnung ohne Ziel. */}
+      <MobileBottomNav onOpenMenu={() => setDrawerOpen(true)} heute={pending} />
 
       <MobileDrawer
         open={drawerOpen}

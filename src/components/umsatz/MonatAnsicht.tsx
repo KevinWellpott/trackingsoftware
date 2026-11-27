@@ -1,10 +1,11 @@
 import Link from "next/link";
+import { Betrag } from "@/components/umsatz/Betrag";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { RatenMarken } from "@/components/umsatz/RatenMarken";
 import { ZahlungButton } from "@/components/umsatz/ZahlungDialog";
 import { VereinbarenButton } from "@/components/umsatz/RateAktionen";
-import { ZAHLUNGS_ART_LABELS, datumDe, formatEur, formatEurGenau } from "@/lib/umsatz";
+import { ZAHLUNGS_ART_LABELS, datumDe, formatEur } from "@/lib/umsatz";
 import { monatLabel, monatsTage, zusageZuRate } from "@/lib/finanzen";
 import { geldSicht } from "@/lib/geldSicht";
 import type { KundenGeld } from "@/lib/internData";
@@ -116,8 +117,8 @@ export function MonatAnsicht({ geld, monat, heute }: { geld: KundenGeld[]; monat
                           {kunde}
                         </Link>
                         <span className="ks-rate-betrag">
-                          {formatEurGenau(rate.betrag)}
-                          {rate.bezahlt > 0 && rate.rest > 0 && <span className="ks-herkunft">{formatEurGenau(rate.rest)} offen</span>}
+                          <Betrag wert={rate.betrag} />
+                          {rate.bezahlt > 0 && rate.rest > 0 && <span className="ks-herkunft"><Betrag wert={rate.rest} /> offen</span>}
                         </span>
                         <RatenMarken rate={rate} zusage={zusageZuRate(rate, g.vereinbarungen, heute)} />
                         <span className="ks-rate-aktion">
@@ -138,7 +139,7 @@ export function MonatAnsicht({ geld, monat, heute }: { geld: KundenGeld[]; monat
                         <span className="ks-herkunft">{ZAHLUNGS_ART_LABELS[zahlung.art]}</span>
                       </span>
                       <Link href={`/kunden/${kundeId}?tab=zahlungen`} className={zahlung.betrag < 0 ? "ks-rot" : "ks-gruen"}>
-                        {formatEurGenau(zahlung.betrag)} {zahlung.betrag < 0 ? "zurück" : "eingegangen"}
+                        <Betrag wert={zahlung.betrag} /> {zahlung.betrag < 0 ? "zurück" : "eingegangen"}
                       </Link>
                     </li>
                   ))}
@@ -149,7 +150,7 @@ export function MonatAnsicht({ geld, monat, heute }: { geld: KundenGeld[]; monat
                         <span className="ks-herkunft">{v.grund}</span>
                       </span>
                       <span className="ks-gold">
-                        {formatEurGenau(v.betrag)} übertragen auf {datumDe(v.auf_datum)}
+                        <Betrag wert={v.betrag} /> übertragen auf {datumDe(v.auf_datum)}
                       </span>
                     </li>
                   ))}

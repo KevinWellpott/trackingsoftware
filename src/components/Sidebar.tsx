@@ -7,10 +7,12 @@ import { SearchTrigger } from "@/components/search/SearchDialog";
 import { type NavCount, type NavCounts } from "@/lib/navCounts";
 import {
   Archive,
-  BarChart2,
-  Briefcase,
-  Euro,
   Handshake,
+  LayoutDashboard,
+  ListTodo,
+  MessagesSquare,
+  UserX,
+  Wallet,
   ListChecks,
   Building2,
   CalendarDays,
@@ -18,14 +20,11 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
-  Clock,
   Download,
   GitCompare,
-  Inbox,
   LineChart,
   LogOut,
   Phone,
-  PieChart,
   Plus,
   Settings,
   ShieldCheck,
@@ -59,36 +58,31 @@ import { AppearanceButton } from "@/components/ui/Appearance";
 // globals.css, kein neuer — und er kommt nur an einer Stelle vor, an der eine
 // Zahl steht.
 
-// GLIEDERUNG (Rueckmeldung aus dem ersten produktiven Tag: „super unsortiert").
-// Vorher lagen rund zwanzig Zeilen auf EINER Ebene — Dashboard, Analyse,
-// Vergleich, Termine, drei Aufgaben-Seiten, zwei Listen-Abschnitte, Export,
-// Einstellungen, Admin. Jetzt tragen sie fuenf benannte, aufklappbare Bloecke,
-// geschnitten nach dem Arbeitstag und nicht nach dem Datenmodell:
+// GLIEDERUNG (Redesign „Liquid Glass", Phase 4 — Prototyp-Navigation).
+// Vorher trug die Leiste fuenf aufklappbare Bloecke („Meine Arbeit",
+// LinkedIn, Telefon, Auswertung, Verwaltung), alle zugeklappt, und den
+// Tageseinstieg gab ein Quicklink-Streifen auf dem Dashboard. Jetzt steht der
+// Einstieg selbst oben und offen, darunter benannte Gruppen:
 //
-//   (ohne Block)  Suche · Dashboard · Termin buchen  — Einstieg, kein Thema
-//   Meine Arbeit  Termine · Nachfassen · Ablage
-//   LinkedIn      Pitch-Listen + Ansichten
-//   Telefon       Telefonlisten
-//   Auswertung    Team · Analyse · Vergleich
-//   Verwaltung    Export · Einstellungen · Organisationen
+//   (ohne Gruppe)  Suche · Übersicht · Heute · Kalender · Termin buchen
+//   Akquise        Telefon · LinkedIn   (aufklappbar, mit ihren Listenbaeumen)
+//   Vertrieb       Setting · Closing · No-Shows · Ablage
+//   Kunden         Kunden · Umsatz & Collect · Vorlagen  (nur Titan, intern?.kunden)
+//   Auswertung     Analyse · Vergleich · Team (nur Owner mit Team-Sicht)
+//   Verwaltung     Export · Einstellungen · Organisationen (aufklappbar, unten)
 //
-// ALLE FUENF STARTEN ZUGEKLAPPT (SECTION_DEFAULT_OPEN). Damit ist die Leiste
-// beim ersten Blick eine Gliederung und keine Liste — den Ueberblick „was
-// liegt heute an" gibt statt ihrer der Quicklink-Streifen auf dem Dashboard
-// (components/dashboard/QuickLinks.tsx). Die beiden gehoeren zusammen: Ohne
-// die Quicklinks haette das Zuklappen dem Nutzer den Tageseinstieg genommen,
-// ohne das Zuklappen waeren die Quicklinks eine dritte Kopie derselben Zeilen.
+// „Heute" ist der Nachfass-Eingang /nachfassen (er enthaelt Rueckrufe und
+// Recycling), „Kalender" ist /termine — die Entscheidung des Nachfass-Plans
+// schlaegt die Reiter-Idee des Redesign-Plans. Jede Zeile traegt einen
+// Tooltip, der die FRAGE nennt, die sie beantwortet.
 //
-// „Meine Arbeit" fasst zusammen, was taeglich anfaellt: /termine = wer steht
-// an, /nachfassen = was ist heute faellig, /ablage = was ist herausgefallen.
-// Getrennt in der Navigation waeren das drei unabhaengige Werkzeuge, von denen
-// man zwei nie oeffnet.
+// AUFKLAPPBAR BLEIBEN NUR DREI: die zwei Listenbaeume (sie wachsen mit jeder
+// Liste) und die Verwaltung. Alle starten zugeklappt (SECTION_DEFAULT_OPEN),
+// der Block mit der geoeffneten Seite bleibt offen.
 //
-// /erinnerungen stand hier bis zum Rueckbau als vierte Zeile — die
-// stundengenaue Kaskade vor einem Termin. Sie ist ersatzlos gefallen (die Route
-// leitet auf /termine weiter): „Wer offen ist, wird jeden Tag kontaktiert" ist
-// eine Tagesfrage, und drei aehnlich klingende Zeilen fuer drei Zeitkoernungen
-// waren genau der Ueberbau, den der Rueckbau abraeumt.
+// /erinnerungen stand hier bis zum Rueckbau als Zeile — die stundengenaue
+// Kaskade vor einem Termin. Sie ist ersatzlos gefallen: „Wer offen ist, wird
+// jeden Tag kontaktiert" ist eine Tagesfrage.
 
 /** Ab wie vielen Listen die Sidebar auf die Uebersichtsseite verweist. */
 const SIDEBAR_LIST_CAP = 7;
@@ -113,12 +107,9 @@ function containsActive(pathname: string, hrefs: readonly string[]): boolean {
 // Welche Routen zu welchem Block gehoeren. Praefixe, keine exakten Adressen:
 // /lists/<id>, /ansicht/<id> und /analyse/vergleich sollen ihren Block genauso
 // aufgeklappt halten wie die Uebersichtsseite darueber.
-const ARBEIT_HREFS = ["/termine", "/nachfassen", "/ablage"] as const;
 const LINKEDIN_HREFS = ["/listen", "/lists"] as const;
 const TELEFON_HREFS = ["/telefon"] as const;
-const AUSWERTUNG_HREFS = ["/team", "/analyse"] as const;
 const VERWALTUNG_HREFS = ["/export", "/settings", "/admin"] as const;
-const INTERN_HREFS = ["/kunden", "/umsatz"] as const;
 
 /**
  * Mehrere Zaehler zu einem zusammenfassen — fuer das Abzeichen am zugeklappten
@@ -305,6 +296,19 @@ function LinkedInIcon({ size = 13 }: { size?: number }) {
     >
       <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z" />
     </svg>
+  );
+}
+
+/**
+ * Gruppenkopf der Leiste (Prototyp `.navgrp`): ruhiger Text, nicht
+ * aufklappbar. Gruppen ordnen; aufklappbar bleiben nur die Listenbäume und
+ * die selten benutzte Verwaltung.
+ */
+function NavGroup({ label }: { label: string }) {
+  return (
+    <div className="side-navgrp" role="presentation">
+      {label}
+    </div>
   );
 }
 
@@ -1089,17 +1093,6 @@ export function SidebarContent({
   const [showManualAppt, setShowManualAppt] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  // Das Abzeichen am zugeklappten Block „Meine Arbeit". Die Einzelzahl steht
-  // weiter an ihrer Zeile; diese Summe erscheint NUR zugeklappt und beantwortet
-  // dort die einzige Frage, die von aussen zaehlt: „liegt da etwas, und ist
-  // etwas davon zu spaet?"
-  //
-  // Es ist derzeit eine Summe ueber EINEN Zweig: Der Ablage-Zaehler ist mit
-  // seiner Liste gefallen, /termine bekommt bewusst keinen (beides begruendet
-  // in lib/navCounts.ts). Die Summe bleibt trotzdem stehen — sie ist die
-  // Stelle, an der sich der naechste Zaehler einhaengt, und ihre Regel („null
-  // heisst nicht ermittelbar") gilt unveraendert.
-  const arbeitCount = sumNavCounts([navCounts?.nachfassen]);
 
   const isImpersonating = Boolean(dataView?.activeUserId);
   const teamUsers = (dataView?.users ?? []).filter((u) => u.username !== username);
@@ -1128,10 +1121,42 @@ export function SidebarContent({
 
       {/* Nav */}
       <nav className="side-nav">
-        {/* Ohne Block: Heimweg und die eine Anlege-Aktion. Sie gehoeren zu
-            keinem Thema, sondern sind der Einstieg — und duerfen deshalb nie
-            hinter einer Aufklappung liegen. */}
-        <NavLink href="/" icon={BarChart2} label="Dashboard" onClick={onClose} />
+        {/* ── Einstieg (ohne Gruppe) ──
+            Übersicht · Heute · Kalender: die drei Flächen, mit denen der Tag
+            beginnt (Redesign Phase 4). Sie liegen nie hinter einer Aufklappung.
+            „Heute" ist der Nachfass-Eingang /nachfassen — Termine ohne
+            nächsten Schritt, Rückrufe und Recycling in EINER Liste (Plan
+            PLAN-nachfass-eingang.md); „Kalender" ist /termine. Route und Datei
+            behalten ihre Namen, Lesezeichen und `?from=nachfassen` hängen daran. */}
+        <NavLink
+          href="/"
+          icon={LayoutDashboard}
+          label="Übersicht"
+          onClick={onClose}
+          title="Wie stehst du da? Kennzahlen des Zeitraums, wer heute dran ist und der Weg vom Termin zum Geld."
+        />
+        {/* Das einzige Abzeichen der Leiste (Entscheidung E2): Es zählt
+            dieselbe Menge wie die Seite — überfällig + heute + „Ergebnis
+            fehlt", ohne „Aufräumen" (src/lib/navCountsData.ts liest den Loader
+            der Seite, docs §5.4). Es steht an einer Zeile, die nie hinter einer
+            Aufklappung liegt — die Summe am zugeklappten Block brauchte es
+            deshalb nicht mehr. */}
+        <NavLink
+          href="/nachfassen"
+          icon={ListTodo}
+          label="Heute"
+          onClick={onClose}
+          title="Wen musst du heute kontaktieren? Termine ohne nächsten Schritt, Telefon-Rückrufe und fällige Recycling-Leads — jeder mit seinem Datum für den nächsten Kontakt."
+          count={navCounts?.nachfassen}
+          countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
+        />
+        <NavLink
+          href="/termine"
+          icon={CalendarDays}
+          label="Kalender"
+          onClick={onClose}
+          title="Wann steht was an? Kalender und Terminliste — und bekommt jeder seine zwei Erinnerungen vor dem Termin."
+        />
 
         {/* Termin ohne Liste manuell buchen (Social Selling / alter Kontakt).
             Ghost-Akzent: die einzige Orange-Textaktion in der Navigation. */}
@@ -1158,260 +1183,242 @@ export function SidebarContent({
           onSaved={() => router.refresh()}
         />
 
-        {/* ── Meine Arbeit ── */}
-        {/* Kalender, Tages-Wiedervorlage und Ablage in EINEM Block: Sie
-            beantworten dieselbe Frage auf verschiedenen Zeitkoernungen (docs
-            §1) und werden genau deshalb staendig verwechselt. Nebeneinander
-            erklaeren sie sich gegenseitig; verstreut waeren es drei Werkzeuge,
-            von denen man zwei nie benutzt. Der Kopf traegt zugeklappt die
-            Summe ihrer Zaehler — sonst haenge die einzige Benachrichtigung der
-            App an einer Aufklappung. */}
-        <CollapsibleSection
-          id="arbeit"
-          icon={<Inbox size={13} />}
-          label="Meine Arbeit"
-          hasActive={containsActive(pathname, ARBEIT_HREFS)}
-          count={arbeitCount}
-          countLabel={["offene Aufgabe", "offene Aufgaben"]}
-        >
-          {/* Die zentrale Arbeitsflaeche — und die einzige Zeile des Blocks
-              ohne Zaehler. Das ist eine Entscheidung, keine Luecke: Ihr Gold
-              ist aus Zustand, Absage, Nachfass-Stempel und Berliner
-              Tagesgrenze ABGELEITET (lib/dranRegel.ts); ein Badge muesste
-              dieselben Zeilen laden wie die Seite — auf jeder Seite — oder die
-              Regel ein zweites Mal als Filter formulieren. Und /termine ist
-              die Flaeche, die man ohnehin oeffnet; ein Badge spricht fuer eine
-              Seite, die man sonst nicht aufmacht (ausfuehrlich in
-              lib/navCounts.ts). Der Tooltip bleibt trotzdem Pflicht: Er ist
-              die einzige Stelle, an der steht, welche Frage diese Zeile
-              beantwortet — bei drei aehnlich klingenden Nachbarn. */}
-          {/* Seit dem Nachfass-Eingang (docs/nachfassen-umbau/PLAN-nachfass-eingang.md)
-              ist /nachfassen die tägliche Arbeitsliste und steht deshalb oben;
-              das Badge zählt dieselbe Menge wie die Seite (src/lib/navCountsData.ts). */}
-          <NavLink
-            href="/nachfassen"
-            icon={Clock}
-            label="Nachfassen"
-            onClick={onClose}
-            title="Wen musst du heute kontaktieren? Termine ohne nächsten Schritt, Telefon-Rückrufe und fällige Recycling-Leads — jeder mit seinem Datum für den nächsten Kontakt."
-            count={navCounts?.nachfassen}
-            countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
-          />
-          <NavLink
-            href="/termine"
-            icon={CalendarDays}
-            label="Termine"
-            onClick={onClose}
-            title="Kalender und Terminliste: wann steht was an, und bekommt jeder seine zwei Erinnerungen vor dem Termin."
-          />
-          {/* Die Gegenrichtung zu den Zeilen darueber: dort steht, was noch
-              ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
-              Bereich verschwaende ein abgesagter oder verlorener Vorgang
-              lautlos; die Sperrliste darin ist die einzige Ansicht der App, die
-              die Datensicht bewusst ignoriert. */}
-          <NavLink
-            href="/ablage"
-            icon={Archive}
-            label="Ablage"
-            onClick={onClose}
-            title="Ausgeschiedene Vorgänge: abgesagt, disqualifiziert, kein Close, No-Show ohne Antwort — plus die org-weite Sperrliste"
-            // OHNE ZAEHLER, und zwar seit dem Rueckbau der Ablage. Gezaehlt
-            // wurde die eine Liste mit offener Handlung („Ersatztermin steht
-            // aus") — und genau die gibt es hier nicht mehr, ihr Inhalt steht
-            // taeglich in der Terminliste. Uebrig sind zwei Aktenschraenke, die
-            // nie auf null gehen; ein Badge darauf waere eine Mahnung ohne
-            // Adressat (docs §5.4, ausfuehrlich in lib/navCounts.ts).
-          />
-        </CollapsibleSection>
-
-        {/* ── LinkedIn ── */}
-        <CollapsibleSection
-          id="linkedin"
-          icon={<LinkedInIcon size={13} />}
-          label="LinkedIn"
-          hasActive={containsActive(pathname, LINKEDIN_HREFS)}
-          headerHref="/listen"
-          headerHrefTitle="Alle Listen (inkl. Archiv)"
-          onHeaderNavigate={onClose}
-          action={({ open, setOpen }) => (
-            <SectionAction
-              title="Neue Liste"
-              active={showNewList && open}
-              onClick={() => {
-                if (!open) {
-                  setOpen(true);
-                  setShowNewList(true);
-                } else {
-                  setShowNewList((v) => !v);
+        {/* ── Akquise ──
+            Die beiden Kanäle mit eigenem Volumen vor dem Termin. Sie behalten
+            ihre Listenbäume — aufklappbar wie bisher, der Titel führt zur
+            Übersicht des Kanals. */}
+        <NavGroup label="Akquise" />
+        <div className="side-akquise">
+          {/* ── Telefon ── */}
+          <CollapsibleSection
+            id="telefon"
+            icon={<Phone size={13} style={{ flexShrink: 0 }} />}
+            label="Telefon"
+            hasActive={containsActive(pathname, TELEFON_HREFS)}
+            headerHref="/telefon"
+            headerHrefTitle="Wen rufst du als Nächstes an? Telefon-Übersicht mit allen Listen und dem Call-Modus"
+            onHeaderNavigate={onClose}
+          >
+            {visiblePhoneLists.map((l) => (
+              <ListRow
+                key={l.id}
+                href={`/telefon/${l.id}`}
+                name={l.name}
+                badge={l.list_kind !== "akquise" ? PHONE_KIND_BADGE[l.list_kind] : null}
+                title={
+                  l.list_kind === "rueckruf"
+                    ? `${l.name} (Rückruf-Liste)`
+                    : l.list_kind === "nicht_erreicht"
+                      ? `${l.name} (Nicht-erreicht-Liste)`
+                      : l.list_kind === "kein_termin"
+                        ? `${l.name} (Kein-Termin-Liste)`
+                        : l.name
                 }
-                setTimeout(() => nameRef.current?.focus(), 50);
-              }}
-            >
-              <Plus size={12} />
-            </SectionAction>
-          )}
-        >
-          {showNewList && (
-            <div
-              style={{
-                margin: "0 0 var(--sp-4)",
-                background: "var(--surface-1)",
-                border: "1px solid var(--border-default)",
-                borderRadius: "var(--r-md)",
-                padding: "var(--sp-5)",
-              }}
-            >
-              <form
-                action={async (fd) => {
-                  await createListForm(fd);
-                  setShowNewList(false);
+                onClick={onClose}
+              />
+            ))}
+            <ListRow
+              href="/telefon/setting-no-show"
+              name="Setting No-Show"
+              badge={{ label: "NS" }}
+              title="Terminierte Telefon-Leads, deren Erstgespräch auf „Nicht erschienen“ steht — zum erneuten Anrufen"
+              onClick={onClose}
+            />
+            {hiddenPhoneCount > 0 && (
+              <ListRow
+                href="/telefon"
+                name={`${hiddenPhoneCount} weitere …`}
+                onClick={onClose}
+                title="Telefon-Übersicht öffnen"
+              />
+            )}
+            {phoneLists.length === 0 && (
+              <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", padding: "var(--sp-2) var(--sp-8)" }}>
+                Noch keine Listen.
+              </p>
+            )}
+          </CollapsibleSection>
+
+          {/* ── LinkedIn ── */}
+          <CollapsibleSection
+            id="linkedin"
+            icon={<LinkedInIcon size={13} />}
+            label="LinkedIn"
+            hasActive={containsActive(pathname, LINKEDIN_HREFS)}
+            headerHref="/listen"
+            headerHrefTitle="Wem schreibst du heute? Alle Pitch-Listen samt Archiv und fälligen Follow-ups"
+            onHeaderNavigate={onClose}
+            action={({ open, setOpen }) => (
+              <SectionAction
+                title="Neue Liste"
+                active={showNewList && open}
+                onClick={() => {
+                  if (!open) {
+                    setOpen(true);
+                    setShowNewList(true);
+                  } else {
+                    setShowNewList((v) => !v);
+                  }
+                  setTimeout(() => nameRef.current?.focus(), 50);
                 }}
               >
-                <input type="hidden" name="workspace_id" value={workspaceId} />
-                <input
-                  ref={nameRef}
-                  name="name"
-                  required
-                  placeholder="Listenname…"
-                  className="ui-input"
-                  style={{ marginBottom: "var(--sp-4)", fontSize: "var(--fs-sm)" }}
-                />
-                <input type="hidden" name="owner_name" value={username} />
-                <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-                  <button
-                    type="submit"
-                    style={{
-                      flex: 1,
-                      background: "var(--orange-500)",
-                      color: "var(--on-accent)",
-                      border: "none",
-                      borderRadius: "var(--r-full)",
-                      height: 28,
-                      fontSize: "var(--fs-xs)",
-                      fontWeight: 600,
-                      fontFamily: "inherit",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Anlegen
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewList(false)}
-                    aria-label="Abbrechen"
-                    style={{
-                      background: "var(--surface-3)",
-                      color: "var(--text-muted)",
-                      border: "none",
-                      borderRadius: "var(--r-full)",
-                      height: 28,
-                      width: 28,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
+                <Plus size={12} />
+              </SectionAction>
+            )}
+          >
+            {showNewList && (
+              <div
+                style={{
+                  margin: "0 0 var(--sp-4)",
+                  background: "var(--surface-1)",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: "var(--r-md)",
+                  padding: "var(--sp-5)",
+                }}
+              >
+                <form
+                  action={async (fd) => {
+                    await createListForm(fd);
+                    setShowNewList(false);
+                  }}
+                >
+                  <input type="hidden" name="workspace_id" value={workspaceId} />
+                  <input
+                    ref={nameRef}
+                    name="name"
+                    required
+                    placeholder="Listenname…"
+                    className="ui-input"
+                    style={{ marginBottom: "var(--sp-4)", fontSize: "var(--fs-sm)" }}
+                  />
+                  <input type="hidden" name="owner_name" value={username} />
+                  <div style={{ display: "flex", gap: "var(--sp-2)" }}>
+                    <button
+                      type="submit"
+                      style={{
+                        flex: 1,
+                        background: "var(--orange-500)",
+                        color: "var(--on-accent)",
+                        border: "none",
+                        borderRadius: "var(--r-full)",
+                        height: 28,
+                        fontSize: "var(--fs-xs)",
+                        fontWeight: 600,
+                        fontFamily: "inherit",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Anlegen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewList(false)}
+                      aria-label="Abbrechen"
+                      style={{
+                        background: "var(--surface-3)",
+                        color: "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "var(--r-full)",
+                        height: 28,
+                        width: 28,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
 
-          {/* Lange Listen kappen: ab SIDEBAR_LIST_CAP uebernimmt /listen.
-              Eine Sidebar mit 20 Zeilen ist keine Navigation mehr. */}
-          {visibleLists.map((l) => (
-            <ListRow key={l.id} href={`/lists/${l.id}`} name={l.name} onClick={onClose} />
-          ))}
-          {/* Abgeleitete Liste (src/lib/settingNoShow.ts) — keine Zeile in
-              `lists`, deshalb fest hier statt aus dem Listen-Array. */}
-          <ListRow
-            href="/listen/setting-no-show"
-            name="Setting No-Show"
-            badge={{ label: "NS" }}
-            title="Terminierte LinkedIn-Kontakte, deren Erstgespräch auf „Nicht erschienen“ steht"
-            onClick={onClose}
-          />
-          {hiddenListCount > 0 && (
+            {/* Lange Listen kappen: ab SIDEBAR_LIST_CAP uebernimmt /listen.
+                Eine Sidebar mit 20 Zeilen ist keine Navigation mehr. */}
+            {visibleLists.map((l) => (
+              <ListRow key={l.id} href={`/lists/${l.id}`} name={l.name} onClick={onClose} />
+            ))}
+            {/* Abgeleitete Liste (src/lib/settingNoShow.ts) — keine Zeile in
+                `lists`, deshalb fest hier statt aus dem Listen-Array. */}
             <ListRow
-              href="/listen"
-              name={`${hiddenListCount} weitere …`}
-              onClick={onClose}
-              title="Alle Listen anzeigen"
-            />
-          )}
-          {lists.length === 0 && (
-            <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", padding: "var(--sp-2) var(--sp-8)" }}>
-              Noch keine Listen.
-            </p>
-          )}
-
-        </CollapsibleSection>
-
-        {/* ── Telefon ── */}
-        <CollapsibleSection
-          id="telefon"
-          icon={<Phone size={13} style={{ flexShrink: 0 }} />}
-          label="Telefon"
-          hasActive={containsActive(pathname, TELEFON_HREFS)}
-          headerHref="/telefon"
-          headerHrefTitle="Telefon-Übersicht öffnen"
-          onHeaderNavigate={onClose}
-        >
-          {visiblePhoneLists.map((l) => (
-            <ListRow
-              key={l.id}
-              href={`/telefon/${l.id}`}
-              name={l.name}
-              badge={l.list_kind !== "akquise" ? PHONE_KIND_BADGE[l.list_kind] : null}
-              title={
-                l.list_kind === "rueckruf"
-                  ? `${l.name} (Rückruf-Liste)`
-                  : l.list_kind === "nicht_erreicht"
-                    ? `${l.name} (Nicht-erreicht-Liste)`
-                    : l.list_kind === "kein_termin"
-                      ? `${l.name} (Kein-Termin-Liste)`
-                      : l.name
-              }
+              href="/listen/setting-no-show"
+              name="Setting No-Show"
+              badge={{ label: "NS" }}
+              title="Terminierte LinkedIn-Kontakte, deren Erstgespräch auf „Nicht erschienen“ steht"
               onClick={onClose}
             />
-          ))}
-          <ListRow
-            href="/telefon/setting-no-show"
-            name="Setting No-Show"
-            badge={{ label: "NS" }}
-            title="Terminierte Telefon-Leads, deren Erstgespräch auf „Nicht erschienen“ steht — zum erneuten Anrufen"
-            onClick={onClose}
-          />
-          {hiddenPhoneCount > 0 && (
-            <ListRow
-              href="/telefon"
-              name={`${hiddenPhoneCount} weitere …`}
-              onClick={onClose}
-              title="Telefon-Übersicht öffnen"
-            />
-          )}
-          {phoneLists.length === 0 && (
-            <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", padding: "var(--sp-2) var(--sp-8)" }}>
-              Noch keine Listen.
-            </p>
-          )}
-        </CollapsibleSection>
+            {hiddenListCount > 0 && (
+              <ListRow
+                href="/listen"
+                name={`${hiddenListCount} weitere …`}
+                onClick={onClose}
+                title="Alle Listen anzeigen"
+              />
+            )}
+            {lists.length === 0 && (
+              <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)", padding: "var(--sp-2) var(--sp-8)" }}>
+                Noch keine Listen.
+              </p>
+            )}
 
-        {/* ── Kundenspace ── */}
-        {/* Nur in der Titan-Organisation (intern_rechte(), Migration 0047):
+          </CollapsibleSection>
+
+        </div>
+
+        {/* ── Vertrieb ──
+            Vom Termin bis zum Abschluss: die Erstgespräche, die Closings, wer
+            nicht erschienen ist — und die Gegenrichtung, was herausgefallen ist. */}
+        <NavGroup label="Vertrieb" />
+        <NavLink
+          href="/setting"
+          icon={MessagesSquare}
+          label="Setting"
+          onClick={onClose}
+          title="Wie stehen die Erstgespräche? Alle Settings nach Ergebnis — ohne Ergebnis, nicht erschienen, qualifiziert, nicht qualifiziert, tot."
+        />
+        <NavLink
+          href="/closing"
+          icon={Handshake}
+          label="Closing"
+          onClick={onClose}
+          title="Wie stehen die Abschlussgespräche? Alle Closings nach Ergebnis — ohne Ergebnis, nachfassen, gewonnen, verloren."
+        />
+        {/* OHNE ZÄHLER: Ein No-Show-Badge müsste exakt dieselbe Menge zählen
+            wie die Seite (strikt persönlich, jüngstes Setting je Lead) — also
+            ihre Abfragen auf jeder Seite mitladen. Docs §5.4. */}
+        <NavLink
+          href="/no-shows"
+          icon={UserX}
+          label="No-Shows"
+          onClick={onClose}
+          title="Wer ist nicht erschienen und braucht einen neuen Termin? Erstgespräche und Closings mit No-Show, getrennt."
+        />
+        {/* Die Gegenrichtung zu den Zeilen darueber: dort steht, was noch
+            ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
+            Bereich verschwaende ein abgesagter oder verlorener Vorgang
+            lautlos; die Sperrliste darin ist die einzige Ansicht der App, die
+            die Datensicht bewusst ignoriert. */}
+        <NavLink
+          href="/ablage"
+          icon={Archive}
+          label="Ablage"
+          onClick={onClose}
+          title="Ausgeschiedene Vorgänge: abgesagt, disqualifiziert, kein Close, No-Show ohne Antwort — plus die org-weite Sperrliste"
+          // OHNE ZAEHLER, und zwar seit dem Rueckbau der Ablage. Uebrig sind
+          // zwei Aktenschraenke, die nie auf null gehen; ein Badge darauf waere
+          // eine Mahnung ohne Adressat (docs §5.4, ausfuehrlich in lib/navCounts.ts).
+        />
+
+        {/* ── Kunden ──
+            Nur in der Titan-Organisation (intern_rechte(), Migration 0047):
             Kundenakten fürs Fulfillment, Vorlagen und, nur für Admins, der
-            Umsatz. In einer Kunden-Organisation existiert der Block nicht,
+            Umsatz. In einer Kunden-Organisation existiert die Gruppe nicht,
             auch nicht für einen Plattform-Admin, der dort gerade arbeitet:
             Titans eigene Zahlen gehören nicht in fremde Räume. */}
         {intern?.kunden && (
-          <CollapsibleSection
-            id="intern"
-            icon={<Briefcase size={13} />}
-            label="Kundenspace"
-            hasActive={containsActive(pathname, INTERN_HREFS)}
-          >
+          <>
+            <NavGroup label="Kunden" />
             <NavLink
               href="/kunden"
               // Praefix fuer die Akten, aber nicht fuer die Vorlagen: die haben ihre eigene Zeile.
@@ -1419,15 +1426,15 @@ export function SidebarContent({
               icon={Handshake}
               label="Kunden"
               onClick={onClose}
-              title="Nächstes Meeting mit Agenda, Checklisten und Übergabe je Kunde"
+              title="Was steht beim nächsten Kunden an? Meeting mit Agenda, Checklisten und Übergabe je Kunde."
             />
             {intern.umsatz && (
               <NavLink
                 href="/umsatz"
-                icon={Euro}
-                label="Umsatz"
+                icon={Wallet}
+                label="Umsatz & Collect"
                 onClick={onClose}
-                title="Was kommt rein, was geht raus, was bleibt, wer ist überfällig"
+                title="Was kommt rein, was geht raus, was bleibt — und wer zahlt zu spät?"
                 count={intern.meineUeberfaelligen}
                 countLabel={["Kunde von dir zahlt zu spät", "Kunden von dir zahlen zu spät"]}
               />
@@ -1437,27 +1444,42 @@ export function SidebarContent({
               icon={ListChecks}
               label="Vorlagen"
               onClick={onClose}
-              title="Fulfillment-Vorlagen, aus denen die Checklisten der Kunden entstehen"
+              title="Aus welchen Vorlagen entstehen die Checklisten der Kunden?"
             />
-          </CollapsibleSection>
+          </>
         )}
 
-        {/* ── Auswertung ── */}
-        {/* Der Rueckblick, getrennt von der Tagesarbeit darueber: Diese drei
-            Seiten oeffnet man absichtlich, nicht im Vorbeigehen. Zusammen sind
-            sie ausserdem die einzige Stelle, an der Team-Zahlen stehen. */}
-        <CollapsibleSection
-          id="auswertung"
-          icon={<PieChart size={13} />}
-          label="Auswertung"
-          hasActive={containsActive(pathname, AUSWERTUNG_HREFS)}
-        >
-          {dataView?.canSwitch && <NavLink href="/team" icon={Users} label="Team" onClick={onClose} />}
-          {/* „Analyse" bewusst exakt: /analyse/vergleich hat eine eigene Zeile,
-              sonst leuchteten dort beide gleichzeitig aktiv. */}
-          <NavLink href="/analyse" icon={LineChart} label="Analyse" onClick={onClose} exact />
-          <NavLink href="/analyse/vergleich" icon={GitCompare} label="Vergleich" onClick={onClose} />
-        </CollapsibleSection>
+        {/* ── Auswertung ──
+            Der Rückblick, getrennt von der Tagesarbeit: Diese Seiten öffnet
+            man absichtlich, nicht im Vorbeigehen. */}
+        <NavGroup label="Auswertung" />
+        {/* „Analyse" bewusst exakt: /analyse/vergleich hat eine eigene Zeile,
+            sonst leuchteten dort beide gleichzeitig aktiv. */}
+        <NavLink
+          href="/analyse"
+          icon={LineChart}
+          label="Analyse"
+          onClick={onClose}
+          exact
+          title="Was funktioniert? Kennzahlen je Kanal, Setting, Closing und der Trichter bis zum Umsatz."
+        />
+        <NavLink
+          href="/analyse/vergleich"
+          icon={GitCompare}
+          label="Vergleich"
+          onClick={onClose}
+          title="Wie verhalten sich zwei Zahlen zueinander? Kennzahlen nach Person, Kanal oder Liste nebeneinander."
+        />
+        {/* Nur Owner mit Team-Sicht — dieselbe Regel wie /team selbst. */}
+        {dataView?.canSwitch && (
+          <NavLink
+            href="/team"
+            icon={Users}
+            label="Team"
+            onClick={onClose}
+            title="Wie läuft die Woche im Team? Wochenduell und Team-Vergleich."
+          />
+        )}
 
         <div style={{ flex: 1, minHeight: "var(--sp-7)" }} />
 

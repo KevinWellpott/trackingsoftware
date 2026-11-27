@@ -1,9 +1,8 @@
 import { CallModeRunner } from "@/components/telefon/CallModeRunner";
 import { getAccessContext } from "@/lib/access";
-import { ownerColor } from "@/lib/ownerColor";
 import { loadPhoneNoShowLeads } from "@/lib/settingNoShowData";
-import { ArrowLeft, UserX } from "lucide-react";
-import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
+import { loadTelefonHeute } from "@/lib/telefonHeute";
 import { notFound } from "next/navigation";
 
 // „Setting No-Show" (Telefon): alle Telefon-Leads, die terminiert wurden und
@@ -27,58 +26,21 @@ export default async function SettingNoShowPhonePage() {
 
   const leads = await loadPhoneNoShowLeads(access);
   const owner = access.effective_username ?? access.username;
-  const oc = ownerColor(owner);
+  const heute = await loadTelefonHeute(access, await createClient());
 
+  // Der Call-Modus bringt seine Kopfleiste mit (Redesign Phase 5); die
+  // Erklärung, wer hier steht, ist die zweite Zeile darin.
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-      <div style={{ marginBottom: "1.25rem" }}>
-        <Link
-          href="/telefon"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.375rem",
-            fontSize: "0.8125rem",
-            color: "var(--text-subtle)",
-            textDecoration: "none",
-            marginBottom: "0.75rem",
-          }}
-        >
-          <ArrowLeft size={13} /> Telefon
-        </Link>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-          {oc && (
-            <span
-              className="badge"
-              style={{ color: oc.fg, background: oc.bg, border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)` }}
-            >
-              {owner}
-            </span>
-          )}
-          <span className="badge badge-gray" style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}>
-            <span style={{ width: 6, height: 6, borderRadius: "var(--r-full)", background: "var(--danger)" }} />
-            <UserX size={11} /> Setting No-Show
-          </span>
-          <span className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-            {leads.length.toLocaleString("de-DE")} Leads
-          </span>
-        </div>
-        <h1 className="page-title" style={{ margin: 0 }}>
-          Setting No-Show
-        </h1>
-        <p style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)", margin: "var(--sp-3) 0 0", maxWidth: 720 }}>
-          Deine Telefon-Leads mit Termin, deren Erstgespräch auf &bdquo;Nicht erschienen&ldquo; steht. Ein neuer Termin, ein
-          anderes Ergebnis oder &bdquo;Tot&ldquo; nimmt sie von der Liste.
-        </p>
-      </div>
-
-      <CallModeRunner
-        leads={leads}
-        empty={{
-          title: "Keine No-Shows",
-          text: "Sobald ein Erstgespräch aus der Telefonakquise auf „Nicht erschienen“ gesetzt wird, steht der Lead hier.",
-        }}
-      />
-    </div>
+    <CallModeRunner
+      leads={leads}
+      titel="Setting No-Show"
+      untertitel={`${owner} · Erstgespräch nicht erschienen`}
+      exitHref="/telefon"
+      heute={heute}
+      empty={{
+        title: "Keine No-Shows",
+        text: "Sobald ein Erstgespräch aus der Telefonakquise auf „Nicht erschienen“ gesetzt wird, steht der Lead hier.",
+      }}
+    />
   );
 }

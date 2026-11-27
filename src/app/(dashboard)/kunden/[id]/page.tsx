@@ -1,10 +1,11 @@
 import Link from "next/link";
+import { Betrag } from "@/components/umsatz/Betrag";
 import { notFound } from "next/navigation";
 import { getAccessContext } from "@/lib/access";
 import { berlinDateISO, formatTermin } from "@/lib/apptTime";
 import { getInternRechte, loadGeld, loadInternTeam, loadKundenAkte, loadVorlagen } from "@/lib/internData";
 import { KUNDEN_STATUS_LABELS, KUNDEN_STATUS_TONE, aufmerksamkeit } from "@/lib/kunden";
-import { datumDe, formatEur } from "@/lib/umsatz";
+import { datumDe } from "@/lib/umsatz";
 import { geldSicht } from "@/lib/geldSicht";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
@@ -97,7 +98,7 @@ export default async function KundenAktePage({
             {geld && geld.k.ueberfaellig > 0 && (
               <Link href={`/kunden/${id}?tab=zahlungen`} className="ks-marke-link">
                 <Badge tone="error">
-                  {formatEur(geld.k.ueberfaellig)} · {geld.k.tageUeberfaellig} {geld.k.tageUeberfaellig === 1 ? "Tag" : "Tage"} überfällig
+                  <Betrag wert={geld.k.ueberfaellig} /> · {geld.k.tageUeberfaellig} {geld.k.tageUeberfaellig === 1 ? "Tag" : "Tage"} überfällig
                 </Badge>
               </Link>
             )}

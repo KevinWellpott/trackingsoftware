@@ -1,10 +1,11 @@
 import Link from "next/link";
+import { Betrag } from "@/components/umsatz/Betrag";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { RatenMarken } from "@/components/umsatz/RatenMarken";
 import { ZahlungButton } from "@/components/umsatz/ZahlungDialog";
 import { VereinbarenButton } from "@/components/umsatz/RateAktionen";
-import { datumDe, formatEur, formatEurGenau, tageZwischen, type VerteilteRate } from "@/lib/umsatz";
+import { datumDe, formatEur, tageZwischen, type VerteilteRate } from "@/lib/umsatz";
 import { KontaktLinks } from "@/components/kunden/Kontakt";
 import { ErinnertButton } from "@/components/umsatz/ErinnertButton";
 import { ALTERSKLASSE_LABELS, altersklasse, zusageZuRate, type Altersklasse } from "@/lib/finanzen";
@@ -89,7 +90,7 @@ export function UeberfaelligAnsicht({
             meta={namen.get(g.id) ? `Kümmert sich: ${namen.get(g.id)}` : <span className="ks-gold">Niemand zuständig</span>}
             action={
               <p className="ks-betrag-rechts ks-rot">
-                {formatEurGenau(g.k.ueberfaellig)}
+                <Betrag wert={g.k.ueberfaellig} />
                 <span>
                   {g.k.tageUeberfaellig} {g.k.tageUeberfaellig === 1 ? "Tag" : "Tage"}
                 </span>
@@ -110,7 +111,7 @@ export function UeberfaelligAnsicht({
                     <span className="ks-herkunft">ursprünglich {datumDe(r.urspruenglich_faellig_am)}</span>
                   )}
                 </span>
-                <span className="ks-rate-betrag">{formatEurGenau(r.rest)}</span>
+                <span className="ks-rate-betrag"><Betrag wert={r.rest} /></span>
                 <RatenMarken rate={r} zusage={zusage} />
                 <span className="ks-rate-aktion">
                   <ZahlungButton geld={geldSicht(g)} heute={heute} vorschlag={r.rest} />

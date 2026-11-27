@@ -150,7 +150,10 @@ describe("1 · Was gefallen ist, bleibt gefallen", () => {
 describe("2 · Die Route bleibt, der Rückweg hängt daran", () => {
   test("/nachfassen ist eine echte Seite, keine Weiterleitung", () => {
     assert.doesNotMatch(codeOnly(SEITE), /redirect\(/, "Die Seite ist keine Weiterleitung geworden.");
-    assert.match(SEITE, /Nachfassen\n\s*<InfoPopover/, "Der Titel muss sagen, was die Seite zeigt.");
+    // GEÄNDERT (Redesign Phase 4): Die Seite heißt wie ihr Navigationspunkt
+    // „Heute"; die Zeile darüber sagt „Nachfassen".
+    assert.match(SEITE, /Heute\n\s*<InfoPopover/, "Der Titel muss sagen, was die Seite zeigt.");
+    assert.match(SEITE, /eyebrow="Nachfassen"/);
     assert.match(BACKLINK, /nachfassen: \{ href: "\/nachfassen"/, "Der Rückweg der Detailseiten hängt weiter daran.");
   });
 
@@ -262,7 +265,16 @@ describe("5 · Der Recycling-Deckel wirkt auch aus dem Eingang", () => {
 describe("6 · Dringlichkeit ist Gold, keine neue Farbe", () => {
   test("das Board liest DRAN_TONE — dieselbe Definition wie Termin- und LinkedIn-Liste", () => {
     assert.match(BOARD, /import \{ DRAN_TONE \} from "@\/lib\/dranRegel";/);
-    assert.match(BOARD, /background: dran \? DRAN_TONE\.bg : undefined/);
+    // GEÄNDERT (Redesign Phase 6): Die Zeile trägt `data-dran`, den Verlaufston
+    // setzt globals.css §11 aus `--gold-tint` — demselben Token wie
+    // `DRAN_TONE.bg` (`--warning-bg`). Der Punkt ist der gemeinsame
+    // `.dran-mark` aus §6.9.
+    assert.match(BOARD, /data-dran=\{dran \|\| undefined\}/);
+    assert.match(BOARD, /className="dran-mark" data-dran=\{dran \? "true" : undefined\}/);
+    const css = read("src/app/globals.css");
+    assert.match(css, /\.nachfass-zeile\[data-dran\] \{ background: linear-gradient\(90deg, var\(--gold-tint\)/);
+    assert.match(css, /--gold-tint: var\(--warning-bg\)/);
+    assert.match(read("src/lib/dranRegel.ts"), /bg: "var\(--warning-bg\)"/);
   });
 
   test("keine rgb()-Werte im Board", () => {

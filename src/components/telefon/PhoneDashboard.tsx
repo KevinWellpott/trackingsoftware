@@ -3,14 +3,16 @@ import { berlinWindowIso } from "@/components/dashboard/periodWindow";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { getTargets } from "@/app/actions/targets";
 import { getAccessContext, listDataViewUsers } from "@/lib/access";
-import { addDaysISO, localDateISO } from "@/lib/dates";
+import { localDateISO } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
 import { resolveTarget } from "@/lib/targets";
 import { ownerColor } from "@/lib/ownerColor";
 import { dialOwnerKey, loadDialRows } from "@/lib/phoneAttemptsData";
-import { Calendar, Headphones, Phone, PhoneMissed, PhoneOff, UserCheck } from "lucide-react";
+import { TelModule } from "@/components/telefon/TelModule";
+import Link from "next/link";
 
-// Telefon-Dashboard (Server): Owner-Metriken der letzten 30 Tage + Wochenziel.
+// Telefon-Dashboard (Server): Kennzahl-Module für Heute oder diese Woche,
+// darunter je Person dieselben Zahlen samt Wochenziel (Redesign Phase 5).
 //
 // Jede Zahl ist ein EREIGNIS im Zeitraum. Vorher kamen Entscheider, Termine,
 // Rückrufe und Dead aus rpc_phone_owner_metrics — dort ist nur `calls`
@@ -34,6 +36,8 @@ type OwnerMetrics = {
   dead: number;
 };
 
+export type TelefonZeitraum = "heute" | "woche";
+
 function weekStart(today: string): string {
   const [y, m, d] = today.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
@@ -46,96 +50,38 @@ function emptyMetrics(owner_name: string): OwnerMetrics {
   return { owner_name, calls: 0, decider_reached: 0, appointments: 0, callbacks: 0, dead: 0 };
 }
 
-// Icons tragen keine Semantik mehr. Sechs verschieden eingefaerbte Icons in
-// einer Reihe sind keine Information, sondern ein Muster — welcher Wert wichtig
-// ist, entscheidet ohnehin der Kontext, nicht die Farbe des Piktogramms.
-function MiniStat({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-}) {
-  return (
-    <div style={{ minWidth: 0 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--sp-3)",
-          color: "var(--text-muted)",
-          marginBottom: "var(--sp-3)",
-        }}
-      >
-        {icon}
-        <span
-          className="eyebrow eyebrow-muted"
-          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          {label}
-        </span>
-      </div>
-      <div className="kpi-value" style={{ fontSize: "var(--fs-lg)" }}>
-        {value.toLocaleString("de-DE")}
-      </div>
-    </div>
-  );
-}
-
-// Der Balken ist neutral, solange das Ziel offen ist, und wird erst gruen,
-// wenn es erreicht ist. Vorher lief er in der Personenfarbe — damit sagte die
-// Farbe „wer", obwohl die Frage „wie weit" lautet.
-function GoalBar({
-  label,
-  value,
-  target,
-}: {
-  label: string;
-  value: number;
-  target: number;
-}) {
+// Der Balken ist neutral, solange das Ziel offen ist, und wird erst grün,
+// wenn es erreicht ist. Die Farbe sagt „geschafft", nicht „wer".
+function GoalBar({ label, value, target }: { label: string; value: number; target: number }) {
   const pct = target > 0 ? Math.min((value / target) * 100, 100) : 0;
   const reached = target > 0 && value >= target;
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontSize: "var(--fs-xs)",
-          marginBottom: "var(--sp-3)",
-        }}
-      >
-        <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>{label}</span>
-        <span
-          className="tnum"
-          style={{ fontWeight: 500, color: reached ? "var(--success-fg)" : "var(--text-secondary)" }}
-        >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: "var(--fs-xs)", marginBottom: 3 }}>
+        <span style={{ color: "var(--text-muted)" }}>{label}</span>
+        <span className="tnum" style={{ fontWeight: 500, color: reached ? "var(--success-fg)" : "var(--text-secondary)" }}>
           {value.toLocaleString("de-DE")} / {target.toLocaleString("de-DE")}
         </span>
       </div>
-      <div className="progress-track" style={{ height: 4 }}>
-        <div
-          className="progress-fill"
-          style={{ width: `${pct}%`, background: reached ? "var(--success)" : "var(--text-disabled)" }}
-        />
+      <div className="cm-meter">
+        <i data-done={reached ? "" : undefined} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
 }
 
-export async function PhoneDashboard() {
+export async function PhoneDashboard({ zeitraum = "heute" }: { zeitraum?: TelefonZeitraum }) {
   const access = await getAccessContext();
   if (!access) return null;
 
   const supabase = await createClient();
   const today = berlinDateISO(new Date().toISOString());
-  const from30 = addDaysISO(today, -29);
   const monday = weekStart(today);
+  const from = zeitraum === "heute" ? today : monday;
   const effectiveUserId = access.effective_user_id ?? null;
-  const { startIso, endIso } = berlinWindowIso(from30, today);
+  // Geladen wird immer die ganze Woche: Die Wochenziele je Person brauchen
+  // sie auch, wenn oben „Heute" gewählt ist.
+  const { startIso, endIso } = berlinWindowIso(monday, today);
 
   const [targets, users, dials, apptRes] = await Promise.all([
     getTargets(),
@@ -143,14 +89,14 @@ export async function PhoneDashboard() {
     loadDialRows(
       supabase,
       access.workspace_id,
-      from30,
+      monday,
       today,
       effectiveUserId && access.effective_username
         ? { username: access.effective_username, userId: effectiveUserId }
         : undefined,
     ),
-    // Gelegte Telefon-Termine (E1). Paginiert, weil 30 Tage eines großen
-    // Teams die 1.000er-Grenze von PostgREST erreichen können.
+    // Gelegte Telefon-Termine (E1). Paginiert, weil ein großes Team die
+    // 1.000er-Grenze von PostgREST erreichen kann.
     fetchAllRows((f, t) => {
       let q = supabase
         .from("setting_calls")
@@ -172,7 +118,7 @@ export async function PhoneDashboard() {
   // Anzeigename je kleingeschriebenem Schlüssel — der Log trägt den Owner als
   // Freitext-Snapshot, die Termine eine user_id.
   const displayByKey = new Map(users.map((u) => [u.username.toLowerCase(), u.username]));
-  const rows30Map = new Map<string, OwnerMetrics>();
+  const periodMap = new Map<string, OwnerMetrics>();
   const weekMap = new Map<string, OwnerMetrics>();
   const bucket = (map: Map<string, OwnerMetrics>, key: string): OwnerMetrics => {
     let m = map.get(key);
@@ -186,7 +132,7 @@ export async function PhoneDashboard() {
   for (const d of dials.rows) {
     const key = dialOwnerKey(d, usernameById);
     if (!key) continue;
-    const targetsFor = d.day >= monday ? [bucket(rows30Map, key), bucket(weekMap, key)] : [bucket(rows30Map, key)];
+    const targetsFor = d.day >= from ? [bucket(periodMap, key), bucket(weekMap, key)] : [bucket(weekMap, key)];
     for (const m of targetsFor) {
       m.calls += 1;
       if (d.decider_reached || d.outcome === "termin" || d.outcome === "kein_termin") m.decider_reached += 1;
@@ -199,18 +145,22 @@ export async function PhoneDashboard() {
     const name = uid ? usernameById.get(uid) : undefined;
     if (!name) continue;
     const key = name.toLowerCase();
-    bucket(rows30Map, key).appointments += 1;
-    if (berlinDateISO(r.created_at) >= monday) bucket(weekMap, key).appointments += 1;
+    bucket(weekMap, key).appointments += 1;
+    if (berlinDateISO(r.created_at) >= from) bucket(periodMap, key).appointments += 1;
   }
 
-  const rows30 = [...rows30Map.values()].sort((a, b) => b.calls - a.calls);
+  // Personen mit Aktivität in der Woche — an einem stillen Tag bleibt die
+  // Zeile mit ihrem Wochenziel trotzdem stehen.
+  const rows = [...weekMap.entries()]
+    .map(([key, w]) => periodMap.get(key) ?? emptyMetrics(w.owner_name))
+    .sort((a, b) => b.calls - a.calls || a.owner_name.localeCompare(b.owner_name, "de"));
   const weekByOwner: Record<string, OwnerMetrics> = {};
   for (const r of weekMap.values()) weekByOwner[r.owner_name] = r;
 
   const userIdByName: Record<string, string> = {};
   for (const u of users) userIdByName[u.username] = u.user_id;
 
-  const totals = rows30.reduce(
+  const totals = rows.reduce(
     (acc, r) => ({
       calls: acc.calls + r.calls,
       decider_reached: acc.decider_reached + r.decider_reached,
@@ -221,177 +171,112 @@ export async function PhoneDashboard() {
     { calls: 0, decider_reached: 0, appointments: 0, callbacks: 0, dead: 0 },
   );
 
-  const maxCalls = Math.max(1, ...rows30.map((r) => r.calls));
+  // Ziel nur, wenn genau EINE Person gemeint ist (Datensicht oder eigene
+  // Sicht) — eine Teamsumme gegen ein persönliches Ziel wäre keine Aussage.
+  const zielPerson = effectiveUserId ?? (access.data_scope === "own" ? access.user.id : null);
+  const period = zeitraum === "heute" ? "daily" : "weekly";
+  const callsZiel = zielPerson ? resolveTarget(targets, zielPerson, "telefon", period, "calls") : 0;
+  const apptZiel = zielPerson ? resolveTarget(targets, zielPerson, "telefon", period, "appointments") : 0;
+  const anteil = (z: number, n: number) => (n > 0 ? `${Math.round((z / n) * 100)} % der Anwahlen` : "noch keine Anwahl");
+  const wort = zeitraum === "heute" ? "heute" : "diese Woche";
 
   return (
-    <div className="card" style={{ overflow: "hidden" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "var(--sp-4)",
-          padding: "var(--sp-6) var(--sp-8)",
-          borderBottom: "1px solid var(--border-default)",
-        }}
-      >
-        <Headphones size={16} color="var(--text-muted)" />
-        <span
-          style={{
-            fontWeight: 600,
-            fontSize: "var(--fs-md)",
-            letterSpacing: "var(--ls-tight)",
-            color: "var(--text-primary)",
-          }}
-        >
-          Telefon-Performance
-        </span>
-        <span className="eyebrow eyebrow-muted" style={{ marginLeft: "auto" }}>
-          Letzte 30 Tage
-        </span>
+    <section style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
+      <div className="tel-sec-head">
+        <h2>Telefon-Performance</h2>
+        <nav className="tel-seg" aria-label="Zeitraum">
+          <Link href="/telefon" aria-current={zeitraum === "heute" ? "page" : undefined} scroll={false}>
+            Heute
+          </Link>
+          <Link href="/telefon?zeitraum=woche" aria-current={zeitraum === "woche" ? "page" : undefined} scroll={false}>
+            Woche
+          </Link>
+        </nav>
       </div>
 
-      {rows30.length === 0 ? (
-        <p style={{ fontSize: "var(--fs-base)", color: "var(--text-secondary)", textAlign: "center", padding: "var(--sp-11) var(--sp-6)" }}>
-          Noch keine Anrufe erfasst. Importiere eine CSV-Liste und starte den Call-Mode.
-        </p>
-      ) : (
-        <>
-          {/* Global total strip */}
-          <div
-            className="grid-6-stat"
-            style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", borderBottom: "1px solid var(--border-default)" }}
-          >
-            {/* Die Kennzahl-Zeile bleibt farblich ruhig: nur das Icon traegt
-                den Kanal-/Semantikton, die Zahl bleibt --text-primary. */}
-            {[
-              { label: "Anwahlen", value: totals.calls, icon: <Phone size={12} /> },
-              { label: "Entscheider", value: totals.decider_reached, icon: <UserCheck size={12} /> },
-              { label: "Termine gelegt", value: totals.appointments, icon: <Calendar size={12} /> },
-              { label: "Rückrufe", value: totals.callbacks, icon: <PhoneMissed size={12} /> },
-              { label: "Dead", value: totals.dead, icon: <PhoneOff size={12} /> },
-            ].map((s) => (
-              <div key={s.label} className="stat-strip-cell" style={{ padding: "var(--sp-6) var(--sp-7)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", marginBottom: "var(--sp-3)", color: "var(--text-muted)" }}>
-                  {s.icon}
-                  <span className="eyebrow eyebrow-muted">{s.label}</span>
-                </div>
-                <div className="kpi-value" style={{ fontSize: "var(--fs-xl)" }}>
-                  {s.value.toLocaleString("de-DE")}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Per-owner cards */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-              gap: "var(--sp-6)",
-              padding: "var(--sp-7) var(--sp-8)",
-            }}
-          >
-            {rows30.map((r) => {
-              const { fg: color, bg: colorBg } = ownerColor(r.owner_name);
-              const week = weekByOwner[r.owner_name];
-              const userId = userIdByName[r.owner_name] ?? "";
-              const callsTarget = resolveTarget(targets, userId, "telefon", "weekly", "calls");
-              const apptTarget = resolveTarget(targets, userId, "telefon", "weekly", "appointments");
-              return (
-                <div
-                  key={r.owner_name}
-                  style={{
-                    background: "var(--surface-1)",
-                    border: "1px solid var(--border-default)",
-                    borderRadius: "var(--r-md)",
-                    padding: "var(--sp-6) var(--sp-7)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-6)" }}>
-                    <div
-                      style={{
-                        width: 26,
-                        height: 26,
-                        borderRadius: "var(--r-full)",
-                        background: colorBg,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "var(--fs-xs)",
-                        fontWeight: 600,
-                        color,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {r.owner_name.charAt(0).toUpperCase()}
-                    </div>
-                    <span style={{ fontWeight: 500, fontSize: "var(--fs-base)", color: "var(--text-primary)" }}>{r.owner_name}</span>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "var(--sp-6)", marginBottom: "var(--sp-7)" }}>
-                    <MiniStat icon={<Phone size={12} />} label="Anwahlen" value={r.calls} />
-                    <MiniStat icon={<UserCheck size={12} />} label="Entscheider" value={r.decider_reached} />
-                    <MiniStat icon={<Calendar size={12} />} label="Termine gelegt" value={r.appointments} />
-                    <MiniStat icon={<PhoneMissed size={12} />} label="Rückrufe" value={r.callbacks} />
-                    <MiniStat icon={<PhoneOff size={12} />} label="Dead" value={r.dead} />
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-5)" }}>
-                    <GoalBar label="Anwahlen diese Woche" value={week?.calls ?? 0} target={callsTarget} />
-                    <GoalBar label="Termine gelegt diese Woche" value={week?.appointments ?? 0} target={apptTarget} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Owner comparison bars */}
-          {rows30.length > 1 && (
-            <div style={{ padding: "0 var(--sp-8) var(--sp-8)" }}>
-              <div className="eyebrow eyebrow-muted" style={{ marginBottom: "var(--sp-5)" }}>
-                Anwahlen im Vergleich · 30 Tage
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
-                {[...rows30]
-                  .sort((a, b) => b.calls - a.calls)
-                  .map((r) => {
-                    const color = ownerColor(r.owner_name).fg;
-                    return (
-                      <div key={r.owner_name} style={{ display: "flex", alignItems: "center", gap: "var(--sp-5)" }}>
-                        <span
-                          style={{
-                            width: 110,
-                            flexShrink: 0,
-                            fontSize: "var(--fs-sm)",
-                            color: "var(--text-secondary)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {r.owner_name}
-                        </span>
-                        <div className="progress-track" style={{ flex: 1, height: 8 }}>
-                          <div
-                            className="progress-fill"
-                            style={{ width: `${(r.calls / maxCalls) * 100}%`, background: color }}
-                          />
-                        </div>
-                        <span
-                          className="tnum"
-                          style={{ width: 48, textAlign: "right", fontSize: "var(--fs-sm)", fontWeight: 500, color: "var(--text-primary)" }}
-                        >
-                          {r.calls.toLocaleString("de-DE")}
-                        </span>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-        </>
+      {!dials.available && (
+        <p className="tel-note">Das Anruf-Log ist gerade nicht lesbar — Anwahlen, Entscheider, Rückrufe und Tot fehlen.</p>
       )}
-    </div>
+
+      <div className="tel-mods" style={{ ["--n" as string]: 5 }}>
+        <TelModule
+          label={`Anwahlen ${wort}`}
+          value={totals.calls.toLocaleString("de-DE")}
+          unit={callsZiel > 0 ? `von ${callsZiel.toLocaleString("de-DE")}` : undefined}
+          meter={callsZiel > 0 ? (totals.calls / callsZiel) * 100 : null}
+          caption="jeder Wählversuch zählt"
+        />
+        <TelModule
+          label="Entscheider erreicht"
+          value={totals.decider_reached.toLocaleString("de-DE")}
+          caption={anteil(totals.decider_reached, totals.calls)}
+        />
+        <TelModule
+          label="Termine gelegt"
+          value={totals.appointments.toLocaleString("de-DE")}
+          unit={apptZiel > 0 ? `von ${apptZiel.toLocaleString("de-DE")}` : undefined}
+          meter={apptZiel > 0 ? (totals.appointments / apptZiel) * 100 : null}
+          caption="Telefon-Termine nach Buchungstag"
+        />
+        <TelModule label="Rückrufe vereinbart" value={totals.callbacks.toLocaleString("de-DE")} caption={`Ergebnis „Rückruf“ ${wort}`} />
+        <TelModule label="Tot" value={totals.dead.toLocaleString("de-DE")} caption="das Recycling holt sie später wieder" />
+      </div>
+
+      {rows.length > 0 && (
+        <div className="card tel-card">
+          <header className="tel-card-head">
+            <h3>Je Person</h3>
+            <span className="tel-meta">{zeitraum === "heute" ? "Zahlen von heute" : "Zahlen dieser Woche"} · rechts das Wochenziel</span>
+          </header>
+          <div className="tel-tw">
+            <table className="tel-table">
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th className="r">Anwahlen</th>
+                  <th className="r">Entscheider</th>
+                  <th className="r">Termine gelegt</th>
+                  <th className="r">Rückrufe</th>
+                  <th className="r">Tot</th>
+                  <th style={{ minWidth: 220 }}>Woche</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const { fg: color, bg: colorBg } = ownerColor(r.owner_name);
+                  const week = weekByOwner[r.owner_name];
+                  const userId = userIdByName[r.owner_name] ?? "";
+                  const callsTarget = resolveTarget(targets, userId, "telefon", "weekly", "calls");
+                  const apptTarget = resolveTarget(targets, userId, "telefon", "weekly", "appointments");
+                  return (
+                    <tr key={r.owner_name}>
+                      <td>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                          <span className="tel-avatar" style={{ color, background: colorBg }}>
+                            {r.owner_name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="tel-nm">{r.owner_name}</span>
+                        </span>
+                      </td>
+                      <td className="r tnum">{r.calls.toLocaleString("de-DE")}</td>
+                      <td className="r tnum">{r.decider_reached.toLocaleString("de-DE")}</td>
+                      <td className="r tnum">{r.appointments.toLocaleString("de-DE")}</td>
+                      <td className="r tnum tel-muted">{r.callbacks.toLocaleString("de-DE")}</td>
+                      <td className="r tnum tel-muted">{r.dead.toLocaleString("de-DE")}</td>
+                      <td>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <GoalBar label="Anwahlen diese Woche" value={week?.calls ?? 0} target={callsTarget} />
+                          <GoalBar label="Termine gelegt diese Woche" value={week?.appointments ?? 0} target={apptTarget} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

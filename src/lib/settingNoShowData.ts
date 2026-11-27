@@ -72,7 +72,11 @@ function nachNoShowDatum<T extends { id: string }>(items: T[], noShows: Map<stri
   );
 }
 
-export type PhoneNoShowLead = PhoneLead & { owner_name: string | null };
+/**
+ * `no_show_setting_id`: das jüngste Setting des Leads, das auf No-Show steht —
+ * die Zeile, an der „Neuer Termin" und „Tot" ansetzen (/no-shows).
+ */
+export type PhoneNoShowLead = PhoneLead & { owner_name: string | null; no_show_setting_id: string };
 
 /**
  * Telefon: Leads, deren jüngstes Setting auf No-Show steht.
@@ -106,13 +110,13 @@ export async function loadPhoneNoShowLeads(access: AccessContext): Promise<Phone
       };
       const setting = noShows.get((lead as PhoneLead).id);
       if (!setting || !gehoertMir(setting, list, ich)) continue;
-      leads.push({ ...(lead as PhoneLead), owner_name: list.owner_name });
+      leads.push({ ...(lead as PhoneLead), owner_name: list.owner_name, no_show_setting_id: setting.id });
     }
   }
   return nachNoShowDatum(leads, noShows);
 }
 
-export type LinkedInNoShowContact = ListContact & { owner_name: string | null };
+export type LinkedInNoShowContact = ListContact & { owner_name: string | null; no_show_setting_id: string };
 
 /**
  * LinkedIn: Kontakte, deren jüngstes Setting auf No-Show steht.
@@ -152,7 +156,7 @@ export async function loadLinkedInNoShowContacts(access: AccessContext): Promise
       const liste = c.list_id ? listen.get(c.list_id) : undefined;
       const setting = noShows.get(c.id);
       if (!liste || !setting || !gehoertMir(setting, liste, ich)) continue;
-      contacts.push({ ...c, owner_name: liste.owner_name });
+      contacts.push({ ...c, owner_name: liste.owner_name, no_show_setting_id: setting.id });
     }
   }
   return nachNoShowDatum(contacts, noShows);

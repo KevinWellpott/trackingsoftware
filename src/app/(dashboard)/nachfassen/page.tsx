@@ -1,5 +1,4 @@
 import { NachfassEingang } from "@/components/nachfassen/NachfassEingang";
-import { BackLink } from "@/components/ui/BackLink";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ladeNachfassen } from "@/lib/nachfassenData";
@@ -23,13 +22,16 @@ export default async function NachfassenPage({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
-      <BackLink href="/" label="Dashboard" />
       <PageHeader
-        eyebrow="Meine Arbeit"
+        // Seit dem Redesign (Phase 4) heißt die Seite wie ihr Navigationspunkt:
+        // „Heute". Route, Datei und `?from=nachfassen` behalten den alten Namen
+        // (Lesezeichen, Rückweg der Detailseiten); die Zeile darüber sagt,
+        // was „Heute" fachlich ist.
+        eyebrow="Nachfassen"
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
-            Nachfassen
-            <InfoPopover label="Nachfassen: was hier steht" width={400}>
+            Heute
+            <InfoPopover label="Heute: was hier steht" width={400}>
               Wen musst du heute kontaktieren? Termine ohne nächsten Schritt (kein Termin, nicht erschienen,
               erschienen ohne Ergebnis, Closing auf „Nachfassen“), Telefon-Rückrufe und Recycling-Leads, deren
               Wartezeit abgelaufen ist. Jeder Eintrag hat ein Datum für den nächsten Kontakt — ohne Datum ist er

@@ -17,7 +17,11 @@ export type BackTarget = { href: string; label: string };
  * fuehrt ein Link mit der Aufschrift „Termine" woandershin.
  */
 const BACK_TARGETS: Record<string, BackTarget> = {
-  nachfassen: { href: "/nachfassen", label: "Nachfassen" },
+  nachfassen: { href: "/nachfassen", label: "Heute" },
+  // Die Listen der Gruppe „Vertrieb" (Redesign Phase 4).
+  setting: { href: "/setting", label: "Setting" },
+  closing: { href: "/closing", label: "Closing" },
+  "no-shows": { href: "/no-shows", label: "No-Shows" },
 };
 
 /**

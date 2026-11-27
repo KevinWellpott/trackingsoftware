@@ -1,10 +1,11 @@
 import Link from "next/link";
+import { Betrag } from "@/components/umsatz/Betrag";
 import { notFound } from "next/navigation";
 import { getAccessContext } from "@/lib/access";
 import { berlinDateISO, formatTermin } from "@/lib/apptTime";
 import { getInternRechte, loadGeld, loadInternTeam, loadKundenListe } from "@/lib/internData";
 import { KUNDEN_STATUS_LABELS, KUNDEN_STATUS_TONE, aufmerksamkeit, istLaufend } from "@/lib/kunden";
-import { FINANZ_STATUS_LABELS, datumDe, formatEur, formatEurGenau } from "@/lib/umsatz";
+import { FINANZ_STATUS_LABELS, datumDe } from "@/lib/umsatz";
 import { mitGueltigerPerson, passtZuWer, werAusUrl, werEintraege } from "@/lib/kundenFilter";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -214,14 +215,14 @@ export default async function KundenPage({ searchParams }: { searchParams: Promi
                             <span className="ks-gold">Nicht ermittelbar</span>
                           ) : k.ueberfaellig > 0 ? (
                             <>
-                              <span className="ks-rot">{formatEur(k.ueberfaellig)} überfällig</span>
+                              <span className="ks-rot"><Betrag wert={k.ueberfaellig} /> überfällig</span>
                               <span className="ks-unter ks-rot">
                                 {k.tageUeberfaellig} {k.tageUeberfaellig === 1 ? "Tag" : "Tage"}
                               </span>
                             </>
                           ) : k.status === "laeuft" && k.naechsteRate ? (
                             <>
-                              <span>{formatEurGenau(k.naechsteRate.rest)}</span>
+                              <span><Betrag wert={k.naechsteRate.rest} /></span>
                               <span className="ks-unter">am {datumDe(k.naechsteRate.faellig_am)}</span>
                             </>
                           ) : (

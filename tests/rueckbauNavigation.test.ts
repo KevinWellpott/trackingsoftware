@@ -51,7 +51,11 @@ function code(source: string): string {
 const NAVCOUNTS_DATA = read("src/lib/navCountsData.ts");
 const NAVCOUNTS = read("src/lib/navCounts.ts");
 const SIDEBAR = read("src/components/Sidebar.tsx");
-const QUICKLINKS = read("src/components/dashboard/QuickLinks.tsx");
+// GEÄNDERT (Redesign Phase 4/6): Der Quicklink-Streifen ist in der Übersicht
+// aufgegangen; geprüft werden jetzt die Übersicht selbst, ihre Karten und die
+// untere Tab-Leiste am Handy — die Flächen, die heute auf Seiten verlinken.
+const UEBERSICHT = read("src/app/(dashboard)/page.tsx") + read("src/components/dashboard/HeuteKarten.tsx");
+const TABBAR = read("src/components/MobileBottomNav.tsx");
 const MOBILE = read("src/components/MobileHeader.tsx");
 
 /* ------------------------------------------------------------------ *
@@ -77,8 +81,9 @@ describe("Die abgeklemmten Routen sind gelöscht, nicht nur umgeleitet", () => {
   test("und keine Navigationsfläche verlinkt auf sie", () => {
     for (const [name, quelle] of [
       ["Seitenleiste", SIDEBAR],
-      ["Quicklinks", QUICKLINKS],
+      ["Übersicht", UEBERSICHT],
       ["MobileHeader", MOBILE],
+      ["Tab-Leiste", TABBAR],
     ] as const) {
       for (const route of GELOESCHT) {
         assert.doesNotMatch(code(quelle), new RegExp(`["'\`]/${route}\\b`), `${name} verlinkt weiterhin auf /${route}`);
@@ -161,13 +166,14 @@ describe("Kein Erinnerungs-Zähler mehr", () => {
  * ------------------------------------------------------------------ */
 
 describe("Kein Weg führt mehr auf die abgeklemmte Seite", () => {
-  test("weder Seitenleiste noch Quicklinks noch der mobile Menü-Punkt", () => {
+  test("weder Seitenleiste noch Übersicht noch die mobilen Flächen", () => {
     // Geprüft am CODE, nicht am Fließtext: Die Kommentarköpfe erklären, warum
     // es die Zeile nicht mehr gibt — das ist erwünscht und muss stehen bleiben.
     for (const [name, quelle] of [
       ["Seitenleiste", SIDEBAR],
-      ["Quicklinks", QUICKLINKS],
+      ["Übersicht", UEBERSICHT],
       ["MobileHeader", MOBILE],
+      ["Tab-Leiste", TABBAR],
     ] as const) {
       assert.doesNotMatch(quelle, /href[=:] ?"\/erinnerungen"/, `${name} verlinkt weiterhin auf /erinnerungen`);
       assert.doesNotMatch(quelle, /navCounts\?\.erinnerungen|counts\?\.erinnerungen/, `${name} liest weiterhin den Erinnerungs-Zähler`);
@@ -179,6 +185,7 @@ describe("Kein Weg führt mehr auf die abgeklemmte Seite", () => {
     // wieder" einzuhängen — und eslint sähe es nicht, sobald es irgendwo
     // einmal vorkommt.
     assert.doesNotMatch(SIDEBAR, /BellRing/);
-    assert.doesNotMatch(QUICKLINKS, /BellRing/);
+    assert.doesNotMatch(UEBERSICHT, /BellRing/);
+    assert.doesNotMatch(TABBAR, /BellRing/);
   });
 });

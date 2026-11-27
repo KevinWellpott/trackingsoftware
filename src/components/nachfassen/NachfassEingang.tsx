@@ -358,15 +358,10 @@ function Zeile({
   return (
     <div
       className="nachfass-zeile"
+      data-nf-row=""
       data-dran={dran || undefined}
       style={{
-        display: "grid",
-        gridTemplateColumns: onAuswahl ? "auto 1fr auto" : "1fr auto",
-        gap: "var(--sp-5)",
-        alignItems: "center",
-        padding: "var(--sp-5) var(--sp-6)",
-        borderTop: "1px solid var(--border-subtle)",
-        background: dran ? DRAN_TONE.bg : undefined,
+        gridTemplateColumns: onAuswahl ? "auto 14px minmax(0,1fr) auto" : "14px minmax(0,1fr) auto",
         opacity: pending ? 0.5 : 1,
       }}
     >
@@ -378,12 +373,12 @@ function Zeile({
           aria-label={`${e.name} auswählen`}
         />
       )}
+      {/* „Du bist dran": goldener Punkt mit Lichthof (`.dran-mark`, globals.css §6.9);
+          sonst ein stiller Ring, damit die Namen fluchten. */}
+      <span className="dran-mark" data-dran={dran ? "true" : undefined} aria-label={dran ? "Jetzt dran" : undefined} />
       <div style={{ minWidth: 0, display: "grid", gap: 2 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-3)", flexWrap: "wrap" }}>
-          {dran && (
-            <span aria-hidden style={{ width: 7, height: 7, borderRadius: 99, background: DRAN_TONE.fg, flexShrink: 0 }} />
-          )}
-          <span style={{ fontWeight: 550, color: "var(--text-primary)" }}>{e.name}</span>
+          <span style={{ fontWeight: dran ? 600 : 550, color: "var(--text-primary)" }}>{e.name}</span>
           {e.firma && <span style={{ color: "var(--text-muted)", fontSize: "var(--fs-sm)" }}>{e.firma}</span>}
           <span
             style={{
@@ -417,7 +412,7 @@ function Zeile({
           </div>
         )}
       </div>
-      <div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap", justifyContent: "flex-end" }}>
+      <div className="nf-ra">
         {e.ergebnisFehlt && (e.art === "setting" || e.art === "closing") ? (
           <ErgebnisSchnell
             kind={e.art}
@@ -445,12 +440,20 @@ function Zeile({
           </>
         ) : (
           <>
-            <span ref={kontaktRef as React.RefObject<HTMLSpanElement>}>
-              <Button size="sm" variant="primary" onClick={kontaktToggle}>Kontakt eintragen</Button>
+            <span ref={kontaktRef as React.RefObject<HTMLSpanElement>} data-nf-key="e">
+              <Button size="sm" variant="primary" onClick={kontaktToggle} title="Kontakt eintragen (E)">
+                Kontakt eintragen
+              </Button>
             </span>
             {(e.art === "setting" || e.art === "closing") && e.quelle === "termin" && (
-              <span ref={terminRef as React.RefObject<HTMLSpanElement>}>
-                <Button size="sm" variant="secondary" icon={<CalendarPlus size={13} />} onClick={terminToggle}>
+              <span ref={terminRef as React.RefObject<HTMLSpanElement>} data-nf-key="t">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<CalendarPlus size={13} />}
+                  onClick={terminToggle}
+                  title="Neuen Termin ansetzen (T)"
+                >
                   Termin
                 </Button>
               </span>
@@ -537,6 +540,42 @@ export function NachfassEingang(props: Props) {
   const [sammelTag, setSammelTag] = useState<string | null>(today);
   const [pending, start] = useTransition();
   const { confirm, dialog } = useConfirm();
+
+  // Tastatur (Prototyp „Heute"): J/K wählen eine Zeile, E trägt einen
+  // Kontakt ein, T setzt einen Termin. Bewusst über das DOM statt über
+  // React-Zustand: Die Auswahl ist reine Bedienhilfe, sie ändert keine Zahl
+  // und keine Zeile — und sie greift auf die vorhandenen Knöpfe durch, statt
+  // die Aktionen ein zweites Mal zu verdrahten. In Eingabefeldern, mit
+  // Zusatztasten und bei offenem Dialog/Popover tut sie nichts.
+  useEffect(() => {
+    function onKey(ev: KeyboardEvent) {
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      const t = ev.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      const key = ev.key.toLowerCase();
+      if (!["j", "k", "e", "t"].includes(key)) return;
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-nf-row]"));
+      if (rows.length === 0) return;
+      const cur = rows.findIndex((r) => r.dataset.selected === "true");
+      if (key === "j" || key === "k") {
+        ev.preventDefault();
+        const next = cur === -1 ? 0 : Math.min(rows.length - 1, Math.max(0, cur + (key === "j" ? 1 : -1)));
+        if (cur !== -1) delete rows[cur].dataset.selected;
+        rows[next].dataset.selected = "true";
+        rows[next].scrollIntoView({ block: "nearest" });
+        return;
+      }
+      if (cur === -1) return;
+      const knopf = rows[cur].querySelector<HTMLButtonElement>(`[data-nf-key="${key}"] button`);
+      if (knopf) {
+        ev.preventDefault();
+        knopf.click();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -718,19 +757,12 @@ export function NachfassEingang(props: Props) {
         const liste = gruppen.get(g) ?? [];
         if (liste.length === 0) return null;
         return (
-          <section key={g} className="card" style={{ overflow: "hidden" }}>
-            <div
-              style={{
-                padding: "var(--sp-5) var(--sp-6)",
-                display: "flex",
-                alignItems: "baseline",
-                gap: "var(--sp-3)",
-                fontWeight: 600,
-                color: g === "ueberfaellig" || g === "ergebnis_fehlt" ? DRAN_TONE.fg : "var(--text-primary)",
-              }}
-            >
+          <section key={g} className="card nf-gruppe" style={{ overflow: "hidden" }}>
+            {/* Gruppenkopf ohne Band (Prototyp `tr.grp`): ruhiger Text,
+                Gold nur dort, wo die Gruppe selbst „zu spät" sagt. */}
+            <div className="nf-grp" data-ton={g === "ueberfaellig" || g === "ergebnis_fehlt" ? "dran" : undefined}>
               {GRUPPEN_LABEL[g]}
-              <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>{liste.length}</span>
+              <span>{liste.length}</span>
             </div>
             {liste.map((e) => (
               <Zeile
@@ -758,6 +790,22 @@ export function NachfassEingang(props: Props) {
           </section>
         );
       })}
+
+      {sichtbareGruppen.some((g) => (gruppen.get(g) ?? []).length > 0) && (
+        <div className="keys nf-keys hide-on-mobile" aria-hidden>
+          <span>
+            <kbd>J</kbd>
+            <kbd>K</kbd> Zeile wählen
+          </span>
+          <span>
+            <kbd>E</kbd> Kontakt eintragen
+          </span>
+          <span>
+            <kbd>T</kbd> Termin
+          </span>
+          <span style={{ marginLeft: "auto" }}>Gold: jetzt dran — fällig und noch nicht angefasst</span>
+        </div>
+      )}
 
       {sichtbareGruppen.every((g) => (gruppen.get(g) ?? []).length === 0) && (
         <div className="card" style={{ padding: "var(--sp-11) var(--sp-7)", textAlign: "center", color: "var(--text-secondary)" }}>

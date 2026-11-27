@@ -325,7 +325,8 @@ function AgendaCard({
             border: `1px solid ${event.statusPill.border}`,
           }}
         >
-          {event.statusPill.label}
+          {/* Eine Absage ist kein Status (docs §3) — sonst stünde hier „Offen". */}
+          {event.cancelled ? "Abgesagt" : event.statusPill.label}
         </span>
         {oc && event.assignee && (
           <span

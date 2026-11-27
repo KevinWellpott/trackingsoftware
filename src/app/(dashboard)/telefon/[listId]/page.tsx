@@ -5,18 +5,27 @@ import { getAccessContext, matchesOwnScope, ownScopeFilter } from "@/lib/access"
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { ownerColor } from "@/lib/ownerColor";
+import { PhoneListOverview } from "@/components/telefon/PhoneListOverview";
+import { TelModule } from "@/components/telefon/TelModule";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { loadTelefonHeute } from "@/lib/telefonHeute";
 import type { PhoneLead, PhoneList, PhoneListKind } from "@/lib/types";
 import { ArrowLeft, CalendarX, ChevronRight, FileText, Phone, PhoneMissed, Voicemail } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-// Telefonliste im Call-Mode: Liste + Leads laden, Guard über Workspace +
-// Personenscope, dann durchtelefonieren via CallModeRunner.
+// Telefonliste (Redesign Phase 5): Liste + Leads laden, Guard über Workspace +
+// Personenscope. Zwei Ansichten derselben Daten:
+//   · Übersicht (Vorgabe): Kennzahlen, Status-Reiter, Leads mit nächstem Schritt.
+//   · Call-Modus (`?modus=anrufen`, oder `?lead=` aus einer Zeile): der
+//     CallModeRunner mit Kopfleiste, Warteschlange und Ergebnis-Dock.
 //
-// Zusätzlich die Skript-Pflege (Migration 0029): Gesprächsleitfaden, Testarm
-// und Ziel-Branche hängen an der Liste, weil sie die kleinste Einheit ist, die
-// jemand am Stück abtelefoniert — und weil `phone_leads.script` pro Lead als
-// Testachse unbrauchbar ist.
+// Dazu Testarm und Ziel-Branche (Migration 0029) — sie hängen an der Liste,
+// weil sie die kleinste Einheit ist, die jemand am Stück abtelefoniert. Den
+// Gesprächsleitfaden je Liste gibt es nicht mehr (docs §0.3).
+
+/** Quoten mit kleinerem Nenner zeigen „—" (wie der Telefon-Tab, N13). */
+const MIN_QUOTE_NENNER = 20;
 
 // Wie in der Übersicht: Die Listen-Art ist Struktur, kein Status — neutrales
 // Badge mit farbigem Punkt statt getönter Fläche.
@@ -79,8 +88,15 @@ function OutOfScopeNotice({
   );
 }
 
-export default async function PhoneListPage({ params }: { params: Promise<{ listId: string }> }) {
+export default async function PhoneListPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ listId: string }>;
+  searchParams: Promise<{ modus?: string; lead?: string }>;
+}) {
   const { listId } = await params;
+  const sp = await searchParams;
   const access = await getAccessContext();
   if (!access) notFound();
 
@@ -170,15 +186,15 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
   const targetGroups = distinct("target_group");
 
   const kind = KIND_META[list.list_kind];
+  const armText = (list.script_label ?? "").trim();
+  const untertitel = [kind.label, armText ? `Arm „${armText}“` : null, list.owner_name].filter(Boolean).join(" · ");
   const oc = list.owner_name ? ownerColor(list.owner_name) : null;
 
-  // Standardmäßig offen, solange kein Testarm hinterlegt ist — ein fehlendes
-  // Label darf nicht hinter einem zugeklappten Deckel unsichtbar bleiben.
-  const scriptEmpty = !(list.script_label ?? "").trim();
-  const scriptSummary = [
-    (list.script_label ?? "").trim() ? `Arm „${list.script_label}"` : null,
-    (list.target_group ?? "").trim() || null,
-  ]
+  // Testarm & Branche: standardmäßig offen, solange kein Testarm hinterlegt
+  // ist — ein fehlendes Label darf nicht hinter einem zugeklappten Deckel
+  // unsichtbar bleiben.
+  const scriptEmpty = !armText;
+  const scriptSummary = [armText ? `Arm „${list.script_label}"` : null, (list.target_group ?? "").trim() || null]
     .filter(Boolean)
     .join(" · ");
 
@@ -196,61 +212,93 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
     lineHeight: 1.5,
   };
 
+  // ── Call-Modus: `?modus=anrufen` oder ein direkt angesprungener Lead ──
+  // Kopfleiste, Warteschlange und Dock bringt der CallModeRunner selbst mit;
+  // die Seitenleiste weicht (body[data-dialer]). „Beenden" führt hierher zurück.
+  if (sp.modus === "anrufen" || sp.lead) {
+    const heute = await loadTelefonHeute(access, supabase);
+    return (
+      <CallModeRunner
+        leads={leads}
+        titel={list.name}
+        untertitel={untertitel}
+        exitHref={`/telefon/${listId}`}
+        heute={heute}
+        defaultStatus="offen"
+      />
+    );
+  }
+
+  // ── Kennzahlen der Liste — Lead-Ebene, exakt aus den geladenen Leads ──
+  // „Erstkontakt" wie überall (docs §1): Lead mit `first_call_at`.
+  const jetztMs = new Date().getTime();
+  const erstkontakte = leads.filter((l) => l.first_call_at).length;
+  const entscheider = leads.filter((l) => l.decider_reached === true).length;
+  const termine = leads.filter((l) => l.status === "termin").length;
+  const rueckrufFaellig = leads.filter(
+    (l) => l.status === "rueckruf" && !!l.callback_at && Date.parse(l.callback_at) <= jetztMs,
+  ).length;
+  const anrufbar = leads.filter((l) => l.status === "aktiv" || l.status === "nicht_erreicht").length + rueckrufFaellig;
+  // Quoten mit Nenner unter 20 zeigen „—" (wie der Telefon-Tab, N13).
+  const quote = (z: number) =>
+    erstkontakte >= MIN_QUOTE_NENNER ? `${Math.round((z / erstkontakte) * 100)} % der Erstkontakte` : "zu wenige Erstkontakte für eine Quote";
+  const abgearbeitet = leads.length > 0 ? (erstkontakte / leads.length) * 100 : 0;
+
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-      {/* ── Header ── */}
-      <div style={{ marginBottom: "1.25rem" }}>
-        <Link
-          href="/telefon"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.375rem",
-            fontSize: "0.8125rem",
-            color: "var(--text-subtle)",
-            textDecoration: "none",
-            marginBottom: "0.75rem",
-          }}
-        >
-          <ArrowLeft size={13} /> Telefon
-        </Link>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-          {list.owner_name && oc && (
-            <span
-              className="badge"
-              style={{
-                color: oc.fg,
-                background: oc.bg,
-                border: `1px solid color-mix(in srgb, ${oc.fg} 33%, transparent)`,
-              }}
-            >
-              {list.owner_name}
-            </span>
-          )}
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-8)" }}>
+      <PageHeader
+        eyebrow={`Telefonliste · ${kind.label}`}
+        title={list.name}
+        meta={
           <span
-            className="badge badge-gray"
-            style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}
+            title={
+              movedCount > 0
+                ? "Rückruf, Nicht erreicht und Kein Termin liegen zusätzlich in der gemeinsamen Routing-Liste — hier stehen sie weiter unter ihrem Status."
+                : undefined
+            }
           >
-            <span style={{ width: 6, height: 6, borderRadius: "var(--r-full)", background: kind.dot }} />
-            {kind.icon} {kind.label}
-          </span>
-          <span className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
             {leads.length.toLocaleString("de-DE")} Leads
-            {movedCount > 0 && (
-              <span title="Rückruf, Nicht erreicht und Kein Termin liegen zusätzlich in der gemeinsamen Routing-Liste — hier stehen sie weiter unter ihrem Status.">
-                {" "}
-                · davon {movedCount.toLocaleString("de-DE")} auch in Routing-Listen
+            {armText ? ` · Arm „${armText}“` : ""}
+            {movedCount > 0 ? ` · ${movedCount.toLocaleString("de-DE")} auch in Routing-Listen` : ""}
+          </span>
+        }
+        actions={
+          <>
+            <Link className="ui-btn" data-variant="ghost" data-size="sm" href="/telefon" style={{ minHeight: 28, padding: "0 10px" }}>
+              <ArrowLeft size={14} aria-hidden /> Alle Listen
+            </Link>
+            {list.owner_name && oc && (
+              <span className="tel-avatar" style={{ color: oc.fg, background: oc.bg }} title={`Inhaber: ${list.owner_name}`}>
+                {list.owner_name.charAt(0).toUpperCase()}
               </span>
             )}
-          </span>
-          <span style={{ marginLeft: "auto" }}>
-            <DeletePhoneListButton listId={list.id} listName={list.name} redirectTo="/telefon" />
-          </span>
-        </div>
-        <h1 className="page-title" style={{ margin: 0 }}>
-          {list.name}
-        </h1>
+            <DeletePhoneListButton iconOnly listId={list.id} listName={list.name} redirectTo="/telefon" />
+            {/* Der eine Primärknopf dieser Ansicht. */}
+            <Link className="ui-btn" data-variant="primary" data-size="md" href={`/telefon/${listId}?modus=anrufen`}>
+              <Phone size={15} aria-hidden /> Session starten
+            </Link>
+          </>
+        }
+      />
+
+      <div className="tel-mods" style={{ ["--n" as string]: 4 }}>
+        <TelModule
+          label="Abgearbeitet"
+          value={`${Math.round(abgearbeitet)} %`}
+          meter={abgearbeitet}
+          caption={`${erstkontakte.toLocaleString("de-DE")} von ${leads.length.toLocaleString("de-DE")} angerufen`}
+        />
+        <TelModule
+          label="Jetzt anrufbar"
+          value={anrufbar.toLocaleString("de-DE")}
+          tone={rueckrufFaellig > 0 ? "gold" : undefined}
+          caption={rueckrufFaellig > 0 ? `davon ${rueckrufFaellig} Rückruf fällig` : "offen und nicht erreicht"}
+        />
+        <TelModule label="Entscheider erreicht" value={entscheider.toLocaleString("de-DE")} caption={quote(entscheider)} />
+        <TelModule label="Termine" value={termine.toLocaleString("de-DE")} caption={quote(termine)} />
       </div>
+
+      <PhoneListOverview leads={leads} listId={listId} jetztMs={jetztMs} />
 
       {/* ── Skript, Testarm & Branche (Migration 0029) ── */}
       <details open={scriptEmpty} className="card" style={{ marginBottom: "1.25rem" }}>
@@ -344,8 +392,6 @@ export default async function PhoneListPage({ params }: { params: Promise<{ list
         </form>
       </details>
 
-      {/* ── Call-Mode ── */}
-      <CallModeRunner leads={leads} />
     </div>
   );
 }

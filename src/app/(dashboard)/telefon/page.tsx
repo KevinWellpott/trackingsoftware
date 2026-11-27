@@ -1,17 +1,19 @@
 import { CsvImportDialog } from "@/components/telefon/CsvImportDialog";
 import { DeletePhoneListButton } from "@/components/telefon/DeletePhoneListButton";
-import { PhoneDashboard } from "@/components/telefon/PhoneDashboard";
+import { PhoneDashboard, type TelefonZeitraum } from "@/components/telefon/PhoneDashboard";
 import { getAccessContext, listDataViewUsers, ownScopeFilter } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { ownerColor } from "@/lib/ownerColor";
 import { loadPhoneNoShowLeads } from "@/lib/settingNoShowData";
 import type { PhoneLeadStatus, PhoneList, PhoneListKind } from "@/lib/types";
 import { EmptyState, PageHeader } from "@/components/ui/PageHeader";
-import { CalendarX, Phone, PhoneMissed, UserX, Voicemail } from "lucide-react";
+import { CalendarX, Phone, PhoneForwarded, UserX, Voicemail } from "lucide-react";
 import Link from "next/link";
 
-// Telefon-Übersicht: Dashboard-Metriken + alle Telefonlisten gruppiert nach
-// Inhaber (Akquise-Listen + Rückruf-/Nicht-erreicht-/Kein-Termin-Routing-Listen).
+// Telefon-Übersicht (Redesign Phase 5): Kennzahl-Module Heute/Woche, darunter
+// die Akquise-Listen als Tabelle mit gestapeltem Fortschritt und „jetzt
+// anrufbar", danach die Routing-Listen als „Wiedervorlagen".
 
 type ListCounts = {
   total: number;
@@ -25,29 +27,68 @@ type ListCounts = {
 
 const EMPTY_COUNTS: ListCounts = { total: 0, aktiv: 0, rueckruf: 0, nicht_erreicht: 0, kein_termin: 0, termin: 0, dead: 0 };
 
-// Routing-Listen sind eine STRUKTUR-Eigenschaft der Liste, kein Status ihrer
-// Leads — deshalb ein neutrales Badge mit farbigem Punkt statt einer getoenten
-// Flaeche. Vorher trug jede Karte bis zu drei eingefaerbte Elemente (Icon,
-// Badge, Statuszeile) in vier Semantiktoenen; im Raster mit einem Dutzend
-// Karten ergab das ein Farbfeld, in dem nichts mehr hervorstach.
-const KIND_BADGE: Record<PhoneListKind, { label: string; dot: string } | null> = {
-  akquise: null,
-  rueckruf: { label: "Rückruf", dot: "var(--info)" },
-  nicht_erreicht: { label: "Nicht erreicht", dot: "var(--warning)" },
-  kein_termin: { label: "Kein Termin", dot: "var(--text-subtle)" },
+const KIND_LABEL: Record<PhoneListKind, string> = {
+  akquise: "Akquise",
+  rueckruf: "Rückruf",
+  nicht_erreicht: "Nicht erreicht",
+  kein_termin: "Kein Termin",
 };
 
 function KindIcon({ kind }: { kind: PhoneListKind }) {
   const Icon =
-    kind === "rueckruf" ? PhoneMissed : kind === "nicht_erreicht" ? Voicemail : kind === "kein_termin" ? CalendarX : Phone;
-  return <Icon size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />;
+    kind === "rueckruf" ? PhoneForwarded : kind === "nicht_erreicht" ? Voicemail : kind === "kein_termin" ? CalendarX : Phone;
+  return <Icon size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} aria-hidden />;
 }
 
-export default async function TelefonPage() {
+/**
+ * Gestapelter Fortschritt einer Liste, gezählt über `origin_list_id`
+ * (abgewanderte Leads stehen unter ihrer Importliste). Fünf Segmente:
+ *   Offen (Status „aktiv" — überwiegend noch nie angerufen; ein Anruf ohne
+ *   Ergebnis lässt den Lead ebenfalls auf „aktiv"), In Arbeit (Rückruf und
+ *   Nicht erreicht), Termin, Kein Termin, Tot.
+ */
+function Fortschritt({ c }: { c: ListCounts }) {
+  const segs = [
+    { n: c.aktiv, label: "offen", color: "var(--line-2)" },
+    { n: c.rueckruf + c.nicht_erreicht, label: "in Arbeit", color: "var(--c-tel)" },
+    { n: c.termin, label: "Termin", color: "var(--success)" },
+    { n: c.kein_termin, label: "kein Termin", color: "var(--gold)" },
+    { n: c.dead, label: "tot", color: "var(--red)" },
+  ];
+  const total = Math.max(1, c.total);
+  const title = segs.map((s) => `${s.n} ${s.label}`).join(" · ");
+  return (
+    <div className="tel-progress" title={title} aria-label={title}>
+      <div className="tel-stack">
+        {segs.map((s) =>
+          s.n > 0 ? <i key={s.label} style={{ width: `${(s.n / total) * 100}%`, background: s.color }} /> : null,
+        )}
+      </div>
+      <span className="tel-progress-c tnum">
+        {c.total - c.aktiv > 0 ? `${Math.round(((c.total - c.aktiv) / total) * 100)} % bearbeitet` : "unberührt"} · {c.termin} Termin
+        {c.termin === 1 ? "" : "e"}
+      </span>
+    </div>
+  );
+}
+
+function Avatar({ name }: { name: string }) {
+  const { fg, bg } = ownerColor(name);
+  return (
+    <span className="tel-avatar" style={{ color: fg, background: bg }} title={name}>
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+export default async function TelefonPage({ searchParams }: { searchParams: Promise<{ zeitraum?: string }> }) {
   const access = await getAccessContext();
   if (!access) return null;
+  const sp = await searchParams;
+  const zeitraum: TelefonZeitraum = sp.zeitraum === "woche" ? "woche" : "heute";
 
   const supabase = await createClient();
+  const nowIso = new Date().toISOString();
 
   let listsQuery = supabase
     .from("phone_lists")
@@ -57,17 +98,31 @@ export default async function TelefonPage() {
     .order("created_at", { ascending: false });
   // Personenfilter über owner_name (mit created_by_user_id nur als Rückfall) —
   // dieselbe Regel wie `list_owned_by_user()` in den RPCs, wie `/telefon/[listId]`
-  // und wie der Sidebar-Baum. Vorher stand hier `eq(created_by_user_id)`: Eine
-  // Liste, die ein Admin FÜR ein Mitglied angelegt hat, zählte damit in jeder
-  // Auswertung beim Mitglied, war in dessen Datensicht aber unsichtbar — und die
-  // Detailseite antwortete auf denselben Datensatz mit 404, weil sie schon nach
-  // owner_name filterte.
+  // und wie der Sidebar-Baum.
   const ownScope = ownScopeFilter(access);
   if (ownScope) {
     listsQuery = listsQuery.or(ownScope);
   }
 
-  const [{ data: rawLists }, { data: countRows }, { data: originRows }, allUsers, noShowLeads] = await Promise.all([
+  // Fällige Rückrufe je Liste: unter der Routing-Liste, in der der Lead liegt,
+  // UND unter seiner Importliste. Fehlt `origin_list_id` (Migration 0044),
+  // ohne die Herkunft; scheitert auch das, fehlt nur die Plakette.
+  const loadDue = (withOrigin: boolean) =>
+    fetchAllRows<{ list_id: string; origin_list_id?: string | null }>((f, t) =>
+      supabase
+        .from("phone_leads")
+        .select(withOrigin ? "list_id, origin_list_id" : "list_id")
+        .eq("workspace_id", access.workspace_id)
+        .eq("status", "rueckruf")
+        .lte("callback_at", nowIso)
+        .order("id")
+        .range(f, t) as unknown as PromiseLike<{
+        data: { list_id: string; origin_list_id?: string | null }[] | null;
+        error: { message: string } | null;
+      }>,
+    );
+
+  const [{ data: rawLists }, { data: countRows }, { data: originRows }, allUsers, noShowLeads, dueRows] = await Promise.all([
     listsQuery,
     // Aggregat-RPC statt Full-Table-Read: nur (list_id, status, cnt) statt aller Leads
     supabase.rpc("rpc_phone_list_counts", {
@@ -75,34 +130,27 @@ export default async function TelefonPage() {
       p_effective_user_id: access.effective_user_id ?? null,
     }),
     // Die in Routing-Listen abgewanderten Leads, gezählt unter ihrer
-    // Importliste (Migration 0044). Ohne sie stünde auf jeder Importkarte
-    // „0 Rückruf", egal wie viele Rückrufe aus ihr entstanden sind. Fehlt die
-    // RPC, kommt `data: null` zurück — die Karte zeigt dann den alten Stand.
+    // Importliste (Migration 0044). Ohne sie stünde in jedem Fortschritt
+    // „0 in Arbeit", egal wie viele Rückrufe aus der Liste entstanden sind.
+    // Fehlt die RPC, kommt `data: null` zurück — dann der alte Stand.
     supabase.rpc("rpc_phone_origin_counts", {
       p_workspace_id: access.workspace_id,
       p_effective_user_id: access.effective_user_id ?? null,
     }),
     listDataViewUsers(access.workspace_id),
     // Abgeleitete Liste „Setting No-Show" (src/lib/settingNoShow.ts) — nur die
-    // EIGENEN No-Shows, die Karte steht also nur in der eigenen Sektion. Fail-soft:
-    // Eine fehlgeschlagene Zählung darf die Übersicht nicht abräumen — dann
-    // fehlt nur die Karte.
+    // EIGENEN No-Shows. Fail-soft: dann fehlt nur die Zeile.
     loadPhoneNoShowLeads(access).catch(() => []),
+    loadDue(true)
+      .catch(() => loadDue(false))
+      .catch(() => [] as { list_id: string; origin_list_id?: string | null }[]),
   ]);
-
-  // Je Inhaber — derselbe Schlüssel wie die Gruppierung unten.
-  const noShowByOwner = new Map<string, number>();
-  for (const l of noShowLeads) {
-    const key = l.owner_name ?? "Ohne Zuordnung";
-    noShowByOwner.set(key, (noShowByOwner.get(key) ?? 0) + 1);
-  }
 
   const lists = (rawLists ?? []) as PhoneList[];
 
-  // Bereits vergebene Branchen als Vorschläge für den Import-Dialog.
+  // Bereits vergebene Branchen/Testarme als Vorschläge für den Import-Dialog.
   // Case-insensitiv dedupliziert, erste Schreibweise gewinnt — dieselbe Regel
-  // wie in der Auswertung, sonst schlägt der Dialog eine Schreibweise vor, die
-  // dort als eigene Gruppe geführt wird.
+  // wie in der Auswertung.
   const distinctValues = (pick: (l: PhoneList) => string | null) => {
     const byKey = new Map<string, string>();
     for (const l of lists) {
@@ -114,9 +162,6 @@ export default async function TelefonPage() {
     return [...byKey.values()].sort((a, b) => a.localeCompare(b, "de"));
   };
   const targetGroups = distinctValues((l) => l.target_group);
-  // Dieselbe Vorschlagslogik für den Skript-Testarm: Nur wenn derselbe Arm bei
-  // mehreren Importen exakt gleich heißt, bündeln sich seine Listen in der
-  // Auswertung zu einer tragfähigen Fallzahl.
   const scriptLabels = distinctValues((l) => l.script_label);
 
   const users = (access.data_scope === "own"
@@ -143,52 +188,53 @@ export default async function TelefonPage() {
     if (row.status in c) c[row.status as PhoneLeadStatus] += n;
   }
 
-  // Nach Inhaber gruppieren; Akquise-Listen zuerst, Routing-Listen danach
+  const dueByList: Record<string, number> = {};
+  for (const r of dueRows) {
+    dueByList[r.list_id] = (dueByList[r.list_id] ?? 0) + 1;
+    if (r.origin_list_id && r.origin_list_id !== r.list_id) {
+      dueByList[r.origin_list_id] = (dueByList[r.origin_list_id] ?? 0) + 1;
+    }
+  }
+  /** Jetzt anrufbar = offen + nicht erreicht + fällige Rückrufe. */
+  const anrufbar = (l: PhoneList) => {
+    const c = countsByList[l.id] ?? EMPTY_COUNTS;
+    return c.aktiv + c.nicht_erreicht + (dueByList[l.id] ?? 0);
+  };
+
+  const akquise = lists.filter((l) => l.list_kind === "akquise");
   const KIND_ORDER: Record<PhoneListKind, number> = { akquise: 0, rueckruf: 1, nicht_erreicht: 2, kein_termin: 3 };
-  const grouped: Record<string, PhoneList[]> = {};
-  for (const l of lists) {
-    const key = l.owner_name ?? "Ohne Zuordnung";
-    (grouped[key] ??= []).push(l);
-  }
-  const ownerNames = Object.keys(grouped).sort((a, b) => a.localeCompare(b, "de"));
-  for (const owner of ownerNames) {
-    grouped[owner].sort((a, b) => KIND_ORDER[a.list_kind] - KIND_ORDER[b.list_kind] || (a.created_at < b.created_at ? 1 : -1));
-  }
+  const routing = lists
+    .filter((l) => l.list_kind !== "akquise")
+    .sort(
+      (a, b) =>
+        (a.owner_name ?? "").localeCompare(b.owner_name ?? "", "de") || KIND_ORDER[a.list_kind] - KIND_ORDER[b.list_kind],
+    );
+  const einePerson = access.data_scope === "own" || !!access.effective_user_id;
+  const noShowOwner = access.effective_username ?? access.username;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-9)" }}>
-      {/* ── Page Header ── */}
       <PageHeader
         eyebrow="Kaltakquise"
         title="Telefon"
-        meta="Call-Mode · CSV-Import · Rückruf-Routing"
+        meta={`${akquise.length} Listen · ${totalLeads.toLocaleString("de-DE")} Leads`}
         actions={
-          <>
-            <span
-              className="badge badge-gray tnum"
-              title={`${lists.length} Listen mit insgesamt ${totalLeads.toLocaleString("de-DE")} Leads`}
-            >
-              {lists.length} Listen · {totalLeads.toLocaleString("de-DE")} Leads
-            </span>
-            {/* Der eine Primaer-CTA dieser View. */}
-            <CsvImportDialog
-              users={users}
-              me={{ user_id: access.user.id, username: access.username }}
-              isAdmin={access.role === "owner"}
-              orgName={access.workspaces.name}
-              isForeignOrg={access.is_foreign_org}
-              targetGroups={targetGroups}
-              scriptLabels={scriptLabels}
-            />
-          </>
+          /* Der eine Primär-CTA dieser View. */
+          <CsvImportDialog
+            users={users}
+            me={{ user_id: access.user.id, username: access.username }}
+            isAdmin={access.role === "owner"}
+            orgName={access.workspaces.name}
+            isForeignOrg={access.is_foreign_org}
+            targetGroups={targetGroups}
+            scriptLabels={scriptLabels}
+          />
         }
       />
 
-      {/* ── Metriken ── */}
-      <PhoneDashboard />
+      <PhoneDashboard zeitraum={zeitraum} />
 
-      {/* ── Listen nach Inhaber ── */}
-      {lists.length === 0 ? (
+      {lists.length === 0 && noShowLeads.length === 0 ? (
         <div className="card dot-grid">
           <EmptyState
             icon={<Phone size={24} />}
@@ -196,144 +242,177 @@ export default async function TelefonPage() {
           />
         </div>
       ) : (
-        ownerNames.map((owner) => {
-          const { fg: color, bg: colorBg } = ownerColor(owner);
-          return (
-            <section key={owner} style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
-                <div
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: "var(--r-full)",
-                    background: colorBg,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "var(--fs-2xs)",
-                    fontWeight: 600,
-                    color,
-                    flexShrink: 0,
-                  }}
-                >
-                  {owner.charAt(0).toUpperCase()}
-                </div>
-                <span style={{ fontWeight: 600, fontSize: "var(--fs-md)", color: "var(--text-primary)" }}>{owner}</span>
-                <span className="count-pill">{grouped[owner].length}</span>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "var(--sp-6)" }}>
-                {grouped[owner].map((l) => {
-                  const c = countsByList[l.id] ?? EMPTY_COUNTS;
-                  const badge = KIND_BADGE[l.list_kind];
-                  return (
-                    <div key={l.id} style={{ position: "relative" }}>
-                      <Link href={`/telefon/${l.id}`} style={{ textDecoration: "none" }} className="organic-list-card-link">
-                        <div className="organic-list-card card" style={{ padding: "var(--sp-6) var(--sp-7)" }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "var(--sp-4)",
-                              marginBottom: "var(--sp-6)",
-                              paddingRight: "var(--sp-8)",
-                            }}
-                          >
-                            <KindIcon kind={l.list_kind} />
-                            <span
-                              style={{
-                                flex: 1,
-                                fontSize: "var(--fs-base)",
-                                fontWeight: 500,
-                                color: "var(--text-primary)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
+        <>
+          {akquise.length > 0 && (
+            <section className="card tel-card">
+              <header className="tel-card-head">
+                <h3>Akquise-Listen</h3>
+                <span className="tel-meta">Fortschritt über die Herkunft der Leads — auch die in Wiedervorlagen gewanderten</span>
+              </header>
+              <div className="tel-tw">
+                <table className="tel-table">
+                  <thead>
+                    <tr>
+                      <th>Liste</th>
+                      <th>Inhaber</th>
+                      <th style={{ minWidth: 200 }}>Fortschritt</th>
+                      <th className="r">Leads</th>
+                      <th className="r">Jetzt anrufbar</th>
+                      <th className="r" aria-label="Aktionen" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {akquise.map((l) => {
+                      const c = countsByList[l.id] ?? EMPTY_COUNTS;
+                      const due = dueByList[l.id] ?? 0;
+                      return (
+                        <tr key={l.id}>
+                          <td className="tel-main">
+                            <Link href={`/telefon/${l.id}`} className="tel-nm tel-link">
                               {l.name}
-                            </span>
-                            {badge && (
-                              <span
-                                className="badge badge-gray"
-                                style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)", flexShrink: 0 }}
-                              >
-                                <span
-                                  style={{ width: 6, height: 6, borderRadius: "var(--r-full)", background: badge.dot }}
-                                />
-                                {badge.label}
+                            </Link>
+                            {(l.script_label || l.target_group) && (
+                              <span className="tel-co">
+                                {[l.target_group, l.script_label ? `Arm „${l.script_label}“` : null].filter(Boolean).join(" · ")}
                               </span>
                             )}
-                          </div>
-
-                          {/* Status-Zeile: Zahl + Wort, nie Farbe allein — und
-                              nur EIN Ton. „Termin" ist das Ergebnis, auf das
-                              die Liste hinarbeitet; Rückruf und Dead sind
-                              Zwischenstände und stehen gedämpft daneben.
-                              Vorher trugen vier der fünf Zahlen eine eigene
-                              Farbe, wodurch die wichtigste keine mehr hatte. */}
-                          <div
-                            className="tnum"
-                            style={{
-                              display: "flex",
-                              gap: "var(--sp-4) var(--sp-6)",
-                              flexWrap: "wrap",
-                              fontSize: "var(--fs-xs)",
-                              color: "var(--text-muted)",
-                            }}
-                          >
-                            <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{c.total} gesamt</span>
-                            <span>{c.aktiv} aktiv</span>
-                            <span>{c.rueckruf} Rückruf</span>
-                            {c.nicht_erreicht > 0 && <span>{c.nicht_erreicht} nicht erreicht</span>}
-                            <span style={{ color: "var(--success-fg)" }}>{c.termin} Termin</span>
-                            {c.kein_termin > 0 && <span>{c.kein_termin} kein Termin</span>}
-                            <span>{c.dead} dead</span>
-                          </div>
-                        </div>
-                      </Link>
-                      <div style={{ position: "absolute", top: "var(--sp-4)", right: "var(--sp-4)" }}>
-                        <DeletePhoneListButton iconOnly listId={l.id} listName={l.name} />
-                      </div>
-                    </div>
-                  );
-                })}
-                {/* Abgeleitete Liste: keine Zeile in phone_lists, deshalb
-                    kein Löschknopf und nur sichtbar, solange jemand drinsteht. */}
-                {(noShowByOwner.get(owner) ?? 0) > 0 && (
-                  <Link
-                    href={
-"/telefon/setting-no-show"
-                    }
-                    style={{ textDecoration: "none" }}
-                    className="organic-list-card-link"
-                  >
-                    <div className="organic-list-card card" style={{ padding: "var(--sp-6) var(--sp-7)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-6)" }}>
-                        <UserX size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>
-                          Setting No-Show
-                        </span>
-                        <span
-                          className="badge badge-gray"
-                          style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-3)", flexShrink: 0 }}
-                        >
-                          <span style={{ width: 6, height: 6, borderRadius: "var(--r-full)", background: "var(--danger)" }} />
-                          No-Show
-                        </span>
-                      </div>
-                      <div className="tnum" style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-                        <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
-                          {noShowByOwner.get(owner)} nochmal anrufen
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                )}
+                          </td>
+                          <td>{l.owner_name ? <Avatar name={l.owner_name} /> : <span className="tel-faint">—</span>}</td>
+                          <td>
+                            <Fortschritt c={c} />
+                          </td>
+                          <td className="r tnum tel-muted">{c.total.toLocaleString("de-DE")}</td>
+                          <td className="r tnum">
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                              {due > 0 && (
+                                <span className="badge" data-tone="warning" title="Rückrufe, deren Zeit erreicht ist">
+                                  {due} Rückruf
+                                </span>
+                              )}
+                              {anrufbar(l).toLocaleString("de-DE")}
+                            </span>
+                          </td>
+                          <td className="r">
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              <Link
+                                className="ui-btn"
+                                data-variant="secondary"
+                                data-size="sm"
+                                href={`/telefon/${l.id}?modus=anrufen`}
+                                style={{ minHeight: 28, padding: "0 10px" }}
+                              >
+                                <Phone size={13} aria-hidden /> Anrufen
+                              </Link>
+                              <DeletePhoneListButton iconOnly listId={l.id} listName={l.name} />
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </section>
-          );
-        })
+          )}
+
+          {(routing.length > 0 || noShowLeads.length > 0) && (
+            <section className="card tel-card">
+              <header className="tel-card-head">
+                <h3>{einePerson ? "Deine Wiedervorlagen" : "Wiedervorlagen"}</h3>
+                <span className="tel-meta">Hierhin wandern Leads nach Rückruf, Nicht erreicht und Kein Termin</span>
+              </header>
+              <div className="tel-tw">
+                <table className="tel-table">
+                  <thead>
+                    <tr>
+                      <th>Liste</th>
+                      <th>Inhaber</th>
+                      <th className="r">Leads</th>
+                      <th className="r">Jetzt anrufbar</th>
+                      <th className="r" aria-label="Aktionen" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Abgeleitete Liste: keine Zeile in phone_lists, deshalb
+                        kein Löschknopf und nur sichtbar, solange jemand drinsteht. */}
+                    {noShowLeads.length > 0 && (
+                      <tr>
+                        <td className="tel-main">
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                            <UserX size={14} style={{ color: "var(--text-muted)" }} aria-hidden />
+                            <Link href="/telefon/setting-no-show" className="tel-nm tel-link">
+                              Setting No-Show
+                            </Link>
+                          </span>
+                          <span className="tel-co">Erstgespräch nicht erschienen · nochmal anrufen</span>
+                        </td>
+                        <td>
+                          <Avatar name={noShowOwner} />
+                        </td>
+                        <td className="r tnum tel-muted">{noShowLeads.length.toLocaleString("de-DE")}</td>
+                        <td className="r tnum">{noShowLeads.length.toLocaleString("de-DE")}</td>
+                        <td className="r">
+                          <Link
+                            className="ui-btn"
+                            data-variant="secondary"
+                            data-size="sm"
+                            href="/telefon/setting-no-show"
+                            style={{ minHeight: 28, padding: "0 10px" }}
+                          >
+                            <Phone size={13} aria-hidden /> Anrufen
+                          </Link>
+                        </td>
+                      </tr>
+                    )}
+                    {routing.map((l) => {
+                      const c = countsByList[l.id] ?? EMPTY_COUNTS;
+                      const due = dueByList[l.id] ?? 0;
+                      return (
+                        <tr key={l.id}>
+                          <td className="tel-main">
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                              <KindIcon kind={l.list_kind} />
+                              <Link href={`/telefon/${l.id}`} className="tel-nm tel-link">
+                                {KIND_LABEL[l.list_kind]}
+                              </Link>
+                            </span>
+                            {l.name !== KIND_LABEL[l.list_kind] && <span className="tel-co">{l.name}</span>}
+                          </td>
+                          <td>{l.owner_name ? <Avatar name={l.owner_name} /> : <span className="tel-faint">—</span>}</td>
+                          <td className="r tnum tel-muted">{c.total.toLocaleString("de-DE")}</td>
+                          <td className="r tnum">
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                              {due > 0 && (
+                                <span className="badge" data-tone="warning" title="Rückrufe, deren Zeit erreicht ist">
+                                  {due} fällig
+                                </span>
+                              )}
+                              {anrufbar(l).toLocaleString("de-DE")}
+                            </span>
+                          </td>
+                          <td className="r">
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              <Link
+                                className="ui-btn"
+                                data-variant="secondary"
+                                data-size="sm"
+                                href={`/telefon/${l.id}?modus=anrufen`}
+                                style={{ minHeight: 28, padding: "0 10px" }}
+                              >
+                                <Phone size={13} aria-hidden /> Anrufen
+                              </Link>
+                              <DeletePhoneListButton iconOnly listId={l.id} listName={l.name} />
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   );

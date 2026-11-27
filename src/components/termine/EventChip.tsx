@@ -152,7 +152,7 @@ export function EventChip({
       data-dragging={isDragging}
       title={`${zeit} · ${kindLabel(event.kind)} · ${event.title}${
         event.company ? ` · ${event.company}` : ""
-      } · ${event.statusPill.label}${event.assignee ? ` · ${event.assignee.username}` : ""}`}
+      } · ${event.cancelled ? "Abgesagt" : event.statusPill.label}${event.assignee ? ` · ${event.assignee.username}` : ""}`}
       style={style}
       {...handlers}
     >
@@ -161,7 +161,13 @@ export function EventChip({
           {/* Der Typ steht hier NICHT mehr als Kuerzel: die Fuellung sagt ihn
               bereits, und die eine Zeile braucht jedes Pixel fuer den Namen. */}
           <span style={{ fontWeight: 600, flexShrink: 0 }}>{zeit}</span>
-          <span style={{ fontWeight: 600, flex: 1, minWidth: 0 }}>{event.title}</span>
+          {/* Einzeilig ist kein Platz für die Pille „Abgesagt" — der Name
+              wird durchgestrichen, der Tooltip sagt es aus. */}
+          <span
+            style={{ fontWeight: 600, flex: 1, minWidth: 0, textDecoration: event.cancelled ? "line-through" : undefined }}
+          >
+            {event.title}
+          </span>
           {event.assignee && <OwnerAvatar username={event.assignee.username} size="xs" />}
         </>
       ) : (
@@ -171,16 +177,18 @@ export function EventChip({
               damit er in schmalen Wochenspalten nicht abgeschnitten wird. */}
           <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
             <span style={{ fontWeight: 600, flexShrink: 0 }}>{zeit}</span>
+            {/* Die Art in ihrer Tinte (Setting violett, Closing petrol —
+                globals.css §11), passend zur getönten Füllung. */}
             <span
+              className="cal-ty"
               style={{
-                opacity: 0.7,
                 minWidth: 0,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
             >
-              · {kindLabel(event.kind)}
+              {kindLabel(event.kind)}
             </span>
             {Icon && <Icon size={9} style={{ flexShrink: 0, opacity: 0.8 }} />}
             {event.assignee && (
@@ -192,7 +200,13 @@ export function EventChip({
             )}
           </span>
           <span style={{ fontWeight: 600 }}>{event.title}</span>
-          {effective === "md" && event.company && <span style={{ opacity: 0.8 }}>{event.company}</span>}
+          {/* Eine Absage ist kein Status (docs §3) — ohne eigene Pille sähe ein
+              abgesagter Termin nur „abgeblendet" aus, nicht „fällt aus". */}
+          {event.cancelled ? (
+            <span className="cal-abgesagt">Abgesagt</span>
+          ) : (
+            effective === "md" && event.company && <span style={{ opacity: 0.8 }}>{event.company}</span>
+          )}
         </>
       )}
     </div>

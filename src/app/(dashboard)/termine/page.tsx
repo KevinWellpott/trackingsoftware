@@ -119,7 +119,7 @@ function ChipLegende() {
               <LegendChip kind="closing">Closing</LegendChip>
             </>
           }
-          text="Dunkel ist ein Setting, hell ein Closing."
+          text="Violett getönt ist ein Setting, petrol getönt ein Closing."
         />
       </div>
 

@@ -1,12 +1,13 @@
 "use client";
 
+import { TrichterBalken } from "@/components/analyse/TrichterBalken";
 import { Children, type CSSProperties, type ReactNode } from "react";
-import { Euro, Inbox, Minus, TrendingDown, TrendingUp } from "lucide-react";
+import { Inbox, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AXIS_PROPS, GRID_PROPS, LEGEND_STYLE, TOOLTIP_LABEL_STYLE, TOOLTIP_STYLE, VIZ_RAMP,
+  AXIS_PROPS, GRID_PROPS, LEGEND_STYLE, TOOLTIP_LABEL_STYLE, TOOLTIP_STYLE,
 } from "@/lib/viz";
 import { ownerColor, ownerInitials } from "@/lib/ownerColor";
 import { NumberTicker } from "@/components/magicui/number-ticker";
@@ -501,28 +502,10 @@ export function WeekdayBars({
 export const QuoteColumns = WeekdayBars;
 
 // ── 6 · BarFunnel ────────────────────────────────────────────
-// Tiefen-Rampe statt Regenbogen: eine Brand-Farbe, die pro Stufe in die
-// Fläche ausblasst — nur die letzte Stufe ("Gewonnen") kippt in den
-// Erfolgs-Ton. Layout je Stufe: [Label | Balken | Wert] als festes
-// 3-Spalten-Raster, damit Beschriftungen unabhängig von der Balkenbreite
-// in sauberen Spalten stehen.
-// Ordinale Orange-Rampe statt Regenbogen (COMPONENTS.md §9): eine Hue in
-// Helligkeitsstufen, hell → tief. Nur die letzte Stufe („Gewonnen") kippt in
-// den Erfolgs-Ton, weil sie ein Ergebnis ist und keine Zwischenstufe.
-const FUNNEL_STEPS = [VIZ_RAMP[5], VIZ_RAMP[4], VIZ_RAMP[3], VIZ_RAMP[2], VIZ_RAMP[1]];
-
-function funnelStageColor(index: number, isLast: boolean): string {
-  if (isLast) return "var(--success)";
-  return FUNNEL_STEPS[Math.min(index, FUNNEL_STEPS.length - 1)];
-}
-
-const FUNNEL_GRID: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "120px minmax(0, 1fr) 120px",
-  columnGap: "0.75rem",
-  alignItems: "center",
-};
-
+// Seit dem Redesign (Phase 6) eine dünne Hülle um TrichterBalken: Stufen in
+// fluchtenden Zeilen, gefüllter Anteil auf schraffierter Spur, dazwischen die
+// Durchlassquote. Die frühere Orange-Rampe je Stufe ist gefallen — die Spur
+// sagt „wie viel ist noch da", eine zweite Farbcodierung sagte nichts dazu.
 export function BarFunnel({
   stages,
   trailing,
@@ -531,152 +514,15 @@ export function BarFunnel({
   trailing?: { label: string; value: string };
 }) {
   if (stages.length === 0 || stages.every((s) => s.value === 0)) return <EmptyState height={160} />;
-
-  const base = stages[0].value;
-  // Deckel bei 100: In der Perioden-Zaehlweise kann eine spaete Stufe groesser
-  // sein als Stufe 1 (kurzes Fenster, viele Closings aus aelteren Terminen) —
-  // ohne Deckel liefe der Balken aus der Karte heraus.
-  const widthOf = (value: number): number =>
-    base === 0 ? 12 : Math.min(Math.max((value / base) * 100, 12), 100);
-
+  // Redesign Phase 6: schraffierter Rest und „↓ x % weiter · n raus" — die
+  // Darstellung steht EINMAL in TrichterBalken, die Übersicht benutzt sie auch.
+  // Die Zahlen bleiben dieselben: Wert je Stufe, Durchlass zur Vorstufe,
+  // Anteil an Stufe 1.
   return (
-    <div style={{ maxWidth: 560, width: "100%", margin: "0 auto", display: "flex", flexDirection: "column" }}>
-      {stages.map((s, i) => {
-        const widthPct = widthOf(s.value);
-        const prevPct = i > 0 ? widthOf(stages[i - 1].value) : 0;
-        const conv = i > 0 ? (stages[i - 1].value === 0 ? null : (s.value / stages[i - 1].value) * 100) : null;
-        const good = conv !== null && conv >= 50;
-        const share = base === 0 ? 0 : (s.value / base) * 100;
-
-        return (
-          <div key={s.label}>
-            {/* Verbindungszone: zulaufender Trichter-Keil + Konversions-Pill */}
-            {i > 0 && (
-              <div className="funnel-grid" style={FUNNEL_GRID}>
-                <span aria-hidden />
-                <div style={{ position: "relative", height: 22, display: "flex", justifyContent: "center" }}>
-                  <div
-                    aria-hidden
-                    style={{
-                      width: `${prevPct}%`,
-                      height: "100%",
-                      background: "var(--surface-150)",
-                      clipPath: "polygon(0 0, 100% 0, 62% 100%, 38% 100%)",
-                    }}
-                  />
-                  <span
-                    style={{
-                      position: "absolute",
-                      left: `calc(50% + ${prevPct / 2}% + 0.5rem)`,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.1875rem",
-                      padding: "0.0625rem 0.4375rem",
-                      borderRadius: 99,
-                      fontSize: "0.625rem",
-                      fontWeight: 600,
-                      fontVariantNumeric: "tabular-nums",
-                      whiteSpace: "nowrap",
-                      color: good ? "var(--color-success-text)" : "var(--text-muted)",
-                      background: good ? "var(--color-success-bg)" : "var(--surface-150)",
-                      border: `1px solid ${good ? "var(--color-success-border)" : "var(--border)"}`,
-                    }}
-                  >
-                    {/* Kein Abwaerts-Pfeil: der Wert ist die DURCHLASSquote, nicht
-                        der Verlust. "↓ 37,5 %" las sich wie ein Rueckgang, gemeint
-                        ist "37,5 % kommen weiter". Das Wort traegt die Bedeutung,
-                        die Trichterform darunter bleibt die Geometrie. */}
-                    {conv === null ? "—" : `${DEC1_FMT.format(conv)} % weiter`}
-                  </span>
-                </div>
-                <span aria-hidden />
-              </div>
-            )}
-
-            {/* Stufe: Label rechtsbündig · Balken zentriert · Wert + Anteil links */}
-            <div className="funnel-grid" style={FUNNEL_GRID}>
-              <span
-                style={{
-                  textAlign: "right",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  color: "var(--text-muted)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {s.label}
-              </span>
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <div
-                  className="funnel-bar"
-                  aria-hidden
-                  style={{
-                    width: `${widthPct}%`,
-                    height: 52,
-                    borderRadius: "var(--radius-md)",
-                    background: funnelStageColor(i, i === stages.length - 1),
-                    animationDelay: `${i * 70}ms`,
-                  }}
-                />
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                <span
-                  style={{
-                    fontSize: "1rem",
-                    fontWeight: 600,
-                    color: "var(--text-primary)",
-                    fontVariantNumeric: "tabular-nums",
-                    lineHeight: 1.1,
-                  }}
-                >
-                  {INT_FMT.format(s.value)}
-                </span>
-                <span style={{ fontSize: "0.6875rem", color: "var(--text-subtle)", fontVariantNumeric: "tabular-nums" }}>
-                  {i === 0 ? "Basis" : `${INT_FMT.format(Math.round(share))} % von Stufe 1`}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Terminal-Karte: Umsatz als Abschluss des Trichters */}
-      {trailing && (
-        <div
-          style={{
-            marginTop: "0.875rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.625rem",
-            padding: "0.75rem 1rem",
-            borderRadius: "var(--radius-md)",
-            background: "var(--color-success-bg)",
-            border: "1px solid var(--color-success-border)",
-          }}
-        >
-          <span style={{ display: "inline-flex", color: "var(--color-success-text)", flexShrink: 0 }} aria-hidden>
-            <Euro size={16} />
-          </span>
-          <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--color-success-text)" }}>{trailing.label}</span>
-          <span
-            style={{
-              marginLeft: "auto",
-              fontSize: "1.375rem",
-              fontWeight: 600,
-              letterSpacing: "-0.02em",
-              color: "var(--color-success-text)",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            {trailing.value}
-          </span>
-        </div>
-      )}
-    </div>
+    <TrichterBalken
+      stufen={stages}
+      abschluss={trailing ? { label: trailing.label, value: trailing.value } : undefined}
+    />
   );
 }
 
