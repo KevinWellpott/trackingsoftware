@@ -142,9 +142,14 @@ export async function updateClosingCall(id: string, rawPatch: ClosingCallPatch):
   const fertig = withNoShowResolutionCleared(patch);
   // Nachfass-Eingang (Plan §4.6): wie am Erstgespräch — No-Show heute,
   // erschienen ohne Ergebnis am nächsten Werktag fällig, ohne eigenes Datum.
+  // Nur im Status „offen": Ein Closing im Status „nachfassen" trägt einen
+  // vereinbarten Termin (mit Uhrzeit in follow_up_due_at), den der
+  // Anwesenheits-Schalter nicht verschieben darf (Code-Review 27.11.).
   if ("show_status" in fertig && !("follow_up_due" in fertig)) {
+    const { data: jetzt } = await supabase.from("closing_calls").select("status").eq("id", id).maybeSingle();
+    const status = (jetzt as { status?: string } | null)?.status;
     const due = faelligNachShowStatus(fertig.show_status, berlinDateISO(new Date().toISOString()));
-    if (due) fertig.follow_up_due = due;
+    if (due && status === "offen") fertig.follow_up_due = due;
   }
   const { error } = await supabase.from("closing_calls").update(fertig).eq("id", id);
   if (error) return { error: error.message };

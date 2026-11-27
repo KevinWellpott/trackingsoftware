@@ -47,7 +47,6 @@ function isMissingSchema(err: unknown): boolean {
 
 export type PipelineSettings = {
   max_reschedules: number;
-  reminder_horizon_days: number;
   days_default_closing_lost: number;
   days_default_setting_disqualified: number;
   days_default_phone_dead: number;
@@ -73,7 +72,6 @@ export type PipelineSettings = {
  */
 const PIPELINE_DEFAULTS: PipelineSettings = {
   max_reschedules: 2,
-  reminder_horizon_days: 7,
   days_default_closing_lost: 28,
   days_default_setting_disqualified: 56,
   days_default_phone_dead: 100,
@@ -95,7 +93,6 @@ const PIPELINE_DEFAULTS: PipelineSettings = {
     direkter POST auf die Server-Action keine rohe Postgres-Meldung erzeugt. */
 const SETTINGS_BOUNDS: Record<keyof PipelineSettings, { min: number; max: number }> = {
   max_reschedules: { min: 1, max: 5 },
-  reminder_horizon_days: { min: 1, max: 60 },
   max_attempts: { min: 1, max: 5 },
   days_default_closing_lost: { min: 1, max: 3650 },
   days_default_setting_disqualified: { min: 1, max: 3650 },

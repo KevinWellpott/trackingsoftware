@@ -9,7 +9,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { buildFacts } from "@/lib/compare/facts";
 import { metricOf, seriesConflicts } from "@/lib/compare/metrics";
-import { aggregate, parseSeriesList } from "@/lib/compare/series";
+import { aggregate, parseSeries, parseSeriesList } from "@/lib/compare/series";
 import type { DimensionKey } from "@/lib/compare/model";
 import { AnalyseSection } from "@/components/analyse/AnalyseSection";
 import { CompareBuilder } from "@/components/analyse/compare/CompareBuilder";
@@ -85,6 +85,10 @@ export default async function VergleichPage({
 
   const buckets = buildBuckets(params.from, params.to, params.g);
   const specs = parseSeriesList(rawSeries);
+  // Ein geteilter Link kann eine Kennzahl enthalten, die es nicht mehr gibt
+  // (z. B. „gatekeeper", mit dem Release Dezember entfernt). Sagen statt still
+  // verwerfen.
+  const verworfen = rawSeries.filter((r) => parseSeries(r) === null).length;
 
   // Dimensionswert → Anzeigetext. Ein unbekannter Wert (alter Link, gelöschte
   // Liste) bleibt sichtbar stehen, statt still zu verschwinden: die Serie ist
@@ -120,6 +124,13 @@ export default async function VergleichPage({
           meta="Beliebige Kennzahlen gegeneinander — Kanäle, Personen, Listen, Zielgruppen, Skripte."
         />
       </div>
+
+      {verworfen > 0 && (
+        <div className="card" style={{ padding: "var(--sp-5) var(--sp-6)", fontSize: "var(--fs-sm)", color: "var(--text-secondary)" }}>
+          {verworfen === 1 ? "Eine Serie" : `${verworfen} Serien`} aus diesem Link gibt es nicht mehr (Kennzahl entfernt,
+          z. B. Gatekeeper) und {verworfen === 1 ? "wurde" : "wurden"} weggelassen.
+        </div>
+      )}
 
       <CompareBuilder
         specs={specs}

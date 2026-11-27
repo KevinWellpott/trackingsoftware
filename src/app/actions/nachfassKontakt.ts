@@ -197,6 +197,18 @@ export async function kontaktEintragen(input: {
       return { error: error.message };
     }
   } else {
+    // Detailfrage O2: Ein Recycling-ANRUF bei einem Telefon-Lead ist ein
+    // echter Wählversuch — er gehört ins Anruf-Log, sonst fehlt er in
+    // „Anwahlen". Fail-soft wie jeder Log-Eintrag.
+    // Vor dem Deckel-Ausstieg, sonst fehlte gerade der letzte Anruf.
+    if (input.art === "phone_lead" && input.kanal === "anruf") {
+      const { data: lead } = await supabase.from("phone_leads").select("status").eq("id", input.id).maybeSingle();
+      await logCallAttempt({
+        leadId: input.id,
+        outcome: input.ergebnis === "erreicht" ? "kein_ergebnis" : "nicht_erreicht",
+        statusBefore: (lead as { status?: string | null } | null)?.status ?? null,
+      });
+    }
     // Recycling: Versuch zählen (der Deckel bleibt wirksam), dann das Datum.
     // Bei „erreicht" kein Versuch — es ist eine Antwort, kein Fehlschlag.
     if (input.ergebnis === "nicht_erreicht") {
@@ -219,17 +231,6 @@ export async function kontaktEintragen(input: {
           undo: { kontaktId: kontakt.id, art: input.art, id: input.id, quelle: input.quelle, vorher },
         };
       }
-    }
-    // Detailfrage O2: Ein Recycling-ANRUF bei einem Telefon-Lead ist ein
-    // echter Wählversuch — er gehört ins Anruf-Log, sonst fehlt er in
-    // „Anwahlen". Fail-soft wie jeder Log-Eintrag.
-    if (input.art === "phone_lead" && input.kanal === "anruf") {
-      const { data: lead } = await supabase.from("phone_leads").select("status").eq("id", input.id).maybeSingle();
-      await logCallAttempt({
-        leadId: input.id,
-        outcome: input.ergebnis === "erreicht" ? "kein_ergebnis" : "nicht_erreicht",
-        statusBefore: (lead as { status?: string | null } | null)?.status ?? null,
-      });
     }
     const { error } = await supabase
       .from(tabelle)

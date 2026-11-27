@@ -86,3 +86,16 @@ describe("Nachfass-Eingang — Auslöser und Gold", () => {
     assert.match(src, /badgeZahl\(gruppiere\(/);
   });
 });
+
+describe("Betrag aus dem Gewonnen-Popover", () => {
+  test("deutsche und englische Schreibweise", async () => {
+    const { parseBetrag } = await import("@/lib/betrag");
+    assert.equal(parseBetrag("4900"), 4900);
+    assert.equal(parseBetrag("4.900"), 4900);
+    assert.equal(parseBetrag("4.900,50"), 4900.5);
+    assert.equal(parseBetrag("4900.50"), 4900.5);
+    assert.equal(parseBetrag("4900,5 €"), 4900.5);
+    assert.equal(parseBetrag(""), null);
+    assert.equal(parseBetrag("abc"), undefined);
+  });
+});

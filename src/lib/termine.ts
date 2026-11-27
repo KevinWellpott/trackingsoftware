@@ -248,6 +248,7 @@ function fromSetting(
       revivedAt: c.revived_at ?? null,
     },
     today,
+    nowMs,
   );
   const lastContactedAt = c.follow_up_last_contacted_at ?? null;
   const erinnerungsStufen = erinnerungsStand(zustand, c.appointment_at, lastContactedAt, nowMs);
@@ -307,6 +308,7 @@ function fromClosing(
       revivedAt: c.revived_at ?? null,
     },
     today,
+    nowMs,
   );
   const lastContactedAt = c.follow_up_last_contacted_at ?? null;
   // Dieselben zwei Marken wie beim Erstgespräch — „egal ob Closing oder

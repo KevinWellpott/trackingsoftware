@@ -178,8 +178,8 @@ describe("Ein Pflichtfeld prüft, was die Folge-Logik wirklich braucht", () => {
     // und mit ihnen der Riegel. Die volle Zusicherung steht in
     // arbeitslisteNeuerTermin.test.ts.
     assert.doesNotMatch(SETTING_CALLS, /function withWaConsentDerived/);
-    assert.doesNotMatch(SETTING_CALLS, /ohneWhatsApp/);
-    assert.match(SETTING_CALLS, /withNoShowResolutionCleared\(patch\)/);
+    // Der Laufzeit-Riegel bleibt, bis 0050 die Spalten löscht (Code-Review 27.11.).
+    assert.match(SETTING_CALLS, /withNoShowResolutionCleared\(ohneWhatsApp\(patch\)\)/);
     // Und der Editor schickt wirklich nichts mehr: sonst stünde die Pflicht
     // halb entfernt da — kein Feld, aber weiterhin ein Schreibpfad.
     assert.doesNotMatch(SETTING_EDITOR, /wa_phone|wa_consent_at|wa_refused_at/);

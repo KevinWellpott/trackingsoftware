@@ -600,6 +600,7 @@ const RECYCLE_CLOSING_SELECT: string =
   `id, assigned_user_id, created_by_user_id, ${RECYCLE_COLS}, status, revived_at`;
 
 type RawRecycle = {
+  id?: string;
   recycle_last_contacted_at: string | null;
   recycle_responded_at: string | null;
   recycle_excluded_at: string | null;
@@ -628,6 +629,38 @@ type RawRecycle = {
  * das noch nicht" von „niemand hat nachgefasst" zu unterscheiden (Muster
  * `loadCallAttempts`, docs §3).
  */
+/**
+ * Erste Recycling-Reaktion je Vorgang aus dem Nachfass-Protokoll (0049):
+ * Einträge `quelle='recycling'`, `ergebnis='erreicht'`. Fail-soft — fehlt die
+ * Tabelle, zählt nur `recycle_responded_at` wie bisher.
+ */
+async function loadRecycleErreicht(supabase: Client): Promise<Map<string, string>> {
+  type K = {
+    contact_id: string | null;
+    phone_lead_id: string | null;
+    setting_call_id: string | null;
+    closing_call_id: string | null;
+    created_at: string;
+  };
+  const rows = await fetchAllRows<K>((f, t) =>
+    supabase
+      .from("nachfass_kontakte")
+      .select("contact_id, phone_lead_id, setting_call_id, closing_call_id, created_at")
+      .eq("quelle", "recycling")
+      .eq("ergebnis", "erreicht")
+      .order("id")
+      .range(f, t) as unknown as PromiseLike<{ data: K[] | null; error: { message: string } | null }>,
+  ).catch(() => [] as K[]);
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    const id = r.contact_id ?? r.phone_lead_id ?? r.setting_call_id ?? r.closing_call_id;
+    if (!id) continue;
+    const vorher = map.get(id);
+    if (!vorher || r.created_at < vorher) map.set(id, r.created_at);
+  }
+  return map;
+}
+
 export async function loadRecycleData(
   supabase: Client,
   access: AccessContext,
@@ -656,11 +689,12 @@ export async function loadRecycleData(
     };
 
   try {
-    const [contacts, phoneLeads, settings, closings] = await Promise.all([
+    const [contacts, phoneLeads, settings, closings, erreicht] = await Promise.all([
       fetchAllRows<RawRecycle>(leadPage("contacts", "lists", RECYCLE_CONTACT_SELECT)),
       fetchAllRows<RawRecycle>(leadPage("phone_leads", "phone_lists", RECYCLE_PHONE_SELECT)),
       fetchAllRows<RawRecycle>(apptPage("setting_calls", RECYCLE_SETTING_SELECT)),
       fetchAllRows<RawRecycle>(apptPage("closing_calls", RECYCLE_CLOSING_SELECT)),
+      loadRecycleErreicht(supabase),
     ]);
 
     // Der Ursprung ist seit dem flachen Recycling die einzige Achse, die die
@@ -670,7 +704,11 @@ export async function loadRecycleData(
       rows.map((r) => ({
         origin,
         last_contacted_at: r.recycle_last_contacted_at ?? null,
-        responded_at: r.recycle_responded_at ?? null,
+        // Seit dem Nachfass-Eingang gibt es keinen Knopf „Reagiert" mehr; die
+        // Reaktion ist ein Protokolleintrag „erreicht" (quelle recycling).
+        // Ohne diese zweite Quelle bliebe die Wiederbelebungsquote für jeden
+        // neuen Versuch bei 0 % (Code-Review 27.11.).
+        responded_at: r.recycle_responded_at ?? (r.id ? erreicht.get(r.id) ?? null : null),
         excluded_at: r.recycle_excluded_at ?? null,
         next_recycle_at: r.next_recycle_at ?? null,
         owner_name: r.lists?.owner_name ?? r.phone_lists?.owner_name ?? null,

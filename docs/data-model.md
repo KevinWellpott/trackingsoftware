@@ -186,7 +186,10 @@ die es **nicht mehr gibt** (§3).
 | **Personen (Übersicht)** | Zwei Spalten: „Termine gelegt" (Buchung, `personOf`) und „Termine geführt" (stattgefunden, `gespraechsPersonOf`). | N11 |
 | **Funnel-Meta** | „ohne N abgesagte Settingtermine" nennt genau die abgezogene Menge. | N13 |
 | **No-Show am Termintag** | Steht sofort im Eingang: am Termintag schlägt ein erfasster Show-Status das Datum. | P2-2 |
-| **Recycling „Reagiert"** | Setzt `recycle_last_contacted_at`, falls leer; die Wiederbelebungsquote nimmt Reaktionen ohne Versuch auf den Reaktionstag. | P1-7 |
+| **Recycling „Reagiert"** | Setzt `recycle_last_contacted_at`, falls leer; die Wiederbelebungsquote nimmt Reaktionen ohne Versuch auf den Reaktionstag. **Seit dem Nachfass-Eingang zählt zusätzlich jeder Protokolleintrag `quelle='recycling'`, `ergebnis='erreicht'` als Reaktion** (frühester Eintrag; `loadRecycleErreicht`). `recycle_responded_at` setzt der Eingang nicht — der Lead bliebe sonst nicht in der Wiedervorlage. | P1-7 |
+| **Show-Status am Termintag** | Zählt erst ab Terminbeginn (`terminZustand(…, today, nowMs)`); ein Status, der vorher dasteht, gehört zum früheren Termin derselben Zeile. | Review |
+| **Fälligkeit nach Show-Status** | Wird nur abgeleitet, solange das Erstgespräch `offen`/`no_show` bzw. das Closing `offen` ist — ein vereinbarter Nachfass-Termin oder eine „Nicht qualifiziert"-Wiedervorlage bleibt stehen. | Review |
+| **Vergleich: entfernte Kennzahl** | Der Schlüssel `gatekeeper` ist weg; ein alter Link verliert diese Serie und die Seite sagt das. | E2 |
 | **Eigene Sicht** | Closings zu den eigenen Erstgesprächen werden über `setting_call_id` nachgeladen (soweit RLS sie zeigt). | P2-3 |
 | **Tages-RPCs** | Paginiert geladen (`rpcAll`); 0048 rechnet den Rückfall `created_at` auf den Berliner Tag. | P3-1, P3-2 |
 | **Kundenspace** | Gewonnen → zurückgenommen: Kunde ohne Rate/Zahlung wird gelöscht, sonst Vertrag „abgebrochen", Kunde „abgesprungen" (Trigger in 0048, Bestand mitgezogen). Monatsansicht: abgeschriebene Raten nicht in „Fällig". | P1-6, P3-5 |
@@ -202,7 +205,7 @@ Qualifizierungsfelder am Erstgespräch samt Setting-Tab-Sektionen (Kriterien, Bu
 Qualität), Aufnahme-Link und Einwände (Setting und Closing), die Telefon-Zusatzfelder
 (Stimmung, Einwand-Notizen, Video-Link, Durchwahl, Gatekeeper-Versuche, Skript je Lead, drei
 Abbruch-Gründe), der Gesprächsleitfaden je Telefonliste (`script_text`), die WhatsApp-Felder
-(schließt O1 aus `ENTSCHEIDUNGEN.md`), die Routen `/crm`, `/organic`, `/follow-up`,
+(schließt O1 aus `ENTSCHEIDUNGEN.md`; bis 0050 streift `updateSettingCall` die drei WhatsApp-Felder weiter aus jedem Patch), die Routen `/crm`, `/organic`, `/follow-up`,
 `/erinnerungen`, sieben ungenutzte Dateien. **0050 löscht danach** die Tabellen `list_views`,
 `organic_*`, `pipeline_stages`, `reminder_touches`, `cascade_steps`, `message_templates`,
 `template_catalog`, `call_assignees`, `followup_templates`, `_appt_tz_backup_20260727`, die RPCs

@@ -154,7 +154,8 @@ describe("Kein Erinnerungs-Zähler mehr", () => {
     // nicht angemeldet, Frist abgelaufen, Fehler.
     assert.match(NAVCOUNTS_DATA, /if \(!access\) return EMPTY_NAV_COUNTS;/);
     // Auch eine unvollständige Ladung (gescheiterte Grundabfrage) gibt kein Badge.
-    assert.match(NAVCOUNTS_DATA, /if \(!daten \|\| !daten\.vollstaendig\) return EMPTY_NAV_COUNTS;/);
+    // Ebenso ein gescheitertes Recycling (Code-Review 27.11.).
+    assert.match(NAVCOUNTS_DATA, /if \(!daten \|\| !daten\.vollstaendig \|\| !daten\.recyclingVerfuegbar\) return EMPTY_NAV_COUNTS;/);
     assert.match(NAVCOUNTS_DATA, /\} catch \{\s*return EMPTY_NAV_COUNTS;/);
     assert.match(NAVCOUNTS_DATA, /const DEADLINE_MS = 1500;/);
     assert.doesNotMatch(NAVCOUNTS_DATA, /\?\? 0/);

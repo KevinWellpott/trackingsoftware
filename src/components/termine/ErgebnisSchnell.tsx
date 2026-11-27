@@ -16,6 +16,7 @@ import {
   settingErschienen,
   settingNichtErschienen,
 } from "@/app/actions/ergebnisSchnell";
+import { parseBetrag } from "@/lib/betrag";
 import { CLOSING_LOST_REASON_CODES, CLOSING_LOST_REASON_LABELS, type ClosingLostReasonCode } from "@/lib/types";
 
 type Props = {
@@ -119,12 +120,12 @@ export function ErgebnisSchnell({ kind, id, onDone, onError, size = "sm" }: Prop
               size="sm"
               variant="success"
               onClick={() => {
-                const n = Number(betrag.replace(/\./g, "").replace(",", "."));
-                run(
-                  () => closingErgebnis(id, { outcome: "gewonnen", dealVolume: betrag.trim() && Number.isFinite(n) ? n : null }),
-                  "Gewonnen",
-                  wonClose,
-                );
+                const n = parseBetrag(betrag);
+                if (n === undefined) {
+                  onError("Betrag nicht lesbar — z. B. 4900 oder 4.900,50.");
+                  return;
+                }
+                run(() => closingErgebnis(id, { outcome: "gewonnen", dealVolume: n }), "Gewonnen", wonClose);
               }}
             >
               Speichern

@@ -30,7 +30,7 @@ export const getNavCounts = cache(async function getNavCounts(): Promise<NavCoun
   });
   try {
     const daten = await Promise.race([ladeNachfassen("mein"), frist]);
-    if (!daten || !daten.vollstaendig) return EMPTY_NAV_COUNTS;
+    if (!daten || !daten.vollstaendig || !daten.recyclingVerfuegbar) return EMPTY_NAV_COUNTS;
     return { nachfassen: badgeZahl(gruppiere(daten.eintraege, daten.today, daten.nowMs)) };
   } catch {
     return EMPTY_NAV_COUNTS;

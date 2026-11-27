@@ -150,29 +150,27 @@ async function ladeProtokoll(
 ): Promise<{ rows: KontaktRow[]; available: boolean }> {
   const out: KontaktRow[] = [];
   try {
-    const jobs: PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>[] = [];
+    const jobs: Promise<KontaktRow[]>[] = [];
     for (const [spalte, liste] of Object.entries(ids)) {
       for (let i = 0; i < liste.length; i += 150) {
+        const teil = liste.slice(i, i + 150);
+        // Paginiert: 150 Vorgänge können zusammen mehr als 1000 Einträge haben.
         jobs.push(
-          supabase
-            .from("nachfass_kontakte")
-            .select("setting_call_id, closing_call_id, contact_id, phone_lead_id, ergebnis, created_at, created_by_user_id")
-            .in(spalte, liste.slice(i, i + 150))
-            .order("created_at", { ascending: false }),
+          fetchAllRows<KontaktRow>((f, t) =>
+            supabase
+              .from("nachfass_kontakte")
+              .select("setting_call_id, closing_call_id, contact_id, phone_lead_id, ergebnis, created_at, created_by_user_id")
+              .in(spalte, teil)
+              .order("created_at", { ascending: false })
+              .order("id")
+              .range(f, t),
+          ),
         );
       }
     }
-    const results = await Promise.all(jobs);
-    for (const r of results) {
-      if (r.error) {
-        // 42P01 / PGRST205: Tabelle fehlt — Migration 0049 noch nicht eingespielt.
-        if (r.error.code === "42P01" || r.error.code === "PGRST205" || /nachfass_kontakte/.test(r.error.message)) {
-          return { rows: [], available: false };
-        }
-        throw new Error(r.error.message);
-      }
-      out.push(...((r.data ?? []) as KontaktRow[]));
-    }
+    for (const rows of await Promise.all(jobs)) out.push(...rows);
+    // Neueste zuerst über alle Teilabfragen hinweg.
+    out.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
     return { rows: out, available: true };
   } catch (err) {
     console.error("[nachfassen] Protokoll:", err instanceof Error ? err.message : err);
@@ -256,6 +254,9 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
     }>((f, t) =>
       supabase
         .rpc("recycle_tasks", { p_workspace_id: ws, p_today: today, p_effective_user_id: alle ? null : scopeUser })
+        // Seitenweise nur mit fester Reihenfolge — sonst überlappen Seiten.
+        .order("origin")
+        .order("entity_id")
         .range(f, t),
     )
       .then((rows) => ({ rows, available: true }))
@@ -287,6 +288,7 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
         hatNachfolger,
       },
       today,
+      nowMs,
     );
     const closingNachfassen = art === "closing" && r.status === "nachfassen";
     if (!istInArbeitsmenge(zustand) && !closingNachfassen) continue;
@@ -411,13 +413,17 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
   // ── Nachschläge für Recycling-Leads (Liste, Telefon) ────────
   const leadIds = eintraege.filter((e) => e.quelle === "recycling" && e.art === "phone_lead").map((e) => e.id);
   const contactIds = eintraege.filter((e) => e.quelle === "recycling" && e.art === "contact").map((e) => e.id);
+  // In Stücken statt der ersten 300 — sonst fehlten ab dem 301. Recycling-Lead
+  // Telefonnummer, Mail und Link (Code-Review 27.11.).
+  const stueckweise = async <R,>(ids: string[], hole: (teil: string[]) => PromiseLike<{ data: unknown }>): Promise<{ data: R[] }> => {
+    const teile: string[][] = [];
+    for (let i = 0; i < ids.length; i += 200) teile.push(ids.slice(i, i + 200));
+    const res = await Promise.all(teile.map((teil) => hole(teil)));
+    return { data: res.flatMap((r) => ((r.data ?? []) as R[])) };
+  };
   const [leadInfo, contactInfo] = await Promise.all([
-    leadIds.length
-      ? supabase.from("phone_leads").select("id, list_id, phone, email").in("id", leadIds.slice(0, 300))
-      : Promise.resolve({ data: [] }),
-    contactIds.length
-      ? supabase.from("contacts").select("id, list_id, linkedin_url, email").in("id", contactIds.slice(0, 300))
-      : Promise.resolve({ data: [] }),
+    stueckweise<unknown>(leadIds, (teil) => supabase.from("phone_leads").select("id, list_id, phone, email").in("id", teil)),
+    stueckweise<unknown>(contactIds, (teil) => supabase.from("contacts").select("id, list_id, linkedin_url, email").in("id", teil)),
   ]);
   const leadMap = new Map(((leadInfo.data ?? []) as { id: string; list_id: string; phone: string | null; email: string | null }[]).map((r) => [r.id, r]));
   const contactMap = new Map(

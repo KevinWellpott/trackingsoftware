@@ -303,7 +303,13 @@ const AUS_DEM_FUNNEL: Record<TerminZustandInput["kind"], TerminZustand> = {
  *     gewinnt.
  *  5. Sonst: offen.
  */
-export function terminZustand(row: TerminZustandInput, today: string): TerminZustand {
+/**
+ * `nowMs` (optional): die Uhr des Aufrufers. Mit ihr zählt ein Show-Status am
+ * Termintag erst, wenn der Termin begonnen hat — ein Status, der vorher schon
+ * dasteht, gehört zu einem FRÜHEREN Termin derselben Zeile (Folgetermin nach
+ * „erschienen", Closing-No-Show mit neuem Datum; Code-Review 27.11.).
+ */
+export function terminZustand(row: TerminZustandInput, today: string, nowMs?: number | null): TerminZustand {
   if (row.kind === "setting") {
     if (row.status === "dead") return "tot";
     if (row.status === "unqualifiziert") return "nicht_qualifiziert";
@@ -326,7 +332,7 @@ export function terminZustand(row: TerminZustandInput, today: string): TerminZus
   // Liste (alt „offen", neu „Termin steht").
   if (row.hatNachfolger) return AUS_DEM_FUNNEL[row.kind];
 
-  if (stehtNochAn(row, today)) return "verlegt";
+  if (stehtNochAn(row, today, nowMs ?? null)) return "verlegt";
   if (row.showStatus === "no_show") {
     // „ohne_antwort" ist die ausdrückliche Feststellung, dass nach dem No-Show
     // nichts mehr kam — dieselbe Zeile liegt in der Ablage und im Recycling.
@@ -361,7 +367,7 @@ export function terminZustand(row: TerminZustandInput, today: string): TerminZus
  * followUpStamp.ts) — bis zum Rückbau schrieb es niemand, gelesen wurde es
  * schon (Ablage-Badge, Recycling-Riegel).
  */
-function stehtNochAn(row: TerminZustandInput, today: string): boolean {
+function stehtNochAn(row: TerminZustandInput, today: string, nowMs: number | null): boolean {
   if (!row.at) return false;
   if (row.cancelledAt && !row.revivedAt) return false;
   const tag = berlinDateISO(row.at);
@@ -371,7 +377,8 @@ function stehtNochAn(row: TerminZustandInput, today: string): boolean {
   // tun" und nicht bis Mitternacht als „Termin steht" (Live-Test 26.11.,
   // P2-2). Ein Show-Status wird erst ab Terminbeginn gesetzt; ein Ersatztermin
   // räumt ihn (`rescheduleSetting`), ein Termin an einem späteren Tag gewinnt.
-  if (tag === today && row.showStatus) return false;
+  // Ein Show-Status, der VOR Terminbeginn dasteht, stammt vom früheren Termin.
+  if (tag === today && row.showStatus && (nowMs == null || Date.parse(row.at) <= nowMs)) return false;
   return tag >= today;
 }
 

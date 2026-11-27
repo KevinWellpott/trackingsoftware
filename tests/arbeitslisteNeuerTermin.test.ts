@@ -170,14 +170,16 @@ describe("3 · Kein Schreibpfad und keine Anzeige ohne Erfassung", () => {
     assert.doesNotMatch(code(SETTING_CALLS), /withWaConsentDerived/);
   });
 
-  test("die Spalten sind gefallen — kein Code liest oder schreibt sie mehr", () => {
-    // Bis zum Aufräumen stand hier ein Laufzeit-Riegel (`ohneWhatsApp`), der
-    // die drei Felder aus jedem Patch abstreifte: Die Spalten lagen noch in der
-    // Datenbank, ein POST mit `wa_phone` wäre sonst durchgekommen. Seit die
-    // Spalten selbst entfernt werden, weist PostgREST einen solchen Patch ab —
-    // der Riegel hätte nichts mehr zu schützen. Was bleiben muss: Nirgends
-    // steht ein Name, der eine gelöschte Spalte wieder anfragt.
-    assert.doesNotMatch(code(SETTING_CALLS), /ohneWhatsApp|wa_phone|wa_consent_at|wa_refused_at/);
+  test("kein Code liest die Spalten, und ein direkter POST kann sie nicht schreiben", () => {
+    // Die Spalten fallen erst mit 0050, eine Woche nach dem Livegang. Bis dahin
+    // streift `ohneWhatsApp` die drei Felder aus jedem Patch von
+    // `updateSettingCall` (Code-Review 27.11.) — sonst schriebe ein direkter
+    // POST eine Einwilligung, die niemand mehr löschen kann. Außerhalb des
+    // Riegels steht kein Name, der eine der Spalten anfragt.
+    const src = code(SETTING_CALLS);
+    assert.match(src, /withNoShowResolutionCleared\(ohneWhatsApp\(patch\)\)/);
+    const ohneRiegel = src.replace(/function ohneWhatsApp[\s\S]*?\n\}\n/, "");
+    assert.doesNotMatch(ohneRiegel, /wa_phone|wa_consent_at|wa_refused_at/);
     assert.doesNotMatch(code(DOSSIER), /wa_phone|wa_consent_at|wa_refused_at/);
     assert.doesNotMatch(code(DOSSIER_ACTION), /wa_phone|wa_consent_at|wa_refused_at/);
   });

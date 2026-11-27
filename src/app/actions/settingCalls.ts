@@ -63,13 +63,20 @@ export async function updateSettingCall(id: string, patch: SettingCallPatch): Pr
   // „erschienen" die No-Show-Kette zu entwerten. Ohne Kette gibt es nichts mehr
   // zu entwerten — und eine zusätzliche Abfrage vor jedem Speichern erst recht
   // nicht.
-  const normalized = withNoShowResolutionCleared(patch);
+  // Die WhatsApp-Spalten stehen bis Migration 0050 noch in der Datenbank. Kein
+  // Formular schreibt sie mehr — ein direkter POST darf es auch nicht, sonst
+  // entstünde eine Einwilligung (UWG), die niemand mehr löschen kann (O1).
+  const normalized = withNoShowResolutionCleared(ohneWhatsApp(patch));
   // Nachfass-Eingang (Plan §4.6): Ein frisch erfasster Show-Status macht den
   // Vorgang fällig — No-Show heute, erschienen ohne Ergebnis am nächsten
-  // Werktag —, sofern der Aufrufer kein eigenes Datum schickt.
+  // Werktag —, sofern der Aufrufer kein eigenes Datum schickt. Nur solange das
+  // Erstgespräch kein Ergebnis hat: Ein „Nicht qualifiziert" trägt seine
+  // eigene Wiedervorlage, die der Anwesenheits-Schalter nicht überschreibt.
   if ("show_status" in normalized && !("follow_up_due" in normalized)) {
+    const { data: jetzt } = await supabase.from("setting_calls").select("status").eq("id", id).maybeSingle();
+    const status = (jetzt as { status?: string } | null)?.status;
     const due = faelligNachShowStatus(normalized.show_status, berlinDateISO(new Date().toISOString()));
-    if (due) normalized.follow_up_due = due;
+    if (due && (status === "offen" || status === "no_show")) normalized.follow_up_due = due;
   }
   const { error } = await supabase.from("setting_calls").update(normalized).eq("id", id);
   if (error) return { error: error.message };
@@ -979,4 +986,11 @@ export async function setNoShowResolution(
 
   revalidateAppointment(entityType, id);
   return {};
+}
+
+/** Entfernt die eingefrorenen WhatsApp-Felder aus einem Patch (auf einer Kopie). */
+function ohneWhatsApp<T extends object>(patch: T): T {
+  const rest = { ...patch } as Record<string, unknown>;
+  for (const feld of ["wa_phone", "wa_consent_at", "wa_refused_at"]) delete rest[feld];
+  return rest as T;
 }

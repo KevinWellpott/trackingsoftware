@@ -64,6 +64,14 @@ describe("P2-2 — No-Show am Termintag steht sofort in „Zu tun“", () => {
     assert.equal(terminZustand(setting({}), HEUTE), "verlegt");
   });
 
+  test("vor Terminbeginn gehört ein Show-Status zum früheren Termin", () => {
+    const at = "2026-11-26T15:00:00.000Z";
+    const vorher = Date.parse("2026-11-26T08:00:00.000Z");
+    const nachher = Date.parse("2026-11-26T16:00:00.000Z");
+    assert.equal(terminZustand(setting({ showStatus: "show", at }), HEUTE, vorher), "verlegt");
+    assert.equal(terminZustand(setting({ showStatus: "no_show", at }), HEUTE, nachher), "no_show");
+  });
+
   test("ein Termin an einem späteren Tag gewinnt gegen einen alten Show-Status", () => {
     assert.equal(terminZustand(setting({ showStatus: "no_show", at: "2026-11-30T09:00:00.000Z" }), HEUTE), "verlegt");
   });
