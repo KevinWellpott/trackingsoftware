@@ -5025,3 +5025,35 @@ a.nf-name:hover { color: var(--accent-text); }
 .nf-badge[data-ton="blau"] > strong::before { content: "" !important; margin: 0 !important; width: 6px; height: 6px; border-radius: 50%; }
 .nf-badge[data-ton="rot"] > strong::before { background: var(--danger); opacity: 0.8; }
 .nf-badge[data-ton="blau"] > strong::before { background: var(--info-fg); opacity: 0.8; }
+
+/* ── „Heute“: Details je Zeile aufklappbar (28.11.) ── */
+.nf-auf {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.nf-auf:hover { background: var(--hover); color: var(--text-primary); }
+.nf-text > .nf-meta { padding-left: 22px; }
+.nf-details-schalter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+.nf-details-schalter:hover { background: var(--hover); color: var(--text-primary); }

@@ -7,8 +7,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { AtSign, CalendarPlus, Check, Mail, MoreHorizontal, Phone, PhoneCall, Skull, Undo2 } from "lucide-react";
+import { useEffect, useMemo, useState, useSyncExternalStore, useTransition } from "react";
+import { AtSign, CalendarPlus, Check, ChevronDown, ChevronRight, Mail, MoreHorizontal, Phone, PhoneCall, Skull, Undo2 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { DatePicker } from "@/components/ui/DatePicker";
@@ -73,6 +73,38 @@ const KANAL_OPTIONEN = [
 type Kanal = (typeof KANAL_OPTIONEN)[number]["value"];
 
 const KANAL_SPEICHER = "pt-nachfass-kanal";
+
+// „Details einblenden" für alle Zeilen — je Gerät gespeichert (28.11.).
+// Vorgabe: zugeklappt, eine Zeile je Vorgang.
+const DETAILS_SPEICHER = "pt-nachfass-details";
+const DETAILS_EVENT = "pt-nachfass-details-change";
+function detailsLesen(): boolean {
+  try {
+    return localStorage.getItem(DETAILS_SPEICHER) === "1";
+  } catch {
+    return false;
+  }
+}
+function detailsAbonnieren(onChange: () => void) {
+  const onStorage = (ev: StorageEvent) => {
+    if (ev.key === null || ev.key === DETAILS_SPEICHER) onChange();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(DETAILS_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(DETAILS_EVENT, onChange);
+  };
+}
+const detailsServer = (): boolean => false;
+function detailsSchreiben(v: boolean) {
+  try {
+    localStorage.setItem(DETAILS_SPEICHER, v ? "1" : "0");
+  } catch {
+    /* blockiert: nur bis zum Neuladen */
+  }
+  window.dispatchEvent(new Event(DETAILS_EVENT));
+}
 
 function tagDe(iso: string): string {
   const [y, m, d] = iso.split("-");
@@ -337,12 +369,17 @@ function Zeile({
   onAuswahl,
   onDone,
   onError,
+  offen,
+  onToggle,
 }: {
   e: NachfassAnzeige;
   today: string;
   nowMs: number;
   /** Organisations-Ansicht: Wer hat terminiert, wer hat geführt. */
   alle: boolean;
+  /** Details (Firma, Tag, Kontaktwege …) aufgeklappt? */
+  offen: boolean;
+  onToggle: () => void;
   gruppe: NachfassGruppe;
   auswahl: boolean;
   onAuswahl: ((v: boolean) => void) | null;
@@ -405,6 +442,16 @@ function Zeile({
           (gekürzt), Fälligkeit und Kontaktwege. */}
       <div className="nf-text">
         <div className="nf-kopf">
+          <button
+            type="button"
+            className="nf-auf"
+            onClick={onToggle}
+            aria-expanded={offen}
+            aria-label={offen ? `Details zu ${e.name} ausblenden` : `Details zu ${e.name} einblenden`}
+            title={offen ? "Details ausblenden" : "Firma, Tag und Kontaktwege einblenden"}
+          >
+            {offen ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+          </button>
           {e.quelle === "termin" && e.href ? (
             // Zur Detailseite — dort stehen Qualifizierung und Closing anlegen.
             <Link href={e.href} className="nf-name" data-dran={dran || undefined}>
@@ -420,8 +467,9 @@ function Zeile({
             {e.stand && <strong>{e.stand}</strong>}
           </span>
         </div>
-        {/* Meta-Zeile: jedes Stück bleibt am Stück (kein Umbruch zwischen
-            Symbol und Nummer), die Trenner setzt das CSS (.nf-meta). */}
+        {/* Meta-Zeile, aufklappbar (28.11.): jedes Stück bleibt am Stück, die
+            Trenner setzt das CSS (.nf-meta). */}
+        {offen && (
         <div className="nf-meta">
           {e.firma && e.firma.trim().toLowerCase() !== e.name.trim().toLowerCase() && (
             <span className="nf-firma" title={e.firma}>
@@ -454,6 +502,7 @@ function Zeile({
             </a>
           )}
         </div>
+        )}
         {versuche >= AUFGEBEN_AB_VERSUCHEN && e.quelle !== "rueckruf" && (
           <div style={{ fontSize: "var(--fs-sm)", color: "var(--warning-fg)" }}>
             {versuche}× nicht erreicht. Auf „Tot“ setzen? Er kommt nach der Wartezeit als Wiedervorlage zurück.
@@ -641,6 +690,17 @@ export function NachfassEingang(props: Props) {
   const { eintraege, today, nowMs } = props;
   const [toast, setToast] = useState<{ text: string; undo: NachfassUndo | null; fehler?: boolean } | null>(null);
   const [auswahl, setAuswahl] = useState<Set<string>>(new Set());
+  // Details je Zeile: Vorgabe für alle (gespeichert) plus einzeln umgeklappte.
+  const alleDetails = useSyncExternalStore(detailsAbonnieren, detailsLesen, detailsServer);
+  const [umgeklappt, setUmgeklappt] = useState<Set<string>>(new Set());
+  const istOffen = (key: string) => alleDetails !== umgeklappt.has(key);
+  const umklappen = (key: string) =>
+    setUmgeklappt((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   // Vorgabe: nächster Werktag — mit „heute“ sprang der ganze Stapel auf
   // einmal nach „Fällig“ (Prüfung 28.11.).
   const [sammelTag, setSammelTag] = useState<string | null>(() => plusWerktage(today, 1));
@@ -850,6 +910,18 @@ export function NachfassEingang(props: Props) {
           size="sm"
           ariaLabel="Quelle"
         />
+        <button
+          type="button"
+          className="nf-details-schalter"
+          aria-pressed={alleDetails}
+          onClick={() => {
+            setUmgeklappt(new Set());
+            detailsSchreiben(!alleDetails);
+          }}
+        >
+          {alleDetails ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+          {alleDetails ? "Details ausblenden" : "Details einblenden"}
+        </button>
       </div>
 
       {sammelGruppe && (
@@ -921,6 +993,8 @@ export function NachfassEingang(props: Props) {
                 today={today}
                 nowMs={nowMs}
                 alle={props.wer === "alle"}
+                offen={istOffen(e.key)}
+                onToggle={() => umklappen(e.key)}
                 gruppe={g}
                 auswahl={auswahl.has(e.key)}
                 onAuswahl={

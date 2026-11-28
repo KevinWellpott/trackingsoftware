@@ -79,3 +79,13 @@ describe("Keine doppelten Wörter (28.11.)", () => {
     assert.match(f, /if \(e\.ergebnisFehlt\) return e\.terminAt \? kurzTermin\(e\.terminAt\) : null;/);
   });
 });
+
+describe("Details aufklappbar (28.11.)", () => {
+  test("je Zeile per Pfeil, Vorgabe zugeklappt, Schalter für alle, je Gerät gespeichert", () => {
+    assert.match(EINGANG, /\{offen && \(\s*<div className="nf-meta">/);
+    assert.match(EINGANG, /className="nf-auf"/);
+    assert.match(EINGANG, /const detailsServer = \(\): boolean => false;/);
+    assert.match(EINGANG, /const istOffen = \(key: string\) => alleDetails !== umgeklappt\.has\(key\);/);
+    assert.match(EINGANG, /\{alleDetails \? "Details ausblenden" : "Details einblenden"\}/);
+  });
+});
