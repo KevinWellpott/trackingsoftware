@@ -4970,3 +4970,12 @@ a.km:hover .km-go, a.km:focus-visible .km-go { opacity: 1; }
 .nf-firma { color: var(--text-muted); font-size: var(--fs-sm); }
 .nf-wer { display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap; }
 .nf-wer > span { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* Link-Knöpfe (<a class="ui-btn">) bekommen dasselbe Polster wie <Button> —
+   das setzt die Komponente inline, ein Link hatte deshalb gar keins
+   („Anrufen“ in „Heute“, 28.11.). */
+a.ui-btn { text-decoration: none; }
+a.ui-btn[data-size="sm"] { min-height: 28px; padding: 0 10px; font-size: var(--fs-sm); }
+a.ui-btn[data-size="md"] { min-height: var(--h-control); padding: 0 14px; font-size: 13px; }
+/* In der Knopfleiste von „Heute“ etwas mehr Luft für alle Textknöpfe. */
+.nf-ra .ui-btn:not(.ui-icon-btn) { padding-left: 13px !important; padding-right: 13px !important; }
