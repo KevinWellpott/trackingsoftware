@@ -18,7 +18,8 @@ function read(relative: string): string {
 
 const MIGRATION = read("supabase/migrations/20260404000044_telefon_herkunftsliste.sql");
 const LIST_PAGE = read("src/app/(dashboard)/telefon/[listId]/page.tsx");
-const OVERVIEW = read("src/app/(dashboard)/telefon/page.tsx");
+// Seit dem 28.11. eine Komponente für /telefon (eigene) und /telefon/team.
+const OVERVIEW = read("src/components/telefon/TelefonUebersicht.tsx");
 const ACTION = read("src/app/actions/phone.ts");
 const RUNNER = read("src/components/telefon/CallModeRunner.tsx");
 

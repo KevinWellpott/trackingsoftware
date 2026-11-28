@@ -70,7 +70,17 @@ function GoalBar({ label, value, target }: { label: string; value: number; targe
   );
 }
 
-export async function PhoneDashboard({ zeitraum = "heute" }: { zeitraum?: TelefonZeitraum }) {
+export async function PhoneDashboard({
+  zeitraum = "heute",
+  team = true,
+  basis = "/telefon",
+}: {
+  zeitraum?: TelefonZeitraum;
+  /** false = nur die eigene Person (Datensicht oder Angemeldete), ohne „Je Person". */
+  team?: boolean;
+  /** Pfad für die Zeitraum-Links. */
+  basis?: string;
+}) {
   const access = await getAccessContext();
   if (!access) return null;
 
@@ -78,7 +88,9 @@ export async function PhoneDashboard({ zeitraum = "heute" }: { zeitraum?: Telefo
   const today = berlinDateISO(new Date().toISOString());
   const monday = weekStart(today);
   const from = zeitraum === "heute" ? today : monday;
-  const effectiveUserId = access.effective_user_id ?? null;
+  // Ohne Team: immer genau eine Person — auch für einen Owner mit Team-Sicht.
+  const effectiveUserId = team ? access.effective_user_id ?? null : access.effective_user_id ?? access.user.id;
+  const effectiveUsername = team ? access.effective_username : access.effective_username ?? access.username;
   // Geladen wird immer die ganze Woche: Die Wochenziele je Person brauchen
   // sie auch, wenn oben „Heute" gewählt ist.
   const { startIso, endIso } = berlinWindowIso(monday, today);
@@ -91,8 +103,8 @@ export async function PhoneDashboard({ zeitraum = "heute" }: { zeitraum?: Telefo
       access.workspace_id,
       monday,
       today,
-      effectiveUserId && access.effective_username
-        ? { username: access.effective_username, userId: effectiveUserId }
+      effectiveUserId && effectiveUsername
+        ? { username: effectiveUsername, userId: effectiveUserId }
         : undefined,
     ),
     // Gelegte Telefon-Termine (E1). Paginiert, weil ein großes Team die
@@ -183,12 +195,12 @@ export async function PhoneDashboard({ zeitraum = "heute" }: { zeitraum?: Telefo
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)" }}>
       <div className="tel-sec-head">
-        <h2>Telefon-Performance</h2>
+        <h2>{team ? "Telefon-Performance · Team" : "Deine Telefon-Performance"}</h2>
         <nav className="tel-seg" aria-label="Zeitraum">
-          <Link href="/telefon" aria-current={zeitraum === "heute" ? "page" : undefined} scroll={false}>
+          <Link href={basis} aria-current={zeitraum === "heute" ? "page" : undefined} scroll={false}>
             Heute
           </Link>
-          <Link href="/telefon?zeitraum=woche" aria-current={zeitraum === "woche" ? "page" : undefined} scroll={false}>
+          <Link href={`${basis}?zeitraum=woche`} aria-current={zeitraum === "woche" ? "page" : undefined} scroll={false}>
             Woche
           </Link>
         </nav>
@@ -222,7 +234,7 @@ export async function PhoneDashboard({ zeitraum = "heute" }: { zeitraum?: Telefo
         <TelModule label="Tot" value={totals.dead.toLocaleString("de-DE")} caption="kommen später als Wiedervorlage zurück" />
       </div>
 
-      {rows.length > 0 && (
+      {team && rows.length > 0 && (
         <div className="card tel-card">
           <header className="tel-card-head">
             <h3>Je Person</h3>

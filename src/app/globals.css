@@ -831,23 +831,9 @@ svg.lucide { stroke-width: 1.6; }
   z-index: -1;
 }
 
-/* Corner-Plus-Ticks — Fadenkreuz-Marken hervorgehobener Panels.
-   Sparsam: nur auf der Hero-/Glaskarte einer View. */
+/* Corner-Plus-Ticks — entfernt (28.11.: „komische Kreuze“ auf Login und
+   Leitkacheln). Die Klasse bleibt als Haken stehen und tut nichts mehr. */
 .corner-ticks { position: relative; }
-.corner-ticks::before,
-.corner-ticks::after {
-  content: "";
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  pointer-events: none;
-  opacity: 0.4;
-  background:
-    linear-gradient(var(--text-muted), var(--text-muted)) center / 1px 100% no-repeat,
-    linear-gradient(var(--text-muted), var(--text-muted)) center / 100% 1px no-repeat;
-}
-.corner-ticks::before { top: -6px;    left: -6px; }
-.corner-ticks::after  { bottom: -6px; right: -6px; }
 
 /* Der 2px-Orange-Rail: das durchgaengige „aktiv/ausgewaehlt"-Zeichen. */
 .rail-accent { position: relative; }
@@ -4673,58 +4659,168 @@ a.km:hover .km-go, a.km:focus-visible .km-go { opacity: 1; }
 }
 
 /* ── Organisationen im Blick (/admin/uebersicht) ─────────────────────────
-   Je Organisation eine Karte: Kennzahl × Heute · Woche · Monat, Ist über
-   Soll mit dünnem Balken. Erreicht = Grün; kein Gold (heißt „du bist dran“). */
-.org-blick-raster {
+   Kacheln „Alle Organisationen“ + Rangliste je Organisation. Erreicht =
+   Grün; kein Gold (heißt „du bist dran“), kein Orange als Status. */
+.ob-leiste { display: flex; align-items: center; gap: var(--sp-6); flex-wrap: wrap; }
+.ob-leiste-text { font-size: var(--fs-sm); color: var(--text-muted); }
+.ob-kacheln {
   display: grid;
-  gap: var(--sp-7);
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  gap: var(--sp-6);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
 }
-.org-blick-karte { padding: var(--sp-6) var(--sp-7); display: grid; gap: var(--sp-5); min-width: 0; }
-.org-blick-kopf { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
-.org-blick-kopf h2 {
-  margin: 0;
-  font-size: var(--fs-md);
+.ob-kachel { padding: var(--sp-6) var(--sp-7); display: grid; gap: var(--sp-3); min-width: 0; }
+.ob-kachel-kopf { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.ob-kachel-zahl {
+  font-size: var(--fs-3xl, 36px);
   font-weight: 600;
-  letter-spacing: var(--ls-tight);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
   color: var(--text-primary);
-  display: inline-flex;
-  align-items: center;
+}
+.ob-kachel-zahl[data-erreicht] { color: var(--success-fg); }
+.ob-kachel-soll { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ob-kachel-drei {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--sp-3);
-}
-.org-blick-meta { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); }
-.org-blick-eigene {
-  font-size: var(--fs-xs);
-  font-weight: 500;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border-default);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
-  background: var(--surface-3);
+}
+.ob-kachel-drei > span { display: grid; gap: 1px; }
+.ob-kachel-drei small { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+.ob-kachel-drei > span[data-aktiv] { color: var(--text-primary); }
+.ob-kachel-drei > span[data-aktiv] small { color: var(--text-secondary); }
+.ob-pct {
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 7px;
   border-radius: var(--r-full);
-  padding: 1px 8px;
+  background: var(--surface-3);
+  color: var(--text-secondary);
 }
-.org-blick-tabelle { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.org-blick-tabelle th,
-.org-blick-tabelle td { padding: var(--sp-3) var(--sp-3); border-top: 1px solid var(--border-default); text-align: left; vertical-align: top; }
-.org-blick-tabelle thead th {
-  border-top: none;
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--text-muted);
+.ob-pct[data-erreicht] { background: var(--success-bg); color: var(--success-fg); }
+.ob-bar { display: block; height: 4px; width: 100%; max-width: 88px; margin-left: auto; margin-top: 5px; border-radius: var(--r-full); background: var(--surface-3); overflow: hidden; }
+.ob-bar[data-breit] { max-width: none; height: 6px; margin-top: var(--sp-2); }
+.ob-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--text-secondary); opacity: 0.7; transition: width var(--dur-3) var(--ease-out); }
+.ob-bar > i[data-erreicht] { background: var(--success); opacity: 1; }
+
+.ob-rangliste { overflow: hidden; }
+.ob-kopf { display: flex; align-items: baseline; gap: var(--sp-4); flex-wrap: wrap; padding: var(--sp-6) var(--sp-7); border-bottom: 1px solid var(--border-default); }
+.ob-kopf h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; letter-spacing: var(--ls-tight); color: var(--text-primary); }
+.ob-kopf > span { font-size: var(--fs-xs); color: var(--text-muted); }
+.ob-tabelle { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ob-tabelle th, .ob-tabelle td { padding: var(--sp-5) var(--sp-5); text-align: left; vertical-align: middle; }
+.ob-tabelle thead th { font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); white-space: nowrap; border-bottom: 1px solid var(--border-default); }
+.ob-tabelle thead th button {
+  display: inline-flex; align-items: center; gap: 3px;
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; color: inherit;
 }
-.org-blick-tabelle .r,
-.org-blick-tabelle td { text-align: right; }
-.org-blick-tabelle tbody th { font-size: var(--fs-sm); font-weight: 500; color: var(--text-secondary); white-space: nowrap; }
-.org-blick-rw { display: block; font-size: var(--fs-xs); font-weight: 400; color: var(--text-muted); }
-.org-blick-zelle { min-width: 84px; }
-.org-blick-ist { display: block; font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); }
-.org-blick-ist[data-erreicht] { color: var(--success-fg); }
-.org-blick-soll { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
-.org-blick-bar { display: block; height: 3px; margin-top: 4px; margin-left: auto; width: 64px; border-radius: var(--r-full); background: var(--surface-3); overflow: hidden; }
-.org-blick-bar > i { display: block; height: 100%; background: var(--text-muted); border-radius: inherit; }
-.org-blick-bar > i[data-erreicht] { background: var(--success); }
-.org-blick-ruhig { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
-.org-blick-ruhig li { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); font-size: var(--fs-sm); color: var(--text-secondary); }
-@media (max-width: 479px) {
-  .org-blick-karte { padding: var(--sp-5); }
-  .org-blick-zelle { min-width: 64px; }
-  .org-blick-tabelle tbody th { white-space: normal; }
+.ob-tabelle thead th button:hover, .ob-tabelle thead th button[data-aktiv] { color: var(--text-primary); }
+.ob-tabelle .r { text-align: right; }
+.ob-zeile + .ob-zeile th, .ob-zeile + .ob-zeile td,
+.ob-detail-zeile + .ob-zeile th, .ob-detail-zeile + .ob-zeile td { border-top: 1px solid var(--border-default); }
+.ob-zeile:hover, .ob-zeile[data-auf] { background: var(--surface-2); }
+.ob-org {
+  display: flex; align-items: center; gap: var(--sp-4);
+  border: 0; background: none; padding: 0; cursor: pointer; text-align: left;
+  font: inherit; color: var(--text-muted); min-width: 200px;
+}
+.ob-avatar {
+  display: inline-grid; place-items: center; flex-shrink: 0;
+  width: 32px; height: 32px; border-radius: 10px;
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+}
+.ob-org-text { display: grid; gap: 1px; min-width: 0; }
+.ob-org-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text-primary); display: inline-flex; align-items: center; gap: var(--sp-3); }
+.ob-org-name em { font-style: normal; font-size: 11px; font-weight: 500; color: var(--text-secondary); background: var(--surface-3); border-radius: var(--r-full); padding: 0 7px; }
+.ob-org-text small { font-size: 11.5px; color: var(--text-muted); }
+.ob-org-text small[data-voll] { color: var(--success-fg); }
+.ob-zelle { text-align: right; min-width: 96px; }
+.ob-zelle strong { font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); }
+.ob-zelle strong[data-erreicht] { color: var(--success-fg); }
+.ob-zelle strong[data-null] { color: var(--text-muted); font-weight: 500; }
+.ob-zelle > span { margin-left: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+.ob-zelle[data-sortiert] { background: color-mix(in srgb, var(--surface-3) 45%, transparent); }
+.ob-aktion { width: 1%; white-space: nowrap; }
+.ob-detail-zeile > td { padding: 0 var(--sp-7) var(--sp-6); background: var(--surface-2); }
+.ob-detail {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+.ob-detail-k { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); padding: var(--sp-5); border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--border-default); }
+.ob-detail-label { grid-column: 1 / -1; font-size: var(--fs-sm); font-weight: 600; color: var(--text-primary); display: flex; justify-content: space-between; gap: var(--sp-3); }
+.ob-detail-label small { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+.ob-detail-zelle { display: grid; gap: 1px; font-variant-numeric: tabular-nums; }
+.ob-detail-zelle small { font-size: 11px; color: var(--text-muted); }
+.ob-detail-zelle strong { font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); }
+.ob-detail-zelle strong[data-erreicht] { color: var(--success-fg); }
+.ob-detail-zelle > span { font-size: 11px; color: var(--text-muted); }
+.ob-detail-zelle .ob-bar { margin-left: 0; }
+.ob-detail-fuss { display: flex; justify-content: flex-end; padding-top: var(--sp-4); }
+.ob-ruhig { list-style: none; margin: 0; padding: var(--sp-4) var(--sp-7) var(--sp-6); display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.ob-ruhig li { display: flex; align-items: center; gap: var(--sp-4); }
+.ob-ruhig li .ob-org-name { flex: 1; min-width: 0; font-weight: 500; color: var(--text-secondary); }
+@media (max-width: 767px) {
+  .ob-kachel-zahl { font-size: 28px; }
+  .ob-org { min-width: 160px; }
+  .ob-zelle { min-width: 76px; }
+}
+
+/* ── Zeitfilter und Zeitansicht in /setting · /closing ── */
+.vg-zeit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.vg-zeit-nav { display: inline-flex; align-items: center; gap: 4px; }
+.vg-zeit-nav > button:not(.vg-zeit-heute) {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ctl);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.vg-zeit-nav > button:not(.vg-zeit-heute):hover { color: var(--text-primary); background: var(--ctl-h); }
+.vg-zeit-label { font-size: 13px; font-weight: 500; color: var(--text-primary); font-variant-numeric: tabular-nums; padding: 0 6px; white-space: nowrap; }
+.vg-zeit-heute {
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.vg-gruppe td {
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.vg-gruppe td > span { margin-left: 8px; font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.vg-gruppe[data-heute] td { color: var(--text-primary); }
+.vg-gebucht { display: block; font-size: 11.5px; color: var(--text-muted); }
+@media (max-width: 767px) {
+  .vg-zeit .vg-head-r { margin-left: 0; }
 }

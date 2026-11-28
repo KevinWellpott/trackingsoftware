@@ -13,9 +13,11 @@
 // (useTerminHandgriffe): Genervt · Termin · Tot, und für einen begonnenen
 // Termin ohne Ergebnis die Ergebnis-Schnellknöpfe.
 
+import { Fragment } from "react";
 import { Segmented } from "@/components/ui/Segmented";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { TerminAktionen } from "@/components/termine/TerminAktionen";
-import { formatTerminParts } from "@/lib/apptTime";
+import { berlinDateISO, formatTerminParts } from "@/lib/apptTime";
 import { istBearbeitbar, TERMIN_ZUSTAND_LABEL, type TerminZustand } from "@/lib/dranRegel";
 import { buildEvents, type TerminEvent, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
@@ -28,7 +30,22 @@ import {
   type SettingSegment,
 } from "@/lib/vorgangSegmente";
 import { EUR_FMT } from "@/lib/terminMeta";
-import { Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import {
+  ZEIT_PRESETS,
+  fensterLabel,
+  fensterVon,
+  gruppenLabel,
+  gruppenSchluessel,
+  imFenster,
+  kannBlaettern,
+  parseTag,
+  parseZeitAnsicht,
+  parseZeitPreset,
+  parseZeitachse,
+  verschiebeAnker,
+  type ZeitPreset,
+} from "@/lib/vorgangZeit";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -100,6 +117,21 @@ export function VorgangListe({
     return () => clearInterval(id);
   }, []);
 
+  // Zeitfilter und Zeitansicht (src/lib/vorgangZeit.ts) — alles in der URL.
+  const zeit = parseZeitPreset(sp.get("zeit"));
+  const anker = parseTag(sp.get("ab"));
+  const achse = parseZeitachse(sp.get("achse"));
+  const ansicht = parseZeitAnsicht(sp.get("ansicht"));
+  const fenster = fensterVon(zeit, today, { anker, von: parseTag(sp.get("von")), bis: parseTag(sp.get("bis")) });
+
+  // Buchungstag je Zeile — die zweite Zeitachse („gelegt“, docs §5).
+  const gebuchtAm = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of [...settings, ...closings]) m.set(r.id, berlinDateISO(r.created_at));
+    return m;
+  }, [settings, closings]);
+  const tagVon = (e: TerminEvent): string | null => (achse === "gebucht" ? gebuchtAm.get(e.refId) ?? null : e.dayISO);
+
   const names = useMemo(() => new Map(members.map((m) => [m.user_id, m.username])), [members]);
   const alle = useMemo(() => {
     const { events, ohneTermin } = buildEvents(settings, closings, names, today, nowMs);
@@ -111,14 +143,19 @@ export function VorgangListe({
 
   // Personenachse wie /termine: wer gelegt hat, nach einem Gespräch ohne
   // Ergebnis wer es geführt hat (`erinnererOf`). „Alle" nur mit Team-Sicht.
+  // Der Zeitfilter wirkt VOR den Segment-Zahlen: Die Reiter zählen, was im
+  // gewählten Zeitraum liegt.
   const sichtbar = useMemo(() => {
     const q = suche.trim().toLowerCase();
     return alle.filter((e) => {
       if (wer === "mein" && e.assignee?.user_id !== scopeUserId) return false;
       if (q && !`${e.title} ${e.company ?? ""}`.toLowerCase().includes(q)) return false;
+      if (!imFenster(tagVon(e), fenster)) return false;
       return true;
     });
-  }, [alle, wer, scopeUserId, suche]);
+    // tagVon hängt an achse und gebuchtAm
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alle, wer, scopeUserId, suche, fenster.von, fenster.bis, achse, gebuchtAm]);
 
   const zahlen = useMemo(() => {
     const m = new Map<Segment, number>();
@@ -133,20 +170,33 @@ export function VorgangListe({
     const rows = segment === "alle" ? sichtbar : sichtbar.filter((e) => segmentVon(e) === segment);
     // Ohne Ergebnis: nächster Termin zuerst, Zeilen ohne Termin oben. Sonst:
     // jüngster Termin zuerst — das zuletzt Entschiedene interessiert zuerst.
-    const key = (e: TerminEvent) => `${e.dayISO ?? "0000-00-00"}T${String(e.startMin).padStart(4, "0")}`;
-    const asc = segment === "ohne_ergebnis";
+    const key = (e: TerminEvent) =>
+      achse === "gebucht"
+        ? `${gebuchtAm.get(e.refId) ?? "0000-00-00"}T${e.dayISO ?? ""}`
+        : `${e.dayISO ?? "0000-00-00"}T${String(e.startMin).padStart(4, "0")}`;
+    // Kommend liest sich vorwärts, Vergangen rückwärts; sonst wie bisher.
+    const asc = zeit === "kommend" ? true : zeit === "vergangen" ? false : segment === "ohne_ergebnis";
     return [...rows].sort((a, b) => (asc ? key(a).localeCompare(key(b)) : key(b).localeCompare(key(a))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sichtbar, segment, kind]);
+  }, [sichtbar, segment, kind, achse, zeit, gebuchtAm]);
 
   const { pendingFor, onGenervt, onNeuerTermin, onTot, ergebnisFuer, dialog } = useTerminHandgriffe(setFehler, nowMs);
 
-  const setParam = (key: string, value: string | null) => {
+  const setParams = (werte: Record<string, string | null>) => {
     const next = new URLSearchParams(sp.toString());
-    if (value === null || value === "") next.delete(key);
-    else next.set(key, value);
+    for (const [key, value] of Object.entries(werte)) {
+      if (value === null || value === "") next.delete(key);
+      else next.set(key, value);
+    }
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+  const setParam = (key: string, value: string | null) => setParams({ [key]: value });
+  const waehleZeit = (v: ZeitPreset) =>
+    setParams({ zeit: v === "alle" ? null : v, ab: null, ...(v === "zeitraum" ? {} : { von: null, bis: null }) });
+  const blaettern = (schritt: -1 | 1) => {
+    const neu = verschiebeAnker(zeit, anker ?? today, schritt);
+    setParams({ ab: neu === today ? null : neu });
   };
 
   const optionen = (kind === "setting" ? SETTING_SEGMENTE : CLOSING_SEGMENTE).map((o) => ({
@@ -190,6 +240,60 @@ export function VorgangListe({
         </div>
       </header>
 
+      {/* ── Zeit: Zeitraum · Achse · Ansicht ── */}
+      <div className="vg-zeit">
+        <Segmented options={[...ZEIT_PRESETS]} value={zeit} onChange={waehleZeit} size="sm" ariaLabel="Zeitraum" />
+        {kannBlaettern(zeit) && (
+          <span className="vg-zeit-nav">
+            <button type="button" onClick={() => blaettern(-1)} aria-label="Zurück">
+              <ChevronLeft size={14} />
+            </button>
+            <span className="vg-zeit-label">{fensterLabel(zeit, fenster, today)}</span>
+            <button type="button" onClick={() => blaettern(1)} aria-label="Weiter">
+              <ChevronRight size={14} />
+            </button>
+            {anker && anker !== today && (
+              <button type="button" className="vg-zeit-heute" onClick={() => setParams({ ab: null })}>
+                Heute
+              </button>
+            )}
+          </span>
+        )}
+        {zeit === "zeitraum" && (
+          <span className="vg-zeit-nav">
+            <DatePicker value={parseTag(sp.get("von"))} onChange={(v) => setParam("von", v)} placeholder="von" clearable shortFormat />
+            <span className="vg-zeit-label">–</span>
+            <DatePicker value={parseTag(sp.get("bis"))} onChange={(v) => setParam("bis", v)} placeholder="bis" clearable shortFormat />
+          </span>
+        )}
+        {(zeit === "kommend" || zeit === "vergangen") && (
+          <span className="vg-zeit-label">{fensterLabel(zeit, fenster, today)}</span>
+        )}
+        <div className="vg-head-r">
+          <Segmented
+            options={[
+              { value: "termin", label: "nach Termin" },
+              { value: "gebucht", label: "nach Buchung" },
+            ]}
+            value={achse}
+            onChange={(v) => setParam("achse", v === "termin" ? null : v)}
+            size="sm"
+            ariaLabel="Zeitachse"
+          />
+          <Segmented
+            options={[
+              { value: "liste", label: "Liste" },
+              { value: "tage", label: "Tage" },
+              { value: "wochen", label: "Wochen" },
+            ]}
+            value={ansicht}
+            onChange={(v) => setParam("ansicht", v === "liste" ? null : v)}
+            size="sm"
+            ariaLabel="Ansicht"
+          />
+        </div>
+      </div>
+
       {fehler && <div className="vg-fehler">{fehler}</div>}
 
       {zeilen.length === 0 ? (
@@ -199,6 +303,14 @@ export function VorgangListe({
               ? "Hier steht nichts, das du gelegt hast."
               : "Hier steht noch nichts."
             : "In diesem Ausschnitt steht gerade nichts."}
+          {zeit !== "alle" && (
+            <>
+              {" "}
+              <button type="button" className="vg-zeit-heute" onClick={() => waehleZeit("alle")}>
+                Alle Zeiten zeigen
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div className="tw">
@@ -217,17 +329,34 @@ export function VorgangListe({
               </tr>
             </thead>
             <tbody>
-              {zeilen.map((e) => (
-                <VorgangZeile
-                  key={e.id}
-                  e={e}
-                  pending={pendingFor(e)}
-                  ergebnis={ergebnisFuer(e)}
-                  onGenervt={e.erinnerung ? () => onGenervt(e) : undefined}
-                  onNeuerTermin={(v) => onNeuerTermin(e, v)}
-                  onTot={() => void onTot(e)}
-                />
-              ))}
+              {zeilen.map((e, i) => {
+                // Zeitansicht: ein Kopf, sobald die Gruppe wechselt (Tag/Woche).
+                const g = gruppenSchluessel(tagVon(e), ansicht);
+                const vorher = i > 0 ? gruppenSchluessel(tagVon(zeilen[i - 1]), ansicht) : undefined;
+                const kopf = ansicht !== "liste" && (i === 0 || g !== vorher);
+                const anzahl = kopf ? zeilen.filter((x) => gruppenSchluessel(tagVon(x), ansicht) === g).length : 0;
+                return (
+                  <Fragment key={e.id}>
+                    {kopf && (
+                      <tr className="vg-gruppe" data-heute={g === today || undefined}>
+                        <td colSpan={7}>
+                          {gruppenLabel(g, ansicht, today)}
+                          <span>{anzahl.toLocaleString("de-DE")}</span>
+                        </td>
+                      </tr>
+                    )}
+                    <VorgangZeile
+                      e={e}
+                      gebuchtAm={achse === "gebucht" ? gebuchtAm.get(e.refId) ?? null : undefined}
+                      pending={pendingFor(e)}
+                      ergebnis={ergebnisFuer(e)}
+                      onGenervt={e.erinnerung ? () => onGenervt(e) : undefined}
+                      onNeuerTermin={(v) => onNeuerTermin(e, v)}
+                      onTot={() => void onTot(e)}
+                    />
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -244,6 +373,7 @@ export function VorgangZeile({
   e,
   from,
   zusatz,
+  gebuchtAm,
   pending,
   ergebnis,
   onGenervt,
@@ -253,8 +383,10 @@ export function VorgangZeile({
   e: TerminEvent;
   /** Rückweg der Detailseite (`?from=`, components/ui/BackLink.tsx) — Vorgabe: die Termin-Art. */
   from?: string;
-  /** Kleiner Hinweis hinter dem Namen (z. B. die Herkunft auf /no-shows). */
+  /** Kleiner Hinweis hinter dem Namen. */
   zusatz?: string;
+  /** Achse „nach Buchung“: der Buchungstag, unter dem Termin angezeigt. */
+  gebuchtAm?: string | null;
   pending: boolean;
   ergebnis: React.ReactNode;
   onGenervt?: () => void;
@@ -297,7 +429,14 @@ export function VorgangZeile({
           </span>
         )}
       </td>
-      <td className={`num ${termin ? "muted" : "faint"}`}>{termin ? `${termin.date} ${termin.time}` : "—"}</td>
+      <td className={`num ${termin ? "muted" : "faint"}`}>
+        {termin ? `${termin.date} ${termin.time}` : "—"}
+        {gebuchtAm && (
+          <span className="vg-gebucht">
+            gebucht {gebuchtAm.slice(8, 10)}.{gebuchtAm.slice(5, 7)}.
+          </span>
+        )}
+      </td>
       <td className={e.assignee ? "muted" : "faint"}>{e.assignee?.username ?? "—"}</td>
       <td className={e.conductedBy ? "muted" : "faint"}>{e.conductedBy?.username ?? "—"}</td>
       <td className="r">

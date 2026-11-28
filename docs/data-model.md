@@ -302,6 +302,15 @@ dritten „Nicht erreicht" liest dieselbe Serie wie der Server (letzte zwei Anwa
   „Skript" statt „Arm". Zahlen einheitlich über `src/lib/zahl.ts` („42,5 %", echtes Minus,
   Achse „10,5 T€").
 
+- **Zeitfilter in `/setting` und `/closing`** (`src/lib/vorgangZeit.ts`, alles in der URL):
+  `?zeit=` Alle · Tag · Woche · Monat · Kommend (ab heute) · Vergangen (bis gestern) · Zeitraum
+  (`von`/`bis`), Blättern über `?ab=`; `?achse=` **termin** (Termin-Tag, „absolut") oder
+  **gebucht** (`created_at`, „gelegt"); `?ansicht=` liste · tage · wochen (Gruppenköpfe). Der
+  Filter wirkt vor den Segment-Zahlen; Zeilen ohne Termin stehen nur unter „Alle".
+- **`/telefon` zeigt nur die eigenen Listen und Zahlen** (Datensicht, sonst die angemeldete
+  Person — auch bei Team-Sicht). Alle Listen, Team-Zahlen und „Je Person" stehen unter
+  `/telefon/team` (nur Owner mit Team-Sicht ohne aktive Datensicht).
+
 ### 0.7 Plattform-Übersicht „Organisationen im Blick" (`/admin/uebersicht`, Migration 0051)
 
 Nur Plattform-Admins (Seite, Loader, Action und RLS prüfen `is_platform_admin`). Je

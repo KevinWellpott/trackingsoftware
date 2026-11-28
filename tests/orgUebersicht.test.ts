@@ -123,7 +123,7 @@ describe("Zugriff und Definitionen", () => {
   });
   test("ein Ladefehler wird zu „—“, nie zu 0", () => {
     assert.match(data, /luecken\.push\(name\)/);
-    assert.match(read("src/components/admin/OrgUebersicht.tsx"), /if \(luecke\) return <td className="org-blick-zelle">—<\/td>;/);
+    assert.match(read("src/components/admin/OrgUebersicht.tsx"), /\{lk \? "—" : zahl\(ist\)\}/);
   });
   test("die Seitenleiste zeigt die Zeile nur Plattform-Admins", () => {
     assert.match(read("src/components/Sidebar.tsx"), /\{orgSwitch && \(\s*<NavLink\s+href="\/admin\/uebersicht"/);
