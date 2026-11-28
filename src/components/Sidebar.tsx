@@ -13,6 +13,8 @@ import {
   Wallet,
   ListChecks,
   Building2,
+  Check,
+  Search,
   CalendarDays,
   CalendarPlus,
   ChevronDown,
@@ -502,9 +504,11 @@ function ListRow({
 // Aufklappen veraendert das Layout der Leiste nicht.
 
 /** Mindestbreite des Personenmenues; es darf die Leistenkante ueberragen. */
-const PERSON_MENU_WIDTH = 264;
+const PERSON_MENU_WIDTH = 320;
 /** Danach scrollt das Menue — lange Organisations- und Teamlisten. */
-const PERSON_MENU_MAX_HEIGHT = 480;
+const PERSON_MENU_MAX_HEIGHT = 720;
+/** Ab so vielen Organisationen erscheint ein Suchfeld über der Liste. */
+const ORG_SUCHE_AB = 7;
 
 /** Eine Auswahlzeile innerhalb eines Kontext-Umschalters. */
 function ContextOption({
@@ -543,53 +547,15 @@ function ContextOption({
       {fields.map((f) => (
         <input key={f.name} type="hidden" name={f.name} value={f.value} />
       ))}
-      <button
-        type="submit"
-        className={`sidebar-link${active ? " active" : ""}`}
-        style={{
-          width: "100%",
-          border: "none",
-          cursor: "pointer",
-          background: active ? undefined : "none",
-          fontSize: "var(--fs-sm)",
-        }}
-        title={title}
-      >
+      <button type="submit" className="pm-opt" data-aktiv={active || undefined} aria-current={active || undefined} title={title}>
         {/* Avatare bleiben grau — die Owner-Palette lebt in Dashboards und
             Charts, wo sie Datenreihen unterscheidet. */}
-        <span
-          style={{
-            width: 20,
-            height: 20,
-            borderRadius: "var(--r-full)",
-            background: active ? "var(--accent-muted)" : "var(--surface-3)",
-            color: active ? "var(--orange-300)" : "var(--text-secondary)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "var(--fs-2xs)",
-            fontWeight: 600,
-            flexShrink: 0,
-          }}
-        >
+        <span className="pm-opt-icon" aria-hidden>
           {avatar}
         </span>
-        <span
-          style={{
-            flex: 1,
-            textAlign: "left",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {label}
-        </span>
-        {badge && (
-          <span className="eyebrow eyebrow-muted" style={{ flexShrink: 0, fontSize: "var(--fs-2xs)" }}>
-            {badge}
-          </span>
-        )}
+        <span className="pm-opt-text">{label}</span>
+        {badge && <span className="pm-opt-badge">{badge}</span>}
+        {active && <Check size={14} className="pm-opt-check" aria-hidden />}
       </button>
     </form>
   );
@@ -616,39 +582,9 @@ function ContextAction({
   onClick?: () => void;
 }) {
   return (
-    <Link
-      href={href}
-      onClick={onClick}
-      className="sidebar-link"
-      style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)" }}
-      title={label}
-    >
-      <span
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: "var(--r-full)",
-          background: "var(--surface-3)",
-          color: "var(--text-secondary)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </span>
-      <span
-        style={{
-          flex: 1,
-          textAlign: "left",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {label}
-      </span>
+    <Link href={href} onClick={onClick} className="pm-aktion" title={label}>
+      {icon}
+      <span>{label}</span>
     </Link>
   );
 }
@@ -715,6 +651,69 @@ function StatusZeile({
       </span>
       {reset}
     </div>
+  );
+}
+
+/**
+ * Organisations-Auswahl im Personenmenue (28.11.): aktive zuerst, dann die
+ * eigene, dann alphabetisch. Ab ORG_SUCHE_AB Eintraegen ein Suchfeld; nur die
+ * Liste scrollt, Kopf und Aktionen bleiben stehen.
+ */
+function OrgAbschnitt({
+  orgSwitch,
+  isForeignOrg,
+  onDone,
+  onNavigate,
+}: {
+  orgSwitch: OrgSwitchState;
+  isForeignOrg: boolean;
+  onDone: () => void;
+  onNavigate: () => void;
+}) {
+  const [suche, setSuche] = useState("");
+  const rang = (id: string) => (id === orgSwitch.activeId ? 0 : id === orgSwitch.homeId ? 1 : 2);
+  const sortiert = [...orgSwitch.orgs].sort((a, b) => rang(a.id) - rang(b.id) || a.name.localeCompare(b.name, "de"));
+  const q = suche.trim().toLowerCase();
+  const treffer = q ? sortiert.filter((o) => o.name.toLowerCase().includes(q)) : sortiert;
+  return (
+    <section className="pm-abschnitt">
+      <div className="pm-h" data-tone={isForeignOrg ? "danger" : undefined}>
+        <Building2 size={12} aria-hidden /> Organisation
+        <span className="pm-h-zahl">{orgSwitch.orgs.length}</span>
+      </div>
+      {orgSwitch.orgs.length >= ORG_SUCHE_AB && (
+        <label className="pm-suche">
+          <Search size={13} aria-hidden />
+          <input
+            type="search"
+            value={suche}
+            onChange={(e) => setSuche(e.target.value)}
+            placeholder="Organisation suchen"
+            aria-label="Organisation suchen"
+          />
+        </label>
+      )}
+      <div className="pm-liste pm-liste-scroll">
+        {treffer.map((o) => (
+          <ContextOption
+            key={o.id}
+            action={setActiveOrgForm}
+            fields={[{ name: "workspace_id", value: o.id }]}
+            label={o.name}
+            badge={o.id === orgSwitch.homeId ? "Eigene" : undefined}
+            active={o.id === orgSwitch.activeId}
+            title={o.id === orgSwitch.activeId ? `${o.name} — aktiv` : `Zu ${o.name} wechseln`}
+            avatar={o.name.trim().charAt(0).toUpperCase() || <Building2 size={12} />}
+            onDone={onDone}
+          />
+        ))}
+        {treffer.length === 0 && <p className="pm-leer">Keine Organisation gefunden.</p>}
+      </div>
+      <div className="pm-aktionen">
+        <ContextAction href="/admin" icon={<ShieldCheck size={13} aria-hidden />} label="Verwalten" onClick={onNavigate} />
+        <ContextAction href="/admin#neue-organisation" icon={<Plus size={13} aria-hidden />} label="Neue Organisation" onClick={onNavigate} />
+      </div>
+    </section>
   );
 }
 
@@ -798,101 +797,75 @@ function PersonMenu({
           id={panelId}
           label="Konto, Organisation und Datensicht"
           width={Math.max(Math.round(anchor.width), PERSON_MENU_WIDTH)}
-          maxHeight={PERSON_MENU_MAX_HEIGHT}
-          style={{ padding: "var(--sp-3)" }}
+          // Nie hoeher als der Platz ueber dem Knopf: Passt es oben nicht, klappte
+          // es nach unten aus dem Bildschirm.
+          maxHeight={Math.max(240, Math.min(PERSON_MENU_MAX_HEIGHT, Math.round(anchor.top) - 24))}
+          style={{ padding: 0, overflowX: "hidden" }}
         >
-          <div className="menu-list">
+          <div className="pm">
+            <div className="pm-kopf">
+              <span className="side-avatar pm-avatar" aria-hidden="true">
+                {username.charAt(0).toUpperCase()}
+              </span>
+              <span className="pm-kopf-text">
+                <b>{username}</b>
+                <small>{caption}</small>
+              </span>
+            </div>
+
             {/* Organisation (aeussere Grenze) vor Datensicht (innere). */}
             {orgSwitch && (
-              <>
-                <div className="menu-h" data-tone={isForeignOrg ? "danger" : undefined}>
-                  <Building2 size={12} aria-hidden /> Organisation
-                </div>
-                {orgSwitch.orgs.map((o) => (
-                  <ContextOption
-                    key={o.id}
-                    action={setActiveOrgForm}
-                    fields={[{ name: "workspace_id", value: o.id }]}
-                    label={o.name}
-                    badge={o.id === orgSwitch.homeId ? "eigen" : undefined}
-                    active={o.id === orgSwitch.activeId}
-                    title={o.id === orgSwitch.activeId ? `${o.name} — aktiv` : `Zu ${o.name} wechseln`}
-                    avatar={<Building2 size={11} />}
-                    onDone={close}
-                  />
-                ))}
-                <ContextAction
-                  href="/admin"
-                  icon={<ShieldCheck size={11} />}
-                  label="Organisationen verwalten"
-                  onClick={() => {
-                    close();
-                    onClose?.();
-                  }}
-                />
-                <ContextAction
-                  href="/admin#neue-organisation"
-                  icon={<Plus size={11} />}
-                  label="Neue Organisation"
-                  onClick={() => {
-                    close();
-                    onClose?.();
-                  }}
-                />
-                <hr className="menu-sep" />
-              </>
+              <OrgAbschnitt
+                orgSwitch={orgSwitch}
+                isForeignOrg={isForeignOrg}
+                onDone={close}
+                onNavigate={() => {
+                  close();
+                  onClose?.();
+                }}
+              />
             )}
 
             {canSwitchDataView && dataView && (
-              <>
-                <div className="menu-h" data-tone={isImpersonating ? "accent" : undefined}>
+              <section className="pm-abschnitt">
+                <div className="pm-h" data-tone={isImpersonating ? "accent" : undefined}>
                   <Users size={12} aria-hidden /> Datensicht
                 </div>
-                <ContextOption
-                  action={setDataViewForm}
-                  fields={[
-                    { name: "next", value: pathname },
-                    { name: "view_user_id", value: "" },
-                  ]}
-                  label="Alle Daten"
-                  active={!isImpersonating}
-                  title="Datensicht zurücksetzen"
-                  avatar={<Users size={11} />}
-                  onDone={close}
-                />
-                {teamUsers.map((u) => (
+                <div className="pm-liste pm-liste-scroll" data-kurz>
                   <ContextOption
-                    key={u.user_id}
                     action={setDataViewForm}
                     fields={[
                       { name: "next", value: pathname },
-                      { name: "view_user_id", value: u.user_id },
+                      { name: "view_user_id", value: "" },
                     ]}
-                    label={u.username}
-                    active={u.user_id === dataView.activeUserId}
-                    title={`Datensicht von ${u.username} anzeigen`}
-                    avatar={ownerInitials(u.username)}
+                    label="Alle Daten"
+                    active={!isImpersonating}
+                    title="Datensicht zurücksetzen"
+                    avatar={<Users size={12} />}
                     onDone={close}
                   />
-                ))}
-                <hr className="menu-sep" />
-              </>
+                  {teamUsers.map((u) => (
+                    <ContextOption
+                      key={u.user_id}
+                      action={setDataViewForm}
+                      fields={[
+                        { name: "next", value: pathname },
+                        { name: "view_user_id", value: u.user_id },
+                      ]}
+                      label={u.username}
+                      active={u.user_id === dataView.activeUserId}
+                      title={`Datensicht von ${u.username} anzeigen`}
+                      avatar={ownerInitials(u.username)}
+                      onDone={close}
+                    />
+                  ))}
+                </div>
+              </section>
             )}
 
-            <form action={signOut}>
-              <button
-                type="submit"
-                className="sidebar-link"
-                style={{
-                  width: "100%",
-                  color: "var(--text-secondary)",
-                  border: "none",
-                  background: "none",
-                  cursor: "pointer",
-                  fontSize: "var(--fs-sm)",
-                }}
-              >
-                <LogOut size={15} />
+            <form action={signOut} className="pm-fuss">
+              <button type="submit" className="pm-abmelden">
+                <LogOut size={15} aria-hidden />
                 <span>Abmelden</span>
               </button>
             </form>

@@ -5667,3 +5667,104 @@ a.nf-name:hover { color: var(--accent-text); }
 @media (hover: none) {
   .vl-werkzeug { opacity: 1; }
 }
+
+/* ── Personenmenue: Konto, Organisation, Datensicht (28.11.) ──────────── */
+.pm { display: grid; min-width: 0; }
+.pm-kopf { display: flex; align-items: center; gap: 10px; padding: 14px 14px 12px; border-bottom: 1px solid var(--line); }
+.pm-avatar { width: 34px; height: 34px; font-size: 14px; flex-shrink: 0; }
+.pm-kopf-text { display: grid; gap: 1px; min-width: 0; line-height: 1.25; }
+.pm-kopf-text b { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.pm-kopf-text small { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-abschnitt { display: grid; gap: 6px; padding: 10px 8px; border-bottom: 1px solid var(--line); min-width: 0; }
+.pm-h { display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.pm-h[data-tone="danger"] { color: var(--danger-fg); }
+.pm-h[data-tone="accent"] { color: var(--accent-text); }
+.pm-h-zahl { margin-left: auto; font-weight: 550; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.pm-suche {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  margin: 0 2px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+}
+.pm-suche input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 13px; color: var(--text-primary); outline: none; }
+.pm-suche:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pm-liste { display: grid; gap: 1px; min-width: 0; }
+.pm-liste-scroll[data-kurz] { max-height: 188px; }
+.pm-liste-scroll { max-height: 224px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.pm-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.pm-opt:hover { background: var(--hover); color: var(--text-primary); }
+.pm-opt:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pm-opt[data-aktiv] { background: var(--thumb, var(--ctl-h)); box-shadow: var(--thumb-sh, inset 0 0 0 1px var(--line-2)); color: var(--text-primary); font-weight: 550; }
+.pm-opt-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--surface-3);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.pm-opt[data-aktiv] .pm-opt-icon { background: var(--accent-muted); color: var(--accent-text); }
+.pm-opt-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-opt-badge { padding: 1px 7px; border-radius: var(--r-full); background: var(--surface-3); font-size: 11px; font-weight: 550; color: var(--text-muted); flex-shrink: 0; }
+.pm-opt-check { color: var(--accent-text); flex-shrink: 0; }
+.pm-leer { margin: 0; padding: 8px; font-size: 12.5px; color: var(--text-muted); }
+.pm-aktionen { display: flex; gap: 4px; padding: 2px 2px 0; }
+.pm-aktion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  text-decoration: none;
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  white-space: nowrap;
+}
+.pm-aktion:hover { background: var(--hover); color: var(--text-primary); }
+.pm-fuss { padding: 6px 8px 8px; }
+.pm-abmelden {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.pm-abmelden:hover { background: var(--danger-bg, var(--hover)); color: var(--danger-fg); }
