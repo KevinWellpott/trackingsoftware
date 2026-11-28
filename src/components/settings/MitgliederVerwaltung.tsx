@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Segmented } from "@/components/ui/Segmented";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { ownerColor } from "@/lib/ownerColor";
 import { PASSWORT_MIN, erzeugePasswort, passwortFehler, zuletztText } from "@/lib/mitglieder";
 
@@ -32,7 +33,12 @@ function Abschnitt({ titel, hinweis, children }: { titel: string; hinweis?: stri
     <section className="mv-abschnitt">
       <div className="mv-abschnitt-kopf">
         <h3>{titel}</h3>
-        {hinweis && <p>{hinweis}</p>}
+        {/* Erklärung im Info-Icon, nicht als Absatz (Regel 28.11.). */}
+        {hinweis && (
+          <InfoPopover label={`${titel}: Erklärung`} width={300}>
+            {hinweis}
+          </InfoPopover>
+        )}
       </div>
       {children}
     </section>
@@ -100,9 +106,11 @@ function MitgliedDialog({
 
         <Abschnitt titel="Rechte">
           <div className="mv-recht">
-            <div>
+            <div className="mv-recht-label">
               <strong>Rolle</strong>
-              <span>Owner verwalten Mitglieder, Ziele und Einstellungen.</span>
+              <InfoPopover label="Rolle: Erklärung" width={280}>
+                Owner verwalten Mitglieder, Ziele und Einstellungen.
+              </InfoPopover>
             </div>
             {ich ? (
               <span className="mv-fest">{m.role === "owner" ? "Owner" : "Mitglied"} · eigene Rolle fest</span>
@@ -121,9 +129,11 @@ function MitgliedDialog({
             )}
           </div>
           <div className="mv-recht">
-            <div>
+            <div className="mv-recht-label">
               <strong>Datensicht</strong>
-              <span>Nur eigene: sieht ausschließlich eigene Listen, Termine und Zahlen.</span>
+              <InfoPopover label="Datensicht: Erklärung" width={280}>
+                Nur eigene: sieht ausschließlich eigene Listen, Termine und Zahlen.
+              </InfoPopover>
             </div>
             <Segmented
               options={[

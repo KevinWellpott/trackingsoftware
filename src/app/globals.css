@@ -5057,3 +5057,13 @@ a.nf-name:hover { color: var(--accent-text); }
   border-radius: 8px;
 }
 .nf-details-schalter:hover { background: var(--hover); color: var(--text-primary); }
+
+/* Kopf der Sammel-Karte (Aufräumen/Wiedervorlage): Zahl + Info-Icon. */
+.nf-sammel-kopf { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-sm); color: var(--text-secondary); }
+.nf-sammel-kopf > strong { font-weight: 600; color: var(--text-primary); }
+.nf-sammel-link { margin-left: auto; color: var(--accent-text); text-decoration: none; }
+.nf-sammel-link:hover { text-decoration: underline; }
+
+/* Abschnitts- und Rechte-Köpfe im Mitglieder-Dialog: Titel + Info-Icon. */
+.mv-abschnitt-kopf { display: flex; align-items: center; gap: var(--sp-2); }
+.mv-recht > .mv-recht-label { display: flex !important; flex-direction: row; align-items: center; gap: var(--sp-2); }

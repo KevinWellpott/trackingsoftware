@@ -2,7 +2,7 @@
 
 import { AnchoredPopover, useAnchor } from "@/components/ui/AnchoredPopover";
 import { Info } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
  * Erklaertext hinter einem Info-Icon statt dauerhaft unter der Sektion.
@@ -16,6 +16,10 @@ import type { ReactNode } from "react";
  * Das Popover liegt UEBER der Seite (AnchoredPopover), es schiebt also nichts
  * weg — ein inline aufklappender Text haette dasselbe Platzproblem nur
  * verschoben.
+ *
+ * Seit dem 28.11. oeffnet es beim HOVERN (und bei Tastatur-Fokus) und
+ * schliesst beim Verlassen; ein Klick heftet es an, bis man erneut klickt
+ * oder daneben klickt. Regel: Erklaertexte stehen immer hier, nie als Absatz.
  */
 export function InfoPopover({
   children,
@@ -27,8 +31,13 @@ export function InfoPopover({
   label?: string;
   width?: number;
 }) {
-  const { anchor, ref, toggle, close } = useAnchor();
+  const { anchor, ref, open, close } = useAnchor();
   const isOpen = anchor !== null;
+  const [angeheftet, setAngeheftet] = useState(false);
+  const schliessen = () => {
+    setAngeheftet(false);
+    close();
+  };
 
   return (
     <>
@@ -43,7 +52,23 @@ export function InfoPopover({
           // Klick zusaetzlich von umgebenden Zeilen-Handlern fern.
           e.preventDefault();
           e.stopPropagation();
-          toggle();
+          if (angeheftet) schliessen();
+          else {
+            setAngeheftet(true);
+            open();
+          }
+        }}
+        onMouseEnter={() => {
+          if (!isOpen) open();
+        }}
+        onMouseLeave={() => {
+          if (!angeheftet) close();
+        }}
+        onFocus={() => {
+          if (!isOpen) open();
+        }}
+        onBlur={() => {
+          if (!angeheftet) close();
         }}
         aria-label={label}
         aria-expanded={isOpen}
@@ -70,7 +95,7 @@ export function InfoPopover({
       {anchor && (
         <AnchoredPopover
           anchor={anchor}
-          onClose={close}
+          onClose={schliessen}
           label={label}
           width={width}
           align="end"

@@ -108,9 +108,12 @@ describe("1 · Erklärtexte stehen hinter dem Info-Icon", () => {
     // dreht sich deshalb um.
     assert.doesNotMatch(NACHFASSEN, /SECTION_CROSSLINK/);
     assert.doesNotMatch(NACHFASSEN, /href="\/erinnerungen"/);
-    // Und das Board hat damit gar kein Info-Icon mehr: Was es zu erklären
-    // gäbe, steht am Seitentitel (Block oben) oder auf der Karte selbst.
-    assert.equal(versteckt(NACHFASSEN), "", "Das Board erklärt sich wieder hinter einem Icon.");
+    // Seit dem 28.11. gilt die Gegenregel: Erklärtexte stehen IMMER hinter
+    // einem Info-Icon (Hover), nie als Absatz. Im Board sind das genau die
+    // Erklärungen von „Aufräumen“ und „Wiedervorlage“.
+    const hinter = versteckt(NACHFASSEN);
+    assert.match(hinter, /Altbestand vor dem Start des Eingangs/);
+    assert.match(hinter, /Tote Leads, deren Wartezeit um ist/);
   });
 
   test("/ablage: die Begründungen der Sperrliste und der Rückholung sind weg vom Schirm", () => {
@@ -160,7 +163,9 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
     assert.doesNotMatch(NACHFASSEN, /ausgeblendet/);
     assert.doesNotMatch(NACHFASSEN, /Trotzdem anzeigen/);
     assert.match(NACHFASSEN, /label: `Aufräumen \$\{aufraeumenAnzahl\}`/);
-    sichtbar("/nachfassen", NACHFASSEN, ["Altbestand vor dem Start des Eingangs", "Noch {sammelListe.length} offen."]);
+    // Regel seit 28.11.: sichtbar bleibt die ZAHL, die Erklärung steht im Info-Icon.
+    sichtbar("/nachfassen", NACHFASSEN, ["Noch {sammelListe.length} offen"]);
+    assert.match(versteckt(NACHFASSEN), /Altbestand vor dem Start des Eingangs/);
   });
 
   test("Leerzustände sagen weiterhin ohne Klick, was als Nächstes passiert", () => {
@@ -206,3 +211,12 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
 // ist gelöscht: Es gibt keine Stufen mehr, die man abhaken oder zurücknehmen
 // könnte. Die Regeln selbst leben dort weiter, wo sie noch etwas tragen — in
 // /ablage und /nachfassen, geprüft im Block darüber.
+
+describe("Info-Icon öffnet beim Hovern (Regel 28.11.)", () => {
+  test("Hover und Fokus öffnen, Klick heftet an", () => {
+    const ip = read("src/components/ui/InfoPopover.tsx");
+    assert.match(ip, /onMouseEnter=\{\(\) => \{\s*if \(!isOpen\) open\(\);/);
+    assert.match(ip, /onMouseLeave=\{\(\) => \{\s*if \(!angeheftet\) close\(\);/);
+    assert.match(ip, /onFocus=/);
+  });
+});

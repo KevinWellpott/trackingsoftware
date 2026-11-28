@@ -15,6 +15,7 @@
 
 import { Fragment } from "react";
 import { Segmented } from "@/components/ui/Segmented";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { TerminAktionen } from "@/components/termine/TerminAktionen";
 import { berlinDateISO, formatTerminParts } from "@/lib/apptTime";
@@ -362,8 +363,12 @@ export function VorgangListe({
         </div>
       )}
       <div className="keys">
-        <span>Gold: eine der zwei Erinnerungen vor dem Termin ist offen.</span>
-        <span>„Gelegt von“ nervt und erinnert · „Durchgeführt von“ bekommt das Gespräch in der Analyse.</span>
+        <span style={{ marginLeft: "auto", display: "inline-flex" }}>
+          <InfoPopover label="Wie lese ich die Liste?" width={320}>
+            Gold: eine der zwei Erinnerungen vor dem Termin ist offen. „Gelegt von“ nervt und erinnert · „Durchgeführt
+            von“ bekommt das Gespräch in der Analyse.
+          </InfoPopover>
+        </span>
       </div>
     </section>
   );

@@ -16,6 +16,7 @@ import { DateTimeField } from "@/components/ui/DateTimeField";
 import { AnchoredPopover, useAnchor } from "@/components/ui/AnchoredPopover";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { LeadDossierLink } from "@/components/lead/LeadDossierPanel";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { ErgebnisSchnell } from "@/components/termine/ErgebnisSchnell";
 import {
   aufgeben,
@@ -926,18 +927,24 @@ export function NachfassEingang(props: Props) {
 
       {sammelGruppe && (
         <div className="card" style={{ padding: "var(--sp-6) var(--sp-7)", display: "grid", gap: "var(--sp-4)" }}>
-          <div style={{ fontSize: "var(--fs-sm)", color: "var(--text-secondary)" }}>
+          {/* Sichtbar nur die Zahl; die Erklärung steht im Info-Icon (Regel 28.11.). */}
+          <div className="nf-sammel-kopf">
             {sammelGruppe === "aufraeumen" ? (
               <>
-                Altbestand vor dem Start des Eingangs: Vorgänge, deren letztes Lebenszeichen mehr als 14 Tage vor dem
-                Stichtag liegt und die seitdem niemand angefasst hat. Einmal sichten — danach startet „Fällig&ldquo;
-                sauber. Noch {sammelListe.length} offen.
+                <strong>Noch {sammelListe.length} offen</strong>
+                <InfoPopover label="Was ist „Aufräumen“?" width={340}>
+                  Altbestand vor dem Start des Eingangs: Vorgänge, deren letztes Lebenszeichen mehr als 14 Tage vor dem
+                  Stichtag liegt und die seitdem niemand angefasst hat. Einmal sichten — danach startet „Fällig“ sauber.
+                </InfoPopover>
               </>
             ) : (
               <>
-                Tote Leads, deren Wartezeit um ist — ein neuer Versuch lohnt sich. Sie zählen nicht im Badge; arbeite
-                sie ab, wenn „Fällig&ldquo; leer ist. {sammelListe.length} fällig.{" "}
-                <Link href="/ablage" style={{ color: "var(--accent-text)" }}>
+                <strong>{sammelListe.length} fällig</strong>
+                <InfoPopover label="Was ist die Wiedervorlage?" width={340}>
+                  Tote Leads, deren Wartezeit um ist — ein neuer Versuch lohnt sich. Sie zählen nicht im Badge; arbeite
+                  sie ab, wenn „Fällig“ leer ist.
+                </InfoPopover>
+                <Link href="/ablage" className="nf-sammel-link">
                   Ablage &amp; Sperrliste
                 </Link>
               </>
@@ -1038,7 +1045,11 @@ export function NachfassEingang(props: Props) {
           <span>
             <kbd>T</kbd> Termin
           </span>
-          <span style={{ marginLeft: "auto" }}>Gold: jetzt dran — fällig und noch nicht angefasst</span>
+          <span style={{ marginLeft: "auto", display: "inline-flex" }}>
+            <InfoPopover label="Was heißt der goldene Punkt?" width={280}>
+              Gold: jetzt dran — fällig und noch nicht angefasst.
+            </InfoPopover>
+          </span>
         </div>
       )}
 
