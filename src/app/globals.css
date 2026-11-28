@@ -4425,12 +4425,24 @@ a.cm-nr:hover { color: var(--accent-text); }
 .nachfass-zeile[data-selected="true"] { background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); }
 .nachfass-zeile > .dran-mark { justify-self: center; }
 .nf-ra { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
-.nf-ra .ui-btn[data-variant="ghost"],
-.nf-ra .ui-btn[data-variant="secondary"] { opacity: 0.6; transition: opacity var(--transition-fast); }
-.nachfass-zeile:hover .nf-ra .ui-btn,
-.nachfass-zeile:focus-within .nf-ra .ui-btn,
-.nachfass-zeile[data-selected="true"] .nf-ra .ui-btn { opacity: 1; }
-@media (hover: none) { .nf-ra .ui-btn { opacity: 1 !important; } }
+/* Aktionen in „Heute“ (28.11.): volle Deckkraft, einheitliche Höhe, die
+   seltenen Symbol-Knöpfe hinter einem Trennstrich. */
+.nf-ra .ui-btn { min-height: 30px; }
+.nf-ra .ui-btn[data-variant="secondary"] { background: var(--ctl); box-shadow: inset 0 0 0 1px var(--line-2); }
+.nf-ra-sep { width: 1px; height: 20px; margin: 0 2px; background: var(--line-2); flex-shrink: 0; }
+.nf-menue { display: grid; padding: 6px; }
+.nf-menue > button {
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.nf-menue > button:hover { background: var(--hover); }
 .nf-grp {
   display: flex;
   align-items: baseline;

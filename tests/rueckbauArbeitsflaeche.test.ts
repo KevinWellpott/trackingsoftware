@@ -669,7 +669,9 @@ describe("8 · Zwei Zeitkörnungen bleiben getrennt — auch in EINER Liste", ()
     assert.notEqual(start, -1, "der Rückruf-Zweig der Zeile fehlt");
     // Bis zum Zweig der Termine (der mit „Kontakt eintragen“ beginnt).
     const zweig = EINGANG.slice(start, EINGANG.indexOf("<span ref={kontaktRef", start));
-    assert.match(zweig, /telefonAktion\("nicht_erreicht"/);
+    // Seit dem 28.11. stehen „Nicht erreicht“/„Kein Termin“ im Menü „…“ der Zeile.
+    assert.match(zweig, /onClick=\{mehrToggle\}/);
+    assert.match(EINGANG, /telefonAktion\("nicht_erreicht", "nicht erreicht"\)/);
     assert.doesNotMatch(zweig, /kontaktToggle/);
     assert.doesNotMatch(code(EINGANG), /markFollowUpContacted/);
   });

@@ -288,6 +288,6 @@ describe("6 · Dringlichkeit ist Gold, keine neue Farbe", () => {
   });
 
   test("die Knöpfe kommen aus der Button-Familie", () => {
-    assert.match(BOARD, /import \{ Button \} from "@\/components\/ui\/Button";/);
+    assert.match(BOARD, /import \{ Button, IconButton \} from "@\/components\/ui\/Button";/);
   });
 });

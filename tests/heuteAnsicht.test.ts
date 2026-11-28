@@ -41,3 +41,16 @@ describe("Meine / Ganze Organisation", () => {
     assert.match(EINGANG, /alle=\{props\.wer === "alle"\}/);
   });
 });
+
+describe("Knöpfe der Zeile (28.11.)", () => {
+  test("nichts mehr halb ausgegraut, seltene Handlungen als Symbol hinter einem Strich", () => {
+    const css = read("src/app/globals.css");
+    assert.doesNotMatch(css, /\.nf-ra \.ui-btn\[data-variant="secondary"\] \{ opacity: 0\.6/);
+    assert.match(css, /\.nf-ra-sep \{/);
+    assert.match(EINGANG, /<IconButton\s+label="Tot/);
+    assert.match(EINGANG, /<LeadDossierLink kind=\{e\.art\} id=\{e\.id\} iconOnly \/>/);
+  });
+  test("kein Erklärsatz neben dem Schalter", () => {
+    assert.doesNotMatch(EINGANG, /Deine Vorgänge: was du gelegt hast/);
+  });
+});

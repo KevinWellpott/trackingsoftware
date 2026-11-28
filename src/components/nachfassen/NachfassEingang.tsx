@@ -8,8 +8,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { AtSign, CalendarPlus, Check, Mail, Phone, PhoneCall, Skull, Undo2 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { AtSign, CalendarPlus, Check, Mail, MoreHorizontal, Phone, PhoneCall, Skull, Undo2 } from "lucide-react";
+import { Button, IconButton } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { DateTimeField } from "@/components/ui/DateTimeField";
@@ -348,6 +348,7 @@ function Zeile({
   const { anchor: kontaktAnchor, ref: kontaktRef, toggle: kontaktToggle, close: kontaktClose } = useAnchor();
   const { anchor: terminAnchor, ref: terminRef, toggle: terminToggle, close: terminClose } = useAnchor();
   const { anchor: rueckrufAnchor, ref: rueckrufRef, toggle: rueckrufToggle, close: rueckrufClose } = useAnchor();
+  const { anchor: mehrAnchor, ref: mehrRef, toggle: mehrToggle, close: mehrClose } = useAnchor();
   const { confirm, dialog } = useConfirm();
   const [pending, start] = useTransition();
   const versuche = versucheInFolge(e.kontakte);
@@ -457,6 +458,9 @@ function Zeile({
           </div>
         )}
       </div>
+      {/* Aktionen (28.11.): links die Nebenhandlungen (umrandet), rechts die
+          EINE Haupthandlung (gefüllt), dahinter durch einen Strich getrennt die
+          seltenen als Symbol — Tot und Details. Nichts mehr halb ausgegraut. */}
       <div className="nf-ra">
         {e.ergebnisFehlt && (e.art === "setting" || e.art === "closing") ? (
           <ErgebnisSchnell
@@ -467,6 +471,24 @@ function Zeile({
           />
         ) : e.quelle === "rueckruf" ? (
           <>
+            <span ref={rueckrufRef as React.RefObject<HTMLSpanElement>}>
+              <Button size="sm" variant="secondary" onClick={rueckrufToggle} title="Rückruf auf eine andere Zeit legen">
+                Verschieben
+              </Button>
+            </span>
+            {callModus && (
+              <span data-nf-key="t">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<CalendarPlus size={13} />}
+                  onClick={() => router.push(`${callModus}&aktion=termin`)}
+                  title="Termin legen (T)"
+                >
+                  Termin
+                </Button>
+              </span>
+            )}
             {callModus ? (
               // Anrufen = Call-Modus auf genau diesem Lead: Wählen, Ergebnis und
               // Termin an einem Ort (Punkt 4).
@@ -482,24 +504,10 @@ function Zeile({
                 </a>
               )
             )}
-            {callModus && (
-              <span data-nf-key="t">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={<CalendarPlus size={13} />}
-                  onClick={() => router.push(`${callModus}&aktion=termin`)}
-                  title="Termin legen (T)"
-                >
-                  Termin
-                </Button>
-              </span>
-            )}
-            <span ref={rueckrufRef as React.RefObject<HTMLSpanElement>}>
-              <Button size="sm" variant="ghost" onClick={rueckrufToggle}>Verschieben</Button>
+            <span className="nf-ra-sep" aria-hidden />
+            <span ref={mehrRef as React.RefObject<HTMLSpanElement>}>
+              <IconButton label="Weitere Ergebnisse: Nicht erreicht, Kein Termin" icon={<MoreHorizontal size={15} />} size={30} onClick={mehrToggle} />
             </span>
-            <Button size="sm" variant="ghost" onClick={() => telefonAktion("nicht_erreicht", "nicht erreicht")}>Nicht erreicht</Button>
-            <Button size="sm" variant="ghost" onClick={() => telefonAktion("kein_termin", "kein Termin")}>Kein Termin</Button>
           </>
         ) : (
           <>
@@ -509,11 +517,6 @@ function Zeile({
                 <PhoneCall size={13} /> Anrufen
               </a>
             )}
-            <span ref={kontaktRef as React.RefObject<HTMLSpanElement>} data-nf-key="e">
-              <Button size="sm" variant="primary" onClick={kontaktToggle} title="Kontakt eintragen (E)">
-                Kontakt eintragen
-              </Button>
-            </span>
             {(e.art === "setting" || e.art === "closing") && e.quelle === "termin" && (
               <span ref={terminRef as React.RefObject<HTMLSpanElement>} data-nf-key="t">
                 <Button
@@ -532,10 +535,17 @@ function Zeile({
                 Öffnen
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={<Skull size={13} />}
+            <span ref={kontaktRef as React.RefObject<HTMLSpanElement>} data-nf-key="e">
+              <Button size="sm" variant="primary" icon={<Check size={13} />} onClick={kontaktToggle} title="Kontakt eintragen (E)">
+                Kontakt eintragen
+              </Button>
+            </span>
+            <span className="nf-ra-sep" aria-hidden />
+            <IconButton
+              label="Tot — kommt nach der Wartezeit als Wiedervorlage zurück"
+              icon={<Skull size={15} />}
+              size={30}
+              tone="danger"
               onClick={async () => {
                 const ok = await confirm({
                   title: "Auf „Tot“ setzen?",
@@ -553,12 +563,11 @@ function Zeile({
                   else onDone(null, `${e.name}: tot`);
                 });
               }}
-            >
-              Tot
-            </Button>
+            />
           </>
         )}
-        <LeadDossierLink kind={e.art} id={e.id} />
+        {e.ergebnisFehlt && <span className="nf-ra-sep" aria-hidden />}
+        <LeadDossierLink kind={e.art} id={e.id} iconOnly />
       </div>
       {kontaktAnchor && (
         <KontaktPopover
@@ -582,6 +591,30 @@ function Zeile({
             onDone(null, text);
           }}
         />
+      )}
+      {mehrAnchor && (
+        <AnchoredPopover anchor={mehrAnchor} onClose={mehrClose} label="Weitere Ergebnisse" width={220} align="end">
+          <div className="nf-menue">
+            <button
+              type="button"
+              onClick={() => {
+                mehrClose();
+                telefonAktion("nicht_erreicht", "nicht erreicht");
+              }}
+            >
+              Nicht erreicht
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                mehrClose();
+                telefonAktion("kein_termin", "kein Termin");
+              }}
+            >
+              Kein Termin
+            </button>
+          </div>
+        </AnchoredPopover>
       )}
       {rueckrufAnchor && (
         <RueckrufPopover
@@ -795,11 +828,6 @@ export function NachfassEingang(props: Props) {
             size="md"
             ariaLabel="Person"
           />
-          <span>
-            {props.wer === "alle"
-              ? "Alle Vorgänge der Organisation — je Zeile, wer terminiert und wer das Gespräch geführt hat."
-              : "Deine Vorgänge: was du gelegt hast, und Gespräche, die du geführt hast."}
-          </span>
         </div>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-5)", alignItems: "center" }}>

@@ -665,11 +665,29 @@ export function LeadDossierLink({
   kind,
   id,
   label = "Details",
+  iconOnly = false,
 }: {
   kind: DossierEntityKind;
   id: string;
   label?: string;
+  /** Nur das Symbol — in Zeilen mit mehreren Knöpfen (z. B. „Heute“). */
+  iconOnly?: boolean;
 }) {
+  if (iconOnly) {
+    const titel = `${label}: ${DOSSIER_ENTITY_LABELS[kind]} — alles zu diesem Lead`;
+    return (
+      <Link
+        href={dossierPath(kind, id)}
+        className="ui-btn ui-icon-btn"
+        data-variant="ghost"
+        aria-label={titel}
+        title={titel}
+        style={{ width: 30, height: 30, minHeight: 30, padding: 0, borderRadius: 10, flexShrink: 0 }}
+      >
+        <FileText size={15} />
+      </Link>
+    );
+  }
   return (
     <Link href={dossierPath(kind, id)} style={ghostBtn} title={`${DOSSIER_ENTITY_LABELS[kind]} — alles zu diesem Lead`}>
       <FileText size={12} /> {label}
