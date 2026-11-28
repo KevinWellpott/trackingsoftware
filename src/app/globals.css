@@ -4939,3 +4939,22 @@ a.km:hover .km-go, a.km:focus-visible .km-go { opacity: 1; }
 @media (max-width: 640px) {
   .dash-trends-meta { display: none; }
 }
+
+/* ── „Heute“: Meta-Zeile und Personenachse (28.11.) ── */
+.nf-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.nf-meta > * { white-space: nowrap; }
+.nf-meta > * + *::before { content: "·"; margin: 0 7px; color: var(--text-subtle, var(--text-muted)); }
+.nf-kontakt { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); text-decoration: none; }
+.nf-kontakt::before { margin-right: 3px !important; }
+.nf-kontakt:hover { color: var(--text-primary); }
+.nf-rolle strong { font-weight: 500; color: var(--text-secondary); }
+.nf-firma { color: var(--text-muted); font-size: var(--fs-sm); }
+.nf-wer { display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap; }
+.nf-wer > span { font-size: var(--fs-sm); color: var(--text-muted); }

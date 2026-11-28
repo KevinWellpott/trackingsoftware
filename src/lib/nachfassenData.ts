@@ -44,6 +44,12 @@ export type NachfassAnzeige = NachfassEintrag & {
   recycle: { origin: "linkedin" | "telefon" | "setting" | "closing"; reason: string | null; attempt: number } | null;
   /** Closing im Status „nachfassen". */
   closingNachfassen: boolean;
+  /**
+   * Wer was gemacht hat — für die Organisations-Ansicht (28.11.):
+   * „terminiert" (Erstgespräch: Zuweisung bzw. Ersteller; Closing: wer es
+   * angelegt hat), „geführt" (Durchgeführt von), bei Rückrufen „Liste".
+   */
+  rollen: { label: string; name: string }[];
 };
 
 export type NachfassenDaten = {
@@ -339,6 +345,13 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer, schlank = fal
     const ergebnisFehlt =
       heuteVorbei ||
       (zustand === "offen" && !absage && Boolean(at) && berlinDateISO(at!) < today && !r.show_status && r.status === "offen");
+    const nameVon = (id: string | null | undefined) => (id ? nameById.get(id) ?? null : null);
+    const terminiert = art === "setting" ? nameVon(r.assigned_user_id ?? r.created_by_user_id) : nameVon(r.created_by_user_id);
+    const gefuehrt = nameVon(r.conducted_by_user_id);
+    const rollen = [
+      ...(terminiert ? [{ label: "terminiert", name: terminiert }] : []),
+      ...(gefuehrt ? [{ label: "geführt", name: gefuehrt }] : []),
+    ];
 
     eintraege.push({
       key: `${art}:${r.id}`,
@@ -361,11 +374,18 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer, schlank = fal
       email: null,
       linkedinUrl: null,
       href: art === "setting" ? `/setting/${r.id}?from=nachfassen` : `/closing/${r.id}?from=nachfassen`,
-      kontext: `${art === "setting" ? "Erstgespräch" : "Closing"} · ${
-        closingNachfassen ? "Nachfassen" : heuteVorbei ? "heute, kein Ergebnis" : absage ? "abgesagt" : ZUSTAND_KONTEXT[zustand] ?? zustand
-      }`,
+      // Bei fehlendem Ergebnis nur die Art: „kein Termin" las sich dort wie
+      // „nie terminiert", gemeint war „Termin vorbei" (28.11.).
+      kontext: ergebnisFehlt
+        ? art === "setting"
+          ? "Erstgespräch"
+          : "Closing"
+        : `${art === "setting" ? "Erstgespräch" : "Closing"} · ${
+            closingNachfassen ? "Nachfassen" : absage ? "abgesagt" : ZUSTAND_KONTEXT[zustand] ?? zustand
+          }`,
       recycle: null,
       closingNachfassen,
+      rollen,
     });
   }
 
@@ -402,6 +422,10 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer, schlank = fal
       kontext: `Rückruf · ${list?.name ?? "ohne Liste"}`,
       recycle: null,
       closingNachfassen: false,
+      rollen: (() => {
+        const n = owner ? nameById.get(owner) ?? list?.owner_name ?? null : list?.owner_name ?? null;
+        return n ? [{ label: "Liste", name: n }] : [];
+      })(),
     });
   }
 
@@ -447,6 +471,7 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer, schlank = fal
       kontext: `Wiedervorlage · ${RECYCLE_KONTEXT[t.origin] ?? t.origin}`,
       recycle: { origin: t.origin, reason: t.reason, attempt: t.attempt_count ?? 0 },
       closingNachfassen: false,
+      rollen: [],
     });
   }
 

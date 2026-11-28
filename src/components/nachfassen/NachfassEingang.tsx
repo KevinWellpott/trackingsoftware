@@ -27,7 +27,7 @@ import {
 import { setNeuerTermin } from "@/app/actions/followUpStamp";
 import { setPhoneLeadOutcome } from "@/app/actions/phone";
 import { DRAN_TONE } from "@/lib/dranRegel";
-import { berlinDateISO, formatTermin } from "@/lib/apptTime";
+import { berlinDateISO, formatTerminParts } from "@/lib/apptTime";
 import { dayDiff, lastContactLabel } from "@/lib/contactGap";
 import {
   AUFGEBEN_AB_VERSUCHEN,
@@ -79,10 +79,16 @@ function tagDe(iso: string): string {
   return `${d}.${m}.${y.slice(2)}`;
 }
 
+/** „Do 19.11. · 10:30“ — kurz, ohne Jahr und „Uhr“. */
+function kurzTermin(iso: string): string {
+  const t = formatTerminParts(iso);
+  return t ? `${t.date} · ${t.time}` : iso;
+}
+
 function faelligText(e: NachfassAnzeige, today: string): string {
-  if (e.ergebnisFehlt) return e.terminAt ? `Termin ${formatTermin(e.terminAt)} — kein Ergebnis` : "kein Ergebnis";
+  if (e.ergebnisFehlt) return e.terminAt ? `Termin ${kurzTermin(e.terminAt)} · kein Ergebnis` : "kein Ergebnis";
   if (!e.faelligAm) return "kein nächster Schritt";
-  if (e.koernung === "minute") return `Rückruf ${formatTermin(e.faelligAm)}`;
+  if (e.koernung === "minute") return `Rückruf ${kurzTermin(e.faelligAm)}`;
   const tag = faelligkeitsTag(e, today);
   const diff = dayDiff(tag, today);
   if (diff === 0) return "heute";
@@ -320,6 +326,7 @@ function Zeile({
   e,
   today,
   nowMs,
+  alle,
   gruppe,
   auswahl,
   onAuswahl,
@@ -329,6 +336,8 @@ function Zeile({
   e: NachfassAnzeige;
   today: string;
   nowMs: number;
+  /** Organisations-Ansicht: Wer hat terminiert, wer hat geführt. */
+  alle: boolean;
   gruppe: NachfassGruppe;
   auswahl: boolean;
   onAuswahl: ((v: boolean) => void) | null;
@@ -396,7 +405,9 @@ function Zeile({
           ) : (
             <span style={{ fontWeight: dran ? 600 : 550, color: "var(--text-primary)" }}>{e.name}</span>
           )}
-          {e.firma && <span style={{ color: "var(--text-muted)", fontSize: "var(--fs-sm)" }}>{e.firma}</span>}
+          {e.firma && e.firma.trim().toLowerCase() !== e.name.trim().toLowerCase() && (
+            <span className="nf-firma">{e.firma}</span>
+          )}
           <span
             style={{
               fontSize: "var(--fs-xs)",
@@ -412,24 +423,31 @@ function Zeile({
             <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{e.recycle.attempt}. Wiedervorlage</span>
           )}
         </div>
-        <div style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)", display: "flex", gap: "var(--sp-3)", flexWrap: "wrap" }}>
+        {/* Meta-Zeile: jedes Stück bleibt am Stück (kein Umbruch zwischen
+            Symbol und Nummer), die Trenner setzt das CSS (.nf-meta). */}
+        <div className="nf-meta">
           <span style={{ color: dran ? DRAN_TONE.fg : undefined }}>{faelligText(e, today)}</span>
-          {versuche > 0 && <span>· Versuch {versuche + 1}</span>}
-          {letzter && <span>· {letzter}</span>}
-          {e.personName && <span>· {e.personName}</span>}
+          {versuche > 0 && <span>Versuch {versuche + 1}</span>}
+          {letzter && <span>{letzter}</span>}
+          {alle &&
+            e.rollen.map((r) => (
+              <span key={r.label} className="nf-rolle">
+                {r.label} <strong>{r.name}</strong>
+              </span>
+            ))}
           {e.telefon && (
-            <a href={`tel:${e.telefon}`} style={{ color: "var(--text-secondary)" }}>
-              · <Phone size={11} style={{ verticalAlign: "-1px" }} /> {e.telefon}
+            <a href={`tel:${e.telefon}`} className="nf-kontakt">
+              <Phone size={11} aria-hidden /> {e.telefon}
             </a>
           )}
           {e.email && (
-            <a href={`mailto:${e.email}`} style={{ color: "var(--text-secondary)" }} title={e.email}>
-              · <Mail size={11} style={{ verticalAlign: "-1px" }} /> Mail
+            <a href={`mailto:${e.email}`} className="nf-kontakt" title={e.email}>
+              <Mail size={11} aria-hidden /> Mail
             </a>
           )}
           {e.linkedinUrl && (
-            <a href={e.linkedinUrl} target="_blank" rel="noreferrer" style={{ color: "var(--text-secondary)" }}>
-              · <AtSign size={11} style={{ verticalAlign: "-1px" }} /> LinkedIn
+            <a href={e.linkedinUrl} target="_blank" rel="noreferrer" className="nf-kontakt">
+              <AtSign size={11} aria-hidden /> LinkedIn
             </a>
           )}
         </div>
@@ -763,7 +781,27 @@ export function NachfassEingang(props: Props) {
         </div>
       )}
 
-      {/* Reiter und Filter */}
+      {/* Reiter und Filter — vorn die Personenachse (28.11.): meine Vorgänge
+          oder die der ganzen Organisation, dort mit „terminiert“/„geführt“. */}
+      {props.darfAlle && (
+        <div className="nf-wer">
+          <Segmented
+            options={[
+              { value: "mein", label: "Meine" },
+              { value: "alle", label: "Ganze Organisation" },
+            ]}
+            value={props.wer}
+            onChange={(v) => setParam("wer", v === "mein" ? null : v)}
+            size="md"
+            ariaLabel="Person"
+          />
+          <span>
+            {props.wer === "alle"
+              ? "Alle Vorgänge der Organisation — je Zeile, wer terminiert und wer das Gespräch geführt hat."
+              : "Deine Vorgänge: was du gelegt hast, und Gespräche, die du geführt hast."}
+          </span>
+        </div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-5)", alignItems: "center" }}>
         <Segmented
           options={reiterOptionen}
@@ -782,18 +820,6 @@ export function NachfassEingang(props: Props) {
           size="sm"
           ariaLabel="Quelle"
         />
-        {props.darfAlle && (
-          <Segmented
-            options={[
-              { value: "mein", label: "Mein" },
-              { value: "alle", label: "Alle Personen" },
-            ]}
-            value={props.wer}
-            onChange={(v) => setParam("wer", v === "mein" ? null : v)}
-            size="sm"
-            ariaLabel="Person"
-          />
-        )}
       </div>
 
       {sammelGruppe && (
@@ -864,6 +890,7 @@ export function NachfassEingang(props: Props) {
                 e={e}
                 today={today}
                 nowMs={nowMs}
+                alle={props.wer === "alle"}
                 gruppe={g}
                 auswahl={auswahl.has(e.key)}
                 onAuswahl={
