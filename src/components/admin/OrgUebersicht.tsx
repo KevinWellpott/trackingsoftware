@@ -342,7 +342,7 @@ export function OrgUebersicht({ orgs, today, richtwerteVerfuegbar, luecken }: Or
               <tr>
                 <th scope="col">Organisation</th>
                 {KENNZAHLEN.map((k) => (
-                  <th key={k.key} scope="col" className="r" aria-sort={sortierung === k.key ? "descending" : undefined}>
+                  <th key={k.key} scope="col" className="r" data-sortiert={sortierung === k.key || undefined} aria-sort={sortierung === k.key ? "descending" : undefined}>
                     <button type="button" onClick={() => setSortierung(k.key)} data-aktiv={sortierung === k.key || undefined} title={k.hinweis}>
                       {k.label}
                       {sortierung === k.key && <ChevronDown size={12} aria-hidden />}

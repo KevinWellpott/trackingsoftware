@@ -5067,3 +5067,15 @@ a.nf-name:hover { color: var(--accent-text); }
 /* Abschnitts- und Rechte-Köpfe im Mitglieder-Dialog: Titel + Info-Icon. */
 .mv-abschnitt-kopf { display: flex; align-items: center; gap: var(--sp-2); }
 .mv-recht > .mv-recht-label { display: flex !important; flex-direction: row; align-items: center; gap: var(--sp-2); }
+
+/* Rangliste „Organisationen im Blick“: Zahlen und Überschriften in DERSELBEN
+   Flucht (28.11.). `.ob-tabelle td` setzte text-align:left mit höherem Vorrang
+   als `.ob-zelle` — Zahlen standen links, Überschriften rechts. Dazu feste
+   Breiten je Kennzahl, damit die Spalten nicht von der Organisation
+   auseinandergezogen werden, und die sortierte Spalte auch im Kopf markiert. */
+.ob-tabelle td.ob-zelle { text-align: right; width: 12%; padding-right: var(--sp-7); }
+.ob-tabelle thead th.r { width: 12%; padding-right: var(--sp-7); }
+.ob-tabelle thead th.r:last-child { width: 1%; }
+.ob-tabelle thead th[data-sortiert] { background: color-mix(in srgb, var(--surface-3) 45%, transparent); }
+.ob-tabelle thead th.r button { justify-content: flex-end; }
+.ob-zelle .ob-bar { margin-left: auto; }

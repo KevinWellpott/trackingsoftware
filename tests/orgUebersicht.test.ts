@@ -129,3 +129,12 @@ describe("Zugriff und Definitionen", () => {
     assert.match(read("src/components/Sidebar.tsx"), /\{orgSwitch && \(\s*<NavLink\s+href="\/admin\/uebersicht"/);
   });
 });
+
+describe("Rangliste: Spalten fluchten (28.11.)", () => {
+  test("Zahlen rechtsbündig wie die Überschriften, feste Breiten, sortierte Spalte im Kopf markiert", () => {
+    const css = read("src/app/globals.css");
+    assert.match(css, /\.ob-tabelle td\.ob-zelle \{ text-align: right; width: 12%;/);
+    assert.match(css, /\.ob-tabelle thead th\.r \{ width: 12%;/);
+    assert.match(read("src/components/admin/OrgUebersicht.tsx"), /data-sortiert=\{sortierung === k\.key \|\| undefined\} aria-sort=/);
+  });
+});
