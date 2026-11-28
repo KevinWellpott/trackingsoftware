@@ -4,13 +4,13 @@ import { notFound } from "next/navigation";
 import { getAccessContext } from "@/lib/access";
 import { berlinDateISO, formatTermin } from "@/lib/apptTime";
 import { getInternRechte, loadGeld, loadInternTeam, loadKundenListe } from "@/lib/internData";
-import { KUNDEN_STATUS_LABELS, KUNDEN_STATUS_TONE, aufmerksamkeit, istLaufend } from "@/lib/kunden";
+import { KUNDEN_STATUS_LABELS, aufmerksamkeit, istLaufend, type KundenStatus } from "@/lib/kunden";
 import { FINANZ_STATUS_LABELS, datumDe } from "@/lib/umsatz";
 import { mitGueltigerPerson, passtZuWer, werAusUrl, werEintraege } from "@/lib/kundenFilter";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
-import { Chips } from "@/components/kunden/Nav";
+import { InfoPopover } from "@/components/ui/InfoPopover";
+import { ownerColor } from "@/lib/ownerColor";
+import { ListChecks, Search } from "lucide-react";
 import { KundeAnlegenButton } from "@/components/kunden/KundeAnlegenButton";
 import { HerkunftMerken } from "@/components/kunden/Zurueck";
 
@@ -19,6 +19,16 @@ import { HerkunftMerken } from "@/components/kunden/Zurueck";
 // Admins; für die anderen wird sie gar nicht erst geladen.
 
 export const dynamic = "force-dynamic";
+
+/** Dezente Status-Badges: Farbe nur als Punkt und Hauch, nie Gold/Orange (28.11.). */
+const STATUS_TON: Record<KundenStatus, "blau" | "rot" | "gruen" | undefined> = {
+  onboarding: "blau",
+  aktiv: "gruen",
+  pausiert: undefined,
+  abgeschlossen: undefined,
+  gekuendigt: undefined,
+  abgesprungen: "rot",
+};
 
 const ZEIGE = ["laufend", "woche", "achtung", "ueberfaellig", "beendet"] as const;
 type Zeige = (typeof ZEIGE)[number];
@@ -90,143 +100,198 @@ export default async function KundenPage({ searchParams }: { searchParams: Promi
   const basis = zeige === "beendet" ? alle.filter(filter.beendet) : zeige === "laufend" ? alle.filter(filter.laufend) : alle.filter(filter[zeige]);
   const anzahl = (z: Zeige) => meine.filter(filter[z]).length;
 
+  const reiter: { key: Zeige; label: string; zahl: number }[] = [
+    { key: "laufend", label: "In Betreuung", zahl: anzahl("laufend") },
+    { key: "woche", label: "Meeting in 7 Tagen", zahl: anzahl("woche") },
+    { key: "achtung", label: "Braucht Aufmerksamkeit", zahl: anzahl("achtung") },
+    ...(geld ? [{ key: "ueberfaellig" as const, label: "Zahlung überfällig", zahl: anzahl("ueberfaellig") }] : []),
+    { key: "beendet", label: "Beendet", zahl: anzahl("beendet") },
+  ];
+  const personen = werEintraege(basis.map((z) => z.kunde), team, userId, (w) => href(w, zeige));
+
   return (
     <div className="ks-seite">
       <HerkunftMerken label="Kunden" />
+      {/* Überarbeitet am 28.11.: Erklärung im Info-Icon, eine Leiste für
+          Reiter, Suche und Personen, eine Tabelle mit fluchtenden Spalten.
+          Kein Gold (heißt „du bist dran“) und kein Orange als Status. */}
       <PageHeader
         eyebrow="Kundenspace"
-        title="Kunden"
+        title={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
+            Kunden
+            <InfoPopover label="Was steht hier?" width={360}>
+              Eine Zeile je Kunde: nächstes Meeting, was besprochen wird, Fortschritt im Fulfillment
+              {geld ? " und der Stand der Zahlungen" : ""}. Kunden entstehen automatisch, sobald ein Closing auf
+              „Gewonnen“ gesetzt wird.
+            </InfoPopover>
+          </span>
+        }
         meta={`${alle.filter(filter.laufend).length} in Betreuung`}
         actions={
           <>
-            <Link href="/kunden/vorlagen" className="ks-link">
-              Vorlagen
+            <Link href="/kunden/vorlagen" className="ui-btn" data-variant="secondary" data-size="md">
+              <ListChecks size={14} aria-hidden /> Vorlagen
             </Link>
             <KundeAnlegenButton team={team} darfZuordnen={rechte.umsatz} />
           </>
         }
-      >
-        <form action="/kunden" role="search" className="ks-suche">
-          <input type="search" name="q" defaultValue={q} key={q} className="ui-input" aria-label="Kunden suchen" placeholder="Name, Firma oder E-Mail suchen" />
+      />
+
+      <div className="kd-leiste">
+        {!q && (
+          <nav className="kd-reiter" aria-label="Welche Kunden">
+            {reiter.map((r) => (
+              <Link
+                key={r.key}
+                href={href(wer, r.key)}
+                scroll={false}
+                className="kd-reiter-link"
+                data-aktiv={r.key === zeige || undefined}
+                aria-current={r.key === zeige ? "page" : undefined}
+              >
+                {r.label}
+                <span className="kd-zahl" data-warn={(r.key === "achtung" || r.key === "ueberfaellig") && r.zahl > 0 ? "" : undefined}>
+                  {r.zahl}
+                </span>
+              </Link>
+            ))}
+          </nav>
+        )}
+        <form action="/kunden" role="search" className="kd-suche">
+          <Search size={14} aria-hidden />
+          <input type="search" name="q" defaultValue={q} key={q} aria-label="Kunden suchen" placeholder="Name, Firma oder E-Mail" />
           {q && (
-            <Link href="/kunden" className="ks-link">
-              Suche aufheben
+            <Link href="/kunden" className="kd-suche-weg">
+              Aufheben
             </Link>
           )}
         </form>
-        {!q && (
-          <>
-        <Chips label="Wessen Kunden" aktiv={wer} eintraege={werEintraege(basis.map((z) => z.kunde), team, userId, (w) => href(w, zeige))} />
-        <Chips
-          label="Welche Kunden"
-          aktiv={zeige}
-          eintraege={[
-            { key: "laufend", label: "In Betreuung", href: href(wer, "laufend"), zahl: anzahl("laufend") },
-            { key: "woche", label: "Meeting in 7 Tagen", href: href(wer, "woche"), zahl: anzahl("woche") },
-            { key: "achtung", label: "Braucht Aufmerksamkeit", href: href(wer, "achtung"), zahl: anzahl("achtung"), warnung: true },
-            ...(geld
-              ? [{ key: "ueberfaellig", label: "Zahlung überfällig", href: href(wer, "ueberfaellig"), zahl: anzahl("ueberfaellig"), warnung: true }]
-              : []),
-            { key: "beendet", label: "Beendet", href: href(wer, "beendet"), zahl: anzahl("beendet") },
-          ]}
-        />
-          </>
+        {!q && personen.length > 1 && (
+          <nav className="kd-personen" aria-label="Wessen Kunden">
+            {personen.map((p) => (
+              <Link
+                key={p.key}
+                href={p.href}
+                scroll={false}
+                className="kd-person"
+                data-aktiv={p.key === wer || undefined}
+                aria-current={p.key === wer ? "page" : undefined}
+              >
+                {p.label}
+                <span>{p.zahl}</span>
+              </Link>
+            ))}
+          </nav>
         )}
-      </PageHeader>
+      </div>
 
-      <Card padding={0}>
+      <section className="card kd-karte">
         {zeilen.length === 0 ? (
-          <p className="ks-leer">
-            {kunden.length === 0
-              ? "Noch keine Kunden. Sie entstehen automatisch, sobald ein Closing auf „Gewonnen“ gesetzt wird."
-              : q
-                ? `Kein Kunde passt zu „${q}“.`
-                : "In dieser Ansicht ist nichts."}
+          <p className="kd-leer">
+            {kunden.length === 0 ? "Noch keine Kunden." : q ? `Kein Kunde passt zu „${q}“.` : "In dieser Ansicht ist nichts."}
           </p>
         ) : (
-          <div className="ks-tabelle" data-geld={geld ? "true" : "false"}>
-            <div className="ks-tabelle-kopf" aria-hidden="true">
+          <div className="kd-tabelle" data-geld={geld ? "true" : "false"}>
+            <div className="kd-kopf" aria-hidden="true">
               <span>Kunde</span>
               <span>Nächstes Meeting</span>
               <span>Wird besprochen</span>
               <span>Fulfillment</span>
-              {geld && <span>Zahlung</span>}
+              {geld && <span className="r">Zahlung</span>}
             </div>
-            <ul className="ks-liste-schlicht">
+            <ul className="kd-liste">
               {zeilen.map(({ kunde, k, hinweise }) => {
                 const person = kunde.betreuer_user_id ? namen.get(kunde.betreuer_user_id) : null;
                 const f = kunde.bausteine;
+                const farbe = ownerColor(kunde.name);
                 return (
                   <li key={kunde.id}>
-                    <Link href={`/kunden/${kunde.id}`} className="ks-tabelle-zeile">
-                      <span className="ks-zelle" data-feld="kunde">
-                        <span className="ks-name">{kunde.name}</span>
-                        <span className="ks-unter">
-                          {kunde.firma ? `${kunde.firma} · ` : ""}
-                          {person ?? <span className="ks-gold">Niemand zuständig</span>}
+                    <Link href={`/kunden/${kunde.id}`} className="kd-zeile">
+                      <span className="kd-zelle kd-kunde">
+                        <span className="kd-avatar" style={{ background: farbe.bg, color: farbe.fg }} aria-hidden>
+                          {kunde.name.trim().charAt(0).toUpperCase() || "?"}
                         </span>
-                        {kunde.status !== "aktiv" && (
-                          <Badge tone={KUNDEN_STATUS_TONE[kunde.status]}>{KUNDEN_STATUS_LABELS[kunde.status]}</Badge>
-                        )}
+                        <span className="kd-kunde-text">
+                          <span className="kd-name-zeile">
+                            <span className="kd-name">{kunde.name}</span>
+                            {kunde.status !== "aktiv" && (
+                              <span className="kd-badge" data-ton={STATUS_TON[kunde.status]}>
+                                {KUNDEN_STATUS_LABELS[kunde.status]}
+                              </span>
+                            )}
+                          </span>
+                          <span className="kd-unter">
+                            {kunde.firma && <span className="kd-firma">{kunde.firma}</span>}
+                            {person ? (
+                              <span>{person}</span>
+                            ) : (
+                              <span className="kd-badge" data-ton="rot">
+                                Niemand zuständig
+                              </span>
+                            )}
+                          </span>
+                        </span>
                       </span>
-                      <span className="ks-zelle" data-feld="termin">
-                        {/* Ohne Termin sagt der Hinweis darunter es schon, außer bei pausierten und beendeten Kunden. */}
+                      <span className="kd-zelle" data-feld="termin">
                         {kunde.termin ? (
-                          <span>{formatTermin(kunde.termin)}</span>
+                          <span className="kd-wert">{formatTermin(kunde.termin)}</span>
                         ) : (
-                          hinweise.length === 0 && <span className="ks-leise">Kein Termin</span>
+                          hinweise.length === 0 && <span className="kd-leise">Kein Termin</span>
                         )}
                         {hinweise.map((h) => (
-                          <span key={h} className="ks-unter ks-gold">
+                          <span key={h} className="kd-badge" data-ton="rot">
                             {h}
                           </span>
                         ))}
-                        {kunde.letztesMeeting && (
-                          <span className="ks-unter">zuletzt {datumDe(berlinDateISO(kunde.letztesMeeting))}</span>
-                        )}
+                        {kunde.letztesMeeting && <span className="kd-unter">zuletzt {datumDe(berlinDateISO(kunde.letztesMeeting))}</span>}
                       </span>
-                      <span className="ks-zelle" data-feld="agenda" data-leer={kunde.agenda.length ? undefined : "true"}>
+                      <span className="kd-zelle" data-feld="agenda">
                         {kunde.agenda.length ? (
                           <>
-                            <span className="ks-zwei-zeilen">{kunde.agenda[0]}</span>
-                            {kunde.agenda.length > 1 && <span className="ks-unter">+ {kunde.agenda.length - 1} weitere</span>}
+                            <span className="kd-einzeilig">{kunde.agenda[0]}</span>
+                            {kunde.agenda.length > 1 && <span className="kd-unter">+ {kunde.agenda.length - 1} weitere</span>}
                           </>
                         ) : (
-                          <span className="ks-leise">Keine Agenda</span>
+                          <span className="kd-leise">Keine Agenda</span>
                         )}
                       </span>
-                      <span className="ks-zelle" data-feld="fortschritt" data-leer={f.gesamt ? undefined : "true"}>
+                      <span className="kd-zelle" data-feld="fortschritt">
                         {f.gesamt ? (
-                          <>
-                            <span>
-                              {f.erledigt} / {f.gesamt}
+                          <span className="kd-fortschritt">
+                            <span className="kd-balken" aria-hidden>
+                              <i data-voll={f.erledigt >= f.gesamt || undefined} style={{ width: `${(f.erledigt / f.gesamt) * 100}%` }} />
                             </span>
-                            <span className="progress-track">
-                              <span className="progress-fill ks-fortschritt" style={{ display: "block", width: `${(f.erledigt / f.gesamt) * 100}%` }} />
+                            <span className="kd-wert tnum">
+                              {f.erledigt}/{f.gesamt}
                             </span>
-                          </>
+                          </span>
                         ) : (
-                          <span className="ks-leise">{kunde.checklisten ? "Keine Punkte" : "Keine Checkliste"}</span>
+                          <span className="kd-leise">{kunde.checklisten ? "Keine Punkte" : "Keine Checkliste"}</span>
                         )}
                       </span>
                       {geld && (
-                        <span className="ks-zelle" data-feld="geld">
+                        <span className="kd-zelle r" data-feld="geld">
                           {!k ? (
-                            <span className="ks-gold">Nicht ermittelbar</span>
+                            <span className="kd-leise">nicht ermittelbar</span>
                           ) : k.ueberfaellig > 0 ? (
                             <>
-                              <span className="ks-rot"><Betrag wert={k.ueberfaellig} /> überfällig</span>
-                              <span className="ks-unter ks-rot">
-                                {k.tageUeberfaellig} {k.tageUeberfaellig === 1 ? "Tag" : "Tage"}
+                              <span className="kd-wert kd-rot">
+                                <Betrag wert={k.ueberfaellig} /> überfällig
+                              </span>
+                              <span className="kd-unter kd-rot">
+                                seit {k.tageUeberfaellig} {k.tageUeberfaellig === 1 ? "Tag" : "Tagen"}
                               </span>
                             </>
                           ) : k.status === "laeuft" && k.naechsteRate ? (
                             <>
-                              <span><Betrag wert={k.naechsteRate.rest} /></span>
-                              <span className="ks-unter">am {datumDe(k.naechsteRate.faellig_am)}</span>
+                              <span className="kd-wert">
+                                <Betrag wert={k.naechsteRate.rest} />
+                              </span>
+                              <span className="kd-unter">am {datumDe(k.naechsteRate.faellig_am)}</span>
                             </>
                           ) : (
-                            <span className={k.status === "bezahlt" ? "ks-gruen" : k.status.startsWith("plan_") || k.status === "vertrag_fehlt" ? "ks-gold" : "ks-leise"}>
+                            <span className="kd-badge" data-ton={k.status === "bezahlt" ? "gruen" : k.status.startsWith("plan_") || k.status === "vertrag_fehlt" ? "rot" : undefined}>
                               {FINANZ_STATUS_LABELS[k.status]}
                             </span>
                           )}
@@ -239,7 +304,7 @@ export default async function KundenPage({ searchParams }: { searchParams: Promi
             </ul>
           </div>
         )}
-      </Card>
+      </section>
     </div>
   );
 }
