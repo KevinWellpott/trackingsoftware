@@ -209,14 +209,15 @@ export function AppointmentLifecycleBar({
     });
   }
 
-  const barButton = { minHeight: 28, padding: "0 var(--sp-5)", fontSize: "var(--fs-sm)" } as const;
+  // Umrandete Knöpfe (28.11.): als „ghost“ lasen sie sich wie Text.
+  const barButton = { minHeight: 32, padding: "0 var(--sp-6)", fontSize: "var(--fs-sm)" } as const;
 
   return (
     <>
       <button
         type="button"
         className="ui-btn"
-        data-variant="ghost"
+        data-variant="secondary"
         onClick={openPostpone}
         disabled={disabled || isPending || cancelled}
         title={
@@ -237,7 +238,7 @@ export function AppointmentLifecycleBar({
       <button
         type="button"
         className="ui-btn"
-        data-variant="ghost"
+        data-variant="secondary"
         onClick={() => openCancel()}
         disabled={disabled || isPending}
         title={cancelled ? "Absage-Grund korrigieren" : "Termin absagen — mit Grund und Ausblick."}
@@ -250,7 +251,7 @@ export function AppointmentLifecycleBar({
         <button
           type="button"
           className="ui-btn"
-          data-variant="ghost"
+          data-variant="secondary"
           onClick={openNoShow}
           disabled={disabled || isPending}
           title="Wie ist der No-Show ausgegangen?"

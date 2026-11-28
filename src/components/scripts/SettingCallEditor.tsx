@@ -499,6 +499,10 @@ export function SettingCallEditor({
    * `handleReset` leert — steht keines davon, ist der Knopf ein Klick ohne
    * Wirkung, und der stünde auf jedem frisch angelegten Termin.
    */
+  // Für die zugeklappte Zeile „Erinnert & nervt“ (28.11.): die Namen im Klartext.
+  const zustaendigName =
+    users.find((u) => u.user_id === call.assigned_user_id)?.username ?? assignedName ?? creatorName ?? null;
+  const gefuehrtName = users.find((u) => u.user_id === call.conducted_by_user_id)?.username ?? null;
   const hasResult =
     status !== "offen" || showStatus !== null || followUpDue != null || call.no_show_count > 0;
 
@@ -848,22 +852,19 @@ export function SettingCallEditor({
         </div>
       )}
 
-      {/* ── Zuweisung ── */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.75rem",
-          flexWrap: "wrap",
-          background: "var(--surface-100)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "0.875rem 1.125rem",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
+      {/* ── Zuweisung ── einklappbar (28.11.): zugeklappt zeigt die Zeile, wer
+          erinnert und wer das Gespräch geführt hat; aufgeklappt die Auswahl. */}
+      <details className="zuweisung-karte">
+        <summary className="zuweisung-kopf">
+          <ChevronRight size={13} className="collapse-chevron" aria-hidden />
+          <Users size={14} aria-hidden />
+          <span className="zuweisung-titel">Erinnert &amp; nervt</span>
+          <span className="zuweisung-wert">{zustaendigName ?? "—"}</span>
+          <span className="zuweisung-titel">Durchgeführt von</span>
+          <span className="zuweisung-wert">{gefuehrtName ?? "—"}</span>
+        </summary>
+        <div className="zuweisung-inhalt">
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
-          <Users size={14} style={{ color: "var(--text-subtle)" }} />
           <span
             style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary)" }}
             title="Wer den Termin gelegt hat — erinnert vorher und nervt bei No-Show oder „Nicht qualifiziert“."
@@ -911,7 +912,8 @@ export function SettingCallEditor({
             value={call.conducted_by_user_id ?? null}
           />
         </div>
-      </div>
+        </div>
+      </details>
 
       {/* ── Kontext aus der Quelle ──
           Die frühere blaue Karte ist weg (Vorgabe: „Antwort aus LinkedIn auch

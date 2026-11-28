@@ -437,6 +437,10 @@ export function ClosingCallEditor({
     );
   }
 
+  // Für die zugeklappte Zeile „Erinnert & nervt“ (28.11.): die Namen im Klartext.
+  const zustaendigName =
+    users.find((u) => u.user_id === call.assigned_user_id)?.username ?? assignedName ?? creatorName ?? null;
+  const gefuehrtName = users.find((u) => u.user_id === call.conducted_by_user_id)?.username ?? null;
   // EIN großes Notizfeld statt Gesprächsleitfaden mit Feldern je Block
   // (28.11.). Frühere Einträge aus dem Leitfaden stehen eingeklappt darunter.
   const notesCard = (
@@ -450,16 +454,18 @@ export function ClosingCallEditor({
   // Zuweisung sitzt ganz oben und bleibt flach: eine Zeile, kein Kartenkopf.
   // Als hohe Karte in der unteren Reihe stand sie meist halb leer.
   const assignCard = (
-    <div
-      className="card"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--sp-6)",
-        flexWrap: "wrap",
-        padding: "var(--sp-5) var(--sp-7)",
-      }}
-    >
+    // Einklappbar (28.11.): zugeklappt zeigt die Zeile, wer erinnert und wer
+    // das Closing geführt hat; aufgeklappt die Auswahl.
+    <details className="zuweisung-karte">
+      <summary className="zuweisung-kopf">
+        <ChevronRight size={13} className="collapse-chevron" aria-hidden />
+        <Users size={14} aria-hidden />
+        <span className="zuweisung-titel">Erinnert &amp; nervt</span>
+        <span className="zuweisung-wert">{zustaendigName ?? "—"}</span>
+        <span className="zuweisung-titel">Durchgeführt von</span>
+        <span className="zuweisung-wert">{gefuehrtName ?? "—"}</span>
+      </summary>
+      <div className="zuweisung-inhalt">
       <span
         style={{
           display: "inline-flex",
@@ -469,7 +475,6 @@ export function ClosingCallEditor({
           color: "var(--text-muted)",
         }}
       >
-        <Users size={15} />
         <span
           className="eyebrow eyebrow-muted"
           title="Wer an das Closing erinnert und bei No-Show nervt."
@@ -513,7 +518,8 @@ export function ClosingCallEditor({
           value={call.conducted_by_user_id ?? null}
         />
       </div>
-    </div>
+      </div>
+    </details>
   );
 
   // Call-Details sitzen ganz oben und sind zugeklappt: waehrend des Gespraechs

@@ -30,3 +30,19 @@ describe("speichert selbst", () => {
     assert.match(src, /useEffect\(\(\) => \(\) => speichernRef\.current\(\), \[\]\);/);
   });
 });
+
+describe("Setting/Closing: Zuweisung einklappbar, Lebenszyklus-Knöpfe umrandet (28.11.)", () => {
+  test("„Erinnert & nervt“ ist eine einklappbare Zeile mit den Namen im Kopf", () => {
+    for (const f of ["src/components/scripts/SettingCallEditor.tsx", "src/components/closing/ClosingCallEditor.tsx"]) {
+      const src = read(f);
+      assert.match(src, /<details className="zuweisung-karte">/, f);
+      assert.match(src, /<span className="zuweisung-wert">\{zustaendigName \?\? "—"\}<\/span>/, f);
+    }
+  });
+  test("Verschieben und Absagen sind umrandete Knöpfe, keine Text-Knöpfe", () => {
+    const bar = read("src/components/termine/AppointmentLifecycleBar.tsx");
+    const leiste = bar.slice(bar.indexOf("const barButton"), bar.indexOf("{/* ── Dialog: Verschieben ── */}"));
+    assert.doesNotMatch(leiste, /data-variant="ghost"/);
+    assert.equal((leiste.match(/data-variant="secondary"/g) ?? []).length, 3);
+  });
+});
