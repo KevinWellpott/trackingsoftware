@@ -23,6 +23,7 @@ import { GoalProgress } from "@/components/dashboard/GoalProgress";
 import { berlinWindowIso } from "@/components/dashboard/periodWindow";
 import { ViewingBanner } from "@/components/dashboard/ViewingBanner";
 import { KennzahlModul } from "@/components/dashboard/KennzahlModul";
+import { TrendBereich } from "@/components/dashboard/TrendBereich";
 import { HeuteDranKarte, HeuteImKalenderKarte, type HeuteDranEintrag } from "@/components/dashboard/HeuteKarten";
 import { TrichterBalken } from "@/components/analyse/TrichterBalken";
 import { TerminBuchenAktion } from "@/components/termine/TerminBuchenAktion";
@@ -754,7 +755,9 @@ export default async function DashboardPage({
         </SectionCard>
       </div>
 
-      {/* ══ TREND ══ — dieselben zehn Wochen für beide Kanäle und die Pipeline. */}
+      {/* ══ TREND ══ — dieselben zehn Wochen für beide Kanäle und die Pipeline.
+          Zugeklappt, bis man ihn öffnet (Zustand je Gerät, TrendBereich). */}
+      <TrendBereich meta={`LinkedIn · Telefon · Pipeline ab Setting · 10 Wochen bis KW ${getISOWeek(monday)}`}>
       <div className="dash-kanaele">
         <SectionCard title="Trend LinkedIn" icon={<TrendingUp size={16} />} meta={`10 Wochen · KW ${getISOWeek(monday)}`}>
           <KanalWochenChart data={trendLinkedIn} mengeLabel="DMs" farbe="var(--c-li)" leer="Noch keine LinkedIn-Daten." />
@@ -771,6 +774,7 @@ export default async function DashboardPage({
       <SectionCard title="Trend Pipeline ab Setting" icon={<TrendingUp size={16} />} meta="10 Wochen · nach Termin-Tag, ohne Absagen">
         <PipelineWochenChart data={trendPipeline} />
       </SectionCard>
+      </TrendBereich>
     </div>
   );
 }

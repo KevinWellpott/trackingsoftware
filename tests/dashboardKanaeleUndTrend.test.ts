@@ -49,3 +49,14 @@ describe("Trend", () => {
     assert.match(PAGE, /if \(absageWirktNoch\(sc\)\) continue;/);
   });
 });
+
+describe("Trends zugeklappt (28.11.)", () => {
+  test("standardmäßig zu, per Klick auf, Zustand je Gerät", () => {
+    const t = read("src/components/dashboard/TrendBereich.tsx");
+    assert.match(t, /const zu = \(\): boolean => false;/);
+    assert.match(t, /\{offen && <div className="dash-trends-inhalt">\{children\}<\/div>\}/);
+    assert.match(t, /localStorage\.setItem\(KEY, offen \? "0" : "1"\)/);
+    assert.match(PAGE, /<TrendBereich meta=/);
+    assert.ok(PAGE.indexOf("<TrendBereich") < PAGE.indexOf("<PipelineWochenChart"));
+  });
+});
