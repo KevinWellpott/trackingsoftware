@@ -4907,3 +4907,12 @@ a.km:hover .km-go, a.km:focus-visible .km-go { opacity: 1; }
 .side-navgrp-btn:focus-visible > svg,
 .side-navgrp-btn[aria-expanded="false"] > svg { opacity: 1; }
 .side-navgrp-btn[aria-disabled] { cursor: default; }
+
+/* ── Dashboard: Kanal-Karten und Trends gleich breit (28.11.) ──
+   LinkedIn und Telefon stehen gleichrangig nebeneinander, gleich hoch. */
+.dash-kanaele { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-8); align-items: stretch; }
+.dash-kanaele > * { height: 100%; }
+.dash-ziele { display: flex; flex-direction: column; gap: var(--sp-6); margin-top: var(--sp-7); }
+@media (max-width: 900px) {
+  .dash-kanaele { grid-template-columns: minmax(0, 1fr); }
+}

@@ -49,7 +49,9 @@ describe("2 · Die drei Zähler lesen das Anruf-Log", () => {
   test("Dashboard: Wochenziel und Telefon-Karte zählen Anwahlen", () => {
     const src = read("src/app/(dashboard)/page.tsx");
     assert.match(src, /loadDialRows\(/);
-    assert.match(src, /label="Telefon Woche" current=\{weekDials\}/);
+    // Seit dem 28.11. baugleich zur LinkedIn-Karte: Ziel Heute und Woche.
+    assert.match(src, /label="Diese Woche" current=\{weekDials\} goal=\{phoneWeeklyGoal\} unit="Anwahlen"/);
+    assert.match(src, /label="Heute" current=\{todayDials\} goal=\{phoneDailyGoal\} unit="Anwahlen"/);
     assert.doesNotMatch(src, /current=\{phoneWeek\.calls\}/);
   });
 

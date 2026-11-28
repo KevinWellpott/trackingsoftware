@@ -9,7 +9,15 @@ import { addDaysISO, getISOWeek, weekStart } from "@/lib/dates";
 import { getTargets } from "@/app/actions/targets";
 import { resolveTarget } from "@/lib/targets";
 import { Card } from "@/components/ui/Card";
-import { PersonalWeeklyChart, type PersonalWeekPoint } from "@/components/DashboardCharts";
+import {
+  KanalWochenChart,
+  PipelineWochenChart,
+  type KanalWochePunkt,
+  type PipelineWochePunkt,
+} from "@/components/DashboardCharts";
+import { fetchAllRows } from "@/lib/supabase/fetchAll";
+import { closingEffDate, settingEffDate } from "@/lib/analyse";
+import { absageWirktNoch } from "@/lib/terminMeta";
 import { PeriodSwitcher, type DashboardPeriod } from "@/components/dashboard/PeriodSwitcher";
 import { GoalProgress } from "@/components/dashboard/GoalProgress";
 import { berlinWindowIso } from "@/components/dashboard/periodWindow";
@@ -181,6 +189,7 @@ export default async function DashboardPage({
   // auf `timestamptz`-Spalten (docs §6).
   const { startIso: periodFromIso, endIso: periodToIso } = berlinWindowIso(periodFrom, today);
   const { startIso: heuteVonIso, endIso: heuteBisIso } = berlinWindowIso(today, today);
+  const { startIso: trendFromIso } = berlinWindowIso(trendFrom, today);
 
   // Personen-Zuordnung eines Termins: „zugewiesen ODER (nicht zugewiesen UND
   // selbst angelegt)" — die PostgREST-Entsprechung von personOf()
@@ -244,6 +253,9 @@ export default async function DashboardPage({
     nachfassen,
     heuteSettingRes,
     heuteClosingRes,
+    telTermineTrend,
+    pipelineSettings,
+    pipelineClosings,
   ] = await Promise.all([
     getTargets(),
     rpcAll(supabase, "rpc_owner_day_metrics", {
@@ -299,7 +311,8 @@ export default async function DashboardPage({
     // Anwahlen aus dem Anruf-Log — JEDER Wählversuch, auch Rückrufe und
     // Folgeanrufe. Die RPC oben zählt nur Erstkontakte (jede Firma einmal) und
     // liefert hier nur noch Entscheider und Termine (docs §1, „Anwahl").
-    loadDialRows(supabase, access.workspace_id, periodFrom < monday ? periodFrom : monday, today, {
+    // Über das ganze Trend-Fenster: Die Anwahlen tragen auch den Telefon-Trend.
+    loadDialRows(supabase, access.workspace_id, windowFrom, today, {
       username: displayName,
       userId: scopeUserId,
     }),
@@ -336,6 +349,49 @@ export default async function DashboardPage({
       .or(personFilter)
       .gte("call_at", heuteVonIso)
       .lt("call_at", heuteBisIso),
+    // ── Trend Telefon: gelegte Telefon-Termine je Woche (wie die Kachel).
+    fetchAllRows<{ created_at: string }>((f, t) =>
+      supabase
+        .from("setting_calls")
+        .select("created_at")
+        .eq("workspace_id", access.workspace_id)
+        .eq("source_type", "telefon")
+        .or(personFilter)
+        .gte("created_at", trendFromIso)
+        .order("id")
+        .range(f, t),
+    ).catch(() => [] as { created_at: string }[]),
+    // ── Trend Pipeline ab Setting: Termine nach Termin-Tag (settingEffDate),
+    // Person wie „Termine gelegt"; Closings nach Gesprächsperson.
+    fetchAllRows<{
+      appointment_at: string | null;
+      call_at: string | null;
+      created_at: string;
+      status: string;
+      show_status: string | null;
+      cancelled_at: string | null;
+      revived_at: string | null;
+    }>((f, t) =>
+      supabase
+        .from("setting_calls")
+        .select("appointment_at, call_at, created_at, status, show_status, cancelled_at, revived_at")
+        .eq("workspace_id", access.workspace_id)
+        .or(personFilter)
+        .or(`appointment_at.gte.${trendFromIso},call_at.gte.${trendFrom},and(appointment_at.is.null,call_at.is.null,created_at.gte.${trendFromIso})`)
+        .order("id")
+        .range(f, t),
+    ).catch(() => []),
+    fetchAllRows<{ call_at: string | null; created_at: string; status: string; cancelled_at: string | null; revived_at: string | null }>(
+      (f, t) =>
+        supabase
+          .from("closing_calls")
+          .select("call_at, created_at, status, cancelled_at, revived_at")
+          .eq("workspace_id", access.workspace_id)
+          .or(gespraechsFilter)
+          .or(`call_at.gte.${trendFromIso},and(call_at.is.null,created_at.gte.${trendFromIso})`)
+          .order("id")
+          .range(f, t),
+    ).catch(() => []),
   ]);
 
   // ── Tages-Metriken (RPC existiert erst ab Migration 0011 → bei Fehler leer)
@@ -355,16 +411,21 @@ export default async function DashboardPage({
     if (r.day === today) todayDms += r.dms;
   }
 
-  // 10 ISO-Wochen-Buckets für den Trend
-  const trendWeeks: PersonalWeekPoint[] = [];
+  // 10 ISO-Wochen-Buckets für den Trend — LinkedIn, Telefon und Pipeline
+  // auf denselben Wochen, damit die drei Diagramme untereinander lesbar sind.
+  const wochen: { start: string; ende: string; label: string }[] = [];
   for (let i = 9; i >= 0; i--) {
-    const wStart = addDaysISO(monday, -i * 7);
-    const wEnd = addDaysISO(wStart, 6);
-    let dms = 0, appts = 0;
-    for (const r of dayRows) {
-      if (r.day >= wStart && r.day <= wEnd) { dms += r.dms; appts += r.appts; }
+    const start = addDaysISO(monday, -i * 7);
+    wochen.push({ start, ende: addDaysISO(start, 6), label: `KW ${getISOWeek(start)}` });
+  }
+  const wocheVon = (tag: string | null): number => (tag ? wochen.findIndex((w) => tag >= w.start && tag <= w.ende) : -1);
+  const trendLinkedIn: KanalWochePunkt[] = wochen.map((w) => ({ week: w.label, menge: 0, termine: 0 }));
+  for (const r of dayRows) {
+    const i = wocheVon(r.day);
+    if (i >= 0) {
+      trendLinkedIn[i].menge += r.dms;
+      trendLinkedIn[i].termine += r.appts;
     }
-    trendWeeks.push({ week: `KW ${getISOWeek(wStart)}`, dms, appts });
   }
 
   // ── All-time (Subline "gesamt")
@@ -406,6 +467,49 @@ export default async function DashboardPage({
       ).length
     : phonePeriod.decider;
   const phoneBooked = phoneBookedRes.count ?? 0;
+  const todayDials = dials.available ? dials.rows.filter((r) => r.day === today).length : 0;
+
+  // ── Trend Telefon: Anwahlen (Anruf-Log) und gelegte Telefon-Termine je Woche.
+  const trendTelefon: KanalWochePunkt[] = wochen.map((w) => ({ week: w.label, menge: 0, termine: 0 }));
+  if (dials.available) {
+    for (const d of dials.rows) {
+      const i = wocheVon(d.day);
+      if (i >= 0) trendTelefon[i].menge += 1;
+    }
+  }
+  for (const t of telTermineTrend) {
+    const i = wocheVon(berlinDateISO(t.created_at));
+    if (i >= 0) trendTelefon[i].termine += 1;
+  }
+
+  // ── Trend Pipeline ab Setting: je Woche nach Termin-Tag, nur begonnene
+  // Termine ohne wirkende Absage (Ergebnisse gibt es erst danach).
+  const jetztMs = Date.parse(new Date().toISOString());
+  const trendPipeline: PipelineWochePunkt[] = wochen.map((w) => ({
+    week: w.label,
+    settings: 0,
+    shows: 0,
+    qualifiziert: 0,
+    closings: 0,
+    gewonnen: 0,
+  }));
+  for (const sc of pipelineSettings) {
+    if (absageWirktNoch(sc)) continue;
+    if (sc.appointment_at && Date.parse(sc.appointment_at) > jetztMs) continue;
+    const i = wocheVon(settingEffDate(sc));
+    if (i < 0) continue;
+    trendPipeline[i].settings += 1;
+    if (sc.show_status === "show") trendPipeline[i].shows += 1;
+    if (sc.status === "qualifiziert" || sc.status === "closing_gelegt") trendPipeline[i].qualifiziert += 1;
+  }
+  for (const cc of pipelineClosings) {
+    if (absageWirktNoch(cc)) continue;
+    if (cc.call_at && Date.parse(cc.call_at) > jetztMs) continue;
+    const i = wocheVon(closingEffDate(cc));
+    if (i < 0) continue;
+    trendPipeline[i].closings += 1;
+    if (cc.status === "gewonnen") trendPipeline[i].gewonnen += 1;
+  }
 
   // ── Setting / Closing / Umsatz — alle drei jetzt zeitraumgefiltert
   const settingOpen = settingOpenRes.count ?? 0;
@@ -422,11 +526,7 @@ export default async function DashboardPage({
   const dailyGoal = resolveTarget(targets, scopeUserId, "linkedin", "daily", "pitches");
   const weeklyGoal = resolveTarget(targets, scopeUserId, "linkedin", "weekly", "pitches");
   const phoneWeeklyGoal = resolveTarget(targets, scopeUserId, "telefon", "weekly", "calls");
-  const phoneTargetSet = targets.some(
-    (t) => t.user_id === scopeUserId && t.channel === "telefon" && t.metric === "calls" && t.target_value > 0,
-  );
-  const showPhoneGoal = phoneTargetSet || weekDials > 0;
-  const showPhoneCard = phoneTargetSet || periodDials > 0 || phonePeriod.calls > 0;
+  const phoneDailyGoal = resolveTarget(targets, scopeUserId, "telefon", "daily", "calls");
 
   // ── Quoten (beide auf die Pitches DES ZEITRAUMS bezogen)
   const answerRate = periodDms > 0 ? (periodAnswers / periodDms) * 100 : null;
@@ -536,25 +636,15 @@ export default async function DashboardPage({
           href="/nachfassen"
           dran={Boolean(dranZahl && dranZahl.total > 0)}
         />
-        {showPhoneCard ? (
-          <KennzahlModul
-            label={`Anwahlen · ${periodLabel}`}
-            value={periodDials.toLocaleString("de-DE")}
-            unit={period === "w" && phoneWeeklyGoal > 0 ? `von ${phoneWeeklyGoal.toLocaleString("de-DE")}` : undefined}
-            meter={period === "w" && phoneWeeklyGoal > 0 ? (weekDials / phoneWeeklyGoal) * 100 : null}
-            sub={`${periodDecider.toLocaleString("de-DE")} Entscheider erreicht`}
-            href="/telefon"
-          />
-        ) : (
-          <KennzahlModul
-            label={`DMs · ${periodLabel}`}
-            value={periodDms.toLocaleString("de-DE")}
-            unit={period === "w" && weeklyGoal > 0 ? `von ${weeklyGoal.toLocaleString("de-DE")}` : undefined}
-            meter={period === "w" && weeklyGoal > 0 ? (weekDms / weeklyGoal) * 100 : null}
-            sub={`${alltimeDms.toLocaleString("de-DE")} gesamt`}
-            href="/listen"
-          />
-        )}
+        {/* Kanalneutral (28.11.): Hier stand je nach Aktivität Anwahlen ODER
+            DMs — ein Kanal wirkte so wichtiger. Die Kanäle stehen gleichrangig
+            in den Karten darunter; hier die Pipeline ab dem Termin. */}
+        <KennzahlModul
+          label={`Qualifiziert · ${periodLabel}`}
+          value={quali.toLocaleString("de-DE")}
+          sub={`${shows.toLocaleString("de-DE")} erschienen von ${bookedPeriod.toLocaleString("de-DE")} gelegt`}
+          href="/setting?status=qualifiziert"
+        />
         <KennzahlModul
           label={`Termine gelegt · ${periodLabel}`}
           value={bookedPeriod.toLocaleString("de-DE")}
@@ -599,8 +689,10 @@ export default async function DashboardPage({
         </p>
       </section>
 
-      {/* ══ KANÄLE ══ — DMs und Anwahlen getrennt, nie addiert. */}
-      <div className="dash-grid-2">
+      {/* ══ KANÄLE ══ — DMs und Anwahlen getrennt, nie addiert. Beide Karten
+          gleich breit und gleich gebaut (drei Kennzahlen, Ziel Heute und
+          Woche): Kein Kanal ist wichtiger als der andere (28.11.). */}
+      <div className="dash-kanaele">
         <SectionCard title="LinkedIn" icon={<MessageSquare size={16} />} href="/listen" meta={periodLabel}>
           <div className="dash-stats">
             {[
@@ -611,11 +703,9 @@ export default async function DashboardPage({
                 sub: `${periodAnswers.toLocaleString("de-DE")} Antworten`,
               },
               {
-                label: "Terminquote (aus Pitches)",
+                label: "Terminquote",
                 value: apptRate === null ? "—" : formatRate(apptRate),
-                sub: `${periodAppts.toLocaleString("de-DE")} von ${periodDms.toLocaleString("de-DE")}${
-                  apptBand ? ` · ${apptBand}` : ""
-                } · Ziel 3–7 %`,
+                sub: `${periodAppts.toLocaleString("de-DE")} Termine${apptBand ? ` · ${apptBand}` : ""}`,
               },
             ].map((s) => (
               <div key={s.label} className="dash-stat">
@@ -627,46 +717,59 @@ export default async function DashboardPage({
               </div>
             ))}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)", marginTop: "var(--sp-7)" }}>
+          <div className="dash-ziele">
             <GoalProgress label="Heute" current={todayDms} goal={dailyGoal} />
             <GoalProgress label="Diese Woche" current={weekDms} goal={weeklyGoal} />
           </div>
         </SectionCard>
 
         <SectionCard title="Telefon" icon={<Phone size={16} />} href="/telefon" meta={periodLabel}>
-          {showPhoneCard ? (
-            <>
-              <div className="dash-stats">
-                {[
-                  { label: "Anwahlen", value: periodDials },
-                  { label: "Entscheider erreicht", value: periodDecider },
-                  { label: "Termine gelegt", value: phoneBooked },
-                ].map((s) => (
-                  <div key={s.label} className="dash-stat">
-                    <span className="dash-stat-l">{s.label}</span>
-                    <span className="kpi-value" style={{ fontSize: "var(--fs-xl)" }}>
-                      {s.value.toLocaleString("de-DE")}
-                    </span>
-                  </div>
-                ))}
+          <div className="dash-stats">
+            {[
+              { label: "Anwahlen", value: periodDials.toLocaleString("de-DE"), sub: "jeder Wählversuch zählt" },
+              {
+                label: "Entscheider erreicht",
+                value: periodDecider.toLocaleString("de-DE"),
+                sub: periodDials > 0 ? `${formatRate((periodDecider / periodDials) * 100)} der Anwahlen` : "noch keine Anwahl",
+              },
+              {
+                label: "Termine gelegt",
+                value: phoneBooked.toLocaleString("de-DE"),
+                sub: periodDials > 0 ? `${formatRate((phoneBooked / periodDials) * 100)} der Anwahlen` : "aus Telefon",
+              },
+            ].map((s) => (
+              <div key={s.label} className="dash-stat">
+                <span className="dash-stat-l">{s.label}</span>
+                <span className="kpi-value" style={{ fontSize: "var(--fs-xl)" }}>
+                  {s.value}
+                </span>
+                <span className="dash-stat-s">{s.sub}</span>
               </div>
-              {showPhoneGoal && (
-                <div style={{ marginTop: "var(--sp-7)" }}>
-                  <GoalProgress label="Telefon Woche" current={weekDials} goal={phoneWeeklyGoal} unit="Anwahlen" />
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="dash-leer" style={{ padding: 0 }}>
-              Im Zeitraum noch keine Anwahl und kein Wochenziel. <Link href="/telefon">Zur Telefon-Übersicht</Link>
-            </p>
-          )}
+            ))}
+          </div>
+          <div className="dash-ziele">
+            <GoalProgress label="Heute" current={todayDials} goal={phoneDailyGoal} unit="Anwahlen" />
+            <GoalProgress label="Diese Woche" current={weekDials} goal={phoneWeeklyGoal} unit="Anwahlen" />
+          </div>
         </SectionCard>
       </div>
 
-      {/* ══ TREND ══ */}
-      <SectionCard title="Trend" icon={<TrendingUp size={16} />} meta={`10 Wochen · KW ${getISOWeek(monday)}`}>
-        <PersonalWeeklyChart data={trendWeeks} />
+      {/* ══ TREND ══ — dieselben zehn Wochen für beide Kanäle und die Pipeline. */}
+      <div className="dash-kanaele">
+        <SectionCard title="Trend LinkedIn" icon={<TrendingUp size={16} />} meta={`10 Wochen · KW ${getISOWeek(monday)}`}>
+          <KanalWochenChart data={trendLinkedIn} mengeLabel="DMs" farbe="var(--c-li)" leer="Noch keine LinkedIn-Daten." />
+        </SectionCard>
+        <SectionCard title="Trend Telefon" icon={<TrendingUp size={16} />} meta={`10 Wochen · KW ${getISOWeek(monday)}`}>
+          <KanalWochenChart
+            data={trendTelefon}
+            mengeLabel="Anwahlen"
+            farbe="var(--c-tel)"
+            leer={dials.available ? "Noch keine Anwahlen." : "Das Anruf-Log ist gerade nicht lesbar."}
+          />
+        </SectionCard>
+      </div>
+      <SectionCard title="Trend Pipeline ab Setting" icon={<TrendingUp size={16} />} meta="10 Wochen · nach Termin-Tag, ohne Absagen">
+        <PipelineWochenChart data={trendPipeline} />
       </SectionCard>
     </div>
   );

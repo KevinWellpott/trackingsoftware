@@ -181,6 +181,95 @@ export function PersonalWeeklyChart({ data }: { data: PersonalWeekPoint[] }) {
   );
 }
 
+// ── Kanal-Trend: Menge als Balken, Termine als Linie (zwei Achsen) ─
+// Für LinkedIn (DMs) und Telefon (Anwahlen) BAUGLEICH — kein Kanal soll im
+// Dashboard wichtiger wirken als der andere (28.11.).
+export type KanalWochePunkt = { week: string; menge: number; termine: number };
+
+export function KanalWochenChart({
+  data,
+  mengeLabel,
+  farbe,
+  leer,
+}: {
+  data: KanalWochePunkt[];
+  mengeLabel: string;
+  farbe: string;
+  leer: string;
+}) {
+  if (data.every((d) => d.menge === 0 && d.termine === 0)) return <EmptyState text={leer} />;
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <ComposedChart data={data} barSize={16} margin={{ top: 8, right: -16, bottom: 0, left: -20 }}>
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="week" {...AXIS_PROPS} />
+        <YAxis yAxisId="menge" allowDecimals={false} {...AXIS_PROPS} />
+        <YAxis yAxisId="termine" orientation="right" allowDecimals={false} {...AXIS_PROPS} />
+        <Tooltip {...tooltipProps()} />
+        <Legend {...legendProps()} />
+        <Bar yAxisId="menge" dataKey="menge" name={mengeLabel} fill={farbe} radius={BAR_RADIUS} />
+        <Line
+          yAxisId="termine"
+          type="monotone"
+          dataKey="termine"
+          name="Termine gelegt"
+          stroke="var(--text-primary)"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 0, fill: "var(--text-primary)" }}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Pipeline-Trend ab Setting: fünf Stufen je Woche ──────────
+export type PipelineWochePunkt = {
+  week: string;
+  settings: number;
+  shows: number;
+  qualifiziert: number;
+  closings: number;
+  gewonnen: number;
+};
+
+const PIPELINE_SERIEN: { key: keyof Omit<PipelineWochePunkt, "week">; name: string; farbe: string }[] = [
+  { key: "settings", name: "Settings", farbe: VIZ[1] },
+  { key: "shows", name: "Erschienen", farbe: VIZ[2] },
+  { key: "qualifiziert", name: "Qualifiziert", farbe: VIZ[3] },
+  { key: "closings", name: "Closings", farbe: VIZ[4] },
+  { key: "gewonnen", name: "Gewonnen", farbe: "var(--success)" },
+];
+
+export function PipelineWochenChart({ data }: { data: PipelineWochePunkt[] }) {
+  if (data.every((d) => PIPELINE_SERIEN.every((s) => d[s.key] === 0))) {
+    return <EmptyState text="In den letzten zehn Wochen keine Termine ab Setting." />;
+  }
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <LineChart data={data} margin={CHART_MARGIN}>
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="week" {...AXIS_PROPS} />
+        <YAxis allowDecimals={false} {...AXIS_PROPS} />
+        <Tooltip {...tooltipProps()} />
+        <Legend {...legendProps()} />
+        {PIPELINE_SERIEN.map((s) => (
+          <Line
+            key={s.key}
+            type="monotone"
+            dataKey={s.key}
+            name={s.name}
+            stroke={s.farbe}
+            strokeWidth={s.key === "gewonnen" ? 2.5 : 2}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 0, fill: s.farbe }}
+          />
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 // ── Historical weekly duel chart (dynamic roster) ────────────
 export type DuelSeries = { name: string; color: string };
 export type WeeklyDuelPoint = { week: string; values: Record<string, number> };
