@@ -50,6 +50,11 @@ export type NachfassAnzeige = NachfassEintrag & {
    * angelegt hat), „geführt" (Durchgeführt von), bei Rückrufen „Liste".
    */
   rollen: { label: string; name: string }[];
+  /** Badge der Zeile (28.11.): Typ („Erstgespräch") und Stand („No-Show"), getrennt. */
+  typ: string;
+  stand: string | null;
+  /** Farbe des Badges: rot = nicht erschienen, blau = Nachfassen vereinbart, sonst ruhig. */
+  ton: "rot" | "blau" | "neutral";
 };
 
 export type NachfassenDaten = {
@@ -386,6 +391,15 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer, schlank = fal
       recycle: null,
       closingNachfassen,
       rollen,
+      typ: art === "setting" ? "Erstgespräch" : "Closing",
+      stand: ergebnisFehlt
+        ? null
+        : closingNachfassen
+          ? "Nachfassen"
+          : absage
+            ? "abgesagt"
+            : ZUSTAND_KONTEXT[zustand] ?? null,
+      ton: ergebnisFehlt ? "neutral" : zustand === "no_show" ? "rot" : closingNachfassen ? "blau" : "neutral",
     });
   }
 
@@ -426,6 +440,9 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer, schlank = fal
         const n = owner ? nameById.get(owner) ?? list?.owner_name ?? null : list?.owner_name ?? null;
         return n ? [{ label: "Liste", name: n }] : [];
       })(),
+      typ: "Rückruf",
+      stand: null,
+      ton: "blau",
     });
   }
 
@@ -472,6 +489,9 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer, schlank = fal
       recycle: { origin: t.origin, reason: t.reason, attempt: t.attempt_count ?? 0 },
       closingNachfassen: false,
       rollen: [],
+      typ: "Wiedervorlage",
+      stand: RECYCLE_KONTEXT[t.origin] ?? null,
+      ton: "neutral",
     });
   }
 

@@ -54,3 +54,18 @@ describe("Knöpfe der Zeile (28.11.)", () => {
     assert.doesNotMatch(EINGANG, /Deine Vorgänge: was du gelegt hast/);
   });
 });
+
+describe("Zeilen-Aufbau (28.11.)", () => {
+  test("oben Name und farbiges Status-Badge, darunter Firma in der Meta-Zeile", () => {
+    assert.match(EINGANG, /<span className="nf-badge" data-ton=\{e\.ton\}>/);
+    const meta = EINGANG.slice(EINGANG.indexOf('<div className="nf-meta">'));
+    assert.ok(meta.indexOf('className="nf-firma"') < meta.indexOf("faelligText("), "Firma steht vor der Fälligkeit");
+    assert.doesNotMatch(EINGANG, /\{e\.kontext\}/);
+  });
+  test("No-Show rot, Nachfassen und Rückruf blau, sonst ruhig — kein Gold", () => {
+    assert.match(DATA, /ton: ergebnisFehlt \? "neutral" : zustand === "no_show" \? "rot" : closingNachfassen \? "blau" : "neutral",/);
+    const css = read("src/app/globals.css");
+    assert.match(css, /\.nf-badge\[data-ton="rot"\] \{ background: var\(--danger-bg\);/);
+    assert.match(css, /\.nf-meta > \.nf-firma \{[\s\S]*?text-overflow: ellipsis;/);
+  });
+});

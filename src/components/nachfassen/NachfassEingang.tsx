@@ -396,39 +396,36 @@ function Zeile({
       {/* „Du bist dran": goldener Punkt mit Lichthof (`.dran-mark`, globals.css §6.9);
           sonst ein stiller Ring, damit die Namen fluchten. */}
       <span className="dran-mark" data-dran={dran ? "true" : undefined} aria-label={dran ? "Jetzt dran" : undefined} />
-      <div style={{ minWidth: 0, display: "grid", gap: 2 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-3)", flexWrap: "wrap" }}>
+      {/* Zwei Zeilen (28.11.): oben Name und Status-Badge, darunter Firma
+          (gekürzt), Fälligkeit und Kontaktwege. */}
+      <div className="nf-text">
+        <div className="nf-kopf">
           {e.quelle === "termin" && e.href ? (
             // Zur Detailseite — dort stehen Qualifizierung und Closing anlegen.
-            <Link href={e.href} style={{ fontWeight: dran ? 600 : 550, color: "var(--text-primary)" }}>
+            <Link href={e.href} className="nf-name" data-dran={dran || undefined}>
               {e.name}
             </Link>
           ) : (
-            <span style={{ fontWeight: dran ? 600 : 550, color: "var(--text-primary)" }}>{e.name}</span>
+            <span className="nf-name" data-dran={dran || undefined}>
+              {e.name}
+            </span>
           )}
-          {e.firma && e.firma.trim().toLowerCase() !== e.name.trim().toLowerCase() && (
-            <span className="nf-firma">{e.firma}</span>
-          )}
-          <span
-            style={{
-              fontSize: "var(--fs-xs)",
-              padding: "1px 8px",
-              borderRadius: "var(--r-full)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            {e.kontext}
+          <span className="nf-badge" data-ton={e.ton}>
+            <span>{e.typ}</span>
+            {e.stand && <strong>{e.stand}</strong>}
           </span>
-          {e.recycle && e.recycle.attempt > 0 && (
-            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{e.recycle.attempt}. Wiedervorlage</span>
-          )}
         </div>
         {/* Meta-Zeile: jedes Stück bleibt am Stück (kein Umbruch zwischen
             Symbol und Nummer), die Trenner setzt das CSS (.nf-meta). */}
         <div className="nf-meta">
+          {e.firma && e.firma.trim().toLowerCase() !== e.name.trim().toLowerCase() && (
+            <span className="nf-firma" title={e.firma}>
+              {e.firma}
+            </span>
+          )}
           <span style={{ color: dran ? DRAN_TONE.fg : undefined }}>{faelligText(e, today)}</span>
           {versuche > 0 && <span>Versuch {versuche + 1}</span>}
+          {e.recycle && e.recycle.attempt > 0 && <span>{e.recycle.attempt}. Wiedervorlage</span>}
           {letzter && <span>{letzter}</span>}
           {alle &&
             e.rollen.map((r) => (

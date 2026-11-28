@@ -4967,7 +4967,13 @@ a.km:hover .km-go, a.km:focus-visible .km-go { opacity: 1; }
 .nf-kontakt::before { margin-right: 3px !important; }
 .nf-kontakt:hover { color: var(--text-primary); }
 .nf-rolle strong { font-weight: 500; color: var(--text-secondary); }
-.nf-firma { color: var(--text-muted); font-size: var(--fs-sm); }
+/* Firma in der Meta-Zeile: eine Zeile, lange Namen mit „…“. */
+.nf-meta > .nf-firma {
+  max-width: min(34ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
 .nf-wer { display: flex; align-items: center; gap: var(--sp-5); flex-wrap: wrap; }
 .nf-wer > span { font-size: var(--fs-sm); color: var(--text-muted); }
 
@@ -4979,3 +4985,38 @@ a.ui-btn[data-size="sm"] { min-height: 28px; padding: 0 10px; font-size: var(--f
 a.ui-btn[data-size="md"] { min-height: var(--h-control); padding: 0 14px; font-size: 13px; }
 /* In der Knopfleiste von „Heute“ etwas mehr Luft für alle Textknöpfe. */
 .nf-ra .ui-btn:not(.ui-icon-btn) { padding-left: 13px !important; padding-right: 13px !important; }
+
+/* ── „Heute“: Name + Status-Badge (28.11.) ── */
+.nf-text { min-width: 0; display: grid; gap: 3px; }
+.nf-kopf { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.nf-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+a.nf-name:hover { color: var(--accent-text); }
+.nf-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: var(--r-full);
+  font-size: 11.5px;
+  white-space: nowrap;
+  background: var(--surface-3);
+  color: var(--text-secondary);
+}
+.nf-badge > span { color: var(--text-muted); }
+.nf-badge > strong { font-weight: 600; }
+.nf-badge > span + strong::before { content: "·"; margin-right: 5px; font-weight: 400; color: var(--text-muted); }
+.nf-badge[data-ton="rot"] { background: var(--danger-bg); color: var(--danger-fg); }
+.nf-badge[data-ton="rot"] > span { color: var(--danger-fg); opacity: 0.75; }
+.nf-badge[data-ton="blau"] { background: var(--info-bg); color: var(--info-fg); }
+.nf-badge[data-ton="blau"] > span { color: var(--info-fg); opacity: 0.8; }
