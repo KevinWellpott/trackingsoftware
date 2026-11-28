@@ -85,10 +85,15 @@ function kurzTermin(iso: string): string {
   return t ? `${t.date} · ${t.time}` : iso;
 }
 
-function faelligText(e: NachfassAnzeige, today: string): string {
-  if (e.ergebnisFehlt) return e.terminAt ? `Termin ${kurzTermin(e.terminAt)} · kein Ergebnis` : "kein Ergebnis";
-  if (!e.faelligAm) return "kein nächster Schritt";
-  if (e.koernung === "minute") return `Rückruf ${kurzTermin(e.faelligAm)}`;
+/**
+ * Wann — ohne Wörter, die Gruppe und Badge schon sagen (28.11.): kein
+ * „Termin“, kein „Rückruf“, kein „kein Ergebnis“, kein „kein nächster
+ * Schritt“. `null` = nichts zu sagen (sofort fällig, ohne Datum).
+ */
+function faelligText(e: NachfassAnzeige, today: string): string | null {
+  if (e.ergebnisFehlt) return e.terminAt ? kurzTermin(e.terminAt) : null;
+  if (!e.faelligAm) return null;
+  if (e.koernung === "minute") return kurzTermin(e.faelligAm);
   const tag = faelligkeitsTag(e, today);
   const diff = dayDiff(tag, today);
   if (diff === 0) return "heute";
@@ -423,7 +428,7 @@ function Zeile({
               {e.firma}
             </span>
           )}
-          <span style={{ color: dran ? DRAN_TONE.fg : undefined }}>{faelligText(e, today)}</span>
+          {faelligText(e, today) && <span style={{ color: dran ? DRAN_TONE.fg : undefined }}>{faelligText(e, today)}</span>}
           {versuche > 0 && <span>Versuch {versuche + 1}</span>}
           {e.recycle && e.recycle.attempt > 0 && <span>{e.recycle.attempt}. Wiedervorlage</span>}
           {letzter && <span>{letzter}</span>}

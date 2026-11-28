@@ -65,7 +65,17 @@ describe("Zeilen-Aufbau (28.11.)", () => {
   test("No-Show rot, Nachfassen und Rückruf blau, sonst ruhig — kein Gold", () => {
     assert.match(DATA, /ton: ergebnisFehlt \? "neutral" : zustand === "no_show" \? "rot" : closingNachfassen \? "blau" : "neutral",/);
     const css = read("src/app/globals.css");
-    assert.match(css, /\.nf-badge\[data-ton="rot"\] \{ background: var\(--danger-bg\);/);
+    // Dezent (28.11.): nur ein Hauch Farbe im Grund, Text neutral.
+    assert.match(css, /\.nf-badge\[data-ton="rot"\] \{ background: color-mix\(in srgb, var\(--danger\) 7%, var\(--surface-3\)\); \}/);
+    assert.doesNotMatch(css, /\.nf-badge\[data-ton="rot"\] \{[^}]*color: var\(--danger-fg\)/);
     assert.match(css, /\.nf-meta > \.nf-firma \{[\s\S]*?text-overflow: ellipsis;/);
+  });
+});
+
+describe("Keine doppelten Wörter (28.11.)", () => {
+  test("kein „Termin“, „Rückruf“, „kein Ergebnis“ oder „kein nächster Schritt“ in der Zeile", () => {
+    const f = EINGANG.slice(EINGANG.indexOf("function faelligText("), EINGANG.indexOf("// ── Kontakt eintragen"));
+    assert.doesNotMatch(f, /`Termin |`Rückruf |kein Ergebnis|kein nächster Schritt/);
+    assert.match(f, /if \(e\.ergebnisFehlt\) return e\.terminAt \? kurzTermin\(e\.terminAt\) : null;/);
   });
 });

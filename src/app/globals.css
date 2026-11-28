@@ -5014,9 +5014,14 @@ a.nf-name:hover { color: var(--accent-text); }
   color: var(--text-secondary);
 }
 .nf-badge > span { color: var(--text-muted); }
-.nf-badge > strong { font-weight: 600; }
+.nf-badge > strong { font-weight: 550; color: var(--text-primary); }
 .nf-badge > span + strong::before { content: "·"; margin-right: 5px; font-weight: 400; color: var(--text-muted); }
-.nf-badge[data-ton="rot"] { background: var(--danger-bg); color: var(--danger-fg); }
-.nf-badge[data-ton="rot"] > span { color: var(--danger-fg); opacity: 0.75; }
-.nf-badge[data-ton="blau"] { background: var(--info-bg); color: var(--info-fg); }
-.nf-badge[data-ton="blau"] > span { color: var(--info-fg); opacity: 0.8; }
+/* Dezent (28.11.): Text bleibt neutral, nur ein Hauch Farbe im Grund und
+   ein kleiner Punkt vor dem Stand. */
+.nf-badge[data-ton="rot"] { background: color-mix(in srgb, var(--danger) 7%, var(--surface-3)); }
+.nf-badge[data-ton="blau"] { background: color-mix(in srgb, var(--info-fg) 7%, var(--surface-3)); }
+.nf-badge[data-ton] > strong { display: inline-flex; align-items: center; gap: 5px; }
+.nf-badge[data-ton="rot"] > strong::before,
+.nf-badge[data-ton="blau"] > strong::before { content: "" !important; margin: 0 !important; width: 6px; height: 6px; border-radius: 50%; }
+.nf-badge[data-ton="rot"] > strong::before { background: var(--danger); opacity: 0.8; }
+.nf-badge[data-ton="blau"] > strong::before { background: var(--info-fg); opacity: 0.8; }
