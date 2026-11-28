@@ -96,7 +96,7 @@ export const AUFGEBEN_AB_VERSUCHEN = 5;
  * (Reiter „Aufräumen", Entscheidung N4), statt den ersten Tag mit einer
  * 160er-Liste zu beginnen. Beim Deploy auf den Tag des Livegangs setzen.
  */
-export const NACHFASSEN_START = "2026-12-01";
+export const NACHFASSEN_START = "2026-11-28";
 
 /** Ein Vorgang gilt als Altfall, wenn sein letztes Lebenszeichen so viele Tage vor dem Stichtag liegt. */
 export const ALTFALL_TAGE = 14;
