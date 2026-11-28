@@ -13,6 +13,8 @@ import { useKeyboardInset, useSheetMode } from "./useViewport";
 // Popover wuerde dort am naechsten overflow-Container abgeschnitten.
 
 const GAP = 6;
+// Offene Popovers in Öffnungsreihenfolge; Escape gilt nur dem obersten.
+const offenePopover: object[] = [];
 const EDGE = 8;
 
 export type PopoverAlign = "start" | "end";
@@ -81,19 +83,46 @@ export function AnchoredPopover({
     });
   }, [anchor, align, ref, sheet]);
 
+  // Reihenfolge der offenen Popovers — nur beim Mount/Unmount, damit ein neu
+  // aufgebauter Listener-Effekt (neues onClose) das äußere nicht nach oben schiebt.
+  const [token] = useState(() => ({}));
+  useEffect(() => {
+    offenePopover.push(token);
+    return () => {
+      const i = offenePopover.indexOf(token);
+      if (i >= 0) offenePopover.splice(i, 1);
+    };
+  }, [token]);
+
+  // Klicks in einem per Portal verschachtelten Popover erreichen dieses hier
+  // über den React-Baum (synthetische Events laufen durch Portale). Markiert
+  // in der Capture-Phase, also bevor der document-Listener unten feuert.
+  const innenGeklickt = useRef(new WeakSet<Event>());
+  const markInnen = (e: React.MouseEvent) => {
+    innenGeklickt.current.add(e.nativeEvent);
+  };
+
   // Outside-Click, Escape, Scroll und Resize schliessen. Scrollen innerhalb des
   // Popovers (lange Optionsliste) ist ausgenommen, sonst schliesst es sich
   // beim Blaettern selbst.
   useEffect(() => {
     function onDown(e: MouseEvent) {
+      // Klicks in einem VERSCHACHTELTEN Popover (Kalender im Popover „Kontakt
+      // eintragen") liegen im DOM außerhalb — beide hängen als Portal an
+      // document.body. Ohne diese Ausnahme schloss schon der Monatspfeil des
+      // Kalenders das ganze äußere Popover samt Eingaben.
+      if (innenGeklickt.current.has(e)) return;
       if (ref.current && e.target instanceof Node && !ref.current.contains(e.target)) onClose();
     }
     // Escape schließt NUR das Popover. Abgefangen in der Capture-Phase am
     // window und dort gestoppt: Sonst erreichte dieselbe Taste auch den
     // Escape-Handler eines umgebenden Modals, und Escape in einem Select
     // schloss das ganze Formular samt allem, was schon eingetippt war.
+    // Bei verschachtelten Popovers schließt nur das oberste: Beide Listener
+    // hängen am selben window, stopPropagation hält das äußere nicht auf.
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      if (offenePopover[offenePopover.length - 1] !== token) return;
       e.stopPropagation();
       onClose();
     }
@@ -115,7 +144,7 @@ export function AnchoredPopover({
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onClose);
     };
-  }, [onClose, ref, sheet]);
+  }, [onClose, ref, sheet, token]);
 
   if (sheet) {
     const available = Math.max(160, (keyboard.height || 600) - 96);
@@ -124,6 +153,7 @@ export function AnchoredPopover({
         ref={ref}
         id={id}
         role={role}
+        onMouseDownCapture={markInnen}
         aria-label={label}
         className={`${className} anchored-sheet`}
         style={{
@@ -155,6 +185,7 @@ export function AnchoredPopover({
       ref={ref}
       id={id}
       role={role}
+      onMouseDownCapture={markInnen}
       aria-label={label}
       className={className}
       style={{
