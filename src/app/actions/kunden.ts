@@ -10,6 +10,7 @@ import {
   ABLAGE_TYPEN,
   KUNDEN_STATUS,
   KUNDEN_STATUS_LABELS,
+  VORLAGEN_BUCKET,
   sichereUrl,
   zeilenZuPunkten,
   type AblageTyp,
@@ -661,6 +662,11 @@ export async function duplicateVorlage(id: string): Promise<{ error?: string; id
 export async function deleteVorlage(id: string): Promise<Result> {
   const ctx = await requireKunden();
   if (!ctx) return KEIN_RECHT;
+  // Dateien der Vorlage (0052) zuerst aus dem Bucket — die Zeilen gehen per
+  // Cascade mit, die Objekte nicht. Fehlt 0052, gibt es keine.
+  const { data: dateien } = await ctx.supabase.from("fulfillment_vorlage_dateien").select("storage_path").eq("vorlage_id", id);
+  const pfade = ((dateien ?? []) as { storage_path: string }[]).map((d) => d.storage_path);
+  if (pfade.length) await ctx.supabase.storage.from(VORLAGEN_BUCKET).remove(pfade);
   const { error } = await ctx.supabase.from("fulfillment_vorlagen").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidateVorlagen();
@@ -803,5 +809,71 @@ export async function ablageDownloadUrl(id: string): Promise<{ error?: string; u
     .from(ABLAGE_BUCKET)
     .createSignedUrl(a.storage_path, 300, { download: a.dateiname ?? true });
   if (error || !signed) return { error: error?.message ?? "Link konnte nicht erzeugt werden." };
+  return { url: signed.signedUrl };
+}
+
+// ── Dateien an Vorlagen (Migration 0052, 28.11.) ─────────────────────────
+
+const MIGRATION_0052 = "Dateien an Vorlagen fehlen noch in der Datenbank — Migration 0052 ist nicht eingespielt.";
+
+/** Nach dem Hochladen in den Bucket: die Datei an der Vorlage eintragen. */
+export async function registerVorlageDatei(
+  vorlageId: string,
+  input: { titel: string; storage_path: string; dateiname: string; groesse_bytes: number; mime: string | null },
+): Promise<{ error?: string }> {
+  const ctx = await requireKunden();
+  if (!ctx) return { error: "Keine Berechtigung." };
+  if (!input.storage_path.startsWith(`${vorlageId}/`) || input.storage_path.includes("..")) {
+    return { error: "Ungültiger Speicherpfad." };
+  }
+  const titel = (input.titel || input.dateiname).trim().slice(0, 200) || "Datei";
+  const { error } = await ctx.supabase.from("fulfillment_vorlage_dateien").insert({
+    vorlage_id: vorlageId,
+    titel,
+    dateiname: input.dateiname.slice(0, 255),
+    storage_path: input.storage_path,
+    groesse_bytes: Number.isFinite(input.groesse_bytes) ? input.groesse_bytes : null,
+    mime: input.mime,
+    created_by_user_id: ctx.userId,
+  });
+  if (error) {
+    await ctx.supabase.storage.from(VORLAGEN_BUCKET).remove([input.storage_path]);
+    return { error: /fulfillment_vorlage_dateien|does not exist|schema cache/i.test(error.message) ? MIGRATION_0052 : error.message };
+  }
+  revalidateVorlagen();
+  return {};
+}
+
+export async function deleteVorlageDatei(id: string): Promise<{ error?: string }> {
+  const ctx = await requireKunden();
+  if (!ctx) return { error: "Keine Berechtigung." };
+  const { data, error: le } = await ctx.supabase.from("fulfillment_vorlage_dateien").select("storage_path").eq("id", id).maybeSingle();
+  if (le) return { error: le.message };
+  if (!data) return { error: "Datei nicht gefunden." };
+  const pfad = (data as { storage_path: string }).storage_path;
+  const { error: se } = await ctx.supabase.storage.from(VORLAGEN_BUCKET).remove([pfad]);
+  if (se) return { error: se.message };
+  const { error } = await ctx.supabase.from("fulfillment_vorlage_dateien").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidateVorlagen();
+  return {};
+}
+
+/** Kurzlebiger Download-Link (5 Minuten) — der Bucket ist privat. */
+export async function vorlageDateiUrl(id: string): Promise<{ error?: string; url?: string }> {
+  const ctx = await requireKunden();
+  if (!ctx) return { error: "Keine Berechtigung." };
+  const { data, error: le } = await ctx.supabase
+    .from("fulfillment_vorlage_dateien")
+    .select("storage_path, dateiname")
+    .eq("id", id)
+    .maybeSingle();
+  if (le) return { error: le.message };
+  const d = data as { storage_path: string; dateiname: string } | null;
+  if (!d) return { error: "Datei nicht gefunden." };
+  const { data: signed, error } = await ctx.supabase.storage
+    .from(VORLAGEN_BUCKET)
+    .createSignedUrl(d.storage_path, 300, { download: d.dateiname });
+  if (error || !signed) return { error: error?.message ?? "Kein Link." };
   return { url: signed.signedUrl };
 }

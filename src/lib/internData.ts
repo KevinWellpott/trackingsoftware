@@ -19,6 +19,7 @@ import type {
   KundenZahlung,
   TeamMitglied,
   Vorlage,
+  VorlageDatei,
   VorlagePunkt,
 } from "@/lib/kunden";
 
@@ -286,6 +287,21 @@ export async function loadVorlagen(): Promise<Vorlage[]> {
     alle<VorlagePunkt>(supabase, "fulfillment_vorlage_punkte", ["sort_order", "created_at", "id"]),
   ]);
   return vorlagen.map((v) => ({ ...v, punkte: punkte.filter((p) => p.vorlage_id === v.id) }));
+}
+
+/**
+ * Dateien einer Vorlage (Migration 0052). `verfuegbar: false` heißt „Migration
+ * fehlt“ — dann zeigt die Seite einen Hinweis statt einer leeren Liste.
+ */
+export async function loadVorlageDateien(vorlageId: string): Promise<{ dateien: VorlageDatei[]; verfuegbar: boolean }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fulfillment_vorlage_dateien")
+    .select("id, vorlage_id, titel, dateiname, storage_path, groesse_bytes, mime, created_at")
+    .eq("vorlage_id", vorlageId)
+    .order("created_at", { ascending: false });
+  if (error) return { dateien: [], verfuegbar: false };
+  return { dateien: (data ?? []) as VorlageDatei[], verfuegbar: true };
 }
 
 // ── Seitenleiste ───────────────────────────────────────────────────────────

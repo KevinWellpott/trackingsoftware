@@ -20,6 +20,7 @@ import {
   ABLAGE_TYPEN,
   ABLAGE_TYP_LABELS,
   formatBytes,
+  sichererDateiname,
   type AblageEintrag,
   type AblageTyp,
 } from "@/lib/kunden";
@@ -32,9 +33,6 @@ import {
 
 const ALLE_TYPEN = ABLAGE_TYPEN.map((t) => ({ value: t, label: ABLAGE_TYP_LABELS[t] }));
 
-function sichererDateiname(name: string): string {
-  return name.normalize("NFKD").replace(/[^\w.\-]+/g, "_").slice(-120) || "datei";
-}
 
 export function AblagePanel({
   kundeId,

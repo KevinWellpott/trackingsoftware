@@ -5496,3 +5496,36 @@ a.nf-name:hover { color: var(--accent-text); }
   .kd-zeile > [data-feld="agenda"] { display: none; }
   .kd-suche { margin-left: 0; width: 100%; }
 }
+
+/* ── Dateien an Vorlagen (28.11.) ── */
+.vd-karte { display: grid; gap: var(--sp-5); padding: var(--sp-7) var(--sp-8); }
+.vd-kopf { display: flex; align-items: center; gap: var(--sp-3); color: var(--text-muted); }
+.vd-kopf h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); }
+.vd-zahl { min-width: 20px; padding: 0 6px; border-radius: var(--r-full); background: var(--surface-3); font-size: 11.5px; text-align: center; color: var(--text-secondary); }
+.vd-hinweis { margin: 0; font-size: var(--fs-sm); color: var(--warning-fg); }
+.vd-zone { border-radius: 14px; transition: box-shadow var(--transition-fast), background var(--transition-fast); }
+.vd-zone[data-ziehen] { background: color-mix(in srgb, var(--accent) 6%, transparent); outline: 1.5px dashed var(--accent); outline-offset: -1px; }
+.vd-leer {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 36px 16px;
+  border: 1.5px dashed var(--line-2);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.vd-leer:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--hover); }
+.vd-liste { list-style: none; margin: 0; padding: 0; display: grid; }
+.vd-liste > li { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid var(--line); }
+.vd-liste > li:first-child { border-top: 0; }
+.vd-icon { color: var(--text-muted); flex-shrink: 0; }
+.vd-text { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.vd-titel { font-size: 14px; font-weight: 550; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-meta { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-ablegen { margin: 8px 0 0; font-size: 12px; color: var(--text-muted); text-align: center; }
+.vd-fehler { margin: 0; font-size: var(--fs-sm); color: var(--danger-fg); }

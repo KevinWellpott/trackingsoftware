@@ -59,6 +59,25 @@ export const ABLAGE_TYP_LABELS: Record<AblageTyp, string> = {
 export const ABLAGE_BUCKET = "kunden-ablage";
 export const ABLAGE_MAX_BYTES = 50 * 1024 * 1024;
 
+/** Dateien an Vorlagen (Migration 0052): privater Bucket, Pfad <vorlage_id>/<datei>. */
+export const VORLAGEN_BUCKET = "vorlagen-dateien";
+
+export type VorlageDatei = {
+  id: string;
+  vorlage_id: string;
+  titel: string;
+  dateiname: string;
+  storage_path: string;
+  groesse_bytes: number | null;
+  mime: string | null;
+  created_at: string;
+};
+
+/** Dateiname, der in jedem Speicherpfad funktioniert (keine Leer-/Sonderzeichen). */
+export function sichererDateiname(name: string): string {
+  return name.normalize("NFKD").replace(/[^\w.\-]+/g, "_").slice(-120) || "datei";
+}
+
 export type Kunde = {
   id: string;
   closing_call_id: string | null;

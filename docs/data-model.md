@@ -331,6 +331,13 @@ dritten „Nicht erreicht" liest dieselbe Serie wie der Server (letzte zwei Anwa
   (Dauer, Anwahlen, Termine, Entscheider, Nicht erreicht, Kein Termin, Tot) — reine Anzeige,
   nichts wird gespeichert.
 
+- **Dateien an Fulfillment-Vorlagen** (Migration **0052**, nicht eingespielt): Tabelle
+  `fulfillment_vorlage_dateien` (FK auf die Vorlage, `on delete cascade`, RLS
+  `is_intern_member()`), privater Bucket `vorlagen-dateien` (50 MB je Datei, Pfad
+  `<vorlage_id>/<zufall>-<dateiname>`, Hochladen nur in eine existierende Vorlage). Download nur
+  über einen 5-Minuten-Link; Löschen einer Vorlage räumt ihre Objekte mit. Ohne 0052 zeigt
+  `/kunden/vorlagen` einen Hinweis.
+
 ### 0.7 Plattform-Übersicht „Organisationen im Blick" (`/admin/uebersicht`, Migration 0051)
 
 Nur Plattform-Admins (Seite, Loader, Action und RLS prüfen `is_platform_admin`). Je

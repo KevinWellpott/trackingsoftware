@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
-import { getInternRechte, loadVorlagen } from "@/lib/internData";
+import { getInternRechte, loadVorlageDateien, loadVorlagen } from "@/lib/internData";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { BackLink } from "@/components/ui/BackLink";
 import { Chips } from "@/components/kunden/Nav";
 import { VorlageAnlegenButton, VorlagenEditor } from "@/components/kunden/VorlagenEditor";
+import { VorlagenDateien } from "@/components/kunden/VorlagenDateien";
 
 // Fulfillment-Vorlagen. Beliebig viele, ein Kunde kann mehrere bekommen (F1).
 
@@ -18,6 +19,7 @@ export default async function VorlagenPage({ searchParams }: { searchParams: Pro
 
   const sortiert = [...vorlagen].sort((a, b) => Number(!!a.archiviert_at) - Number(!!b.archiviert_at));
   const aktiv = sortiert.find((v) => v.id === sp.id) ?? sortiert[0] ?? null;
+  const dateien = aktiv ? await loadVorlageDateien(aktiv.id) : null;
 
   return (
     <div className="ks-seite" data-schmal="true">
@@ -43,7 +45,11 @@ export default async function VorlagenPage({ searchParams }: { searchParams: Pro
       </PageHeader>
 
       {aktiv ? (
-        <VorlagenEditor key={`${aktiv.id}:${aktiv.name}`} vorlage={aktiv} />
+        <>
+          <VorlagenEditor key={`${aktiv.id}:${aktiv.name}`} vorlage={aktiv} />
+          {/* Dateien an der Vorlage (Migration 0052, 28.11.) */}
+          <VorlagenDateien vorlageId={aktiv.id} dateien={dateien?.dateien ?? []} verfuegbar={dateien?.verfuegbar ?? false} />
+        </>
       ) : (
         <Card>
           <p className="ks-leise">Noch keine Vorlage. Leg eine an und füg euren Ablauf als Liste ein, eine Zeile je Checkbox.</p>
