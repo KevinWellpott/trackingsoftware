@@ -177,7 +177,12 @@ describe("3 · Was aus der Ansicht verschwunden ist", () => {
 describe("Abschlusskarte der Session (28.11.)", () => {
   test("„Beenden“ zeigt Dauer, Anwahlen, Termine, Entscheider, Nicht erreicht, Kein Termin, Tot", () => {
     assert.match(RUNNER, /<SessionAbschluss/);
-    for (const label of ["Dauer", "Anwahlen", "Termine gelegt", "Entscheider erreicht", "Nicht erreicht", "Kein Termin", "Tot", "Leads bearbeitet"]) {
+    // Drei große Zahlen (Anwahlen · Zeit · Termine), der Rest aufklappbar.
+    assert.match(RUNNER, /<div className="cm-win-zahlen">/);
+    assert.match(RUNNER, /<small>Anwahlen<\/small>/);
+    assert.match(RUNNER, /\{zahlen\.termine === 1 \? "Termin" : "Termine"\}/);
+    assert.match(RUNNER, /\{details && \(\s*<dl className="cm-win-liste">/);
+    for (const label of ["Entscheider erreicht", "Nicht erreicht", "Kein Termin", "Tot", "Leads bearbeitet"]) {
       assert.match(RUNNER, new RegExp(`label: "${label}"`), label);
     }
     // Ein offenes Ergebnis wird vorher gespeichert; ohne jede Aktivität direkt zurück.

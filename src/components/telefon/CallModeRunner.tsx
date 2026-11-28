@@ -16,6 +16,8 @@ import {
   CalendarPlus,
   CalendarX,
   Check,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Copy,
   Globe,
@@ -295,17 +297,52 @@ type Pending = { key: number; id: string; timer: ReturnType<typeof setTimeout>; 
  * jeweiligen Leads, nie über eine Liste der Seite. In einer echten Liste ist
  * beides dasselbe.
  */
-/** „1:23 h“ bzw. „12 min“. */
-function dauerText(ms: number): string {
+/** Zählt beim Öffnen von 0 hoch — der kleine Moment, in dem sich das Ergebnis „füllt“. */
+function useHochzaehlen(ziel: number, dauerMs = 900): number {
+  const [wert, setWert] = useState(0);
+  useEffect(() => {
+    if (ziel <= 0) {
+      const t = setTimeout(() => setWert(0), 0);
+      return () => clearTimeout(t);
+    }
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      const t = setTimeout(() => setWert(ziel), 0);
+      return () => clearTimeout(t);
+    }
+    let raf = 0;
+    const start = performance.now();
+    const schritt = (jetzt: number) => {
+      const p = Math.min(1, (jetzt - start) / dauerMs);
+      // ease-out: schnell los, sanft ans Ziel
+      setWert(Math.round(ziel * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(schritt);
+    };
+    raf = requestAnimationFrame(schritt);
+    return () => cancelAnimationFrame(raf);
+  }, [ziel, dauerMs]);
+  return wert;
+}
+
+/** Dauer als „1:23“ (Std:Min) bzw. „12“ (Min) — die Einheit steht darunter. */
+function dauerTeile(ms: number): { wert: string; einheit: string } {
   const min = Math.max(0, Math.round(ms / 60000));
-  if (min < 60) return `${min} min`;
-  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")} h`;
+  if (min < 60) return { wert: String(min), einheit: min === 1 ? "Minute" : "Minuten" };
+  return { wert: `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`, einheit: "Stunden" };
+}
+
+/** Überschrift nach Ergebnis — Termine zählen am meisten. */
+function abschlussTitel(termine: number, anwahlen: number): { titel: string; sub: string } {
+  if (termine >= 3) return { titel: `Stark — ${termine} Termine gelegt!`, sub: "Das war eine richtig gute Session." };
+  if (termine === 2) return { titel: "Zwei Termine im Kasten!", sub: "Sauber gearbeitet." };
+  if (termine === 1) return { titel: "Ein Termin gelegt!", sub: "Jeder Termin zählt." };
+  if (anwahlen >= 20) return { titel: `${anwahlen} Anwahlen geschafft`, sub: "Die Termine kommen mit der Menge." };
+  return { titel: "Session beendet", sub: "Hier ist deine Bilanz." };
 }
 
 /**
- * Abschlusskarte beim Beenden (28.11.): was diese Session gebracht hat.
- * Gezählt wird, was der Server bestätigt hat — ein noch laufendes Speichern
- * zählt nach, sobald es durch ist.
+ * Abschlusskarte beim Beenden (28.11.): drei große Zahlen — Anwahlen, Zeit,
+ * Termine — mit Hochzähl-Moment; alles Weitere aufklappbar. Gezählt wird,
+ * was der Server bestätigt hat — ein noch laufendes Speichern zählt nach.
  */
 function SessionAbschluss({
   dauerMs,
@@ -320,37 +357,69 @@ function SessionAbschluss({
   onWeiter: () => void;
   onBeenden: () => void;
 }) {
+  const [details, setDetails] = useState(false);
+  const anwahlen = useHochzaehlen(zahlen.anwahlen);
+  const termine = useHochzaehlen(zahlen.termine, 1200);
+  const dauer = dauerTeile(dauerMs);
   const stunden = dauerMs / 3_600_000;
   const proStunde = stunden >= 0.05 ? Math.round(zahlen.anwahlen / stunden) : null;
   const quote = (n: number) => (zahlen.anwahlen > 0 ? `${Math.round((n / zahlen.anwahlen) * 100)} %` : "—");
-  const kacheln: { label: string; wert: string; sub?: string; ton?: "akzent" }[] = [
-    { label: "Dauer", wert: dauerText(dauerMs) },
-    { label: "Anwahlen", wert: String(zahlen.anwahlen), sub: proStunde != null ? `${proStunde} pro Stunde` : undefined },
-    { label: "Termine gelegt", wert: String(zahlen.termine), sub: `${quote(zahlen.termine)} der Anwahlen`, ton: "akzent" },
-    { label: "Entscheider erreicht", wert: String(zahlen.entscheider), sub: `${quote(zahlen.entscheider)} der Anwahlen` },
+  const { titel, sub } = abschlussTitel(zahlen.termine, zahlen.anwahlen);
+  const weitere: { label: string; wert: string }[] = [
+    { label: "Entscheider erreicht", wert: `${zahlen.entscheider} · ${quote(zahlen.entscheider)}` },
+    { label: "Terminquote", wert: quote(zahlen.termine) },
+    { label: "Anwahlen pro Stunde", wert: proStunde != null ? String(proStunde) : "—" },
     { label: "Nicht erreicht", wert: String(zahlen.nicht_erreicht) },
     { label: "Kein Termin", wert: String(zahlen.kein_termin) },
     { label: "Tot", wert: String(zahlen.tot) },
     { label: "Leads bearbeitet", wert: String(bearbeitet) },
   ];
   return (
-    <Modal open onClose={onWeiter} title="Deine Session" subtitle="Zusammenfassung dieser Telefon-Session" width={520}>
-      <div className="cm-abschluss">
-        {kacheln.map((k) => (
-          <div key={k.label} className="cm-abschluss-k" data-ton={k.ton}>
-            <small>{k.label}</small>
-            <b className="tnum">{k.wert}</b>
-            {k.sub && <span>{k.sub}</span>}
+    <Modal open onClose={onWeiter} width={520}>
+      <div className="cm-win" data-gewonnen={zahlen.termine > 0 || undefined}>
+        <div className="cm-win-glanz" aria-hidden>
+          {zahlen.termine > 0 && Array.from({ length: 10 }, (_, i) => <i key={i} style={{ ["--i" as string]: i }} />)}
+        </div>
+        <div className="cm-win-kopf">
+          <h2>{titel}</h2>
+          <p>{sub}</p>
+        </div>
+        <div className="cm-win-zahlen">
+          <div className="cm-win-zahl">
+            <b className="tnum">{anwahlen.toLocaleString("de-DE")}</b>
+            <small>Anwahlen</small>
           </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: "var(--sp-3)", justifyContent: "flex-end", marginTop: "var(--sp-7)" }}>
-        <Button variant="ghost" onClick={onWeiter}>
-          Weiter telefonieren
-        </Button>
-        <Button variant="primary" onClick={onBeenden}>
-          Session beenden
-        </Button>
+          <div className="cm-win-zahl">
+            <b className="tnum">{dauer.wert}</b>
+            <small>{dauer.einheit}</small>
+          </div>
+          <div className="cm-win-zahl" data-held="">
+            <b className="tnum">{termine.toLocaleString("de-DE")}</b>
+            <small>{zahlen.termine === 1 ? "Termin" : "Termine"}</small>
+          </div>
+        </div>
+        <button type="button" className="cm-win-details" aria-expanded={details} onClick={() => setDetails((d) => !d)}>
+          {details ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+          {details ? "Details ausblenden" : "Details"}
+        </button>
+        {details && (
+          <dl className="cm-win-liste">
+            {weitere.map((w) => (
+              <div key={w.label}>
+                <dt>{w.label}</dt>
+                <dd className="tnum">{w.wert}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        <div className="cm-win-aktionen">
+          <Button variant="ghost" onClick={onWeiter}>
+            Weiter telefonieren
+          </Button>
+          <Button variant="primary" onClick={onBeenden}>
+            Session beenden
+          </Button>
+        </div>
       </div>
     </Modal>
   );

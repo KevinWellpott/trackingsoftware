@@ -5107,20 +5107,85 @@ a.nf-name:hover { color: var(--accent-text); }
   .cm-outs .dialer-outcome[data-tone="won"] { background: var(--grad-cta); color: var(--on-accent); box-shadow: var(--shadow-btn-primary); }
 }
 
-/* Abschlusskarte der Session */
-.cm-abschluss { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
-.cm-abschluss-k {
+/* Abschlusskarte der Session — „Ergebnis-Moment“ (28.11.) */
+.cm-win { position: relative; display: grid; gap: var(--sp-7); text-align: center; padding-top: var(--sp-3); }
+.cm-win-glanz {
+  position: absolute;
+  inset: -40px -24px auto;
+  height: 220px;
+  pointer-events: none;
+  background: radial-gradient(60% 70% at 50% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
+  opacity: 0.55;
+}
+.cm-win[data-gewonnen] .cm-win-glanz { opacity: 1; }
+/* Kleine Funken — nur wenn ein Termin gelegt wurde. */
+.cm-win-glanz > i {
+  position: absolute;
+  top: 70px;
+  left: calc(50% + (var(--i) - 4.5) * 34px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  animation: cm-funke 1.6s cubic-bezier(0.2, 0.8, 0.3, 1) calc(var(--i) * 70ms) both;
+}
+.cm-win-glanz > i:nth-child(3n) { background: var(--success); }
+.cm-win-glanz > i:nth-child(4n) { background: var(--gold, var(--warning)); width: 4px; height: 4px; }
+@keyframes cm-funke {
+  0% { opacity: 0; transform: translateY(20px) scale(0.4); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(calc(-60px - var(--i) * 4px)) scale(1); }
+}
+.cm-win-kopf { position: relative; display: grid; gap: 4px; }
+.cm-win-kopf h2 { margin: 0; font-size: var(--fs-xl); font-weight: 650; letter-spacing: -0.02em; color: var(--text-primary); }
+.cm-win-kopf p { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); }
+.cm-win-zahlen { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
+.cm-win-zahl {
   display: grid;
   gap: 2px;
-  padding: var(--sp-5) var(--sp-6);
-  border-radius: var(--r-md);
+  padding: var(--sp-6) var(--sp-4);
+  border-radius: 16px;
   background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--border-default);
+  animation: cm-zahl-in 0.5s cubic-bezier(0.3, 1.3, 0.5, 1) both;
 }
-.cm-abschluss-k small { font-size: var(--fs-xs); color: var(--text-muted); }
-.cm-abschluss-k b { font-size: var(--fs-xl); font-weight: 600; color: var(--text-primary); }
-.cm-abschluss-k span { font-size: var(--fs-xs); color: var(--text-muted); }
-.cm-abschluss-k[data-ton="akzent"] b { color: var(--accent-text); }
-@media (min-width: 560px) {
-  .cm-abschluss { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.cm-win-zahl:nth-child(2) { animation-delay: 80ms; }
+.cm-win-zahl:nth-child(3) { animation-delay: 160ms; }
+.cm-win-zahl b { font-size: 40px; line-height: 1.05; font-weight: 650; letter-spacing: -0.03em; color: var(--text-primary); }
+.cm-win-zahl small { font-size: var(--fs-sm); color: var(--text-muted); }
+.cm-win-zahl[data-held] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 16%, var(--surface-2)), var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent), 0 8px 28px -12px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.cm-win-zahl[data-held] b { color: var(--accent-text); }
+@keyframes cm-zahl-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.cm-win-details {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.cm-win-details:hover { background: var(--hover); color: var(--text-primary); }
+.cm-win-liste { margin: 0; display: grid; gap: 0; text-align: left; border-top: 1px solid var(--border-subtle); }
+.cm-win-liste > div { display: flex; justify-content: space-between; gap: var(--sp-5); padding: var(--sp-4) var(--sp-2); border-bottom: 1px solid var(--border-subtle); }
+.cm-win-liste dt { font-size: var(--fs-sm); color: var(--text-muted); }
+.cm-win-liste dd { margin: 0; font-size: var(--fs-sm); font-weight: 550; color: var(--text-primary); }
+.cm-win-aktionen { display: flex; gap: var(--sp-3); justify-content: center; }
+@media (max-width: 479px) {
+  .cm-win-zahl b { font-size: 30px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-win-glanz > i, .cm-win-zahl { animation: none; }
 }
