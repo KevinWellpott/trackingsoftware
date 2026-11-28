@@ -1,7 +1,6 @@
 "use client";
 
 import { Segmented } from "@/components/ui/Segmented";
-import { Input } from "@/components/ui/Input";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TerminTab, TerminView, TermineWer, TerminZeit } from "./viewState";
@@ -112,19 +111,6 @@ const WER_OPTIONS = [
   { value: "alle", label: "Alle Personen" },
 ] as const;
 
-const navBtn: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "var(--h-control)",
-  height: "var(--h-control)",
-  border: "1px solid var(--border-default)",
-  borderRadius: "var(--r-md)",
-  background: "var(--surface-2)",
-  color: "var(--text-muted)",
-  cursor: "pointer",
-};
-
 export function TermineFilterBar({
   view,
   tab,
@@ -190,46 +176,22 @@ export function TermineFilterBar({
   }
 
   return (
-    <div
-      className="glass-nav filter-bar-row termine-bar"
-      data-tab={tab}
-      style={{
-        position: "sticky",
-        top: "var(--sticky-top, 0px)",
-        zIndex: 20,
-        // Sticky-Kopf im Glass-Nav-Rezept: eine der drei Glasflaechen dieser View.
-        paddingBottom: "var(--sp-4)",
-        marginBottom: "var(--sp-5)",
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--sp-4)",
-        flexWrap: "wrap",
-      }}
-    >
+    // Optik und Anordnung stehen in globals.css (`.termine-bar`, 28.11.):
+    // abgerundete Glas-Leiste, links Navigation und Zeitraum, rechts
+    // Ansicht, Suche und Personen-Schalter.
+    <div className="glass-nav filter-bar-row termine-bar" data-tab={tab}>
       {/* Links: was den Ausschnitt steuert. Im Kalender die Datums-Navigation,
           in der Liste der Ausschnitt samt seiner Zahl, bei den Rückrufen nichts
           — dort ist die Fälligkeit der Ausschnitt. */}
       {isKalender ? (
         <>
-          <button type="button" className="termine-nav-prev" onClick={() => onStep(-1)} aria-label="Zurück" style={navBtn}>
-            <ChevronLeft size={15} />
+          <button type="button" className="tb-btn termine-nav-prev" onClick={() => onStep(-1)} aria-label="Zurück" title="Zurück">
+            <ChevronLeft size={16} />
           </button>
-          <button type="button" className="termine-nav-next" onClick={() => onStep(1)} aria-label="Vor" style={navBtn}>
-            <ChevronRight size={15} />
+          <button type="button" className="tb-btn termine-nav-next" onClick={() => onStep(1)} aria-label="Vor" title="Vor">
+            <ChevronRight size={16} />
           </button>
-          <button
-            type="button"
-            className="termine-nav-today"
-            onClick={onToday}
-            style={{
-              ...navBtn,
-              width: "auto",
-              padding: "0 var(--sp-6)",
-              fontSize: "var(--fs-sm)",
-              fontWeight: 500,
-              fontFamily: "inherit",
-            }}
-          >
+          <button type="button" className="tb-btn termine-nav-today" onClick={onToday}>
             Heute
           </button>
           <div className="termine-kal-seg">
@@ -249,47 +211,24 @@ export function TermineFilterBar({
         </div>
       ) : null}
 
-      <span
-        className="termine-period"
-        style={{
-          fontSize: "var(--fs-lg)",
-          fontWeight: 600,
-          letterSpacing: "var(--ls-display)",
-          color: "var(--text-primary)",
-          textTransform: "capitalize",
-          marginLeft: "var(--sp-3)",
-        }}
-      >
-        {periodLabel}
-      </span>
+      {periodLabel && <span className="termine-period">{periodLabel}</span>}
 
-      <div className="termine-filter-right" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
+      <div className="termine-filter-right">
         {/* Suche gilt in ALLEN Ansichten und liegt in der URL — vorher hielt
             die Listenansicht sie lokal und verlor sie beim Umschalten. */}
         {/* `data-empty`: Im Kalender am Handy weicht ein LEERES Suchfeld — dort
             sucht man einen Tag, keinen Namen. Ein gesetzter Begriff bleibt
             sichtbar, sonst filterte er unsichtbar weiter. */}
-        <div className="termine-search" data-empty={draft.trim() ? undefined : ""} style={{ position: "relative", width: 208 }}>
-          <Search
-            size={13}
-            style={{
-              position: "absolute",
-              left: "0.625rem",
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "var(--text-subtle)",
-              pointerEvents: "none",
-            }}
-          />
-          <Input
+        <label className="termine-search" data-empty={draft.trim() ? undefined : ""}>
+          <Search size={14} aria-hidden />
+          <input
             type="search"
             placeholder="Lead oder Firma…"
             value={draft}
             onChange={(e) => onSearchInput(e.target.value)}
             aria-label="Termine durchsuchen"
-            style={{ minHeight: "var(--h-control)", padding: "0.35rem 0.75rem 0.35rem 2rem", fontSize: "var(--fs-sm)" }}
           />
-        </div>
+        </label>
         {canSeeAll && (
           <Segmented options={WER_OPTIONS} value={wer} onChange={(w) => onWer(w)} ariaLabel="Wessen Termine" />
         )}

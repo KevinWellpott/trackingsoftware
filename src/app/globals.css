@@ -5189,3 +5189,92 @@ a.nf-name:hover { color: var(--accent-text); }
 @media (prefers-reduced-motion: reduce) {
   .cm-win-glanz > i, .cm-win-zahl { animation: none; }
 }
+
+/* ── Kopfleiste Kalender/Liste (/termine), 28.11. ─────────────────────────
+   Eine abgerundete Glas-Leiste: links ‹ › als Paar, „Heute“, der Zeitraum
+   groß; rechts Monat/Woche/Tag, Suche und Personen. Am Handy gilt weiter das
+   Raster aus der 767px-Sektion (die `order`-Werte wirken dort nicht, weil
+   jedes Element eine feste grid-area hat). */
+.termine-bar {
+  position: sticky;
+  top: var(--sticky-top, 0px);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: var(--sp-6);
+  padding: 10px 12px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--line), 0 6px 24px -16px rgb(0 0 0 / 0.35);
+}
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ctl);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.tb-btn:hover { background: var(--ctl-h); color: var(--text-primary); }
+.tb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.termine-bar .termine-nav-prev,
+.termine-bar .termine-nav-next { padding: 0; width: 34px; }
+.termine-period {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  white-space: nowrap;
+  padding: 0 4px;
+}
+.termine-filter-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.termine-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 220px;
+  height: 34px;
+  padding: 0 11px;
+  border-radius: 10px;
+  background: var(--ctl);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--text-muted);
+}
+.termine-search:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.termine-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+.termine-search input::-webkit-search-cancel-button { cursor: pointer; }
+@media (min-width: 768px) {
+  /* ‹ › als zusammenhängendes Paar */
+  .termine-bar .termine-nav-prev { border-radius: 10px 0 0 10px; }
+  .termine-bar .termine-nav-next { border-radius: 0 10px 10px 0; margin-left: -11px; }
+  /* Reihenfolge: Navigation · Zeitraum | Ansicht · Suche · Personen */
+  .termine-bar .termine-nav-prev { order: 1; }
+  .termine-bar .termine-nav-next { order: 2; }
+  .termine-bar .termine-nav-today { order: 3; }
+  .termine-bar .termine-period { order: 4; }
+  .termine-bar .termine-kal-seg { order: 5; margin-left: auto; }
+  .termine-bar .termine-zeit-scroll { order: 1; }
+  .termine-bar .termine-filter-right { order: 6; }
+  .termine-bar[data-tab="kalender"] .termine-filter-right { margin-left: 0; }
+}
