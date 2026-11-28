@@ -1426,6 +1426,17 @@ export function SidebarContent({
           onClick={onClose}
           title="Wie verhalten sich zwei Zahlen zueinander? Kennzahlen nach Person, Kanal oder Liste nebeneinander."
         />
+        {/* Nur Plattform-Admins (Titan): alle Organisationen auf einen Blick,
+            gegen die Richtwerte (Migration 0051). */}
+        {orgSwitch && (
+          <NavLink
+            href="/admin/uebersicht"
+            icon={Building2}
+            label="Organisationen im Blick"
+            onClick={onClose}
+            title="Was haben die Organisationen heute, diese Woche und diesen Monat getan? Anwahlen, Pitches, Termine, Settings, Closings gegen die Richtwerte."
+          />
+        )}
         {/* Nur Owner mit Team-Sicht — dieselbe Regel wie /team selbst. */}
         {dataView?.canSwitch && (
           <NavLink

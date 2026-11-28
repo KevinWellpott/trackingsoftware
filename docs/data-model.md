@@ -302,6 +302,27 @@ dritten „Nicht erreicht" liest dieselbe Serie wie der Server (letzte zwei Anwa
   „Skript" statt „Arm". Zahlen einheitlich über `src/lib/zahl.ts` („42,5 %", echtes Minus,
   Achse „10,5 T€").
 
+### 0.7 Plattform-Übersicht „Organisationen im Blick" (`/admin/uebersicht`, Migration 0051)
+
+Nur Plattform-Admins (Seite, Loader, Action und RLS prüfen `is_platform_admin`). Je
+Organisation fünf Kennzahlen × Heute · Woche (ab Montag) · Monat (ab dem 1.), jeweils bis
+jetzt, Berliner Kalendertage (`src/lib/orgUebersicht.ts`, Daten in `orgUebersichtData.ts`):
+
+| Kennzahl | Quelle und Tag |
+|---|---|
+| Anwahlen | `phone_call_attempts`, `called_at` — Ereignis-Ebene (§1) |
+| LinkedIn-Pitches | `contacts`, `coalesce(pitched_at, created_at)` |
+| Termine gelegt | `setting_calls.created_at` — „gelegt" (§5), alle Quellen |
+| Settings | `setting_calls` nach `settingEffDate`, Termin schon begonnen, ohne wirkende Absage |
+| Closings | `closing_calls` nach `closingEffDate`, Termin schon begonnen, ohne wirkende Absage |
+
+**Richtwerte** stehen in `org_richtwerte` (0051): eine Zeile je Organisation, je Kennzahl ein
+Wert **pro Arbeitstag** (NULL = kein Richtwert). Das angezeigte Soll ist **Soll bis heute** =
+Richtwert × Arbeitstage (Mo–Fr, Feiertage zählen mit) vom Beginn des Zeitraums bis heute; der
+Hinweis nennt zusätzlich das Soll des ganzen Zeitraums. Die Tabelle hat bewusst **keinen
+Fremdschlüssel** auf `workspaces` (sonst müsste sie in die Löschvorschau, §8); ein
+AFTER-DELETE-Trigger auf `workspaces` räumt sie auf. Fehlt 0051, zeigt die Seite nur das Ist.
+
 ## 1. Was die App trackt (Lifecycle)
 
 Vertriebs-Funnel eines Teams, zwei Akquise-Kanäle, die in einen gemeinsamen Termin-Funnel münden:

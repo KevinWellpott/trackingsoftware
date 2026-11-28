@@ -71,6 +71,9 @@ export default async function AdminPage({
         title="Organisationen"
         meta="Kunden-Mandanten anlegen und verwalten"
       />
+      <Link href="/admin/uebersicht" className="ui-btn" data-variant="secondary" data-size="md" style={{ alignSelf: "flex-start" }}>
+        Organisationen im Blick — Zahlen und Richtwerte
+      </Link>
 
       {q.ok && (
         <div

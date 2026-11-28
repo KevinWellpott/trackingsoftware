@@ -4671,3 +4671,60 @@ a.km:hover .km-go, a.km:focus-visible .km-go { opacity: 1; }
 @media (max-width: 479px) {
   .grid-6-stat { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 }
+
+/* ── Organisationen im Blick (/admin/uebersicht) ─────────────────────────
+   Je Organisation eine Karte: Kennzahl × Heute · Woche · Monat, Ist über
+   Soll mit dünnem Balken. Erreicht = Grün; kein Gold (heißt „du bist dran“). */
+.org-blick-raster {
+  display: grid;
+  gap: var(--sp-7);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+}
+.org-blick-karte { padding: var(--sp-6) var(--sp-7); display: grid; gap: var(--sp-5); min-width: 0; }
+.org-blick-kopf { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.org-blick-kopf h2 {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: var(--ls-tight);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.org-blick-meta { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); }
+.org-blick-eigene {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface-3);
+  border-radius: var(--r-full);
+  padding: 1px 8px;
+}
+.org-blick-tabelle { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.org-blick-tabelle th,
+.org-blick-tabelle td { padding: var(--sp-3) var(--sp-3); border-top: 1px solid var(--border-default); text-align: left; vertical-align: top; }
+.org-blick-tabelle thead th {
+  border-top: none;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.org-blick-tabelle .r,
+.org-blick-tabelle td { text-align: right; }
+.org-blick-tabelle tbody th { font-size: var(--fs-sm); font-weight: 500; color: var(--text-secondary); white-space: nowrap; }
+.org-blick-rw { display: block; font-size: var(--fs-xs); font-weight: 400; color: var(--text-muted); }
+.org-blick-zelle { min-width: 84px; }
+.org-blick-ist { display: block; font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); }
+.org-blick-ist[data-erreicht] { color: var(--success-fg); }
+.org-blick-soll { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
+.org-blick-bar { display: block; height: 3px; margin-top: 4px; margin-left: auto; width: 64px; border-radius: var(--r-full); background: var(--surface-3); overflow: hidden; }
+.org-blick-bar > i { display: block; height: 100%; background: var(--text-muted); border-radius: inherit; }
+.org-blick-bar > i[data-erreicht] { background: var(--success); }
+.org-blick-ruhig { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.org-blick-ruhig li { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); font-size: var(--fs-sm); color: var(--text-secondary); }
+@media (max-width: 479px) {
+  .org-blick-karte { padding: var(--sp-5); }
+  .org-blick-zelle { min-width: 64px; }
+  .org-blick-tabelle tbody th { white-space: normal; }
+}
