@@ -6,6 +6,7 @@ import { loadPhoneLeadHistory, type PhoneHistoryRow } from "@/app/actions/phoneC
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { berlinDateISO, berlinInputToIso, formatTermin, formatTerminParts, isoToBerlinInput } from "@/lib/apptTime";
 import { addDaysISO } from "@/lib/dates";
@@ -30,7 +31,6 @@ import {
   Voicemail,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -83,7 +83,7 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
  * statt die vier bestehenden Kürzel umzunummerieren — die sitzen bei den
  * Settern in den Fingern.
  */
-const OUTCOME_KEYS = { termin: "1", rueckruf: "2", nicht_erreicht: "3", dead: "4", kein_termin: "5" } as const;
+const OUTCOME_KEYS = { termin: "1", nicht_erreicht: "2", dead: "3", kein_termin: "4" } as const;
 
 /** T1: so lange wird ein Ergebnis zurückgehalten, bevor es gespeichert wird. */
 const UNDO_MS = 5000;
@@ -133,39 +133,6 @@ function StatusDot({ status, size = 6 }: { status: PhoneLeadStatus; size?: numbe
       title={STATUS_STYLE[status].label}
       style={{ width: size, height: size, borderRadius: "var(--r-full)", background: STATUS_STYLE[status].color, flexShrink: 0 }}
     />
-  );
-}
-
-/**
- * Auswahl aus wenigen Werten (Chips). `value` darf `null` sein: NULL heißt
- * „noch nicht erfasst" und ist im Telefon-Modell der Normalfall (docs §7) —
- * ein vorbelegtes „Nein" wäre eine erfundene Antwort, die später als Fakt in
- * der Auswertung landet. Ein zweiter Klick auf die aktive Wahl nimmt sie zurück.
- */
-function Chips<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T | null;
-  options: { value: T; label: string; neg?: boolean }[];
-  onChange: (v: T | null) => void;
-}) {
-  return (
-    <div className="cm-chips">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          className="cm-chip"
-          data-neg={o.neg ? "" : undefined}
-          aria-pressed={value === o.value}
-          onClick={() => onChange(value === o.value ? null : o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -328,6 +295,67 @@ type Pending = { key: number; id: string; timer: ReturnType<typeof setTimeout>; 
  * jeweiligen Leads, nie über eine Liste der Seite. In einer echten Liste ist
  * beides dasselbe.
  */
+/** „1:23 h“ bzw. „12 min“. */
+function dauerText(ms: number): string {
+  const min = Math.max(0, Math.round(ms / 60000));
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")} h`;
+}
+
+/**
+ * Abschlusskarte beim Beenden (28.11.): was diese Session gebracht hat.
+ * Gezählt wird, was der Server bestätigt hat — ein noch laufendes Speichern
+ * zählt nach, sobald es durch ist.
+ */
+function SessionAbschluss({
+  dauerMs,
+  zahlen,
+  bearbeitet,
+  onWeiter,
+  onBeenden,
+}: {
+  dauerMs: number;
+  zahlen: { anwahlen: number; entscheider: number; termine: number; nicht_erreicht: number; kein_termin: number; tot: number };
+  bearbeitet: number;
+  onWeiter: () => void;
+  onBeenden: () => void;
+}) {
+  const stunden = dauerMs / 3_600_000;
+  const proStunde = stunden >= 0.05 ? Math.round(zahlen.anwahlen / stunden) : null;
+  const quote = (n: number) => (zahlen.anwahlen > 0 ? `${Math.round((n / zahlen.anwahlen) * 100)} %` : "—");
+  const kacheln: { label: string; wert: string; sub?: string; ton?: "akzent" }[] = [
+    { label: "Dauer", wert: dauerText(dauerMs) },
+    { label: "Anwahlen", wert: String(zahlen.anwahlen), sub: proStunde != null ? `${proStunde} pro Stunde` : undefined },
+    { label: "Termine gelegt", wert: String(zahlen.termine), sub: `${quote(zahlen.termine)} der Anwahlen`, ton: "akzent" },
+    { label: "Entscheider erreicht", wert: String(zahlen.entscheider), sub: `${quote(zahlen.entscheider)} der Anwahlen` },
+    { label: "Nicht erreicht", wert: String(zahlen.nicht_erreicht) },
+    { label: "Kein Termin", wert: String(zahlen.kein_termin) },
+    { label: "Tot", wert: String(zahlen.tot) },
+    { label: "Leads bearbeitet", wert: String(bearbeitet) },
+  ];
+  return (
+    <Modal open onClose={onWeiter} title="Deine Session" subtitle="Zusammenfassung dieser Telefon-Session" width={520}>
+      <div className="cm-abschluss">
+        {kacheln.map((k) => (
+          <div key={k.label} className="cm-abschluss-k" data-ton={k.ton}>
+            <small>{k.label}</small>
+            <b className="tnum">{k.wert}</b>
+            {k.sub && <span>{k.sub}</span>}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "var(--sp-3)", justifyContent: "flex-end", marginTop: "var(--sp-7)" }}>
+        <Button variant="ghost" onClick={onWeiter}>
+          Weiter telefonieren
+        </Button>
+        <Button variant="primary" onClick={onBeenden}>
+          Session beenden
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 export function CallModeRunner({
   leads,
   empty,
@@ -386,7 +414,14 @@ export function CallModeRunner({
   // revalidiert die Seite, ein neu übernommener Stand plus Session-Delta
   // zählte doppelt.
   const [basis] = useState(heute);
-  const [delta, setDelta] = useState({ anwahlen: 0, entscheider: 0, termine: 0 });
+  const [delta, setDelta] = useState({ anwahlen: 0, entscheider: 0, termine: 0, nicht_erreicht: 0, kein_termin: 0, tot: 0 });
+  // Session-Beginn und Abschlusskarte (28.11.): „Beenden" zeigt erst eine
+  // Übersicht der Session, dann geht es zurück.
+  const sessionStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    sessionStartRef.current = Date.now();
+  }, []);
+  const [abschluss, setAbschluss] = useState<{ dauerMs: number } | null>(null);
   // „Jetzt" für die Rückruf-Schnellwahl und die Termin-Tage — erst beim
   // Öffnen gelesen, nicht im Render (react-hooks/purity).
   const [presetNow, setPresetNow] = useState<number | null>(null);
@@ -742,7 +777,14 @@ export function CallModeRunner({
           });
         }
         if (res.attemptNo != null) {
-          setDelta((d) => ({ ...d, anwahlen: d.anwahlen + 1, entscheider: d.entscheider + (entscheider ? 1 : 0) }));
+          setDelta((d) => ({
+            ...d,
+            anwahlen: d.anwahlen + 1,
+            entscheider: d.entscheider + (entscheider ? 1 : 0),
+            nicht_erreicht: d.nicht_erreicht + (outcome === "nicht_erreicht" ? 1 : 0),
+            kein_termin: d.kein_termin + (outcome === "kein_termin" ? 1 : 0),
+            tot: d.tot + (outcome === "dead" ? 1 : 0),
+          }));
         }
         setVerlauf((v) => {
           const n = { ...v };
@@ -856,6 +898,7 @@ export function CallModeRunner({
       // kein neu GELEGTER Termin.
       const neu = lead.status !== "termin";
       setDelta((d) => ({
+        ...d,
         anwahlen: d.anwahlen + 1,
         entscheider: d.entscheider + 1,
         termine: d.termine + (neu ? 1 : 0),
@@ -946,9 +989,6 @@ export function CallModeRunner({
       } else if (e.key === OUTCOME_KEYS.termin) {
         e.preventDefault();
         openTray("termin");
-      } else if (e.key === OUTCOME_KEYS.rueckruf) {
-        e.preventDefault();
-        openTray("rueckruf");
       } else if (e.key === OUTCOME_KEYS.nicht_erreicht) {
         e.preventDefault();
         nichtErreicht();
@@ -1018,9 +1058,25 @@ export function CallModeRunner({
         )}
         <div className="cm-bar-acts">
           <SessionUhr />
-          <Link className="ui-btn" data-variant="secondary" data-size="sm" href={exitHref} style={{ minHeight: 30, padding: "0 12px" }}>
+          <button
+            type="button"
+            className="ui-btn"
+            data-variant="secondary"
+            data-size="sm"
+            style={{ minHeight: 30, padding: "0 12px" }}
+            onClick={() => {
+              // Offenes Ergebnis (5-Sekunden-Rückgängig) jetzt speichern.
+              flushPending();
+              const nichts = delta.anwahlen === 0 && delta.termine === 0 && Object.keys(erledigt).length === 0;
+              if (nichts) {
+                router.push(exitHref);
+                return;
+              }
+              setAbschluss({ dauerMs: Date.now() - (sessionStartRef.current ?? Date.now()) });
+            }}
+          >
             <X size={14} aria-hidden /> Beenden
-          </Link>
+          </button>
         </div>
       </header>
 
@@ -1180,61 +1236,8 @@ export function CallModeRunner({
                   </div>
                 )}
 
-                {/* ── Gesprächsverlauf ──
-                    Zwei Selektoren, mehr nicht: Gatekeeper (freiwillig) und
-                    Entscheider. Pitch-Schritt, Abbruch-Gründe und Leitfaden
-                    sind mit dem Release gefallen (docs §0.3). „Termin" und
-                    „Kein Termin" setzen den Entscheider ohnehin selbst (N5). */}
-                <div className="cm-steps">
-                  <div className="cm-step">
-                    <div>
-                      <label className="dialer-label">Gatekeeper erreicht?</label>
-                      <span className="cm-optional">freiwillig</span>
-                    </div>
-                    <Chips
-                      value={current.gatekeeper_reached}
-                      options={[
-                        { value: "nein", label: "Nein", neg: true },
-                        { value: "ja", label: "Über Gatekeeper" },
-                        { value: "direkt", label: "Direkt" },
-                      ]}
-                      onChange={(v) => {
-                        setAndSave(current.id, { gatekeeper_reached: v }, { gatekeeper_reached: v });
-                      }}
-                    />
-                  </div>
-                  <div className="cm-step">
-                    <div>
-                      <label className="dialer-label">Entscheider erreicht?</label>
-                    </div>
-                    <Chips
-                      value={current.decider_reached === null ? null : current.decider_reached ? "ja" : "nein"}
-                      options={[
-                        { value: "ja", label: "Ja" },
-                        { value: "nein", label: "Nein", neg: true },
-                      ]}
-                      onChange={(v) => {
-                        // Kein Entscheider am Apparat ⇒ es kann auch kein Pitch
-                        // durchgekommen sein. Das Pitch-Feld hat keine Bedienung
-                        // mehr; die Kaskade bleibt trotzdem stehen, sonst bliebe
-                        // nach einem zurückgenommenen „Ja" eine unmögliche
-                        // Kombination in der Zeile.
-                        if (v === "ja") {
-                          setAndSave(current.id, { decider_reached: true }, { decider_reached: true });
-                        } else if (v === "nein") {
-                          setAndSave(
-                            current.id,
-                            { decider_reached: false, pitch_delivered: false },
-                            { decider_reached: false, pitch_delivered: false },
-                          );
-                        } else {
-                          setAndSave(current.id, { decider_reached: null }, { decider_reached: null });
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-
+                {/* Keine Abfragen „Gatekeeper/Entscheider erreicht?“ mehr (28.11.):
+                    „Termin“ und „Kein Termin“ setzen den Entscheider selbst (N5). */}
                 <NotesField
                   key={current.id}
                   value={current.notes}
@@ -1564,17 +1567,6 @@ export function CallModeRunner({
             <button
               type="button"
               className="dialer-outcome"
-              aria-expanded={tray === "rueckruf"}
-              disabled={isPending}
-              onClick={() => openTray("rueckruf")}
-            >
-              <span className="dialer-outcome-dot" style={{ background: STATUS_STYLE.rueckruf.color }} />
-              <PhoneForwarded size={15} /> Rückruf
-              <span className="dialer-kbd">{OUTCOME_KEYS.rueckruf}</span>
-            </button>
-            <button
-              type="button"
-              className="dialer-outcome"
               aria-expanded={tray === "ne3"}
               disabled={isPending}
               onClick={nichtErreicht}
@@ -1586,6 +1578,7 @@ export function CallModeRunner({
             <button
               type="button"
               className="dialer-outcome"
+              data-tone="tot"
               aria-expanded={tray === "tot"}
               disabled={isPending}
               onClick={() => openTray("tot")}
@@ -1619,6 +1612,17 @@ export function CallModeRunner({
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── Abschlusskarte der Session (28.11.) ── */}
+      {abschluss && (
+        <SessionAbschluss
+          dauerMs={abschluss.dauerMs}
+          zahlen={delta}
+          bearbeitet={Object.keys(erledigt).length}
+          onWeiter={() => setAbschluss(null)}
+          onBeenden={() => router.push(exitHref)}
+        />
       )}
 
       {/* ── Toast mit Rückgängig (T1) ── */}

@@ -5079,3 +5079,48 @@ a.nf-name:hover { color: var(--accent-text); }
 .ob-tabelle thead th[data-sortiert] { background: color-mix(in srgb, var(--surface-3) 45%, transparent); }
 .ob-tabelle thead th.r button { justify-content: flex-end; }
 .ob-zelle .ob-bar { margin-left: auto; }
+
+/* ── Call-Modus: Ergebnis-Knöpfe klar als Knöpfe (28.11.) ──
+   Vorher ohne Grund und Rahmen — sie lasen sich wie Text. Jetzt: „Termin“
+   gefüllt (Haupthandlung), die übrigen als Kacheln mit Rahmen und farbigem
+   Punkt, „Tot“ dezent rot, „Überspringen“ leise. Rückruf ist entfallen. */
+.cm-outs { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 8px; }
+.cm-outs .dialer-outcome:not([data-tone="won"]):not(.cm-skip) {
+  background: var(--ctl);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  border-radius: 14px;
+}
+.cm-outs .dialer-outcome:not([data-tone="won"]):not(.cm-skip):hover:not(:disabled) {
+  background: var(--ctl-h);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.cm-outs .dialer-outcome[data-tone="tot"] { color: var(--danger-fg); }
+.cm-outs .dialer-outcome[data-tone="tot"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 8%, var(--ctl)) !important;
+  color: var(--danger-fg);
+}
+.cm-outs .dialer-outcome[data-tone="won"] { border-radius: 14px; }
+.cm-outs .cm-skip { background: transparent; box-shadow: none; }
+.cm-outs .cm-skip:hover:not(:disabled) { background: var(--ctl-h); }
+@media (max-width: 767px) {
+  .cm-outs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cm-outs .dialer-outcome[data-tone="won"] { background: var(--grad-cta); color: var(--on-accent); box-shadow: var(--shadow-btn-primary); }
+}
+
+/* Abschlusskarte der Session */
+.cm-abschluss { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+.cm-abschluss-k {
+  display: grid;
+  gap: 2px;
+  padding: var(--sp-5) var(--sp-6);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+.cm-abschluss-k small { font-size: var(--fs-xs); color: var(--text-muted); }
+.cm-abschluss-k b { font-size: var(--fs-xl); font-weight: 600; color: var(--text-primary); }
+.cm-abschluss-k span { font-size: var(--fs-xs); color: var(--text-muted); }
+.cm-abschluss-k[data-ton="akzent"] b { color: var(--accent-text); }
+@media (min-width: 560px) {
+  .cm-abschluss { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

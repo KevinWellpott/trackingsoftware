@@ -126,20 +126,23 @@ describe("3 · Was aus der Ansicht verschwunden ist", () => {
     (m) => m[1],
   );
 
-  test("die Karte trägt GENAU zwei Selektoren", () => {
-    assert.deepEqual(selektoren, ["Gatekeeper erreicht?", "Entscheider erreicht?"]);
+  test("die Karte trägt KEINEN Selektor mehr (28.11.)", () => {
+    // „Gatekeeper/Entscheider erreicht?“ sind gefallen; „Termin“ und „Kein
+    // Termin“ setzen den Entscheider selbst (N5).
+    assert.deepEqual(selektoren, []);
   });
 
-  test("und darunter die fünf Ergebnis-Knöpfe", () => {
+  test("und darunter die vier Ergebnis-Knöpfe — Rückruf ist entfallen", () => {
     // Vier seit der Vereinfachung, „Kein Termin" kam mit Migration 0043 dazu.
     const i = RUNNER.indexOf("Ergebnis des Anrufs");
     assert.ok(i > 0, "Die Ergebnis-Sektion fehlt");
     const sektion = RUNNER.slice(i);
     // „Tot“ statt „Toter Lead“ — ein Wort je Handlung (28.11.).
-    for (const label of ["Termin", "Rückruf", "Nicht erreicht", "Tot", "Kein Termin"]) {
+    for (const label of ["Termin", "Nicht erreicht", "Tot", "Kein Termin"]) {
       assert.ok(sektion.includes("> " + label), `Ergebnis-Knopf fehlt: ${label}`);
     }
-    assert.equal((sektion.match(/className="dialer-outcome"/g) ?? []).length, 5);
+    assert.ok(!sektion.includes("<PhoneForwarded size={15} /> Rückruf"), "der Rückruf-Knopf ist zurück");
+    assert.equal((sektion.match(/className="dialer-outcome"/g) ?? []).length, 4);
   });
 
   test("das alte Feld-Raster bleibt gefallen", () => {
@@ -168,6 +171,16 @@ describe("3 · Was aus der Ansicht verschwunden ist", () => {
     // die unmögliche Kombination „kein Entscheider, aber gepitcht" in der
     // Zeile — und die sieht jetzt niemand mehr.
     assert.ok(!selektoren.includes("Pitch gekommen?"), "Der Pitch-Schalter ist zurück");
-    assert.match(RUNNER, /decider_reached: false, pitch_delivered: false/);
+  });
+});
+
+describe("Abschlusskarte der Session (28.11.)", () => {
+  test("„Beenden“ zeigt Dauer, Anwahlen, Termine, Entscheider, Nicht erreicht, Kein Termin, Tot", () => {
+    assert.match(RUNNER, /<SessionAbschluss/);
+    for (const label of ["Dauer", "Anwahlen", "Termine gelegt", "Entscheider erreicht", "Nicht erreicht", "Kein Termin", "Tot", "Leads bearbeitet"]) {
+      assert.match(RUNNER, new RegExp(`label: "${label}"`), label);
+    }
+    // Ein offenes Ergebnis wird vorher gespeichert; ohne jede Aktivität direkt zurück.
+    assert.match(RUNNER, /flushPending\(\);\s*const nichts = /);
   });
 });

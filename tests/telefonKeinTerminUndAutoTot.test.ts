@@ -54,11 +54,10 @@ describe("„Kein Termin“ sortiert in eine eigene Liste", () => {
     assert.match(ACTION, /if \(newStatus === "dead"\) await scheduleRecycle\("telefon", input\.leadId\)/);
   });
 
-  test("der Knopf ruft die Action mit 'kein_termin', per Klick und Taste 5", () => {
+  test("der Knopf ruft die Action mit 'kein_termin', per Klick und Taste 4", () => {
     assert.match(RUNNER, /onClick=\{\(\) => applyOutcome\("kein_termin"\)\}/);
-    assert.match(RUNNER, /kein_termin: "5"/);
-    // Die bestehenden Kürzel bleiben, wo sie waren.
-    assert.match(RUNNER, /termin: "1", rueckruf: "2", nicht_erreicht: "3", dead: "4"/);
+    // Seit dem 28.11. ohne Rückruf-Knopf: Kürzel in der Reihenfolge der Knöpfe.
+    assert.match(RUNNER, /const OUTCOME_KEYS = \{ termin: "1", nicht_erreicht: "2", dead: "3", kein_termin: "4" \} as const;/);
   });
 });
 

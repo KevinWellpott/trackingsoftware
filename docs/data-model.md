@@ -323,6 +323,14 @@ dritten „Nicht erreicht" liest dieselbe Serie wie der Server (letzte zwei Anwa
   (Standard offen, Zustand je Gerät im localStorage unter `grp:<id>`; ein Bereich mit der
   geöffneten Seite bleibt offen).
 
+- **Call-Modus (28.11.)**: Ergebnis-Knöpfe Termin · Nicht erreicht · Tot · Kein Termin
+  (Tasten 1–4) — **kein Rückruf-Knopf mehr**, keine Abfragen „Gatekeeper/Entscheider
+  erreicht?". `decider_reached` setzen weiterhin „Termin" und „Kein Termin" (N5); neue
+  Anwahlen tragen sonst kein Entscheider-Signal mehr, die Kennzahl „Entscheider erreicht"
+  zählt damit faktisch Termin + Kein Termin. „Beenden" zeigt eine Abschlusskarte der Session
+  (Dauer, Anwahlen, Termine, Entscheider, Nicht erreicht, Kein Termin, Tot) — reine Anzeige,
+  nichts wird gespeichert.
+
 ### 0.7 Plattform-Übersicht „Organisationen im Blick" (`/admin/uebersicht`, Migration 0051)
 
 Nur Plattform-Admins (Seite, Loader, Action und RLS prüfen `is_platform_admin`). Je
