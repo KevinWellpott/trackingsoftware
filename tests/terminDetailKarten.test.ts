@@ -116,17 +116,19 @@ describe("Die beiden Editoren tragen keine Nachrichten-Logik mehr", () => {
     // Notizen und die Ergebnis-Wege. (Die Felder „Aufzeichnung" und die
     // beiden Einwand-Felder sind bewusst gefallen: Ihre Spalten hat kein Kunde
     // je befüllt, sie werden aus der Datenbank entfernt.)
-    assert.match(SETTING_EDITOR, /<ScriptRunner/);
-    assert.match(SETTING_EDITOR, /blocks=\{SETTING_BLOCKS\}/);
-    assert.match(SETTING_EDITOR, /script_answers: answers/);
-    assert.match(SETTING_EDITOR, /save\(\{ notes: notes \|\| null \}\)/);
+    // Seit dem 28.11. EIN großes Notizfeld statt Leitfaden mit Feldern je
+    // Block; frühere Leitfaden-Einträge bleiben lesbar (fruehereNotizen).
+    assert.match(SETTING_EDITOR, /<NotizFeld/);
+    assert.match(SETTING_EDITOR, /onSave=\{\(text\) => save\(\{ notes: text \}\)\}/);
+    assert.match(SETTING_EDITOR, /fruehereNotizen\(call\.script_answers, \[\.\.\.SETTING_BLOCKS/);
+    assert.doesNotMatch(SETTING_EDITOR, /<ScriptRunner/);
     assert.match(SETTING_EDITOR, /setSettingOutcome\(/);
     assert.match(SETTING_EDITOR, /<DisqualifyReasonFields/);
 
-    assert.match(CLOSING_EDITOR, /<ScriptRunner/);
-    assert.match(CLOSING_EDITOR, /blocks=\{CLOSING_BLOCKS\}/);
-    assert.match(CLOSING_EDITOR, /script_answers: answers/);
-    assert.match(CLOSING_EDITOR, /save\(\{ notes: notes \|\| null \}\)/);
+    assert.match(CLOSING_EDITOR, /<NotizFeld/);
+    assert.match(CLOSING_EDITOR, /onSave=\{\(text\) => save\(\{ notes: text \}\)\}/);
+    assert.match(CLOSING_EDITOR, /fruehereNotizen\(call\.script_answers, \[\.\.\.CLOSING_BLOCKS/);
+    assert.doesNotMatch(CLOSING_EDITOR, /<ScriptRunner/);
     assert.match(CLOSING_EDITOR, /setClosingOutcome\(/);
   });
 

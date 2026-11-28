@@ -126,3 +126,15 @@ export const LEGACY_CLOSING_BLOCKS: ScriptBlock[] = [
   { key: "PITCH_REAKTION", label: "Reaktion auf Pitch", hint: "Wie reagiert er auf Angebot / Cases / Ablauf?" },
   { key: "NAECHSTE_SCHRITTE", label: "Nächste Schritte", hint: "Was ist vereinbart?" },
 ];
+
+/** Gefüllte Einträge aus dem früheren Gesprächsleitfaden (`script_answers`) — fürs Notizfeld, nur lesend. */
+export function fruehereNotizen(
+  answers: Record<string, string> | null | undefined,
+  bloecke: readonly ScriptBlock[],
+): { key: string; label: string; text: string }[] {
+  if (!answers) return [];
+  const labelVon = new Map(bloecke.map((b) => [b.key, b.label]));
+  return Object.entries(answers)
+    .map(([key, v]) => ({ key, label: labelVon.get(key) ?? key, text: String(v ?? "").trim() }))
+    .filter((e) => e.text.length > 0);
+}

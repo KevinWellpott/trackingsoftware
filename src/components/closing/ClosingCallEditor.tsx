@@ -4,7 +4,7 @@ import { deleteClosingCall, setClosingOutcome, updateClosingCall, type ClosingCa
 import { RatenplanForm } from "@/components/umsatz/RatenplanForm";
 import { AssigneeSelect } from "@/components/assignees/AssigneeSelect";
 import { DangerZone } from "@/components/ui/DangerZone";
-import { ScriptRunner } from "@/components/scripts/ScriptRunner";
+import { NotizFeld } from "@/components/scripts/NotizFeld";
 import { DatePicker, formatDateDe } from "@/components/ui/DatePicker";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { Modal } from "@/components/ui/Modal";
@@ -20,14 +20,14 @@ import {
 import type { AppointmentLifecycle } from "@/components/termine/lifecycleMeta";
 import { berlinDateISO, berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { absageWirktNoch, moveLockReason } from "@/lib/terminMeta";
-import { CLOSING_BLOCKS, LEGACY_CLOSING_BLOCKS } from "@/lib/scripts";
+import { CLOSING_BLOCKS, LEGACY_CLOSING_BLOCKS, fruehereNotizen } from "@/lib/scripts";
 import {
   CLOSING_LOST_REASON_CODES,
   CLOSING_LOST_REASON_LABELS,
   type ClosingCall,
   type ClosingLostReasonCode,
 } from "@/lib/types";
-import { CalendarClock, Check, ChevronRight, FileText, RotateCcw, Users } from "lucide-react";
+import { CalendarClock, Check, ChevronRight, RotateCcw, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
@@ -270,8 +270,6 @@ export function ClosingCallEditor({
   const [callAt, setCallAt] = useState(isoToLocalInput(call.call_at));
   const [meetLink, setMeetLink] = useState(call.meet_link ?? "");
   const [showStatus, setShowStatus] = useState<"show" | "no_show" | null>(call.show_status);
-  const [notes, setNotes] = useState(call.notes ?? "");
-  const lastSavedNotesRef = useRef(call.notes ?? "");
 
   // Terminal-Modals
   const [wonOpen, setWonOpen] = useState(false);
@@ -439,126 +437,14 @@ export function ClosingCallEditor({
     );
   }
 
-  // Antworten auf Bloecke, die es im aktuellen Skript nicht mehr gibt.
-  const legacyAnswers = LEGACY_CLOSING_BLOCKS.map((b) => ({
-    key: b.key,
-    label: b.label,
-    value: (call.script_answers?.[b.key] ?? "").trim(),
-  })).filter((e) => e.value.length > 0);
-  // Die vier Inhaltsbloecke einmal binden — die beiden Layouts ordnen sie nur
-  // um, statt dasselbe JSX zweimal zu pflegen.
-  const scriptCard = (
-    // height 100% laesst die Karte die Zeilenhoehe des Grids ausfuellen —
-    // ohne das bleibt sie auf Inhaltshoehe und die Zeile wirkt ausgefranst.
-    <div
-      style={{
-        height: "100%",
-        background: "var(--surface-100)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "1.5rem 1.5rem 1.75rem",
-      }}
-    >
-      <ScriptRunner
-        blocks={CLOSING_BLOCKS}
-        initial={call.script_answers ?? {}}
-        onSave={(answers) => updateClosingCall(call.id, { script_answers: answers })}
-      />
-
-      {/* Antworten aus der Skript-Vorversion. Sie stehen weiter in
-          script_answers und wuerden sonst still verschwinden. */}
-      {legacyAnswers.length > 0 && (
-        <details style={{ marginTop: "var(--sp-8)", borderTop: "1px solid var(--border-subtle)", paddingTop: "var(--sp-6)" }}>
-          <summary
-            className="collapse-summary"
-            style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", cursor: "pointer", userSelect: "none" }}
-          >
-            <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-            <span className="eyebrow eyebrow-muted">Aus früherer Skript-Version ({legacyAnswers.length})</span>
-          </summary>
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)", marginTop: "var(--sp-6)" }}>
-            {legacyAnswers.map((e) => (
-              <div key={e.key}>
-                <span
-                  style={{
-                    display: "block",
-                    fontSize: "var(--fs-sm)",
-                    fontWeight: 500,
-                    color: "var(--text-secondary)",
-                    marginBottom: "var(--sp-3)",
-                  }}
-                >
-                  {e.label}
-                </span>
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: "var(--fs-base)",
-                    lineHeight: "var(--lh-base)",
-                    color: "var(--text-muted)",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {e.value}
-                </p>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-    </div>
-  );
-
-  // Volle Breite: Zusatznotizen sind das laengste Freitextfeld der Seite.
+  // EIN großes Notizfeld statt Gesprächsleitfaden mit Feldern je Block
+  // (28.11.). Frühere Einträge aus dem Leitfaden stehen eingeklappt darunter.
   const notesCard = (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--surface-100)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "1.25rem 1.5rem 1.5rem",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-        <FileText size={15} style={{ color: "var(--brand-500)" }} />
-        <span style={{ fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
-          Zusatznotizen
-        </span>
-      </div>
-      <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: "0 0 0.625rem" }}>
-        Alles, was nicht ins Script passt — frei notieren.
-      </p>
-      <textarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        onBlur={() => {
-          if (notes !== lastSavedNotesRef.current) {
-            lastSavedNotesRef.current = notes;
-            save({ notes: notes || null });
-          }
-        }}
-        placeholder="Freie Notizen zum Call…"
-        rows={8}
-        style={{
-          width: "100%",
-          boxSizing: "border-box",
-          minHeight: 180,
-          resize: "vertical",
-          background: "var(--surface-50)",
-          border: "1px solid var(--border-bright)",
-          borderRadius: "var(--radius-md)",
-          padding: "0.875rem 1rem",
-          fontSize: "0.9375rem",
-          lineHeight: 1.6,
-          color: "var(--text-primary)",
-          outline: "none",
-          fontFamily: "inherit",
-        }}
-      />
-    </div>
+    <NotizFeld
+      initial={call.notes}
+      onSave={(text) => save({ notes: text })}
+      fruehere={fruehereNotizen(call.script_answers, [...CLOSING_BLOCKS, ...LEGACY_CLOSING_BLOCKS])}
+    />
   );
 
   // Zuweisung sitzt ganz oben und bleibt flach: eine Zeile, kein Kartenkopf.
@@ -996,7 +882,7 @@ export function ClosingCallEditor({
               gap: "1.25rem",
             }}
           >
-            {scriptCard}
+            {notesCard}
             <div
               style={{
                 height: "100%",
@@ -1010,14 +896,9 @@ export function ClosingCallEditor({
             </div>
           </div>
 
-          {/* Reihe 2: Zusatznotizen ueber die volle Breite */}
-          {notesCard}
         </>
       ) : (
-        <>
-          {scriptCard}
-          {notesCard}
-        </>
+        notesCard
       )}
 
       {dialog}

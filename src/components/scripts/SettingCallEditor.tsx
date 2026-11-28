@@ -12,7 +12,7 @@ import {
 } from "@/app/actions/settingCalls";
 import { AssigneeSelect } from "@/components/assignees/AssigneeSelect";
 import { DangerZone } from "@/components/ui/DangerZone";
-import { ScriptRunner } from "@/components/scripts/ScriptRunner";
+import { NotizFeld } from "@/components/scripts/NotizFeld";
 import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { DatePicker } from "@/components/ui/DatePicker";
@@ -27,7 +27,7 @@ import { DISQUALIFY_REASON_LABELS, type SettingLifecycle } from "@/components/te
 import { berlinInputToIso, isoToBerlinInput } from "@/lib/apptTime";
 import { channelLabel } from "@/lib/channels";
 import { addDaysISO, localDateISO } from "@/lib/dates";
-import { LEGACY_SETTING_BLOCKS, SETTING_BLOCKS, SETTING_GOLD_BLOCKS } from "@/lib/scripts";
+import { LEGACY_SETTING_BLOCKS, SETTING_BLOCKS, SETTING_GOLD_BLOCKS, fruehereNotizen } from "@/lib/scripts";
 import { SETTING_STATUS_LABEL } from "@/lib/settingLabels";
 import type { SettingCall, SettingStatus } from "@/lib/types";
 import {
@@ -35,7 +35,6 @@ import {
   CalendarClock,
   Check,
   ChevronRight,
-  FileText,
   MessageSquareQuote,
   RotateCcw,
   UserX,
@@ -215,13 +214,11 @@ export function SettingCallEditor({
   const [status, setStatus] = useState<SettingStatus>(call.status);
   const [showStatus, setShowStatus] = useState<"show" | "no_show" | null>(call.show_status);
   const [followUpDue, setFollowUpDue] = useState<string | null>(call.follow_up_due);
-  const [notes, setNotes] = useState(call.notes ?? "");
   const [closingDone, setClosingDone] = useState(call.status === "closing_gelegt");
   // Id des angelegten Closings (nach createClosingFromSetting bekannt; bei
   // bereits "closing_gelegt" auf Mount unbekannt → wird beim Klick idempotent
   // über createClosingFromSetting aufgelöst).
   const [closingId, setClosingId] = useState<string | null>(null);
-  const lastSavedNotesRef = useRef(call.notes ?? "");
 
   // Nachfass-Dialog (No-Show / Unqualifiziert) + Neuterminierung
   const [followUpModal, setFollowUpModal] = useState<FollowUpOutcome | null>(null);
@@ -505,12 +502,6 @@ export function SettingCallEditor({
   const hasResult =
     status !== "offen" || showStatus !== null || followUpDue != null || call.no_show_count > 0;
 
-  // Antworten auf Bloecke, die es im aktuellen Skript nicht mehr gibt.
-  const legacyAnswers = LEGACY_SETTING_BLOCKS.map((b) => ({
-    key: b.key,
-    label: b.label,
-    value: (call.script_answers?.[b.key] ?? "").trim(),
-  })).filter((e) => e.value.length > 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -974,141 +965,14 @@ export function SettingCallEditor({
         </details>
       )}
 
-      {/* ── Gesprächsgerüst ──
-          Voller Leitfaden: je Block die ausformulierten Fragen und ein
-          Notizfeld, Autosave beim Blur, Fortschritt oben. Zwischenzeitlich
-          stand hier nur das Gerüst aus Überschriften — damit war das Setting
-          während des Calls weder ablesbar noch beschreibbar. Antworten landen
-          wie gehabt in `script_answers` (Key = block.key). */}
-      <div
-        style={{
-          background: "var(--surface-100)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "1.5rem 1.5rem 1.75rem",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
-        {/* Einklappbar, nichts erzwungen (Prüfliste O8): Das Skript wurde in
-            29 % der Erstgespräche genutzt und stand als lange Seite unter dem
-            Ergebnis. Offen, solange das Gespräch noch kein Ergebnis hat —
-            danach zu. Die Felder bleiben vollständig (kein „weniger Text“,
-            der Notizfelder verschwinden lässt). */}
-        <details open={call.status === "offen" && !call.show_status}>
-          <summary
-            className="collapse-summary eyebrow eyebrow-muted"
-            style={{ cursor: "pointer", marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}
-          >
-            <ChevronRight size={13} className="collapse-chevron" style={{ flexShrink: 0 }} />
-            Gesprächsverlauf
-          </summary>
-          <ScriptRunner
-            blocks={SETTING_BLOCKS}
-            highlight={{ title: "Gold Standards", blocks: SETTING_GOLD_BLOCKS }}
-            initial={call.script_answers ?? {}}
-            onSave={(answers) => updateSettingCall(call.id, { script_answers: answers })}
-          />
-        </details>
-
-        {/* Antworten aus fruheren Skript-Versionen (Gap, Konsequenz).
-            Sie stehen weiter in script_answers und wuerden sonst still
-            verschwinden — deshalb read-only ausgewiesen, eingeklappt. */}
-        {legacyAnswers.length > 0 && (
-          <details style={{ marginTop: "var(--sp-8)", borderTop: "1px solid var(--border-subtle)", paddingTop: "var(--sp-6)" }}>
-            <summary
-              className="collapse-summary"
-              style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", cursor: "pointer", userSelect: "none" }}
-            >
-              <ChevronRight size={13} className="collapse-chevron" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-              <span className="eyebrow eyebrow-muted">
-                Aus früherer Skript-Version ({legacyAnswers.length})
-              </span>
-            </summary>
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-6)", marginTop: "var(--sp-6)" }}>
-              {legacyAnswers.map((e) => (
-                <div key={e.key}>
-                  <span
-                    style={{
-                      display: "block",
-                      fontSize: "var(--fs-sm)",
-                      fontWeight: 500,
-                      color: "var(--text-secondary)",
-                      marginBottom: "var(--sp-3)",
-                    }}
-                  >
-                    {e.label}
-                  </span>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: "var(--fs-base)",
-                      lineHeight: "var(--lh-base)",
-                      color: "var(--text-muted)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {e.value}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-      </div>
-
-      {/* ── Notizen (ganz unten) ── */}
-      <div
-        style={{
-          background: "var(--surface-100)",
-          border: "1px solid var(--border-bright)",
-          borderRadius: "var(--radius-lg)",
-          padding: "1.25rem 1.5rem 1.5rem",
-          boxShadow: "var(--shadow-sm)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "1.25rem",
-        }}
-      >
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-            <FileText size={15} style={{ color: "var(--brand-500)" }} />
-            <span style={{ fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
-              Notizen
-            </span>
-          </div>
-          <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", margin: "0 0 0.625rem" }}>
-            Alles, was nicht ins Script passt — frei notieren.
-          </p>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            onBlur={() => {
-              if (notes !== lastSavedNotesRef.current) {
-                lastSavedNotesRef.current = notes;
-                save({ notes: notes || null });
-              }
-            }}
-            placeholder="Freie Notizen zum Call…"
-            rows={8}
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              minHeight: 180,
-              resize: "vertical",
-              background: "var(--surface-50)",
-              border: "1px solid var(--border-bright)",
-              borderRadius: "var(--radius-md)",
-              padding: "0.875rem 1rem",
-              fontSize: "0.9375rem",
-              lineHeight: 1.6,
-              color: "var(--text-primary)",
-              outline: "none",
-              fontFamily: "inherit",
-            }}
-          />
-        </div>
-      </div>
+      {/* ── Notizen (28.11.) ──
+          EIN großes Notizfeld statt Gesprächsleitfaden mit Feldern je Block.
+          Frühere Einträge aus dem Leitfaden stehen eingeklappt darunter. */}
+      <NotizFeld
+        initial={call.notes}
+        onSave={(text) => save({ notes: text })}
+        fruehere={fruehereNotizen(call.script_answers, [...SETTING_BLOCKS, ...SETTING_GOLD_BLOCKS, ...LEGACY_SETTING_BLOCKS])}
+      />
 
       {/* ── Danger-Zone: Eintrag löschen ── */}
       <DangerZone
