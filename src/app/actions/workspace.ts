@@ -5,8 +5,26 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { DATA_VIEW_COOKIE, getAccessContext, type DataScope } from "@/lib/access";
+import { DATA_VIEW_COOKIE, getAccessContext, type AccessContext, type DataScope } from "@/lib/access";
 import { usernameToInternalEmail } from "@/lib/internal-email";
+import { getSupabasePublishableKey } from "@/lib/supabase/publishable-key";
+import { createClient as createPlainClient } from "@supabase/supabase-js";
+import { passwortFehler } from "@/lib/mitglieder";
+
+/**
+ * Wer darf die Mitglieder einer Organisation verwalten? Ein Plattform-Admin
+ * jede, ein Owner seine AKTIVE. `workspaceId` fehlt = die aktive Organisation
+ * (Screen /settings); gesetzt = /admin/org/[id]. Kein Export: In einer
+ * "use server"-Datei wäre jede exportierte Funktion vom Client aufrufbar.
+ */
+async function verwaltung(workspaceId?: string): Promise<{ access: AccessContext; ws: string } | { error: string }> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Keine Berechtigung." };
+  const ws = workspaceId || access.workspace_id;
+  const darf = access.is_platform_admin || (ws === access.workspace_id && access.role === "owner");
+  if (!darf) return { error: "Keine Berechtigung." };
+  return { access, ws };
+}
 
 export async function bootstrapWorkspace(name: string) {
   const supabase = await createClient();
@@ -172,9 +190,10 @@ const OWNER_NAME_TABLES = [
   "csv_imports",
 ] as const;
 
-export async function deleteUser(userId: string) {
-  const access = await getAccessContext();
-  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
+export async function deleteUser(userId: string, workspaceId?: string) {
+  const v = await verwaltung(workspaceId);
+  if ("error" in v) return { error: v.error };
+  const { access, ws } = v;
 
   // Nicht sich selbst löschen
   if (access.user.id === userId) {
@@ -189,12 +208,20 @@ export async function deleteUser(userId: string) {
   // damit einen Nutzer einer fremden Organisation aus dem System entfernen.
   const { data: member } = await admin
     .from("workspace_members")
-    .select("user_id")
+    .select("user_id, role")
     .eq("user_id", userId)
-    .eq("workspace_id", access.workspace_id)
+    .eq("workspace_id", ws)
     .maybeSingle();
   if (!member) {
     return { error: "Nutzer gehört nicht zu dieser Organisation." };
+  }
+  // Der letzte Owner bleibt: Sonst könnte in der Organisation niemand mehr
+  // Nutzer verwalten (dieselbe Regel wie beim Rollenwechsel).
+  if ((member as { role: string }).role === "owner" && (await ownerAnzahl(admin, ws)) <= 1) {
+    return { error: "Die Organisation braucht mindestens einen Owner — erst einen anderen zum Owner machen." };
+  }
+  if (!access.is_platform_admin && (await istPlattformAdmin(admin, userId))) {
+    return { error: "Plattform-Admins lassen sich hier nicht löschen." };
   }
 
   // Benutzernamen VOR dem Loeschen des Profils lesen — danach gibt es keine
@@ -210,7 +237,7 @@ export async function deleteUser(userId: string) {
     .from("workspace_members")
     .delete()
     .eq("user_id", userId)
-    .eq("workspace_id", access.workspace_id);
+    .eq("workspace_id", ws);
   await admin.from("profiles").delete().eq("user_id", userId);
   await admin.auth.admin.deleteUser(userId);
 
@@ -231,20 +258,22 @@ export async function deleteUser(userId: string) {
       await admin
         .from(table)
         .update({ owner_name: null })
-        .eq("workspace_id", access.workspace_id)
+        .eq("workspace_id", ws)
         .eq("owner_name", oldUsername);
     }
   }
 
   revalidatePath("/settings");
+  revalidatePath(`/admin/org/${ws}`);
   revalidatePath("/", "layout");
   return {};
 }
 
 /** Datensicht eines bestehenden Nutzers der AKTIVEN Organisation ändern. */
-export async function updateUserScope(userId: string, scope: DataScope) {
-  const access = await getAccessContext();
-  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
+export async function updateUserScope(userId: string, scope: DataScope, workspaceId?: string) {
+  const v = await verwaltung(workspaceId);
+  if ("error" in v) return { error: v.error };
+  const { ws } = v;
 
   const admin = createAdminClient();
 
@@ -253,7 +282,7 @@ export async function updateUserScope(userId: string, scope: DataScope) {
     .from("workspace_members")
     .select("user_id")
     .eq("user_id", userId)
-    .eq("workspace_id", access.workspace_id)
+    .eq("workspace_id", ws)
     .maybeSingle();
   if (!member) {
     return { error: "Nutzer gehört nicht zu dieser Organisation." };
@@ -263,7 +292,7 @@ export async function updateUserScope(userId: string, scope: DataScope) {
     .from("workspace_members")
     .update({ data_scope: scope })
     .eq("user_id", userId)
-    .eq("workspace_id", access.workspace_id);
+    .eq("workspace_id", ws);
   if (error) return { error: error.message };
 
   revalidatePath("/settings");
@@ -279,9 +308,10 @@ export async function updateUserScope(userId: string, scope: DataScope) {
  * hierher liess sich die Rolle nur beim Anlegen setzen — wer sie ändern
  * wollte, musste den Nutzer löschen und neu anlegen.
  */
-export async function updateUserRole(userId: string, role: "owner" | "member") {
-  const access = await getAccessContext();
-  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
+export async function updateUserRole(userId: string, role: "owner" | "member", workspaceId?: string) {
+  const v = await verwaltung(workspaceId);
+  if ("error" in v) return { error: v.error };
+  const { access, ws } = v;
   if (role !== "owner" && role !== "member") return { error: "Unbekannte Rolle." };
 
   // Sich selbst degradieren heisst: im selben Moment die Nutzerverwaltung
@@ -297,7 +327,7 @@ export async function updateUserRole(userId: string, role: "owner" | "member") {
     .from("workspace_members")
     .select("user_id, role")
     .eq("user_id", userId)
-    .eq("workspace_id", access.workspace_id)
+    .eq("workspace_id", ws)
     .maybeSingle();
   if (!member) {
     return { error: "Nutzer gehört nicht zu dieser Organisation." };
@@ -312,7 +342,7 @@ export async function updateUserRole(userId: string, role: "owner" | "member") {
     const { count } = await admin
       .from("workspace_members")
       .select("user_id", { count: "exact", head: true })
-      .eq("workspace_id", access.workspace_id)
+      .eq("workspace_id", ws)
       .eq("role", "owner");
     if ((count ?? 0) <= 1) {
       return { error: "Die Organisation braucht mindestens einen Owner." };
@@ -323,7 +353,7 @@ export async function updateUserRole(userId: string, role: "owner" | "member") {
     .from("workspace_members")
     .update({ role })
     .eq("user_id", userId)
-    .eq("workspace_id", access.workspace_id);
+    .eq("workspace_id", ws);
   if (error) return { error: error.message };
 
   revalidatePath("/settings");
@@ -383,9 +413,10 @@ export async function setDataViewForm(formData: FormData) {
   redirect(safeRedirectAfterViewSwitch(next));
 }
 
-export async function renameUser(userId: string, newUsername: string) {
-  const access = await getAccessContext();
-  if (!access || access.role !== "owner") return { error: "Keine Berechtigung." };
+export async function renameUser(userId: string, newUsername: string, workspaceId?: string) {
+  const v = await verwaltung(workspaceId);
+  if ("error" in v) return { error: v.error };
+  const { ws } = v;
 
   const trimmed = newUsername.trim();
   if (!trimmed) return { error: "Name darf nicht leer sein." };
@@ -397,7 +428,7 @@ export async function renameUser(userId: string, newUsername: string) {
     .from("workspace_members")
     .select("user_id")
     .eq("user_id", userId)
-    .eq("workspace_id", access.workspace_id)
+    .eq("workspace_id", ws)
     .maybeSingle();
   if (!member) {
     return { error: "Nutzer gehört nicht zu dieser Organisation." };
@@ -452,7 +483,7 @@ export async function renameUser(userId: string, newUsername: string) {
     await admin
       .from(table)
       .update({ owner_name: trimmed })
-      .eq("workspace_id", access.workspace_id)
+      .eq("workspace_id", ws)
       .eq("owner_name", oldUsername);
   }
 
@@ -500,4 +531,177 @@ export async function listUsers(workspaceId: string) {
         ((row.profiles as unknown) as { username: string } | null)?.username ?? row.user_id,
     })),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mitglieder-Verwaltung (28.11.): Passwort, Sperren, eigenes Konto, Liste
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AdminClient = ReturnType<typeof createAdminClient>;
+
+async function ownerAnzahl(admin: AdminClient, ws: string): Promise<number> {
+  const { count } = await admin
+    .from("workspace_members")
+    .select("user_id", { count: "exact", head: true })
+    .eq("workspace_id", ws)
+    .eq("role", "owner");
+  return count ?? 0;
+}
+
+async function istPlattformAdmin(admin: AdminClient, userId: string): Promise<boolean> {
+  const { data } = await admin.from("platform_admins").select("user_id").eq("user_id", userId).maybeSingle();
+  return Boolean(data);
+}
+
+/** Gemeinsame Vorprüfung: Ziel ist Mitglied der Organisation; Plattform-Admins nur für Plattform-Admins. */
+async function zielPruefen(
+  admin: AdminClient,
+  access: AccessContext,
+  ws: string,
+  userId: string,
+): Promise<{ role: "owner" | "member" } | { error: string }> {
+  const { data: member } = await admin
+    .from("workspace_members")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("workspace_id", ws)
+    .maybeSingle();
+  if (!member) return { error: "Nutzer gehört nicht zu dieser Organisation." };
+  if (!access.is_platform_admin && (await istPlattformAdmin(admin, userId))) {
+    return { error: "Das Konto eines Plattform-Admins lässt sich hier nicht ändern." };
+  }
+  return { role: (member as { role: "owner" | "member" }).role };
+}
+
+/**
+ * Passwort eines Mitglieds neu setzen (Owner der Organisation oder
+ * Plattform-Admin). Für das EIGENE Passwort gibt es `changeOwnPassword` — mit
+ * Prüfung des aktuellen Passworts.
+ */
+export async function setUserPassword(userId: string, password: string, workspaceId?: string): Promise<{ error?: string }> {
+  const v = await verwaltung(workspaceId);
+  if ("error" in v) return { error: v.error };
+  const { access, ws } = v;
+  const fehler = passwortFehler(password);
+  if (fehler) return { error: fehler };
+  if (userId === access.user.id) return { error: "Dein eigenes Passwort änderst du unter „Mein Konto“." };
+
+  const admin = createAdminClient();
+  const ziel = await zielPruefen(admin, access, ws, userId);
+  if ("error" in ziel) return { error: ziel.error };
+
+  const { error } = await admin.auth.admin.updateUserById(userId, { password });
+  if (error) return { error: error.message };
+  revalidatePath("/settings");
+  revalidatePath(`/admin/org/${ws}`);
+  return {};
+}
+
+/**
+ * Zugang sperren oder entsperren. Gesperrt kann sich niemand anmelden; Daten,
+ * Listen und Zuordnungen bleiben unverändert — anders als beim Löschen.
+ * Technisch ein Auth-Bann (`ban_duration`), keine eigene Spalte.
+ */
+export async function setUserGesperrt(userId: string, gesperrt: boolean, workspaceId?: string): Promise<{ error?: string }> {
+  const v = await verwaltung(workspaceId);
+  if ("error" in v) return { error: v.error };
+  const { access, ws } = v;
+  if (userId === access.user.id) return { error: "Du kannst dich nicht selbst sperren." };
+
+  const admin = createAdminClient();
+  const ziel = await zielPruefen(admin, access, ws, userId);
+  if ("error" in ziel) return { error: ziel.error };
+  if (gesperrt && ziel.role === "owner" && (await ownerAnzahl(admin, ws)) <= 1) {
+    return { error: "Der einzige Owner lässt sich nicht sperren." };
+  }
+
+  // 100 Jahre = „bis auf Weiteres"; "none" hebt den Bann auf.
+  const { error } = await admin.auth.admin.updateUserById(userId, { ban_duration: gesperrt ? "876000h" : "none" });
+  if (error) return { error: error.message };
+  revalidatePath("/settings");
+  revalidatePath(`/admin/org/${ws}`);
+  return {};
+}
+
+/**
+ * Eigenes Passwort ändern — für JEDES Mitglied. Das aktuelle Passwort wird
+ * mit einer eigenen, nicht gespeicherten Anmeldung geprüft: Wer nur an einem
+ * offenen Rechner sitzt, kann das Passwort so nicht übernehmen.
+ */
+export async function changeOwnPassword(aktuell: string, neu: string): Promise<{ error?: string }> {
+  const access = await getAccessContext();
+  if (!access) return { error: "Nicht angemeldet." };
+  const fehler = passwortFehler(neu);
+  if (fehler) return { error: fehler };
+  if (aktuell === neu) return { error: "Das neue Passwort ist dasselbe wie das alte." };
+
+  const admin = createAdminClient();
+  const { data: user, error: userError } = await admin.auth.admin.getUserById(access.user.id);
+  const email = user?.user?.email;
+  if (userError || !email) return { error: "Konto nicht gefunden." };
+
+  const pruef = createPlainClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, getSupabasePublishableKey(), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { error: loginError } = await pruef.auth.signInWithPassword({ email, password: aktuell });
+  if (loginError) return { error: "Das aktuelle Passwort stimmt nicht." };
+  await pruef.auth.signOut().catch(() => {});
+
+  const { error } = await admin.auth.admin.updateUserById(access.user.id, { password: neu });
+  if (error) return { error: error.message };
+  return {};
+}
+
+export type MitgliedInfo = {
+  user_id: string;
+  username: string;
+  role: "owner" | "member";
+  data_scope: DataScope;
+  /** ISO oder null = noch nie angemeldet. */
+  zuletztAngemeldet: string | null;
+  angelegt: string | null;
+  gesperrt: boolean;
+  plattformAdmin: boolean;
+};
+
+/** Mitglieder einer Organisation samt Login-Stand — nur für Verwalter. */
+export async function listMitglieder(workspaceId?: string): Promise<{ error?: string; mitglieder: MitgliedInfo[] }> {
+  const v = await verwaltung(workspaceId);
+  if ("error" in v) return { error: v.error, mitglieder: [] };
+  const { ws } = v;
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("workspace_members")
+    .select("user_id, role, data_scope, profiles (username)")
+    .eq("workspace_id", ws);
+  if (error) return { error: error.message, mitglieder: [] };
+  const rows = (data ?? []) as unknown as {
+    user_id: string;
+    role: "owner" | "member";
+    data_scope: DataScope | null;
+    profiles: { username: string } | null;
+  }[];
+  const ids = rows.map((r) => r.user_id);
+  const [authInfos, admins] = await Promise.all([
+    Promise.all(ids.map((id) => admin.auth.admin.getUserById(id).then((r) => r.data?.user ?? null).catch(() => null))),
+    ids.length
+      ? admin.from("platform_admins").select("user_id").in("user_id", ids).then((r) => new Set(((r.data ?? []) as { user_id: string }[]).map((x) => x.user_id)))
+      : Promise.resolve(new Set<string>()),
+  ]);
+  const jetzt = Date.now();
+  const mitglieder: MitgliedInfo[] = rows.map((r, i) => {
+    const u = authInfos[i] as { last_sign_in_at?: string | null; created_at?: string | null; banned_until?: string | null } | null;
+    return {
+      user_id: r.user_id,
+      username: r.profiles?.username ?? r.user_id,
+      role: r.role,
+      data_scope: r.data_scope ?? "workspace",
+      zuletztAngemeldet: u?.last_sign_in_at ?? null,
+      angelegt: u?.created_at ?? null,
+      gesperrt: Boolean(u?.banned_until && Date.parse(u.banned_until) > jetzt),
+      plattformAdmin: admins.has(r.user_id),
+    };
+  });
+  mitglieder.sort((a, b) => Number(b.role === "owner") - Number(a.role === "owner") || a.username.localeCompare(b.username, "de"));
+  return { mitglieder };
 }

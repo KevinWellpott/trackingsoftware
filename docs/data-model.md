@@ -311,6 +311,18 @@ dritten „Nicht erreicht" liest dieselbe Serie wie der Server (letzte zwei Anwa
   Person — auch bei Team-Sicht). Alle Listen, Team-Zahlen und „Je Person" stehen unter
   `/telefon/team` (nur Owner mit Team-Sicht ohne aktive Datensicht).
 
+- **Mitglieder-Verwaltung** (`src/components/settings/MitgliederVerwaltung.tsx`, Actions in
+  `src/app/actions/workspace.ts`): je Mitglied Name (= Login), Rolle, Datensicht, Passwort neu
+  setzen, Zugang sperren/entsperren (Auth-Bann `ban_duration`, keine Spalte — Daten bleiben),
+  Löschen. Erlaubt einem Owner in seiner aktiven Organisation und Plattform-Admins in jeder
+  (`/settings` bzw. `/admin/org/[id]`). Schutzregeln: nicht sich selbst sperren/löschen/die
+  eigene Rolle ändern, der letzte Owner bleibt, ein Kunden-Owner ändert keinen Plattform-Admin.
+  **„Mein Konto"** in `/settings` für jedes Mitglied: eigenes Passwort ändern, geprüft gegen das
+  aktuelle. Passwörter mindestens 8 Zeichen (`src/lib/mitglieder.ts`). Keine Migration.
+- **Seitenleiste**: Die Bereiche Akquise, Vertrieb, Kunden und Auswertung sind einklappbar
+  (Standard offen, Zustand je Gerät im localStorage unter `grp:<id>`; ein Bereich mit der
+  geöffneten Seite bleibt offen).
+
 ### 0.7 Plattform-Übersicht „Organisationen im Blick" (`/admin/uebersicht`, Migration 0051)
 
 Nur Plattform-Admins (Seite, Loader, Action und RLS prüfen `is_platform_admin`). Je

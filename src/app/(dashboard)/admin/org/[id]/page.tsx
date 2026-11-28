@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRightLeft, Plus, Trash2, Users } from "lucide-react";
 import { getAccessContext } from "@/lib/access";
+import { listMitglieder } from "@/app/actions/workspace";
+import { MitgliederVerwaltung } from "@/components/settings/MitgliederVerwaltung";
 import {
   createUserInOrgForm,
   listOrganizations,
@@ -14,11 +16,11 @@ import { Button } from "@/components/ui/Button";
 import { FormSelect } from "@/components/ui/Select";
 import { MoveUserButton, PullUserPanel } from "@/components/admin/MoveUserButton";
 import { DeleteOrgButton } from "@/components/admin/DeleteOrgButton";
-import { ownerColor } from "@/lib/ownerColor";
 
-// Mitglieder EINER Organisation. Bewusst schlank: Umbenennen, Löschen und
-// Ziele laufen weiter ueber /settings — dorthin kommt man mit einem
-// Org-Wechsel, und dann gilt dort automatisch diese Organisation.
+
+// Mitglieder EINER Organisation — seit dem 28.11. voll verwaltbar (Name,
+// Rechte, Passwort, Sperren, Löschen) über dieselbe Komponente wie /settings.
+// Ziele und Pipeline laufen weiter über /settings nach einem Org-Wechsel.
 
 export const dynamic = "force-dynamic";
 
@@ -73,8 +75,8 @@ export default async function AdminOrgPage({
 
   const { id } = await params;
   const q = await searchParams;
-  const [{ organization, members, error }, { organizations }, { users: outsideUsers }] =
-    await Promise.all([listOrgMembers(id), listOrganizations(), listUsersOutsideOrg(id)]);
+  const [{ organization, members, error }, { organizations }, { users: outsideUsers }, { mitglieder }] =
+    await Promise.all([listOrgMembers(id), listOrganizations(), listUsersOutsideOrg(id), listMitglieder(id)]);
   if (!organization) redirect("/admin");
 
   const isActive = organization.id === access.workspace_id;
@@ -151,59 +153,17 @@ export default async function AdminOrgPage({
             danach sofort unter /login anmelden.
           </p>
         ) : (
-          <div>
-            {members.map((u, i) => {
-              const avatar = ownerColor(u.username);
-              return (
-                <div
-                  key={u.user_id}
-                  style={{
-                    display: "flex",
-                    // Mittig statt oben: Avatar (36 px), Namensblock und
-                    // Zeilenaktion sind unterschiedlich hoch — oben gebunden
-                    // saessen sie sichtbar versetzt zueinander.
-                    alignItems: "center",
-                    gap: "var(--sp-6)",
-                    padding: "var(--sp-6) var(--sp-8)",
-                    borderBottom: i < members.length - 1 ? "1px solid var(--border-subtle)" : "none",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: "var(--r-full)",
-                      background: avatar.bg,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontWeight: 600,
-                      color: avatar.fg,
-                      fontSize: "var(--fs-sm)",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {u.username[0].toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 160 }}>
-                    <div style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>
-                      {u.username}
-                    </div>
-                    <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-                      {u.role === "owner" ? "Owner" : "Mitglied"} ·{" "}
-                      {u.data_scope === "own" ? "Nur eigene Daten" : "Alle Daten"}
-                    </span>
-                  </div>
-                  <MoveUserButton
-                    userId={u.user_id}
-                    username={u.username}
-                    targets={moveTargets}
-                  />
-                </div>
-              );
-            })}
-          </div>
+          <MitgliederVerwaltung
+            mitglieder={mitglieder}
+            meId={access.user.id}
+            workspaceId={id}
+            extras={Object.fromEntries(
+              mitglieder.map((u) => [
+                u.user_id,
+                <MoveUserButton key={u.user_id} userId={u.user_id} username={u.username} targets={moveTargets} />,
+              ]),
+            )}
+          />
         )}
 
         {/* ── Bestehenden Nutzer hierher holen ── */}

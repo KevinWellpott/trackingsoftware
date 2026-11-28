@@ -108,6 +108,11 @@ function containsActive(pathname: string, hrefs: readonly string[]): boolean {
 const LINKEDIN_HREFS = ["/listen", "/lists"] as const;
 const TELEFON_HREFS = ["/telefon"] as const;
 const VERWALTUNG_HREFS = ["/export", "/settings", "/admin"] as const;
+// Bereiche (einklappbar): Steckt die geöffnete Seite darin, bleibt er offen.
+const AKQUISE_HREFS = [...TELEFON_HREFS, ...LINKEDIN_HREFS] as const;
+const VERTRIEB_HREFS = ["/setting", "/closing"] as const;
+const KUNDEN_HREFS = ["/kunden", "/umsatz"] as const;
+const AUSWERTUNG_HREFS = ["/analyse", "/team", "/admin/uebersicht"] as const;
 
 /**
  * Mehrere Zaehler zu einem zusammenfassen — fuer das Abzeichen am zugeklappten
@@ -302,10 +307,53 @@ function LinkedInIcon({ size = 13 }: { size?: number }) {
  * aufklappbar. Gruppen ordnen; aufklappbar bleiben nur die Listenbäume und
  * die selten benutzte Verwaltung.
  */
-function NavGroup({ label }: { label: string }) {
+/**
+ * Ein Bereich der Leiste (Akquise · Vertrieb · Kunden · Auswertung) —
+ * einklappbar (28.11.). Anders als die Listenbäume startet ein Bereich
+ * OFFEN: Er trägt die Hauptnavigation, zugeklappt wäre sie beim ersten
+ * Öffnen unsichtbar. Gespeichert wird im selben Speicher wie die Blöcke
+ * (Schlüssel `grp:<id>`); ein Bereich mit der geöffneten Seite bleibt offen.
+ */
+const readGroupDefault = (): boolean => true;
+function readGroupOpen(id: string): boolean {
+  const v = readSections()[`grp:${id}`];
+  return typeof v === "boolean" ? v : true;
+}
+
+function NavGroup({
+  id,
+  label,
+  hasActive = false,
+  children,
+}: {
+  id: string;
+  label: string;
+  hasActive?: boolean;
+  children: React.ReactNode;
+}) {
+  const stored = useSyncExternalStore(
+    subscribeSections,
+    useCallback(() => readGroupOpen(id), [id]),
+    readGroupDefault,
+  );
+  const open = stored || hasActive;
+  const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <div className="side-navgrp" role="presentation">
-      {label}
+    <div className="side-grp" data-group={id}>
+      <button
+        type="button"
+        className="side-navgrp side-navgrp-btn"
+        aria-expanded={open}
+        aria-disabled={hasActive || undefined}
+        title={hasActive ? `${label} enthält die geöffnete Seite und bleibt offen` : open ? `${label} einklappen` : `${label} ausklappen`}
+        onClick={() => {
+          if (!hasActive) writeSectionOpen(`grp:${id}`, !open);
+        }}
+      >
+        <span>{label}</span>
+        <Chevron size={11} aria-hidden />
+      </button>
+      {open && children}
     </div>
   );
 }
@@ -1179,7 +1227,7 @@ export function SidebarContent({
             Die beiden Kanäle mit eigenem Volumen vor dem Termin. Sie behalten
             ihre Listenbäume — aufklappbar wie bisher, der Titel führt zur
             Übersicht des Kanals. */}
-        <NavGroup label="Akquise" />
+        <NavGroup id="akquise" label="Akquise" hasActive={containsActive(pathname, AKQUISE_HREFS)}>
         <div className="side-akquise">
           {/* ── Telefon ── */}
           <CollapsibleSection
@@ -1343,10 +1391,11 @@ export function SidebarContent({
           </CollapsibleSection>
 
         </div>
+        </NavGroup>
 
         {/* ── Vertrieb ──
             Vom Termin bis zum Abschluss: die Erstgespräche und die Closings. */}
-        <NavGroup label="Vertrieb" />
+        <NavGroup id="vertrieb" label="Vertrieb" hasActive={containsActive(pathname, VERTRIEB_HREFS)}>
         <NavLink
           href="/setting"
           icon={MessagesSquare}
@@ -1361,6 +1410,7 @@ export function SidebarContent({
           onClick={onClose}
           title="Wie stehen die Abschlussgespräche? Alle Closings nach Ergebnis — ohne Ergebnis, nachfassen, gewonnen, verloren."
         />
+        </NavGroup>
         {/* Keine eigenen Einträge mehr für No-Shows und Ablage (Entscheidung
             28.11.): No-Shows stehen in „Heute“ und in /setting bzw. /closing,
             die Ablage ist über den Reiter „Wiedervorlage“ in „Heute“
@@ -1373,8 +1423,7 @@ export function SidebarContent({
             auch nicht für einen Plattform-Admin, der dort gerade arbeitet:
             Titans eigene Zahlen gehören nicht in fremde Räume. */}
         {intern?.kunden && (
-          <>
-            <NavGroup label="Kunden" />
+          <NavGroup id="kunden" label="Kunden" hasActive={containsActive(pathname, KUNDEN_HREFS)}>
             <NavLink
               href="/kunden"
               // Praefix fuer die Akten, aber nicht fuer die Vorlagen: die haben ihre eigene Zeile.
@@ -1402,13 +1451,13 @@ export function SidebarContent({
               onClick={onClose}
               title="Aus welchen Vorlagen entstehen die Checklisten der Kunden?"
             />
-          </>
+          </NavGroup>
         )}
 
         {/* ── Auswertung ──
             Der Rückblick, getrennt von der Tagesarbeit: Diese Seiten öffnet
             man absichtlich, nicht im Vorbeigehen. */}
-        <NavGroup label="Auswertung" />
+        <NavGroup id="auswertung" label="Auswertung" hasActive={containsActive(pathname, AUSWERTUNG_HREFS)}>
         {/* „Analyse" bewusst exakt: /analyse/vergleich hat eine eigene Zeile,
             sonst leuchteten dort beide gleichzeitig aktiv. */}
         <NavLink
@@ -1447,6 +1496,7 @@ export function SidebarContent({
             title="Wie läuft die Woche im Team? Wochenduell und Team-Vergleich."
           />
         )}
+        </NavGroup>
 
         <div style={{ flex: 1, minHeight: "var(--sp-7)" }} />
 

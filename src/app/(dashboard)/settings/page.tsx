@@ -1,4 +1,6 @@
-import { createUserForm, listUsers } from "@/app/actions/workspace";
+import { createUserForm, listMitglieder, listUsers } from "@/app/actions/workspace";
+import { MitgliederVerwaltung } from "@/components/settings/MitgliederVerwaltung";
+import { EigenesKonto } from "@/components/settings/EigenesKonto";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { FormSelect } from "@/components/ui/Select";
@@ -11,10 +13,6 @@ import {
 } from "@/lib/targets";
 import { getAccessContext } from "@/lib/access";
 import { ownerColor } from "@/lib/ownerColor";
-import { DeleteUserButton } from "@/components/settings/DeleteUserButton";
-import { RenameUserButton } from "@/components/settings/RenameUserButton";
-import { DataScopeSelect } from "@/components/settings/DataScopeSelect";
-import { RoleSelect } from "@/components/settings/RoleSelect";
 import { getPipelineSettings } from "@/app/actions/pipelineSettings";
 import { PipelineSettingsCard } from "@/components/settings/PipelineSettingsCard";
 import {
@@ -77,8 +75,9 @@ export default async function SettingsPage({
   // konfiguriert" — deshalb zeigt die Seite in dem Fall einen Hinweis statt
   // einer Karte voller Defaults, deren Speichern-Knöpfe nur Fehler produzieren
   // würden. Die drei Abfragen sind voneinander unabhängig und laufen parallel.
-  const [{ users }, targets, pipeline] = await Promise.all([
+  const [{ users }, { mitglieder }, targets, pipeline] = await Promise.all([
     isOwner ? listUsers(access.workspace_id) : Promise.resolve({ users: [] }),
+    isOwner ? listMitglieder() : Promise.resolve({ mitglieder: [] }),
     isOwner ? getTargets() : Promise.resolve([]),
     canManageOrgSettings ? getPipelineSettings() : Promise.resolve(null),
   ]);
@@ -102,6 +101,19 @@ export default async function SettingsPage({
       {q.userErr && (
         <div role="alert" style={FEEDBACK_ERR}>{q.userErr}</div>
       )}
+
+      {/* ── Mein Konto ── für jedes Mitglied */}
+      <div className="card" style={{ overflow: "hidden" }}>
+        <div style={SECTION_HEAD}>
+          <UserCheck size={16} color="var(--text-muted)" />
+          <span style={SECTION_TITLE}>Mein Konto</span>
+        </div>
+        <EigenesKonto
+          username={access.username}
+          rolle={isOwner ? "Owner" : "Mitglied"}
+          organisation={access.workspaces.name}
+        />
+      </div>
 
       {/* ── Darstellung ── */}
       {/* Gespiegelt aus dem Sonnen-Knopf unten in der Seitenleiste: dieselben
@@ -144,38 +156,9 @@ export default async function SettingsPage({
             <span className="count-pill" style={{ marginLeft: "auto" }}>{users.length}</span>
           </div>
 
-          {/* User list */}
-          <div>
-            {users.map((u, i) => {
-              const isMe = u.user_id === access.user.id;
-              const avatar = ownerColor(u.username);
-              return (
-                <div key={u.user_id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--sp-6)", padding: "var(--sp-6) var(--sp-8)", borderBottom: i < users.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
-                  {/* Avatar */}
-                  <div style={{ width: 36, height: 36, borderRadius: "var(--r-full)", background: avatar.bg, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, color: avatar.fg, fontSize: "var(--fs-sm)", flexShrink: 0 }}>
-                    {u.username[0].toUpperCase()}
-                  </div>
-                  {/* Info */}
-                  {/* minWidth 140: Am Handy rutschen die Bedienelemente in eine
-                      zweite Zeile, statt den Namen auf null zu quetschen. */}
-                  <div style={{ flex: 1, minWidth: 140 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)" }}>
-                      <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--text-primary)" }}>{u.username}</span>
-                      {isMe && <span className="badge badge-gray">Du</span>}
-                    </div>
-                    <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>
-                      {isMe ? "Eigene Rolle nicht änderbar" : "Rolle · Datensicht"}
-                    </span>
-                  </div>
-                  {/* Rolle + Datensicht (beide editierbar) + Rename + Delete (not self) */}
-                  <RoleSelect userId={u.user_id} role={u.role} disabled={isMe} />
-                  <DataScopeSelect userId={u.user_id} dataScope={u.data_scope} />
-                  <RenameUserButton userId={u.user_id} username={u.username} />
-                  {!isMe && <DeleteUserButton userId={u.user_id} username={u.username} />}
-                </div>
-              );
-            })}
-          </div>
+          {/* Mitglieder: je Zeile „Bearbeiten“ mit Name, Rechten, Passwort,
+              Zugang und Löschen (components/settings/MitgliederVerwaltung). */}
+          <MitgliederVerwaltung mitglieder={mitglieder} meId={access.user.id} />
 
           {/* Create user form */}
           <div style={{ borderTop: "1px solid var(--border-default)", padding: "var(--sp-7) var(--sp-8)", background: "var(--surface-1)" }}>
@@ -332,16 +315,6 @@ export default async function SettingsPage({
         )
       )}
 
-      {/* ── Passwort-Info ── */}
-      <div style={{ background: "var(--warning-bg)", borderLeft: "2px solid var(--warning)", borderRadius: "var(--r-md)", padding: "var(--sp-6) var(--sp-7)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-3)" }}>
-          <UserCheck size={15} color="var(--warning-fg)" />
-          <span style={{ fontSize: "var(--fs-base)", fontWeight: 500, color: "var(--warning-fg)" }}>Passwort ändern</span>
-        </div>
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--text-secondary)", lineHeight: "var(--lh-base)" }}>
-          Um ein Passwort zu ändern: Nutzer löschen und neu anlegen. Die Pitch-Daten (Listen + Kontakte) bleiben dabei vollständig erhalten.
-        </p>
-      </div>
 
     </div>
   );

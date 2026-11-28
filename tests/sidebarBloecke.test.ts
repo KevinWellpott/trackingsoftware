@@ -57,7 +57,8 @@ function zaehle(haystack: string, needle: string): number {
 
 /** Position einer Gruppen-Überschrift. */
 function gruppe(label: string): number {
-  const pos = SIDEBAR.indexOf(`<NavGroup label="${label}" />`);
+  // Seit dem 28.11. sind die Bereiche einklappbar: `<NavGroup id=… label="…"`.
+  const pos = SIDEBAR.indexOf(`label="${label}" hasActive=`);
   assert.notEqual(pos, -1, `Gruppe „${label}" fehlt`);
   return pos;
 }
@@ -118,7 +119,7 @@ describe("Gliederung", () => {
   test("Kunden nur dort, wo der interne Bereich sichtbar ist", () => {
     // Dieselbe Sichtbarkeitsregel wie der frühere Block „Intern" (Migration
     // 0047): nur in der Titan-Organisation, Umsatz nur mit Recht.
-    assert.match(SIDEBAR, /\{intern\?\.kunden && \(\s*<>\s*<NavGroup label="Kunden" \/>/);
+    assert.match(SIDEBAR, /\{intern\?\.kunden && \(\s*<NavGroup id="kunden" label="Kunden"/);
     assert.match(SIDEBAR, /\{intern\.umsatz && \(\s*<NavLink\s+href="\/umsatz"/);
     assert.ok(navLink("/umsatz").includes('label="Umsatz & Collect"'));
   });
@@ -330,7 +331,10 @@ describe("Aufklapp-Zustand", () => {
     // Klick auf den Kopf und der „Neue Liste"-Knopf, der seinen Block dafür
     // aufklappen muss. Ein dritter Aufrufer wäre ein Schreibpfad, der einen
     // Zustand speichert, den niemand gewählt hat.
-    assert.equal(zaehle(SIDEBAR, "writeSectionOpen("), 3); // Definition + zwei Aufrufer
+    // Definition + zwei Aufrufer der Blöcke + einer der einklappbaren Bereiche
+    // (Schlüssel `grp:<id>`, ebenfalls nur im Klick-Handler).
+    assert.equal(zaehle(SIDEBAR, "writeSectionOpen("), 4);
+    assert.match(SIDEBAR, /if \(!hasActive\) writeSectionOpen\(`grp:\$\{id\}`, !open\);/);
     assert.match(SIDEBAR, /if \(!hasActive\) writeSectionOpen\(id, !open\);/);
     assert.match(SIDEBAR, /setOpen: \(next\) => writeSectionOpen\(id, next\)/);
   });
@@ -377,5 +381,17 @@ describe("Design-Schema", () => {
     assert.equal(zaehle(SIDEBAR, "function CollapsibleSection"), 1);
     assert.match(SIDEBAR, /className="count-pill"/);
     assert.match(SIDEBAR, /const titleClass = forcedOpen \? "eyebrow" : "eyebrow eyebrow-muted";/);
+  });
+});
+
+describe("Einklappbare Bereiche (28.11.)", () => {
+  test("Akquise, Vertrieb, Kunden und Auswertung lassen sich einklappen", () => {
+    for (const id of ["akquise", "vertrieb", "kunden", "auswertung"]) {
+      assert.match(SIDEBAR, new RegExp(`<NavGroup id="${id}" label="[^"]+" hasActive=\\{containsActive\\(pathname, [A-Z_]+\\)\\}>`));
+    }
+  });
+  test("Bereiche starten offen, ein Bereich mit der geöffneten Seite bleibt offen", () => {
+    assert.match(SIDEBAR, /const readGroupDefault = \(\): boolean => true;/);
+    assert.match(SIDEBAR, /const open = stored \|\| hasActive;/);
   });
 });

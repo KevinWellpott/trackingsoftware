@@ -4824,3 +4824,86 @@ a.km:hover .km-go, a.km:focus-visible .km-go { opacity: 1; }
 @media (max-width: 767px) {
   .vg-zeit .vg-head-r { margin-left: 0; }
 }
+
+/* ── Mitglieder-Verwaltung (/settings, /admin/org/[id]) und „Mein Konto“ ── */
+.mv-liste { display: grid; }
+.mv-mitglied {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+  padding: var(--sp-6) var(--sp-8);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.mv-mitglied:last-of-type { border-bottom: 0; }
+.mv-mitglied[data-gesperrt] .mv-name { color: var(--text-muted); }
+.mv-avatar {
+  display: inline-grid; place-items: center; flex-shrink: 0;
+  width: 36px; height: 36px; border-radius: var(--r-full);
+  font-weight: 600; font-size: var(--fs-sm);
+}
+.mv-text { flex: 1; min-width: 160px; display: grid; gap: 2px; }
+.mv-name { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; font-size: var(--fs-base); font-weight: 500; color: var(--text-primary); }
+.mv-meta { display: flex; flex-wrap: wrap; gap: 0 var(--sp-4); font-size: var(--fs-xs); color: var(--text-muted); }
+.mv-meta > span + span::before { content: "·"; margin-right: var(--sp-4); }
+.mv-aktionen { display: inline-flex; align-items: center; gap: var(--sp-3); margin-left: auto; }
+.mv-leer { padding: var(--sp-7) var(--sp-8); font-size: var(--fs-sm); color: var(--text-muted); }
+
+.mv-abschnitt { display: grid; gap: var(--sp-4); padding-top: var(--sp-6); border-top: 1px solid var(--border-subtle); }
+.mv-abschnitt:first-of-type { border-top: 0; padding-top: 0; }
+.mv-abschnitt-kopf h3 { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text-primary); }
+.mv-abschnitt-kopf p { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+.mv-zeile { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }
+.mv-zeile > .ui-input { flex: 1; min-width: 180px; }
+.mv-recht { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-5); flex-wrap: wrap; }
+.mv-recht > div { display: grid; gap: 1px; min-width: 200px; flex: 1; }
+.mv-recht strong { font-size: var(--fs-sm); font-weight: 500; color: var(--text-secondary); }
+.mv-recht span { font-size: var(--fs-xs); color: var(--text-muted); }
+.mv-fest { font-size: var(--fs-sm) !important; color: var(--text-secondary) !important; }
+.mv-meldung {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  background: var(--success-bg); color: var(--success-fg);
+}
+.mv-meldung[data-fehler] { background: var(--danger-bg); color: var(--danger-fg); }
+.mv-hinweis { font-size: var(--fs-xs); color: var(--text-muted); }
+.mv-hinweis[data-fehler] { color: var(--danger-fg); }
+
+.mv-konto { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr); gap: var(--sp-8); padding: var(--sp-7) var(--sp-8); }
+.mv-konto-info { display: grid; gap: 2px; align-content: start; }
+.mv-konto-info span { font-size: var(--fs-xs); color: var(--text-muted); }
+.mv-konto-info strong { font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); }
+.mv-konto-form { display: grid; gap: var(--sp-5); }
+.mv-konto-form label { display: grid; gap: var(--sp-2); }
+.mv-konto-form label > span { font-size: var(--fs-xs); font-weight: 500; color: var(--text-secondary); }
+.mv-konto-fuss { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.mv-konto-fuss .mv-hinweis { flex: 1; min-width: 160px; }
+@media (max-width: 640px) {
+  .mv-konto { grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+  .mv-mitglied { padding: var(--sp-6); }
+  .mv-aktionen { margin-left: 0; width: 100%; justify-content: flex-end; }
+}
+
+/* ── Einklappbare Bereiche der Seitenleiste (28.11.) ── */
+.side-navgrp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 550;
+  text-align: left;
+  border-radius: 6px;
+}
+.side-navgrp-btn > svg { opacity: 0; transition: opacity var(--dur-1, 120ms) var(--ease-out); }
+.side-navgrp-btn:hover { color: var(--text-secondary); }
+.side-navgrp-btn:hover > svg,
+.side-navgrp-btn:focus-visible > svg,
+.side-navgrp-btn[aria-expanded="false"] > svg { opacity: 1; }
+.side-navgrp-btn[aria-disabled] { cursor: default; }
