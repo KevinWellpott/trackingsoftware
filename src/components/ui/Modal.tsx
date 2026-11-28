@@ -132,7 +132,7 @@ export function Modal({
         justifyContent: "center",
         padding: "12vh 1rem 1rem",
         background: "var(--surface-scrim)",
-        animation: "modal-scrim var(--dur-2) var(--ease-out) both",
+        animation: "modal-scrim var(--dur-2) var(--ease-out) backwards",
       }}
     >
       <div
@@ -162,7 +162,7 @@ export function Modal({
           display: "flex",
           flexDirection: "column",
           outline: "none",
-          animation: "modal-enter var(--dur-3) var(--ease-spring) both",
+          animation: "modal-enter var(--dur-3) var(--ease-spring) backwards",
         }}
       >
         {(title || subtitle) && (

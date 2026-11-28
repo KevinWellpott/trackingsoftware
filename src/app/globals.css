@@ -2062,7 +2062,10 @@ tr:focus-within .row-actions,
 .analyse-row {
   display: grid;
   gap: var(--sp-6);
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, …): Ohne die Untergrenze 0 wächst eine Spalte auf die Breite
+     ihres längsten Inhalts (Tabellen, lange Skript-Namen) und schiebt die
+     rechte Karte aus der Seite. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   /* Karten behalten ihre eigene Hoehe. Mit dem Grid-Default (stretch) haelt
      eine zugeklappte Sektion die Hoehe ihrer offenen Nachbarin und steht als
      leere Flaeche da — seit die Sektionen zuklappbar sind, ist das der
@@ -2070,8 +2073,8 @@ tr:focus-within .row-actions,
      ein Gewinn, wie beide immer offen waren. */
   align-items: start;
 }
-.analyse-row[data-split="wide-left"] { grid-template-columns: 1.4fr 1fr; }
-.analyse-row[data-split="chart"] { grid-template-columns: 2fr 1fr; }
+.analyse-row[data-split="wide-left"] { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.analyse-row[data-split="chart"] { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 .analyse-row[data-split="auto"] { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 
 /* Nachladen bei Filterwechsel (COMPONENTS §14.4): 2px-Linie an der Oberkante
@@ -2546,7 +2549,7 @@ tr:focus-within .row-actions,
   .section-header-mobile { flex-direction: column !important; align-items: flex-start !important; gap: var(--sp-5) !important; }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .chart-grid-2 { grid-template-columns: 1fr !important; }
-  .analyse-row { grid-template-columns: 1fr !important; }
+  .analyse-row { grid-template-columns: minmax(0, 1fr) !important; }
   .call-mode-grid { grid-template-columns: 1fr !important; }
   .call-fields-grid { grid-template-columns: 1fr !important; }
   .page-container { max-width: 100% !important; padding: 0 !important; }
@@ -3239,7 +3242,7 @@ body[data-editor] .header-menu-btn { display: inline-flex; }
 .cal-m-dot[data-kind="closing"] { background: var(--event-closing-bg); box-shadow: inset 0 0 0 1px var(--event-closing-ring); }
 /* „Du bist dran" — derselbe Gold-Ton wie in der Arbeitsliste. */
 .cal-m-dot[data-dran] { background: var(--warning); }
-.cal-m-more { font-size: 9px; line-height: 6px; font-weight: 700; color: var(--text-muted); }
+.cal-m-more { font-size: 9px; line-height: 6px; font-weight: 600; color: var(--text-muted); }
 
 .cal-m-day { display: flex; flex-direction: column; gap: var(--sp-4); scroll-margin-top: calc(var(--sticky-top) + 132px); }
 .cal-m-day-head {
@@ -3374,7 +3377,7 @@ body[data-editor] .header-menu-btn { display: inline-flex; }
     inset: 0;
     z-index: 139;
     background: var(--surface-scrim);
-    animation: modal-scrim var(--dur-2) var(--ease-out) both;
+    animation: modal-scrim var(--dur-2) var(--ease-out) backwards;
   }
   .event-sheet {
     top: auto !important;
@@ -4662,3 +4665,9 @@ a.km:hover .km-go, a.km:focus-visible .km-go { opacity: 1; }
 /* ── Beträge (components/umsatz/Betrag.tsx): Euro-Zeichen gedämpft ── */
 .betrag { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .betrag-eur { opacity: 0.6; font-weight: 450; }
+
+/* Handy (390 px): drei Kacheln je Zeile schnitten Zahl und Untertitel seitlich
+   ab (LinkedIn-Liste, Prüfung 28.11.). Unter 480 px zwei je Zeile. */
+@media (max-width: 479px) {
+  .grid-6-stat { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}

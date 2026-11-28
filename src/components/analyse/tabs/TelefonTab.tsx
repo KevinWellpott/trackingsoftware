@@ -849,7 +849,7 @@ export async function TelefonTab({
             <InfoBody>
               <span>
                 Nur &bdquo;Erstkontakte&ldquo; ist zeitraumgefiltert (<code>first_call_at</code> im Fenster) —
-                Entscheider, Termine, Rückrufe und Dead sind der aktuelle Stand derselben Leads. Die Quoten sind damit
+                Entscheider, Termine, Rückrufe und Tote sind der aktuelle Stand derselben Leads. Die Quoten sind damit
                 Kohorten-Quoten, keine Tageswerte.
               </span>
               {hiddenMembers > 0 && (
@@ -875,7 +875,7 @@ export async function TelefonTab({
                 { key: "appts", label: "Termine aus Erstkontakten", format: "int" },
                 { key: "apptRate", label: "Terminquote", format: "pct", deltaVsAvg: true },
                 { key: "callbacks", label: "Rückrufe", format: "int" },
-                { key: "dead", label: "Dead", format: "int" },
+                { key: "dead", label: "Tot", format: "int" },
               ]}
               rows={tableRows}
               average={average}

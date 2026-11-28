@@ -11,6 +11,11 @@ const ENTFERNT: { source: string; destination: string }[] = [
   { source: "/organic/:path*", destination: "/" },
   { source: "/organic", destination: "/" },
   { source: "/ansicht/:path*", destination: "/listen" },
+  // Gestrichen am 28.11.: No-Shows stehen in „Heute“ und in /setting bzw.
+  // /closing — fünf Orte mit drei Personenregeln waren drei Zahlen.
+  { source: "/no-shows", destination: "/nachfassen" },
+  { source: "/telefon/setting-no-show", destination: "/telefon" },
+  { source: "/listen/setting-no-show", destination: "/listen" },
 ];
 
 const nextConfig: NextConfig = {

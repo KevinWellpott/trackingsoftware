@@ -27,7 +27,14 @@ export type NachfassArt = "setting" | "closing" | "phone_lead" | "contact";
 export type NachfassKoernung = "tag" | "minute";
 
 /** Die Gruppen der Seite — in dieser Reihenfolge. */
-export type NachfassGruppe = "ergebnis_fehlt" | "ueberfaellig" | "heute" | "demnaechst" | "wartet" | "aufraeumen";
+export type NachfassGruppe =
+  | "ergebnis_fehlt"
+  | "ueberfaellig"
+  | "heute"
+  | "demnaechst"
+  | "wartet"
+  | "aufraeumen"
+  | "wiedervorlage";
 
 export const GRUPPEN_REIHENFOLGE: readonly NachfassGruppe[] = [
   "ergebnis_fehlt",
@@ -36,6 +43,7 @@ export const GRUPPEN_REIHENFOLGE: readonly NachfassGruppe[] = [
   "demnaechst",
   "wartet",
   "aufraeumen",
+  "wiedervorlage",
 ];
 
 export const GRUPPEN_LABEL: Record<NachfassGruppe, string> = {
@@ -45,27 +53,34 @@ export const GRUPPEN_LABEL: Record<NachfassGruppe, string> = {
   demnaechst: "Demnächst",
   wartet: "Wartet",
   aufraeumen: "Aufräumen",
+  wiedervorlage: "Wiedervorlage",
 };
 
-/** Die vier Reiter. „Fällig" ist die Vorgabe. */
-export type NachfassReiter = "faellig" | "demnaechst" | "wartet" | "aufraeumen";
+/**
+ * Die Reiter. „Fällig" ist die Vorgabe. „Wiedervorlage" trägt die fälligen
+ * Recycling-Leads (Entscheidung 28.11., Punkt 8): Sie stehen NICHT in „Fällig“
+ * und nicht im Badge — sonst machte die Welle im Dezember/Januar
+ * (Hunderte bis über tausend Leads) aus dem Eingang eine Recycling-Liste.
+ */
+export type NachfassReiter = "faellig" | "demnaechst" | "wartet" | "aufraeumen" | "wiedervorlage";
 
 export const REITER_GRUPPEN: Record<NachfassReiter, readonly NachfassGruppe[]> = {
   faellig: ["ergebnis_fehlt", "ueberfaellig", "heute"],
   demnaechst: ["demnaechst"],
   wartet: ["wartet"],
   aufraeumen: ["aufraeumen"],
+  wiedervorlage: ["wiedervorlage"],
 };
 
 export function parseReiter(raw: string | null | undefined): NachfassReiter {
-  return raw === "demnaechst" || raw === "wartet" || raw === "aufraeumen" ? raw : "faellig";
+  return raw === "demnaechst" || raw === "wartet" || raw === "aufraeumen" || raw === "wiedervorlage" ? raw : "faellig";
 }
 
-/** Quellen-Filter der Seite. */
-export type NachfassFilter = "alle" | NachfassQuelle;
+/** Quellen-Filter der Seite — Recycling hat seinen eigenen Reiter. */
+export type NachfassFilter = "alle" | "termin" | "rueckruf";
 
 export function parseFilter(raw: string | null | undefined): NachfassFilter {
-  return raw === "termin" || raw === "rueckruf" || raw === "recycling" ? raw : "alle";
+  return raw === "termin" || raw === "rueckruf" ? raw : "alle";
 }
 
 /**
@@ -85,6 +100,20 @@ export const NACHFASSEN_START = "2026-12-01";
 
 /** Ein Vorgang gilt als Altfall, wenn sein letztes Lebenszeichen so viele Tage vor dem Stichtag liegt. */
 export const ALTFALL_TAGE = 14;
+
+/**
+ * Wie viele Einträge ein Reiter auf einmal zeigt. Die Wiedervorlage kann im
+ * Januar vierstellig werden; alles auf einmal zu rendern legte den Browser
+ * lahm und hilft niemandem — „Weitere anzeigen“ holt den Rest.
+ */
+export const SEITE_GROESSE = 50;
+
+/**
+ * Sammelaktion: so viele Vorgänge je Server-Aufruf. Kleine Pakete halten jeden
+ * Aufruf weit unter dem Zeitlimit und erlauben eine Fortschrittsanzeige
+ * (Prüfung 28.11.: bis zu 500 in einem Aufruf).
+ */
+export const SAMMEL_PAKET = 25;
 
 /** Wie weit „Demnächst" reicht. */
 export const DEMNAECHST_TAGE = 7;
@@ -159,6 +188,9 @@ export function istAltfall(e: NachfassEintrag, today: string, start: string = NA
  * (`isOverdue(…, "moment")`-Logik), alles andere ab dem Tag.
  */
 export function gruppeVon(e: NachfassEintrag, today: string, nowMs: number, start: string = NACHFASSEN_START): NachfassGruppe {
+  // Recycling zuerst: eigener Reiter, nie im Badge (Punkt 8). Ein toter Lead
+  // ist per Definition alt — die Altfall-Regel gilt für ihn nicht.
+  if (e.quelle === "recycling") return "wiedervorlage";
   if (istAltfall(e, today, start)) return "aufraeumen";
   if (e.ergebnisFehlt) return "ergebnis_fehlt";
   const tag = faelligkeitsTag(e, today);
@@ -219,6 +251,26 @@ export function vorschlagNaechsterKontakt(ergebnis: NachfassKontaktKurz["ergebni
   return plusWerktage(today, ergebnis === "nicht_erreicht" ? 1 : 3);
 }
 
+/**
+ * Termin von heute ohne Ergebnis, dessen Ende schon vorbei ist (Punkt 6):
+ * gehört sofort nach „Ergebnis fehlt“ — nicht erst morgen, wenn die
+ * Tagesregel ihn als vergangen erkennt. Gerade der Closer übersah sonst das
+ * 10-Uhr-Closing bis zum nächsten Tag.
+ */
+export function heuteVorbeiOhneErgebnis(input: {
+  at: string | null;
+  dauerMin: number;
+  status: string;
+  showStatus: string | null;
+  abgesagt: boolean;
+  today: string;
+  nowMs: number;
+}): boolean {
+  if (!input.at || input.abgesagt || input.status !== "offen" || input.showStatus) return false;
+  if (berlinDateISO(input.at) !== input.today) return false;
+  return Date.parse(input.at) + input.dauerMin * 60_000 <= input.nowMs;
+}
+
 /** Schnellwahl im Popover: Morgen · 2 Tage · 1 Woche (Werktage). */
 export function schnellwahl(today: string): { label: string; tag: string }[] {
   return [
@@ -273,7 +325,7 @@ export function kopfzahlen<T extends NachfassEintrag>(
   };
 }
 
-/** Badge der Seitenleiste: überfällig + heute + Ergebnis fehlt, ohne Aufräumen (Plan M8). */
+/** Badge der Seitenleiste: überfällig + heute + Ergebnis fehlt, ohne Aufräumen und ohne Wiedervorlage (Plan M8, Punkt 8). */
 export function badgeZahl<T extends NachfassEintrag>(gruppen: Map<NachfassGruppe, T[]>): { total: number; overdue: number } {
   const ueber = (gruppen.get("ueberfaellig")?.length ?? 0) + (gruppen.get("ergebnis_fehlt")?.length ?? 0);
   return { total: ueber + (gruppen.get("heute")?.length ?? 0), overdue: ueber };

@@ -13,6 +13,8 @@ import { absageWirktNoch } from "@/lib/terminMeta";
 import { erinnererOf, ownerUserIdOfList } from "@/lib/personResolution";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
+import { DURATION_MIN } from "@/lib/termine";
+import { heuteVorbeiOhneErgebnis, istAltfall } from "@/lib/nachfassRegel";
 import type { NachfassArt, NachfassEintrag, NachfassKontaktKurz } from "@/lib/nachfassRegel";
 
 type Client = Awaited<ReturnType<typeof createClient>>;
@@ -104,7 +106,7 @@ const ZUSTAND_KONTEXT: Partial<Record<TerminZustand, string>> = {
 };
 
 const RECYCLE_KONTEXT: Record<string, string> = {
-  linkedin: "LinkedIn · nach FU3",
+  linkedin: "LinkedIn · nach 3 Follow-ups",
   telefon: "Telefon · tot",
   setting: "Erstgespräch",
   closing: "Closing · verloren",
@@ -132,6 +134,17 @@ async function ladeNachfolger(supabase: Client, ws: string): Promise<{ settings:
     closings: new Set(rows.map((r) => r.revived_from_closing_call_id).filter((v): v is string => Boolean(v))),
   };
 }
+
+type RecycleRow = {
+  origin: "linkedin" | "telefon" | "setting" | "closing";
+  entity_id: string;
+  lead_name: string | null;
+  company: string | null;
+  due_at: string | null;
+  reason: string | null;
+  attempt_count: number | null;
+  last_contacted_at: string | null;
+};
 
 type KontaktRow = {
   setting_call_id: string | null;
@@ -189,7 +202,14 @@ async function ladeHeuteErledigt(supabase: Client, userId: string, today: string
   return error ? 0 : count ?? 0;
 }
 
-async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<NachfassenDaten> {
+/**
+ * `schlank` (Badge und Dashboard, Punkt 5): dieselben Termine und Rückrufe,
+ * dieselbe Gruppierung — aber ohne Wiedervorlage (die zählt nicht mit),
+ * ohne Kontaktwege und mit dem Protokoll nur dort, wo es die Gruppe
+ * entscheidet (Altfall ja/nein). Auf jeder Seite lief vorher der volle
+ * Eingang samt aller Recycling-Leads.
+ */
+async function ladeIntern(access: AccessContext, wer: NachfassWer, schlank = false): Promise<NachfassenDaten> {
   const supabase = await createClient();
   const ws = access.workspace_id;
   const nowMs = Date.now();
@@ -203,27 +223,32 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
   const darfAlle = access.can_switch_view && !access.effective_user_id;
   const alle = wer === "alle" && darfAlle;
 
+  // Vorfilter auf die Person (Obermenge von `erinnererOf`: Zuweisung,
+  // Ersteller oder Durchführung). Die genaue Regel prüft die Schleife unten;
+  // hier fällt nur weg, was ihr sicher nicht gehört — statt alle offenen
+  // Termine der ganzen Organisation zu laden.
+  const personFilter = `assigned_user_id.eq.${scopeUser},created_by_user_id.eq.${scopeUser},conducted_by_user_id.eq.${scopeUser}`;
   const [settings, closings, nachfolger, members, rueckrufLeads, phoneLists, recycle] = await Promise.all([
-    fetchAllRows((f, t) =>
-      supabase
+    fetchAllRows((f, t) => {
+      let q = supabase
         .from("setting_calls")
         .select(SETTING_COLS)
         .eq("workspace_id", ws)
-        .in("status", ["offen", "no_show"])
-        .order("id")
-        .range(f, t),
-    )
+        .in("status", ["offen", "no_show"]);
+      if (!alle) q = q.or(personFilter);
+      return q.order("id").range(f, t);
+    })
       .then((rows) => rows as unknown as TerminRow[])
       .catch(luecke([] as TerminRow[])),
-    fetchAllRows((f, t) =>
-      supabase
+    fetchAllRows((f, t) => {
+      let q = supabase
         .from("closing_calls")
         .select(CLOSING_COLS)
         .eq("workspace_id", ws)
-        .in("status", ["offen", "nachfassen"])
-        .order("id")
-        .range(f, t),
-    )
+        .in("status", ["offen", "nachfassen"]);
+      if (!alle) q = q.or(personFilter);
+      return q.order("id").range(f, t);
+    })
       .then((rows) => rows as unknown as TerminRow[])
       .catch(luecke([] as TerminRow[])),
     // Ohne Nachfolger-Liste stünde ein aus der Ablage neu angesetzter Lead
@@ -244,16 +269,9 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
     fetchAllRows<{ id: string; name: string | null; owner_name: string | null; created_by_user_id: string | null }>((f, t) =>
       supabase.from("phone_lists").select("id, name, owner_name, created_by_user_id").eq("workspace_id", ws).order("id").range(f, t),
     ).catch(luecke([])),
-    fetchAllRows<{
-      origin: "linkedin" | "telefon" | "setting" | "closing";
-      entity_id: string;
-      lead_name: string | null;
-      company: string | null;
-      due_at: string | null;
-      reason: string | null;
-      attempt_count: number | null;
-      last_contacted_at: string | null;
-    }>((f, t) =>
+    schlank
+      ? Promise.resolve({ rows: [] as RecycleRow[], available: true })
+      : fetchAllRows<RecycleRow>((f, t) =>
       supabase
         .rpc("recycle_tasks", { p_workspace_id: ws, p_today: today, p_effective_user_id: alle ? null : scopeUser })
         // Seitenweise nur mit fester Reihenfolge — sonst überlappen Seiten.
@@ -262,12 +280,14 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
         .range(f, t),
     )
       .then((rows) => ({ rows, available: true }))
-      .catch(() => ({ rows: [], available: false })),
+      .catch(() => ({ rows: [] as RecycleRow[], available: false })),
   ]);
 
   const nameById = new Map(members.map((m) => [m.user_id, m.username]));
   const idByName = new Map(members.map((m) => [m.username, m.user_id]));
   const eintraege: NachfassAnzeige[] = [];
+  /** Woher ein Termin kommt — für die Kontaktwege (Punkt 3). */
+  const quellen = new Map<string, { settingId: string | null; contactId: string | null; phoneLeadId: string | null }>();
 
   // ── Termine ─────────────────────────────────────────────────
   const terminRows: { art: NachfassArt; r: TerminRow }[] = [
@@ -293,14 +313,32 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
       nowMs,
     );
     const closingNachfassen = art === "closing" && r.status === "nachfassen";
-    if (!istInArbeitsmenge(zustand) && !closingNachfassen) continue;
+    const absage = absageWirktNoch(r, hatNachfolger);
+    // Heute schon vorbei, noch kein Ergebnis (Punkt 6): Der Zustand sagt dann
+    // noch „Termin steht“ (Tagesregel), die Handlung ist aber schon „Ergebnis
+    // eintragen“.
+    const heuteVorbei = heuteVorbeiOhneErgebnis({
+      at,
+      dauerMin: DURATION_MIN[art === "setting" ? "setting" : "closing"],
+      status: r.status,
+      showStatus: r.show_status,
+      abgesagt: absage,
+      today,
+      nowMs,
+    });
+    if (!istInArbeitsmenge(zustand) && !closingNachfassen && !heuteVorbei) continue;
 
     const person = erinnererOf(r, zustand);
     if (!alle && person !== scopeUser) continue;
 
-    const absage = absageWirktNoch(r, hatNachfolger);
+    quellen.set(`${art}:${r.id}`, {
+      settingId: art === "setting" ? r.id : r.setting_call_id ?? null,
+      contactId: r.source_contact_id ?? null,
+      phoneLeadId: r.source_phone_lead_id ?? null,
+    });
     const ergebnisFehlt =
-      zustand === "offen" && !absage && Boolean(at) && berlinDateISO(at!) < today && !r.show_status && r.status === "offen";
+      heuteVorbei ||
+      (zustand === "offen" && !absage && Boolean(at) && berlinDateISO(at!) < today && !r.show_status && r.status === "offen");
 
     eintraege.push({
       key: `${art}:${r.id}`,
@@ -324,7 +362,7 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
       linkedinUrl: null,
       href: art === "setting" ? `/setting/${r.id}?from=nachfassen` : `/closing/${r.id}?from=nachfassen`,
       kontext: `${art === "setting" ? "Erstgespräch" : "Closing"} · ${
-        closingNachfassen ? "Nachfassen" : absage ? "abgesagt" : ZUSTAND_KONTEXT[zustand] ?? zustand
+        closingNachfassen ? "Nachfassen" : heuteVorbei ? "heute, kein Ergebnis" : absage ? "abgesagt" : ZUSTAND_KONTEXT[zustand] ?? zustand
       }`,
       recycle: null,
       closingNachfassen,
@@ -406,44 +444,100 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
           : t.origin === "closing"
             ? `/closing/${t.entity_id}?from=nachfassen`
             : null,
-      kontext: `Recycling · ${RECYCLE_KONTEXT[t.origin] ?? t.origin}`,
+      kontext: `Wiedervorlage · ${RECYCLE_KONTEXT[t.origin] ?? t.origin}`,
       recycle: { origin: t.origin, reason: t.reason, attempt: t.attempt_count ?? 0 },
       closingNachfassen: false,
     });
   }
 
-  // ── Nachschläge für Recycling-Leads (Liste, Telefon) ────────
-  const leadIds = eintraege.filter((e) => e.quelle === "recycling" && e.art === "phone_lead").map((e) => e.id);
-  const contactIds = eintraege.filter((e) => e.quelle === "recycling" && e.art === "contact").map((e) => e.id);
   // In Stücken statt der ersten 300 — sonst fehlten ab dem 301. Recycling-Lead
   // Telefonnummer, Mail und Link (Code-Review 27.11.).
-  const stueckweise = async <R,>(ids: string[], hole: (teil: string[]) => PromiseLike<{ data: unknown }>): Promise<{ data: R[] }> => {
+  const stueckweise = async <R,>(ids: string[], hole: (teil: string[]) => PromiseLike<{ data: unknown }>): Promise<R[]> => {
+    const eindeutig = [...new Set(ids)];
     const teile: string[][] = [];
-    for (let i = 0; i < ids.length; i += 200) teile.push(ids.slice(i, i + 200));
+    for (let i = 0; i < eindeutig.length; i += 200) teile.push(eindeutig.slice(i, i + 200));
     const res = await Promise.all(teile.map((teil) => hole(teil)));
-    return { data: res.flatMap((r) => ((r.data ?? []) as R[])) };
+    return res.flatMap((r) => ((r.data ?? []) as R[]));
   };
-  const [leadInfo, contactInfo] = await Promise.all([
-    stueckweise<unknown>(leadIds, (teil) => supabase.from("phone_leads").select("id, list_id, phone, email").in("id", teil)),
-    stueckweise<unknown>(contactIds, (teil) => supabase.from("contacts").select("id, list_id, linkedin_url, email").in("id", teil)),
-  ]);
-  const leadMap = new Map(((leadInfo.data ?? []) as { id: string; list_id: string; phone: string | null; email: string | null }[]).map((r) => [r.id, r]));
-  const contactMap = new Map(
-    ((contactInfo.data ?? []) as { id: string; list_id: string; linkedin_url: string | null; email: string | null }[]).map((r) => [r.id, r]),
-  );
-  for (const e of eintraege) {
-    if (e.quelle !== "recycling") continue;
-    if (e.art === "phone_lead") {
-      const l = leadMap.get(e.id);
-      if (l) Object.assign(e, { href: `/telefon/${l.list_id}`, telefon: l.phone, email: l.email });
-    } else if (e.art === "contact") {
-      const c = contactMap.get(e.id);
-      if (c) Object.assign(e, { href: `/lists/${c.list_id}`, linkedinUrl: c.linkedin_url, email: c.email });
+
+  if (!schlank) {
+    // ── Kontaktwege der Termine (Punkt 3) ───────────────────────
+    // Beim Nachfassen braucht man Nummer, Mail und LinkedIn des Leads — nicht
+    // nur die Einwahlnummer eines Telefon-Termins. Ein Closing erbt die
+    // Quelle von seinem Erstgespräch.
+    type SettingQuelle = { phone: string | null; source_contact_id: string | null; source_phone_lead_id: string | null };
+    const settingById = new Map<string, SettingQuelle>();
+    for (const x of settings) {
+      settingById.set(x.id, {
+        phone: x.phone ?? null,
+        source_contact_id: x.source_contact_id ?? null,
+        source_phone_lead_id: x.source_phone_lead_id ?? null,
+      });
+    }
+    const fehlendeSettings = [...quellen.values()]
+      .map((q) => q.settingId)
+      .filter((id): id is string => Boolean(id) && !settingById.has(id!));
+    const nachgeladen = await stueckweise<SettingQuelle & { id: string }>(fehlendeSettings, (teil) =>
+      supabase.from("setting_calls").select("id, phone, source_contact_id, source_phone_lead_id").in("id", teil),
+    ).catch(() => []);
+    for (const x of nachgeladen) settingById.set(x.id, x);
+    for (const q of quellen.values()) {
+      const st = q.settingId ? settingById.get(q.settingId) : undefined;
+      if (st) {
+        q.contactId = q.contactId ?? st.source_contact_id;
+        q.phoneLeadId = q.phoneLeadId ?? st.source_phone_lead_id;
+      }
+    }
+
+    // ── Nachschläge: Recycling-Leads und Quellen der Termine ────
+    const leadIds = [
+      ...eintraege.filter((e) => e.quelle === "recycling" && e.art === "phone_lead").map((e) => e.id),
+      ...[...quellen.values()].map((q) => q.phoneLeadId).filter((v): v is string => Boolean(v)),
+    ];
+    const contactIds = [
+      ...eintraege.filter((e) => e.quelle === "recycling" && e.art === "contact").map((e) => e.id),
+      ...[...quellen.values()].map((q) => q.contactId).filter((v): v is string => Boolean(v)),
+    ];
+    const [leadInfo, contactInfo] = await Promise.all([
+      stueckweise<{ id: string; list_id: string; phone: string | null; email: string | null }>(leadIds, (teil) =>
+        supabase.from("phone_leads").select("id, list_id, phone, email").in("id", teil),
+      ).catch(() => []),
+      stueckweise<{ id: string; list_id: string; linkedin_url: string | null; email: string | null }>(contactIds, (teil) =>
+        supabase.from("contacts").select("id, list_id, linkedin_url, email").in("id", teil),
+      ).catch(() => []),
+    ]);
+    const leadMap = new Map(leadInfo.map((r) => [r.id, r]));
+    const contactMap = new Map(contactInfo.map((r) => [r.id, r]));
+    for (const e of eintraege) {
+      if (e.quelle === "recycling") {
+        if (e.art === "phone_lead") {
+          const l = leadMap.get(e.id);
+          if (l) Object.assign(e, { href: `/telefon/${l.list_id}`, telefon: l.phone, email: l.email });
+        } else if (e.art === "contact") {
+          const c = contactMap.get(e.id);
+          if (c) Object.assign(e, { href: `/lists/${c.list_id}`, linkedinUrl: c.linkedin_url, email: c.email });
+        }
+        continue;
+      }
+      const q = quellen.get(e.key);
+      if (!q) continue;
+      const st = q.settingId ? settingById.get(q.settingId) : undefined;
+      const lead = q.phoneLeadId ? leadMap.get(q.phoneLeadId) : undefined;
+      const kontakt = q.contactId ? contactMap.get(q.contactId) : undefined;
+      // Die Nummer am Termin (Einwahl bei Telefon-Terminen) zuerst, sonst die
+      // des Telefon-Leads.
+      e.telefon = e.telefon ?? st?.phone ?? lead?.phone ?? null;
+      e.email = kontakt?.email ?? lead?.email ?? null;
+      e.linkedinUrl = kontakt?.linkedin_url ?? null;
     }
   }
 
   // ── Protokoll ───────────────────────────────────────────────
-  const idsNach = (art: NachfassArt) => eintraege.filter((e) => e.art === art).map((e) => e.id);
+  // Schlank: nur für Einträge, deren Gruppe davon abhängt — ein Altfall ist
+  // keiner mehr, sobald es einen Eintrag gibt. Alle anderen gruppiert das
+  // Protokoll nicht um.
+  const fuerProtokoll = schlank ? eintraege.filter((e) => istAltfall(e, today)) : eintraege;
+  const idsNach = (art: NachfassArt) => fuerProtokoll.filter((e) => e.art === art).map((e) => e.id);
   const [protokoll, heuteErledigt] = await Promise.all([
     ladeProtokoll(supabase, {
       setting_call_id: idsNach("setting"),
@@ -451,7 +545,7 @@ async function ladeIntern(access: AccessContext, wer: NachfassWer): Promise<Nach
       contact_id: idsNach("contact"),
       phone_lead_id: idsNach("phone_lead"),
     }),
-    ladeHeuteErledigt(supabase, access.user.id, today),
+    schlank ? Promise.resolve(0) : ladeHeuteErledigt(supabase, access.user.id, today),
   ]);
   const proKey = new Map<string, KontaktRow[]>();
   for (const k of protokoll.rows) {
@@ -501,4 +595,16 @@ export const ladeNachfassen = cache(async function ladeNachfassen(wer: NachfassW
   const access = await getAccessContext();
   if (!access) return null;
   return ladeIntern(access, wer);
+});
+
+/**
+ * Der schlanke Eingang für Badge und Dashboard (Punkt 5): dieselben Gruppen
+ * „Ergebnis fehlt · Überfällig · Heute“ wie die Seite, ohne Wiedervorlage und
+ * Kontaktwege. Badge und Dashboard-Karte teilen ihn je Anfrage — die Zahl
+ * neben der Liste kommt damit aus derselben Menge wie die Liste selbst.
+ */
+export const ladeNachfassenSchlank = cache(async function ladeNachfassenSchlank(): Promise<NachfassenDaten | null> {
+  const access = await getAccessContext();
+  if (!access) return null;
+  return ladeIntern(access, "mein", true);
 });

@@ -6,12 +6,10 @@ import { createListForm } from "@/app/actions/lists";
 import { SearchTrigger } from "@/components/search/SearchDialog";
 import { type NavCount, type NavCounts } from "@/lib/navCounts";
 import {
-  Archive,
   Handshake,
   LayoutDashboard,
   ListTodo,
   MessagesSquare,
-  UserX,
   Wallet,
   ListChecks,
   Building2,
@@ -437,12 +435,6 @@ function ListRow({
   );
 }
 
-// Die Kuerzel tragen die Bedeutung; der Tooltip der Zeile schreibt sie aus.
-const PHONE_KIND_BADGE: Record<"rueckruf" | "nicht_erreicht" | "kein_termin", { label: string }> = {
-  rueckruf: { label: "RR" },
-  nicht_erreicht: { label: "NE" },
-  kein_termin: { label: "KT" },
-};
 
 // ---------------------------------------------------------------------------
 // Person, Organisation, Datensicht
@@ -1146,7 +1138,7 @@ export function SidebarContent({
           icon={ListTodo}
           label="Heute"
           onClick={onClose}
-          title="Wen musst du heute kontaktieren? Termine ohne nächsten Schritt, Telefon-Rückrufe und fällige Recycling-Leads — jeder mit seinem Datum für den nächsten Kontakt."
+          title="Wen musst du heute kontaktieren? Termine ohne nächsten Schritt und Telefon-Rückrufe — jeder mit seinem Datum für den nächsten Kontakt. Fällige tote Leads stehen im Reiter „Wiedervorlage“."
           count={navCounts?.nachfassen}
           countLabel={["Aufgabe fällig", "Aufgaben fällig"]}
         />
@@ -1204,7 +1196,9 @@ export function SidebarContent({
                 key={l.id}
                 href={`/telefon/${l.id}`}
                 name={l.name}
-                badge={l.list_kind !== "akquise" ? PHONE_KIND_BADGE[l.list_kind] : null}
+                // Keine Kürzel mehr (RR/NE/KT, 28.11.): Der Name sagt schon
+                // „Rückruf“ usw.; unterscheiden muss man die Listen nach Person.
+                badge={l.list_kind !== "akquise" && l.owner_name ? { label: l.owner_name } : null}
                 title={
                   l.list_kind === "rueckruf"
                     ? `${l.name} (Rückruf-Liste)`
@@ -1217,13 +1211,6 @@ export function SidebarContent({
                 onClick={onClose}
               />
             ))}
-            <ListRow
-              href="/telefon/setting-no-show"
-              name="Setting No-Show"
-              badge={{ label: "NS" }}
-              title="Terminierte Telefon-Leads, deren Erstgespräch auf „Nicht erschienen“ steht — zum erneuten Anrufen"
-              onClick={onClose}
-            />
             {hiddenPhoneCount > 0 && (
               <ListRow
                 href="/telefon"
@@ -1339,15 +1326,6 @@ export function SidebarContent({
             {visibleLists.map((l) => (
               <ListRow key={l.id} href={`/lists/${l.id}`} name={l.name} onClick={onClose} />
             ))}
-            {/* Abgeleitete Liste (src/lib/settingNoShow.ts) — keine Zeile in
-                `lists`, deshalb fest hier statt aus dem Listen-Array. */}
-            <ListRow
-              href="/listen/setting-no-show"
-              name="Setting No-Show"
-              badge={{ label: "NS" }}
-              title="Terminierte LinkedIn-Kontakte, deren Erstgespräch auf „Nicht erschienen“ steht"
-              onClick={onClose}
-            />
             {hiddenListCount > 0 && (
               <ListRow
                 href="/listen"
@@ -1367,8 +1345,7 @@ export function SidebarContent({
         </div>
 
         {/* ── Vertrieb ──
-            Vom Termin bis zum Abschluss: die Erstgespräche, die Closings, wer
-            nicht erschienen ist — und die Gegenrichtung, was herausgefallen ist. */}
+            Vom Termin bis zum Abschluss: die Erstgespräche und die Closings. */}
         <NavGroup label="Vertrieb" />
         <NavLink
           href="/setting"
@@ -1384,31 +1361,10 @@ export function SidebarContent({
           onClick={onClose}
           title="Wie stehen die Abschlussgespräche? Alle Closings nach Ergebnis — ohne Ergebnis, nachfassen, gewonnen, verloren."
         />
-        {/* OHNE ZÄHLER: Ein No-Show-Badge müsste exakt dieselbe Menge zählen
-            wie die Seite (strikt persönlich, jüngstes Setting je Lead) — also
-            ihre Abfragen auf jeder Seite mitladen. Docs §5.4. */}
-        <NavLink
-          href="/no-shows"
-          icon={UserX}
-          label="No-Shows"
-          onClick={onClose}
-          title="Wer ist nicht erschienen und braucht einen neuen Termin? Erstgespräche und Closings mit No-Show, getrennt."
-        />
-        {/* Die Gegenrichtung zu den Zeilen darueber: dort steht, was noch
-            ansteht — hier, was aus dem Funnel gefallen ist. Ohne diesen
-            Bereich verschwaende ein abgesagter oder verlorener Vorgang
-            lautlos; die Sperrliste darin ist die einzige Ansicht der App, die
-            die Datensicht bewusst ignoriert. */}
-        <NavLink
-          href="/ablage"
-          icon={Archive}
-          label="Ablage"
-          onClick={onClose}
-          title="Ausgeschiedene Vorgänge: abgesagt, disqualifiziert, kein Close, No-Show ohne Antwort — plus die org-weite Sperrliste"
-          // OHNE ZAEHLER, und zwar seit dem Rueckbau der Ablage. Uebrig sind
-          // zwei Aktenschraenke, die nie auf null gehen; ein Badge darauf waere
-          // eine Mahnung ohne Adressat (docs §5.4, ausfuehrlich in lib/navCounts.ts).
-        />
+        {/* Keine eigenen Einträge mehr für No-Shows und Ablage (Entscheidung
+            28.11.): No-Shows stehen in „Heute“ und in /setting bzw. /closing,
+            die Ablage ist über den Reiter „Wiedervorlage“ in „Heute“
+            erreichbar — die Route bleibt. */}
 
         {/* ── Kunden ──
             Nur in der Titan-Organisation (intern_rechte(), Migration 0047):

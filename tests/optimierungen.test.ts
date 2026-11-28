@@ -82,7 +82,7 @@ describe("Nachfass-Eingang — Auslöser und Gold", () => {
   });
   test("das Badge liest denselben Loader wie die Seite", () => {
     const src = read("src/lib/navCountsData.ts");
-    assert.match(src, /ladeNachfassen\("mein"\)/);
+    assert.match(src, /ladeNachfassenSchlank\(\)/);
     assert.match(src, /badgeZahl\(gruppiere\(/);
   });
 });

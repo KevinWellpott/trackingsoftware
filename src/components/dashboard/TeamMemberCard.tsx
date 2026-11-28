@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { prozent } from "@/lib/zahl";
 import { ArrowRight } from "lucide-react";
 import { setDataViewForm } from "@/app/actions/workspace";
 import { Card } from "@/components/ui/Card";
@@ -41,7 +42,7 @@ const EUR = new Intl.NumberFormat("de-DE", {
 
 function formatRate(rate: number | null): string {
   if (rate === null) return "—";
-  return `${rate.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  return prozent(rate);
 }
 
 function MetricRow({ label, value }: { label: string; value: string }) {

@@ -93,7 +93,7 @@ export default async function PhoneListPage({
   searchParams,
 }: {
   params: Promise<{ listId: string }>;
-  searchParams: Promise<{ modus?: string; lead?: string }>;
+  searchParams: Promise<{ modus?: string; lead?: string; from?: string }>;
 }) {
   const { listId } = await params;
   const sp = await searchParams;
@@ -187,14 +187,14 @@ export default async function PhoneListPage({
 
   const kind = KIND_META[list.list_kind];
   const armText = (list.script_label ?? "").trim();
-  const untertitel = [kind.label, armText ? `Arm „${armText}“` : null, list.owner_name].filter(Boolean).join(" · ");
+  const untertitel = [kind.label, armText ? `Skript „${armText}“` : null, list.owner_name].filter(Boolean).join(" · ");
   const oc = list.owner_name ? ownerColor(list.owner_name) : null;
 
   // Testarm & Branche: standardmäßig offen, solange kein Testarm hinterlegt
   // ist — ein fehlendes Label darf nicht hinter einem zugeklappten Deckel
   // unsichtbar bleiben.
   const scriptEmpty = !armText;
-  const scriptSummary = [armText ? `Arm „${list.script_label}"` : null, (list.target_group ?? "").trim() || null]
+  const scriptSummary = [armText ? `Skript „${list.script_label}"` : null, (list.target_group ?? "").trim() || null]
     .filter(Boolean)
     .join(" · ");
 
@@ -222,7 +222,8 @@ export default async function PhoneListPage({
         leads={leads}
         titel={list.name}
         untertitel={untertitel}
-        exitHref={`/telefon/${listId}`}
+        // Aus „Heute“ angesprungen: „Beenden“ führt dorthin zurück.
+        exitHref={sp.from === "nachfassen" ? "/nachfassen" : `/telefon/${listId}`}
         heute={heute}
         defaultStatus="offen"
       />
@@ -258,7 +259,7 @@ export default async function PhoneListPage({
             }
           >
             {leads.length.toLocaleString("de-DE")} Leads
-            {armText ? ` · Arm „${armText}“` : ""}
+            {armText ? ` · Skript „${armText}“` : ""}
             {movedCount > 0 ? ` · ${movedCount.toLocaleString("de-DE")} auch in Routing-Listen` : ""}
           </span>
         }

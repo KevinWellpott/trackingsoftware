@@ -56,7 +56,7 @@ const SOURCE_META: Record<DossierEventSource, { label: string; stage: StageKey |
   telefon: { label: "Telefon", stage: "telefon" },
   setting: { label: "Setting", stage: "setting" },
   closing: { label: "Closing", stage: "closing" },
-  recycling: { label: "Recycling", stage: null },
+  recycling: { label: "Wiedervorlage", stage: null },
 };
 
 const TONE_COLOR: Record<DossierEventTone, string> = {
@@ -395,7 +395,7 @@ export function LeadDossierPanel({ dossier }: { dossier: LeadDossier }) {
           {(lastContact.caveats.length > 0 || lastContact.estimated) && (
             <InfoPopover label="Wie sicher ist diese Zahl?" width={360}>
               Gezählt wird über <strong>alle</strong> Quellen zusammen: Pitches, Anwahlen, geführte Termine,
-              abgehaktes Nachfassen aus der Terminliste und Recycling-Versuche.{" "}
+              abgehaktes Nachfassen aus der Terminliste und Wiedervorlage-Versuche.{" "}
               {lastContact.estimated
                 ? "Der jüngste Kontakt trägt keinen erfassten Zeitpunkt und ist nur eingeordnet — deshalb das ≈."
                 : ""}

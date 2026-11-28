@@ -1,5 +1,6 @@
 "use client";
 
+import { veraenderung } from "@/lib/zahl";
 import { TrichterBalken } from "@/components/analyse/TrichterBalken";
 import { Children, type CSSProperties, type ReactNode } from "react";
 import { Inbox, Minus, TrendingDown, TrendingUp } from "lucide-react";
@@ -25,7 +26,7 @@ const DEC1_FMT = new Intl.NumberFormat("de-DE", {
 
 /** "+12,5 %" / "−3,2 %" für Delta-Badges (de-DE, 1 Nachkommastelle). */
 function fmtDelta(delta: number): string {
-  return `${delta > 0 ? "+" : ""}${DEC1_FMT.format(delta)} %`;
+  return `${veraenderung(delta)} %`;
 }
 
 const TONE_COLOR: Record<Exclude<Tone, "default">, string> = {
@@ -258,11 +259,19 @@ export function KpiHero({
             </span>
           )}
           <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{deltaLabel}</span>
+          {/* Im Fluss statt absolut: Die Sparkline lag über dem Vergleichswert,
+              sobald die Kachel schmal wurde. Jetzt rückt sie ans Zeilenende
+              und bricht notfalls in eine eigene Zeile um. */}
+          {spark && spark.length > 0 && (
+            <span style={{ marginLeft: "auto", display: "inline-flex" }}>
+              <SparkLine values={spark} color={toneColor ?? "var(--viz-1)"} />
+            </span>
+          )}
         </div>
       )}
 
-      {spark && spark.length > 0 && (
-        <div style={{ position: "absolute", right: "var(--sp-7)", bottom: "var(--sp-6)" }}>
+      {delta === undefined && spark && spark.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--sp-4)" }}>
           <SparkLine values={spark} color={toneColor ?? "var(--viz-1)"} />
         </div>
       )}

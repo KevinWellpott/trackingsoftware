@@ -535,7 +535,7 @@ function DropoutCard({
             textDecoration: "none",
           }}
         >
-          <CalendarClock size={11} /> Wiedervorlage ist fällig — steht in Nachfassen
+          <CalendarClock size={11} /> Wiedervorlage ist fällig — steht in „Heute“ unter „Wiedervorlage“
         </Link>
       )}
 
@@ -595,7 +595,7 @@ function DropoutCard({
             size="sm"
             disabled={isPending}
             onClick={pullForward}
-            title="Wiedervorlage auf heute setzen — der Vorgang erscheint dann in der Recycling-Sektion von Nachfassen."
+            title="Wiedervorlage auf heute setzen — der Vorgang erscheint dann in „Heute“ im Reiter „Wiedervorlage“."
             icon={<ChevronsRight size={13} />}
           >
             Jetzt wieder anschreiben
@@ -619,7 +619,7 @@ function DropoutCard({
             className="ablage-danger"
             disabled={isPending}
             onClick={block}
-            title="Dauerhaftes Kontaktverbot: kein Recycling mehr, org-weit sichtbar in der Sperrliste."
+            title="Dauerhaftes Kontaktverbot: keine Wiedervorlage mehr, org-weit sichtbar in der Sperrliste."
             icon={<Ban size={13} />}
           >
             Endgültig sperren
@@ -736,7 +736,7 @@ export function AblageBoard({
       message: (
         <>
           <strong style={{ color: "var(--text-primary)" }}>{row.lead_name?.trim() || "Dieser Lead"}</strong> bekommt
-          kein weiteres Recycling und erscheint für <strong style={{ color: "var(--text-primary)" }}>alle</strong> in
+          keine weitere Wiedervorlage und erscheint für <strong style={{ color: "var(--text-primary)" }}>alle</strong> in
           der Sperrliste. Der Vorgang bleibt erhalten — nur die Wiedervorlage entfällt.
         </>
       ),

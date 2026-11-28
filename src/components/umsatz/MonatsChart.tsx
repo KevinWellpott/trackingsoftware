@@ -1,5 +1,6 @@
 "use client";
 
+import { euroAchse } from "@/lib/zahl";
 import { Bar, BarChart, CartesianGrid, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   AXIS_PROPS,
@@ -28,7 +29,7 @@ export function MonatsChart({ reihe, heuteMonat }: { reihe: MonatsAbschluss[]; h
         <BarChart data={data} barGap={2} margin={{ top: 18, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis dataKey="label" {...AXIS_PROPS} />
-          <YAxis {...AXIS_PROPS} width={44} tickFormatter={(v: number) => (v >= 1000 ? `${v / 1000}k` : String(v))} />
+          <YAxis {...AXIS_PROPS} width={44} tickFormatter={euroAchse} />
           <Tooltip
             contentStyle={TOOLTIP_STYLE}
             labelStyle={TOOLTIP_LABEL_STYLE}

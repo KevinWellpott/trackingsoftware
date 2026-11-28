@@ -67,7 +67,7 @@ export const METRICS: readonly CompareMetric[] = [
   { key: "showquote", label: "Show-Quote", group: "Setting", num: "setting_shows", den: "setting_decided", format: "pct", hint: "nur Termine mit erfasstem Ergebnis im Nenner" },
   { key: "quali", label: "Qualifiziert", group: "Setting", num: "setting_quali", format: "int", hint: "erschienen + qualifiziert/Closing gelegt" },
   { key: "qualiquote", label: "Quali-Quote", group: "Setting", num: "setting_quali", den: "setting_shows", format: "pct" },
-  { key: "setting_dead", label: "Dead (Setting)", group: "Setting", num: "setting_dead", format: "int" },
+  { key: "setting_dead", label: "Tot (Setting)", group: "Setting", num: "setting_dead", format: "int" },
   // Nenner sind ALLE Termine, abgesagte eingeschlossen — eine Absage kann jeden
   // geplanten Termin treffen, und nur so gilt „Termine im Funnel + Absagen =
   // Termine hier". Der Nenner der Show-Quote waere hier strukturell falsch: Ein

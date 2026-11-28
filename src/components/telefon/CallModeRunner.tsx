@@ -60,7 +60,7 @@ const STATUS_STYLE: Record<PhoneLeadStatus, { label: string; color: string }> = 
   nicht_erreicht: { label: "Nicht erreicht", color: "var(--warning)" },
   kein_termin: { label: "Kein Termin", color: "var(--text-subtle)" },
   termin: { label: "Termin", color: "var(--success)" },
-  dead: { label: "Dead", color: "var(--danger)" },
+  dead: { label: "Tot", color: "var(--danger)" },
 };
 
 /** „Offen" = anrufbar: alles, was noch kein Ergebnis hat, das den Lead beendet. */
@@ -74,7 +74,7 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "nicht_erreicht", label: "Nicht erreicht" },
   { value: "kein_termin", label: "Kein Termin" },
   { value: "termin", label: "Termin" },
-  { value: "dead", label: "Dead" },
+  { value: "dead", label: "Tot" },
 ];
 
 /**
@@ -792,6 +792,19 @@ export function CallModeRunner({
     setTray(t);
   }
 
+  // `?aktion=termin` (aus „Heute“, Knopf „Termin“ an einem Rückruf): Der
+  // angesprungene Lead öffnet gleich mit dem Termin-Fach — ein Klick statt
+  // sechs (Prüfung 28.11.). Nur einmal, nur für genau diesen Lead.
+  const aktionErledigt = useRef(false);
+  useEffect(() => {
+    if (aktionErledigt.current || jetzt === null || !current) return;
+    if (searchParams.get("aktion") !== "termin" || current.id !== searchParams.get("lead")) return;
+    aktionErledigt.current = true;
+    openTray("termin");
+    // openTray liest nur `current` und setzt Zustand — einmalig beim Öffnen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jetzt, current]);
+
   /** „Nicht erreicht": beim dritten in Folge fragt das Dock nach. */
   function nichtErreicht() {
     if (drittesNichtErreicht) openTray("ne3");
@@ -1477,8 +1490,8 @@ export function CallModeRunner({
           {tray === "tot" && (
             <div className="cm-tray">
               <h4>
-                <PhoneOff size={15} aria-hidden /> Toter Lead
-                <small>das Recycling holt ihn später wieder hervor · der Grund steht danach in der Notiz</small>
+                <PhoneOff size={15} aria-hidden /> Tot
+                <small>kommt später als Wiedervorlage zurück · der Grund steht danach in der Notiz</small>
               </h4>
               <div className="cm-tray-row">
                 <div className="cm-chips">
@@ -1578,7 +1591,7 @@ export function CallModeRunner({
               onClick={() => openTray("tot")}
             >
               <span className="dialer-outcome-dot" style={{ background: STATUS_STYLE.dead.color }} />
-              <PhoneOff size={15} /> Toter Lead
+              <PhoneOff size={15} /> Tot
               <span className="dialer-kbd">{OUTCOME_KEYS.dead}</span>
             </button>
             {/* Entscheider war dran, will aber keinen Termin. Ohne Rückfrage

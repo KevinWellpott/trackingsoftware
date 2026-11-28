@@ -36,6 +36,7 @@
 // zählen als 0. Die Bucket-Keys stammen aus `buildBuckets`/`bucketOf`
 // (src/lib/analyse.ts) — dieselben Keys wie in allen anderen Charts.
 
+import { prozent } from "@/lib/zahl";
 import { useState } from "react";
 import { Inbox } from "lucide-react";
 import {
@@ -289,7 +290,7 @@ export function CumulativeProgressChart({
                 orientation="right"
                 domain={[0, "auto"]}
                 {...AXIS_PROPS}
-                tickFormatter={(v: number) => `${v} %`}
+                tickFormatter={(v: number) => prozent(v, Number.isInteger(v) ? 0 : 1)}
               />
             )}
             <Tooltip

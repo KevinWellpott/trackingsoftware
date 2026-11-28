@@ -33,10 +33,11 @@ export default async function NachfassenPage({
             Heute
             <InfoPopover label="Heute: was hier steht" width={400}>
               Wen musst du heute kontaktieren? Termine ohne nächsten Schritt (kein Termin, nicht erschienen,
-              erschienen ohne Ergebnis, Closing auf „Nachfassen“), Telefon-Rückrufe und Recycling-Leads, deren
-              Wartezeit abgelaufen ist. Jeder Eintrag hat ein Datum für den nächsten Kontakt — ohne Datum ist er
-              sofort fällig. Nach jedem Kontakt: Ergebnis eintragen, nächstes Datum wählen. Raus kommt ein
-              Vorgang nur durch einen neuen Termin, als tot oder gesperrt — nie durch Zeit.
+              erschienen ohne Ergebnis, heute vorbei ohne Ergebnis, Closing auf „Nachfassen“) und
+              Telefon-Rückrufe. Jeder Eintrag hat ein Datum für den nächsten Kontakt — ohne Datum ist er sofort
+              fällig. Nach jedem Kontakt: Ergebnis eintragen, nächstes Datum wählen. Raus kommt ein Vorgang nur
+              durch einen neuen Termin, als tot oder gesperrt — nie durch Zeit. Tote Leads, deren Wartezeit um
+              ist, stehen im eigenen Reiter „Wiedervorlage“ und zählen nicht im Badge.
             </InfoPopover>
           </span>
         }

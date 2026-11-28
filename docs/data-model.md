@@ -251,21 +251,56 @@ dritten „Nicht erreicht" liest dieselbe Serie wie der Server (letzte zwei Anwa
 ### 0.5 Oberfläche (Redesign „Liquid Glass")
 
 - **Navigation**: Übersicht (`/`) · **Heute** (`/nachfassen`, einziges Badge) · **Kalender**
-  (`/termine`) · Akquise (Telefon, LinkedIn) · Vertrieb (Setting, Closing, No-Shows, Ablage) ·
+  (`/termine`) · Akquise (Telefon, LinkedIn) · Vertrieb (Setting, Closing — No-Shows und Ablage
+  ohne eigene Zeile seit dem 28.11., §0.6) ·
   Kunden (nur intern) · Auswertung (Analyse, Vergleich, Team) · Verwaltung. Handy-Tabs: Heute ·
   Kalender · Telefon · Mehr.
 - **Neue Routen**: `/setting` und `/closing` sind Listen (vorher Umleitung nach `/termine`),
-  Segmente nach dem abgeleiteten Zustand (`src/lib/vorgangSegmente.ts`; das erste heißt „Ohne
-  Ergebnis", nicht „Offen" — §1, Verwechslungsgefahr). `/no-shows` zeigt Erstgespräch
-  (strikt persönlich wie die Setting-No-Show-Listen, dazu direkt gebuchte No-Shows ohne Lead
-  nach `personOf`) und Closing (`terminZustand = no_show`).
-- **Dashboard**: Kennzahl-Module, „Heute dran" aus `ladeNachfassen` (dieselbe Zahl wie das
-  Badge), „Heute im Kalender", Trichter „Von Termin zu Geld" — beginnt beim Termin, addiert nie
+  Segmente nach dem abgeleiteten Zustand (`src/lib/vorgangSegmente.ts`; das erste heißt seit dem
+  28.11. „Laufend", nicht „Offen" — §1, Verwechslungsgefahr — und nicht mehr „Ohne Ergebnis",
+  weil „Ergebnis fehlt" in „Heute" eine andere Menge ist).
+- **Dashboard**: Kennzahl-Module, „Heute dran" aus `ladeNachfassenSchlank` (Zahl und Liste aus
+  derselben Menge, gezählt wie das Badge), „Heute im Kalender", Trichter „Von Termin zu Geld" — beginnt beim Termin, addiert nie
   DMs und Anwahlen; zwischen Qualifiziert und Closings steht ein Bruch ohne Prozentzahl, weil die
   beiden Teile auf verschiedenen Stichtagen zählen.
 - **Darstellung**: Cookies `tt-theme` (`system`|`light`|`dark`) und `tt-material`
   (`glass`|`solid`) je Gerät, gesetzt in `src/lib/appearance.ts`. Keine Daten.
 - Design-Grundlagen: `docs/DESIGN.md`.
+
+### 0.6 Finale Analyse (28.11.) — was sich danach geändert hat
+
+- **Wiedervorlage ist ein eigener Reiter in „Heute"** (`?reiter=wiedervorlage`). Alles aus
+  `recycle_tasks` steht dort (Gruppe `wiedervorlage`, `gruppeVon` prüft die Quelle zuerst) —
+  NICHT mehr in „Fällig" und NICHT im Badge. Grund: Im Dezember und Januar werden
+  mehrere Hundert bis über tausend Leads auf einmal fällig. Die Altfall-Regel gilt für sie nicht. Der Quellen-Filter kennt nur noch Alle ·
+  Termine · Rückrufe (`?quelle=recycling` fällt auf „Alle"). Auf dem Bildschirm heißt das
+  Recycling überall „Wiedervorlage"; Code, RPCs und Spalten behalten ihre Namen.
+- **Badge schlank**: `getNavCounts` und das Dashboard lesen `ladeNachfassenSchlank()` —
+  dieselbe Funktion wie die Seite (`ladeIntern(…, schlank = true)`), ohne `recycle_tasks`, ohne
+  Kontaktwege, das Protokoll nur für Altfall-Kandidaten (nur dort ändert es die Gruppe). Termine
+  werden für „Mein" per `or(assigned_user_id, created_by_user_id, conducted_by_user_id)`
+  vorgefiltert (Obermenge von `erinnererOf`, die genaue Regel prüft weiter der Code).
+- **„Ergebnis fehlt" ab Terminende**: Ein Termin von HEUTE ohne Ergebnis steht ab
+  `at + Dauer` (Setting 30, Closing 60 Minuten, `DURATION_MIN`) unter „Ergebnis fehlt" —
+  `heuteVorbeiOhneErgebnis()` in `nachfassRegel.ts`. Der abgeleitete Zustand bleibt dabei
+  `verlegt` (Tagesregel, §1); die Ausnahme betrifft nur die Aufnahme in den Eingang.
+- **Kontaktwege**: Termine in „Heute" tragen Telefon (Termin, sonst Telefon-Lead), Mail und
+  LinkedIn aus `source_contact_id` / `source_phone_lead_id` (beim Closing über sein Setting).
+- **Rückruf → Call-Modus**: „Anrufen" öffnet `/telefon/[liste]?lead=…&from=nachfassen`,
+  „Termin" zusätzlich `&aktion=termin` (Termin-Fach offen); „Beenden" führt nach „Heute".
+- **Sammelaktion** (Aufräumen, Wiedervorlage): Pakete zu 25 (`SAMMEL_PAKET`) mit Fortschritt,
+  höchstens 100 je Server-Aufruf; Vorgabedatum nächster Werktag statt heute.
+- **„Genervt" heißt „Erinnert" und steht nur noch, wo eine Termin-Erinnerung offen ist**
+  (Erinnerungs-Ansicht der Terminliste oder `event.erinnerung`). Für alles andere gibt es
+  „Kontakt eintragen" in „Heute". Der Stempel `follow_up_last_contacted_at` bleibt.
+- **Gestrichen**: `/no-shows`, `/telefon/setting-no-show`, `/listen/setting-no-show` samt
+  `settingNoShow*.ts` (Umleitungen in `next.config.ts`). No-Shows stehen in „Heute" und in
+  `/setting` bzw. `/closing`. **Die Ablage** hat keine Navigationszeile mehr; erreichbar über den
+  Reiter „Wiedervorlage" (Link „Ablage & Sperrliste"), Route unverändert.
+- **Ein Wort je Handlung**: „Tot" (statt Aufgeben, Toter Lead, Dead — auch als Label von
+  `status='dead'`); keine Kürzel RR/NE/KT/NS mehr in der Seitenleiste (dort steht der Inhaber),
+  „Skript" statt „Arm". Zahlen einheitlich über `src/lib/zahl.ts` („42,5 %", echtes Minus,
+  Achse „10,5 T€").
 
 ## 1. Was die App trackt (Lifecycle)
 

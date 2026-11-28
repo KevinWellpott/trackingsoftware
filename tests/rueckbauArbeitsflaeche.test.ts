@@ -667,7 +667,8 @@ describe("8 · Zwei Zeitkörnungen bleiben getrennt — auch in EINER Liste", ()
     assert.match(EINGANG_AKTION, /quelle: "termin" \| "recycling";\s*ergebnis: Ergebnis;/);
     const start = EINGANG.indexOf('e.quelle === "rueckruf" ? (');
     assert.notEqual(start, -1, "der Rückruf-Zweig der Zeile fehlt");
-    const zweig = EINGANG.slice(start, EINGANG.indexOf(") : (", start));
+    // Bis zum Zweig der Termine (der mit „Kontakt eintragen“ beginnt).
+    const zweig = EINGANG.slice(start, EINGANG.indexOf("<span ref={kontaktRef", start));
     assert.match(zweig, /telefonAktion\("nicht_erreicht"/);
     assert.doesNotMatch(zweig, /kontaktToggle/);
     assert.doesNotMatch(code(EINGANG), /markFollowUpContacted/);

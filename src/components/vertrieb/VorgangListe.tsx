@@ -223,7 +223,7 @@ export function VorgangListe({
                   e={e}
                   pending={pendingFor(e)}
                   ergebnis={ergebnisFuer(e)}
-                  onGenervt={() => onGenervt(e)}
+                  onGenervt={e.erinnerung ? () => onGenervt(e) : undefined}
                   onNeuerTermin={(v) => onNeuerTermin(e, v)}
                   onTot={() => void onTot(e)}
                 />
@@ -257,7 +257,7 @@ export function VorgangZeile({
   zusatz?: string;
   pending: boolean;
   ergebnis: React.ReactNode;
-  onGenervt: () => void;
+  onGenervt?: () => void;
   onNeuerTermin: (berlinInput: string) => void;
   onTot: () => void;
 }) {

@@ -59,7 +59,7 @@ const STATUS_META: { key: SettingStatus; label: string; tone: BadgeTone }[] = [
   { key: "qualifiziert", label: "Qualifiziert", tone: "success" },
   { key: "closing_gelegt", label: "Closing gelegt", tone: "brand" },
   { key: "unqualifiziert", label: "Unqualifiziert", tone: "warning" },
-  { key: "dead", label: "Dead", tone: "error" },
+  { key: "dead", label: "Tot", tone: "error" },
 ];
 
 // „dead" hängt bewusst nicht mehr hier: Die Vergleichstabelle zeigt nur noch

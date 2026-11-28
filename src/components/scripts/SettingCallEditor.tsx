@@ -994,7 +994,7 @@ export function SettingCallEditor({
             Ergebnis. Offen, solange das Gespräch noch kein Ergebnis hat —
             danach zu. Die Felder bleiben vollständig (kein „weniger Text“,
             der Notizfelder verschwinden lässt). */}
-        <details open={call.status === "offen" && !call.show_status} className="setting-skript">
+        <details open={call.status === "offen" && !call.show_status}>
           <summary
             className="collapse-summary eyebrow eyebrow-muted"
             style={{ cursor: "pointer", marginBottom: "var(--sp-6)", display: "flex", alignItems: "center", gap: "var(--sp-3)" }}

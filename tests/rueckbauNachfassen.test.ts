@@ -182,13 +182,15 @@ describe("3 · Ein Ausfall sieht nicht aus wie Feierabend", () => {
   test("der Loader reicht die Verfügbarkeit von Recycling und Protokoll durch", () => {
     // Fehlt Migration 0033 bzw. 0049, wäre eine leere Liste nicht von „nichts
     // fällig" unterscheidbar.
-    assert.match(DATA, /\.then\(\(rows\) => \(\{ rows, available: true \}\)\)\s*\.catch\(\(\) => \(\{ rows: \[\], available: false \}\)\)/);
+    assert.match(DATA, /\.then\(\(rows\) => \(\{ rows, available: true \}\)\)\s*\.catch\(\(\) => \(\{ rows: \[\] as RecycleRow\[\], available: false \}\)\)/);
     assert.match(DATA, /protokollVerfuegbar: protokoll\.available/);
     assert.match(DATA, /recyclingVerfuegbar: boolean/);
   });
 
   test("das Board zeigt dafür einen Kasten, keine leere Liste", () => {
-    assert.match(BOARD, /\{!props\.recyclingVerfuegbar && \(/);
+    // Seit dem eigenen Reiter (28.11.) steht der Kasten dort, wo die
+    // Wiedervorlagen fehlen würden.
+    assert.match(BOARD, /\{!props\.recyclingVerfuegbar && props\.reiter === "wiedervorlage" && \(/);
     assert.match(BOARD, /\{!props\.protokollVerfuegbar && \(/);
   });
 

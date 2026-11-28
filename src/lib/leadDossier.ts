@@ -42,7 +42,7 @@
 // neuen, flachen Form: „hier wurde genervt, und zwar an diesem Tag". Ohne ihn
 // verlöre ausgerechnet „zuletzt kontaktiert" den haeufigsten Kontakt ueberhaupt.
 
-import { berlinDateISO } from "@/lib/apptTime";
+import { berlinDateISO, formatTermin } from "@/lib/apptTime";
 // Tagesabstand und Beschriftung liegen in contactGap.ts: Dieselbe Zahl steht
 // auch auf den Karten von /nachfassen — sie muss dort wortgleich heissen, sonst
 // liest sie sich wie zwei verschiedene Zahlen.
@@ -604,12 +604,21 @@ function summarizeLead(l: DossierPhoneLead): string {
   return joinDetails([l.decider_name, l.company, l.phone]) ?? l.id;
 }
 
+/** „2026-09-20" → „20.09.2026"; ein voller Zeitstempel wird zum Termin-Text. */
+function tagLesbar(v: string): string | null {
+  if (v.length > 10) return formatTermin(v);
+  const [y, m, d] = v.split("-");
+  return y && m && d ? `${d}.${m}.${y}` : v;
+}
+
 function summarizeSetting(s: DossierSetting): string {
-  return joinDetails([s.lead_name, s.company, s.appointment_at ?? s.call_at]) ?? s.id;
+  // Lesbar statt roh („2026-09-20T12:15:00.000Z“, Prüfung 28.11.).
+  const wann = s.appointment_at ? formatTermin(s.appointment_at) : s.call_at ? tagLesbar(s.call_at) : null;
+  return joinDetails([s.lead_name, s.company, wann]) ?? s.id;
 }
 
 function summarizeClosing(c: DossierClosing): string {
-  return joinDetails([c.lead_name, c.company, c.call_at]) ?? c.id;
+  return joinDetails([c.lead_name, c.company, c.call_at ? formatTermin(c.call_at) : null]) ?? c.id;
 }
 
 /**
@@ -663,7 +672,7 @@ const PHONE_OUTCOME_LABELS: Record<string, string> = {
   rueckruf: "Rückruf vereinbart",
   nicht_erreicht: "Nicht erreicht",
   kein_termin: "Kein Termin",
-  dead: "Toter Lead",
+  dead: "Tot",
   kein_ergebnis: "Kein Ergebnis",
 };
 
@@ -673,7 +682,7 @@ const PHONE_STATUS_LABELS: Record<string, string> = {
   nicht_erreicht: "Nicht erreicht",
   kein_termin: "Kein Termin",
   termin: "Termin",
-  dead: "Toter Lead",
+  dead: "Tot",
 };
 
 const GATEKEEPER_LABELS: Record<string, string> = {
@@ -1390,7 +1399,7 @@ function addRecycleEvents(
   b.add({
     id: `${prefix}:recycle_contacted`,
     source: "recycling",
-    title: `Recycling-Versuch${row.recycle_attempt_count ? ` ${row.recycle_attempt_count}` : ""}`,
+    title: `Wiedervorlage-Versuch${row.recycle_attempt_count ? ` ${row.recycle_attempt_count}` : ""}`,
     detail: joinDetails([
       source === "linkedin" ? "LinkedIn" : source === "telefon" ? "Telefon" : null,
       row.recycle_reason_code ? dropoutReasonLabel(row.recycle_reason_code) : null,
@@ -1402,7 +1411,7 @@ function addRecycleEvents(
   b.add({
     id: `${prefix}:recycle_responded`,
     source: "recycling",
-    title: "Auf das Recycling reagiert",
+    title: "Auf die Wiedervorlage reagiert",
     tone: "success",
     at: row.recycle_responded_at,
   });
@@ -1422,7 +1431,7 @@ function addRecycleEvents(
   b.add({
     id: `${prefix}:recycle_due`,
     source: "recycling",
-    title: "Wiedervorlage (Recycling)",
+    title: "Wiedervorlage",
     detail: row.recycle_reason_code ? dropoutReasonLabel(row.recycle_reason_code) : null,
     tone: "info",
     at: row.next_recycle_at,

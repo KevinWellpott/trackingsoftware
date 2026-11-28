@@ -216,13 +216,13 @@ export function RecycleSection({
   const sperrenHinweis =
     excludedInRange > 0 ? " Gesperrte Vorgänge zählen trotzdem — sie hängen an ihrem eigenen Datum." : "";
   const note = !data.available
-    ? "Die Recycling-Daten ließen sich nicht laden — die leere Anzeige heißt hier nicht „kein Recycling“, sondern „keine Daten“. Migration 0033 im SQL-Editor prüfen."
+    ? "Die Daten zur Wiedervorlage ließen sich nicht laden — die leere Anzeige heißt hier nicht „keine Wiedervorlage“, sondern „keine Daten“. Migration 0033 im SQL-Editor prüfen."
     : startDay === null
-      ? `Bisher wurde kein einziger Recycling-Versuch protokolliert. Die Felder dafür gibt es erst seit dem Umbau, und es gibt bewusst keinen Backfill — „0“ hieße hier „gab es damals noch nicht“.${sperrenHinweis}`
+      ? `Bisher wurde kein einziger Wiedervorlage-Versuch protokolliert. Die Felder dafür gibt es erst seit dem Umbau, und es gibt bewusst keinen Backfill — „0“ hieße hier „gab es damals noch nicht“.${sperrenHinweis}`
       : !covers
-        ? `Der erste Recycling-Versuch stammt vom ${deDate(startDay)}; dieser Zeitraum liegt davor.${sperrenHinweis}`
+        ? `Der erste Wiedervorlage-Versuch stammt vom ${deDate(startDay)}; dieser Zeitraum liegt davor.${sperrenHinweis}`
         : startDay > from
-          ? `Recycling-Versuche sind erst ab dem ${deDate(startDay)} protokolliert — für die Tage davor steht im Nenner zwangsläufig nichts.`
+          ? `Wiedervorlage-Versuche sind erst ab dem ${deDate(startDay)} protokolliert — für die Tage davor steht im Nenner zwangsläufig nichts.`
           : null;
 
   const rate = covers ? pct(total.responded, total.contacted) : null;
@@ -244,7 +244,7 @@ export function RecycleSection({
 
   const emptyHint = covers
     ? "Im Zeitraum wurde kein toter Lead erneut angesprochen."
-    : "Für diesen Zeitraum gibt es noch keine Recycling-Daten.";
+    : "Für diesen Zeitraum gibt es noch keine Daten zur Wiedervorlage.";
 
   // Dieselbe Trennung wie bei der Kachel „Gesperrt": Nur der linke Teil hängt
   // an `covers`, weil nur er aus den VERSUCHEN kommt. Die Warteschlange ist der
@@ -255,7 +255,7 @@ export function RecycleSection({
   const meta = [
     covers
       ? `${fmtPct(rate)} von ${INT.format(total.contacted)} Versuchen`
-      : "noch keine Recycling-Versuche",
+      : "noch keine Wiedervorlage-Versuche",
     // Ohne geladene Daten bleibt der Teil weg, statt eine leere Warteschlange
     // zu behaupten.
     data.available ? `${INT.format(waiting)} warten aktuell` : null,
@@ -265,7 +265,7 @@ export function RecycleSection({
 
   return (
     <AnalyseSection
-      title="Lohnt das Recycling?"
+      title="Lohnt die Wiedervorlage?"
       icon={RefreshCw}
       meta={meta}
       collapsible
@@ -277,7 +277,7 @@ export function RecycleSection({
             einen Versuch bekommen haben.</strong>{" "}
             Der Nenner sind ausdrücklich die <em>kontaktierten</em> Leads, nicht alle toten. Die große Mehrheit
             der toten Leads wartet nur auf ihr Wiedervorlage-Datum und wurde nie angefasst — eine Quote
-            darauf misst den Kalender, nicht das Recycling.
+            darauf misst den Kalender, nicht die Wiedervorlage.
           </p>
           <p style={INFO_P}>
             Kohorten-Quote wie die Telefon-Quoten: Der Zeitraum schneidet den <em>letzten Versuch</em>

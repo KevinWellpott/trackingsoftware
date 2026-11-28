@@ -37,16 +37,19 @@ const SIDEBAR = read("src/components/Sidebar.tsx");
 
 describe("Heute dran", () => {
   test("liest den Loader der Seite /nachfassen, keine eigene Abfrage", () => {
-    assert.match(PAGE, /import \{ ladeNachfassen \} from "@\/lib\/nachfassenData";/);
-    assert.match(PAGE, /ladeNachfassen\("mein"\)/);
+    // Die schlanke Form desselben Loaders — dieselbe, die das Badge liest.
+    assert.match(PAGE, /import \{ ladeNachfassenSchlank \} from "@\/lib\/nachfassenData";/);
+    assert.match(PAGE, /ladeNachfassenSchlank\(\)/);
     assert.match(PAGE, /gruppiere\(nachfassen\.eintraege, nachfassen\.today, nachfassen\.nowMs\)/);
     // Genau die Gruppen des Badges: Ergebnis fehlt · überfällig · heute — ohne
     // „Aufräumen", „Demnächst" und „Wartet" (nachfassRegel.badgeZahl).
     assert.match(PAGE, /\["ergebnis_fehlt", "ueberfaellig", "heute"\] as const/);
   });
 
-  test("die Zahl ist die des Badges — eine Quelle für „wie viele“", () => {
-    assert.match(PAGE, /const dranZahl = navCounts\.nachfassen;/);
+  test("die Zahl kommt aus derselben Menge wie die Liste — gezählt wie das Badge", () => {
+    // Punkt 5 (28.11.): Vorher kam die Zahl aus dem Badge mit seiner Frist —
+    // dauerte das Laden länger, stand „—“ neben einer vollen Liste.
+    assert.match(PAGE, /const dranZahl = nfGruppen && nachfassen\?\.vollstaendig \? badgeZahl\(nfGruppen\) : null;/);
     assert.match(PAGE, /gesamt=\{dranZahl\?\.total \?\? null\}/);
   });
 
@@ -87,11 +90,14 @@ describe("Zähler", () => {
  * ------------------------------------------------------------------ */
 
 describe("Ladeweg", () => {
-  test("Layout und Seite rufen dieselbe memoisierte Hülle auf", () => {
+  test("Layout (Badge) und Seite teilen denselben memoisierten Loader", () => {
     assert.match(LAYOUT, /import \{ getNavCounts \} from "@\/lib\/navCountsData";/);
-    assert.match(PAGE, /import \{ getNavCounts \} from "@\/lib\/navCountsData";/);
     assert.match(LAYOUT, /getNavCounts\(\)/);
-    assert.match(PAGE, /getNavCounts\(\)/);
+    // Das Badge liest `ladeNachfassenSchlank`, die Übersicht auch — per
+    // `cache()` läuft er je Anfrage einmal.
+    assert.match(DATA, /ladeNachfassenSchlank\(\)/);
+    assert.match(PAGE, /ladeNachfassenSchlank\(\)/);
+    assert.doesNotMatch(PAGE, /getNavCounts/);
     assert.doesNotMatch(LAYOUT, /loadNavCounts\(/);
     assert.doesNotMatch(PAGE, /loadNavCounts\(/);
   });

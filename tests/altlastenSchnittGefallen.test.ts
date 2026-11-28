@@ -169,7 +169,9 @@ describe("B · Der Eingang verliert nichts und versteckt nichts", () => {
   });
 
   test("… und liest dafür DENSELBEN Loader wie die Seite", () => {
-    assert.match(BADGE, /ladeNachfassen\("mein"\)/);
+    // In der schlanken Form (Punkt 5, 28.11.): dieselbe Funktion `ladeIntern`,
+    // nur ohne Wiedervorlage und Kontaktwege — die zählt das Badge ohnehin nicht.
+    assert.match(BADGE, /ladeNachfassenSchlank\(\)/);
     assert.match(BADGE, /badgeZahl\(gruppiere\(daten\.eintraege, daten\.today, daten\.nowMs\)\)/);
     assert.match(SEITE, /await ladeNachfassen\(/);
   });

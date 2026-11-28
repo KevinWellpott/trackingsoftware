@@ -1,4 +1,5 @@
 import { berlinDateISO } from "@/lib/apptTime";
+import { prozent } from "@/lib/zahl";
 import { istKontaktDran } from "@/lib/dranRegel";
 import { ArchiveListButton } from "@/components/ArchiveListButton";
 import { DeleteListButton } from "@/components/DeleteListButton";
@@ -142,14 +143,14 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
             />
             <StatTile
               label="Antwortquote"
-              value={`${answerRate}%`}
+              value={prozent(answerRate)}
               sub={`${answered.toLocaleString("de-DE")} Antworten`}
               icon={<TrendingUp size={14} />}
             />
             <StatTile
               label="Terminquote"
-              value={`${apptRate}%`}
-              sub={`Antwort→Termin: ${conversionRate}%`}
+              value={prozent(apptRate)}
+              sub={`Antwort→Termin: ${prozent(conversionRate)}`}
               icon={<CalendarCheck size={14} />}
             />
             {/* Diese beiden Kacheln sind durchgefaerbt: Gruen = erreicht,

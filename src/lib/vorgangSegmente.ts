@@ -25,7 +25,7 @@ export type SettingSegment = "ohne_ergebnis" | "no_show" | "qualifiziert" | "nic
 export type ClosingSegment = "ohne_ergebnis" | "nachfassen" | "gewonnen" | "verloren" | "alle";
 
 export const SETTING_SEGMENTE: readonly { value: SettingSegment; label: string }[] = [
-  { value: "ohne_ergebnis", label: "Ohne Ergebnis" },
+  { value: "ohne_ergebnis", label: "Laufend" },
   { value: "no_show", label: "Nicht erschienen" },
   { value: "qualifiziert", label: "Qualifiziert" },
   { value: "nicht_qualifiziert", label: "Nicht qualifiziert" },
@@ -34,7 +34,7 @@ export const SETTING_SEGMENTE: readonly { value: SettingSegment; label: string }
 ];
 
 export const CLOSING_SEGMENTE: readonly { value: ClosingSegment; label: string }[] = [
-  { value: "ohne_ergebnis", label: "Ohne Ergebnis" },
+  { value: "ohne_ergebnis", label: "Laufend" },
   { value: "nachfassen", label: "Nachfassen" },
   { value: "gewonnen", label: "Gewonnen" },
   { value: "verloren", label: "Verloren" },

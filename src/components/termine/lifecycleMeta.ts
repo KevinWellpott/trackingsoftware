@@ -72,7 +72,7 @@ export const CANCEL_OUTLOOK_LABELS: Record<CancelOutlook, string> = {
  * heute nicht mehr die Ablage, sondern die Wiedervorlage.
  */
 export const CANCEL_OUTLOOK_HINTS: Record<CancelOutlook, string> = {
-  ohne_aussicht: "Erscheint in der Ablage „Ausgeschieden“ und kommt nach der Recycling-Frist noch einmal hoch.",
+  ohne_aussicht: "Erscheint in der Ablage „Ausgeschieden“ und kommt nach der Wartezeit als Wiedervorlage noch einmal hoch.",
   neuer_termin: "Bleibt in der Terminliste und leuchtet täglich, bis ein neuer Termin steht.",
 };
 
@@ -93,7 +93,7 @@ export const NO_SHOW_RESOLUTION_LABELS: Record<NoShowResolution, string> = {
  */
 export const NO_SHOW_RESOLUTION_HINTS: Record<NoShowResolution, string> = {
   antwort: "Er hat sich gemeldet — der Lead bleibt in der Terminliste, bis ein Termin steht.",
-  ohne_antwort: "Erscheint in der Ablage „Ausgeschieden“ und kommt nach der Recycling-Frist noch einmal hoch.",
+  ohne_antwort: "Erscheint in der Ablage „Ausgeschieden“ und kommt nach der Wartezeit als Wiedervorlage noch einmal hoch.",
   ersatztermin: "Danach den neuen Termin eintragen — der Vorgang startet als frischer Anlauf.",
 };
 
@@ -129,7 +129,7 @@ export const DISQUALIFY_REASON_ORDER: readonly DisqualifyReasonCode[] = [
  */
 export const DISQUALIFY_REASON_WARNINGS: Partial<Record<DisqualifyReasonCode, string>> = {
   keine_zusammenarbeit:
-    "Der Lead wird dauerhaft gesperrt: kein Recycling, keine Wiedervorlage — er erscheint danach nur noch in der Ablage „Gesperrt“. Das gilt für das ganze Team, nicht nur für dich.",
+    "Der Lead wird dauerhaft gesperrt: keine Wiedervorlage mehr — er erscheint danach nur noch in der Ablage „Gesperrt“. Das gilt für das ganze Team, nicht nur für dich.",
   falsche_zielgruppe:
-    "Kein Recycling — der Lead war nie der richtige Fit. Ein bereits gesetztes Wiedervorlage-Datum wird entfernt.",
+    "Keine Wiedervorlage — der Lead war nie der richtige Fit. Ein bereits gesetztes Wiedervorlage-Datum wird entfernt.",
 };

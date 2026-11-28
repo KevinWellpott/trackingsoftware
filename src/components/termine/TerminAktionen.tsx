@@ -35,7 +35,14 @@ export function TerminAktionen({
   layout?: "row" | "card";
   /** Läuft für DIESE Zeile gerade eine Aktion? */
   pending: boolean;
-  onGenervt: () => void;
+  /**
+   * „Erinnert“ — nur noch dort, wo eine Termin-Erinnerung zu schließen ist
+   * (Erinnerungs-Ansicht oder offene Erinnerung, Entscheidung 28.11.). Für
+   * alles andere gibt es „Kontakt eintragen“ in „Heute“: Zwei Knöpfe für
+   * dasselbe ließen den Lead nach „Genervt“ trotzdem überfällig in „Heute“.
+   * Ohne Handler kein Knopf.
+   */
+  onGenervt?: () => void;
   /** Berlin-Wandzeit ("2026-09-21T10:00") — dasselbe Format wie überall sonst. */
   onNeuerTermin: (berlinInput: string) => void;
   onTot: () => void;
@@ -92,6 +99,7 @@ export function TerminAktionen({
       className={card ? "termin-aktionen-card" : undefined}
       style={card ? undefined : { display: "inline-flex", alignItems: "center", gap: "var(--sp-3)" }}
     >
+      {onGenervt && (
       <Button
         type="button"
         variant="secondary"
@@ -120,8 +128,9 @@ export function TerminAktionen({
                   : "Nochmal als kontaktiert eintragen."
         }
       >
-        <Check size={13} /> Genervt
+        <Check size={13} /> Erinnert
       </Button>
+      )}
       <Button
         type="button"
         variant="ghost"

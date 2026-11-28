@@ -35,7 +35,7 @@ export default async function SettingPage({
           <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-4)" }}>
             Setting
             <InfoPopover label="Setting: was hier steht" width={380}>
-              Alle Erstgespräche, nach Ergebnis geschnitten. „Ohne Ergebnis“ heißt: Es steht ein Termin oder
+              Alle Erstgespräche, nach Ergebnis geschnitten. „Laufend“ heißt: Es steht ein Termin oder
               keiner, aber noch kein Ergebnis — nicht dasselbe wie der gespeicherte Status „offen“. Abgesagt ohne
               Aussicht und No-Show ohne Antwort stehen unter „Tot“, auch wenn kein Status das sagt. Wen du heute
               anfassen musst, steht unter „Heute“.

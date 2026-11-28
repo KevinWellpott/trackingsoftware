@@ -1,4 +1,5 @@
 import { berlinDateISO } from "@/lib/apptTime";
+import { prozent } from "@/lib/zahl";
 import Link from "next/link";
 import { ArrowRight, MessageSquare, Phone, TrendingUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -17,9 +18,8 @@ import { KennzahlModul } from "@/components/dashboard/KennzahlModul";
 import { HeuteDranKarte, HeuteImKalenderKarte, type HeuteDranEintrag } from "@/components/dashboard/HeuteKarten";
 import { TrichterBalken } from "@/components/analyse/TrichterBalken";
 import { TerminBuchenAktion } from "@/components/termine/TerminBuchenAktion";
-import { getNavCounts } from "@/lib/navCountsData";
-import { ladeNachfassen } from "@/lib/nachfassenData";
-import { gruppiere } from "@/lib/nachfassRegel";
+import { ladeNachfassenSchlank } from "@/lib/nachfassenData";
+import { badgeZahl, gruppiere } from "@/lib/nachfassRegel";
 import { loadDialRows } from "@/lib/phoneAttemptsData";
 import { buildEvents, type WithCancellation } from "@/lib/termine";
 import type { ClosingCall, SettingCall } from "@/lib/types";
@@ -78,7 +78,7 @@ const EUR = new Intl.NumberFormat("de-DE", {
 const NUM = (v: number | string | null | undefined): number => Number(v ?? 0);
 
 function formatRate(rate: number): string {
-  return `${rate.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  return prozent(rate);
 }
 
 // Sektionskarte: ruhiger Kopf (Icon + Titel + Meta rechts), Inhalt darunter.
@@ -237,7 +237,6 @@ export default async function DashboardPage({
     settingOpenRes,
     phoneBookedRes,
     closingRes,
-    navCounts,
     dials,
     showRes,
     qualiRes,
@@ -297,13 +296,6 @@ export default async function DashboardPage({
         `and(call_at.gte.${periodFromIso},call_at.lt.${periodToIso}),` +
         `and(call_at.is.null,created_at.gte.${periodFromIso},created_at.lt.${periodToIso})`,
       ),
-    // Die Zahlen für den Quicklink-Streifen. Dieselbe Hülle, die auch das
-    // Layout für die Seitenleiste aufruft — sie ist pro Anfrage memoisiert
-    // (src/lib/navCountsData.ts), die vier Abfragen laufen also EINMAL. Sie
-    // hängt sich in dieses Bündel ein, statt davor oder danach zu laufen, und
-    // bringt ihre eigene 1,5-Sekunden-Frist mit: kommt nichts, stehen die
-    // Kacheln ohne Zahl da (nie mit einer 0).
-    getNavCounts(),
     // Anwahlen aus dem Anruf-Log — JEDER Wählversuch, auch Rückrufe und
     // Folgeanrufe. Die RPC oben zählt nur Erstkontakte (jede Firma einmal) und
     // liefert hier nur noch Entscheider und Termine (docs §1, „Anwahl").
@@ -327,7 +319,7 @@ export default async function DashboardPage({
     }),
     // „Heute dran": DERSELBE Loader wie /nachfassen und das Badge (pro
     // Anfrage memoisiert, src/lib/nachfassenData.ts) — keine eigene Abfrage.
-    ladeNachfassen("mein").catch(() => null),
+    ladeNachfassenSchlank().catch(() => null),
     // „Heute im Kalender": die Termine des Berliner Tages, Person wie
     // „Termine gelegt". `select("*")` wie der Kalender (lib/termine.ts).
     supabase
@@ -457,8 +449,10 @@ export default async function DashboardPage({
         (nfGruppen.get(g) ?? []).map((e) => ({ e, gruppe: g })),
       )
     : [];
-  // Die Zahl ist die des Badges (getNavCounts) — EINE Quelle für „wie viele".
-  const dranZahl = navCounts.nachfassen;
+  // Zahl und Liste aus DERSELBEN Menge (Punkt 5): Vorher kam die Zahl aus dem
+  // Badge mit seiner 1,5-Sekunden-Frist — dauerte das Laden länger, stand „—“
+  // neben einer vollen Liste. Gezählt wird wie im Badge (`badgeZahl`).
+  const dranZahl = nfGruppen && nachfassen?.vollstaendig ? badgeZahl(nfGruppen) : null;
 
   // ── Heute im Kalender
   const { events: heuteTermine } = buildEvents(

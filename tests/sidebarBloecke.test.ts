@@ -105,8 +105,12 @@ describe("Gliederung", () => {
     assert.ok(block("linkedin").includes("visibleLists.map"), "der LinkedIn-Listenbaum fehlt");
   });
 
-  test("Vertrieb: Setting · Closing · No-Shows · Ablage", () => {
-    const pos = ["/setting", "/closing", "/no-shows", "/ablage"].map((h) => SIDEBAR.indexOf(`href="${h}"`));
+  test("Vertrieb: Setting · Closing — No-Shows und Ablage ohne eigene Zeile (28.11.)", () => {
+    // /no-shows ist gestrichen (No-Shows stehen in „Heute“ und in /setting bzw.
+    // /closing), die Ablage ist über „Heute → Wiedervorlage“ erreichbar.
+    assert.equal(zaehle(SIDEBAR, 'href="/no-shows"'), 0);
+    assert.equal(zaehle(SIDEBAR, 'href="/ablage"'), 0);
+    const pos = ["/setting", "/closing"].map((h) => SIDEBAR.indexOf(`href="${h}"`));
     for (const p of pos) assert.ok(p > gruppe("Vertrieb") && p < gruppe("Kunden"), "eine Vertriebs-Zeile steht außerhalb der Gruppe");
     for (let i = 1; i < pos.length; i++) assert.ok(pos[i - 1] < pos[i], "Reihenfolge in „Vertrieb“ verloren");
   });
@@ -133,7 +137,7 @@ describe("Gliederung", () => {
   test("jede Seite hat genau EINE Zeile", () => {
     // Eine zweite Zeile derselben Seite wäre ein zweiter Ort für einen Zähler,
     // der irgendwann etwas anderes zählt.
-    for (const href of ["/nachfassen", "/termine", "/ablage", "/setting", "/closing", "/no-shows", "/analyse", "/team"]) {
+    for (const href of ["/nachfassen", "/termine", "/setting", "/closing", "/analyse", "/team"]) {
       assert.equal(zaehle(SIDEBAR, `href="${href}"`), 1, `${href} kommt mehrfach vor`);
     }
   });
@@ -210,7 +214,7 @@ describe("Navigations-Zähler", () => {
     // Menge ihrer Seite zählen — No-Shows und Ablage tun das nicht.
     assert.equal(zaehle(SIDEBAR, "count={navCounts?.nachfassen}"), 1);
     assert.ok(navLink("/nachfassen").includes("count={navCounts?.nachfassen}"));
-    for (const href of ["/termine", "/ablage", "/no-shows", "/setting", "/closing"]) {
+    for (const href of ["/termine", "/setting", "/closing"]) {
       assert.doesNotMatch(navLink(href), /count=/, `${href} trägt ein Abzeichen`);
     }
     assert.doesNotMatch(SIDEBAR, /ABLAGE_COUNT_LABEL/);
@@ -256,7 +260,9 @@ describe("Tooltips", () => {
 
   test("Heute nennt die Quellen, die dort wirklich stehen", () => {
     const zeile = navLink("/nachfassen");
-    for (const quelle of ["Termine ohne nächsten Schritt", "Telefon-Rückrufe", "Recycling-Leads"]) {
+    // Die fälligen toten Leads stehen seit dem 28.11. im eigenen Reiter — der
+    // Tooltip sagt das, statt sie unter die Quellen zu mischen.
+    for (const quelle of ["Termine ohne nächsten Schritt", "Telefon-Rückrufe", "Reiter „Wiedervorlage“"]) {
       assert.ok(zeile.includes(quelle), `Der Heute-Tooltip nennt „${quelle}" nicht`);
     }
     assert.doesNotMatch(zeile, /LinkedIn-Follow-ups/);
@@ -271,10 +277,12 @@ describe("Tooltips", () => {
     assert.doesNotMatch(SIDEBAR, /label="Erinnerungen"/);
   });
 
-  test("Ablage grenzt sich als Gegenrichtung ab", () => {
-    const zeile = navLink("/ablage");
-    assert.ok(zeile.includes("Ausgeschiedene Vorgänge"));
-    assert.ok(zeile.includes("Sperrliste"));
+  test("die Ablage bleibt erreichbar — über den Reiter „Wiedervorlage“", () => {
+    // Ohne Navigationszeile wäre die Sperrliste sonst nur noch per URL zu
+    // finden. Der Reiter steht immer da, auch mit 0 Einträgen.
+    const eingang = readFileSync(fileURLToPath(new URL("../src/components/nachfassen/NachfassEingang.tsx", import.meta.url)), "utf8");
+    assert.match(eingang, /<Link href="\/ablage"/);
+    assert.match(eingang, /\{ value: "wiedervorlage" as const, label: `Wiedervorlage \$\{wiedervorlageAnzahl\}` \}/);
   });
 });
 

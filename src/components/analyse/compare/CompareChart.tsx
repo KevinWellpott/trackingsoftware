@@ -9,6 +9,7 @@
 // beantwortbar. Quoten bleiben gestrichelt: dieselbe Konvention wie im
 // Fortschritts-Chart, damit man Menge und Quote ohne Legendensuche trennt.
 
+import { prozent } from "@/lib/zahl";
 import { AlertTriangle, Inbox } from "lucide-react";
 import {
   CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -142,7 +143,7 @@ export function CompareChart({
             orientation="right"
             domain={[0, "auto"]}
             {...AXIS_PROPS}
-            tickFormatter={(v: number) => `${v} %`}
+            tickFormatter={(v: number) => prozent(v, Number.isInteger(v) ? 0 : 1)}
           />
         )}
         <Tooltip

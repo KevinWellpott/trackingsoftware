@@ -5,10 +5,9 @@ import { getAccessContext, listDataViewUsers, ownScopeFilter } from "@/lib/acces
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetchAll";
 import { ownerColor } from "@/lib/ownerColor";
-import { loadPhoneNoShowLeads } from "@/lib/settingNoShowData";
 import type { PhoneLeadStatus, PhoneList, PhoneListKind } from "@/lib/types";
 import { EmptyState, PageHeader } from "@/components/ui/PageHeader";
-import { CalendarX, Phone, PhoneForwarded, UserX, Voicemail } from "lucide-react";
+import { CalendarX, Phone, PhoneForwarded, Voicemail } from "lucide-react";
 import Link from "next/link";
 
 // Telefon-Übersicht (Redesign Phase 5): Kennzahl-Module Heute/Woche, darunter
@@ -122,7 +121,7 @@ export default async function TelefonPage({ searchParams }: { searchParams: Prom
       }>,
     );
 
-  const [{ data: rawLists }, { data: countRows }, { data: originRows }, allUsers, noShowLeads, dueRows] = await Promise.all([
+  const [{ data: rawLists }, { data: countRows }, { data: originRows }, allUsers, dueRows] = await Promise.all([
     listsQuery,
     // Aggregat-RPC statt Full-Table-Read: nur (list_id, status, cnt) statt aller Leads
     supabase.rpc("rpc_phone_list_counts", {
@@ -138,9 +137,6 @@ export default async function TelefonPage({ searchParams }: { searchParams: Prom
       p_effective_user_id: access.effective_user_id ?? null,
     }),
     listDataViewUsers(access.workspace_id),
-    // Abgeleitete Liste „Setting No-Show" (src/lib/settingNoShow.ts) — nur die
-    // EIGENEN No-Shows. Fail-soft: dann fehlt nur die Zeile.
-    loadPhoneNoShowLeads(access).catch(() => []),
     loadDue(true)
       .catch(() => loadDue(false))
       .catch(() => [] as { list_id: string; origin_list_id?: string | null }[]),
@@ -210,7 +206,6 @@ export default async function TelefonPage({ searchParams }: { searchParams: Prom
         (a.owner_name ?? "").localeCompare(b.owner_name ?? "", "de") || KIND_ORDER[a.list_kind] - KIND_ORDER[b.list_kind],
     );
   const einePerson = access.data_scope === "own" || !!access.effective_user_id;
-  const noShowOwner = access.effective_username ?? access.username;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-9)" }}>
@@ -234,7 +229,7 @@ export default async function TelefonPage({ searchParams }: { searchParams: Prom
 
       <PhoneDashboard zeitraum={zeitraum} />
 
-      {lists.length === 0 && noShowLeads.length === 0 ? (
+      {lists.length === 0 ? (
         <div className="card dot-grid">
           <EmptyState
             icon={<Phone size={24} />}
@@ -273,7 +268,7 @@ export default async function TelefonPage({ searchParams }: { searchParams: Prom
                             </Link>
                             {(l.script_label || l.target_group) && (
                               <span className="tel-co">
-                                {[l.target_group, l.script_label ? `Arm „${l.script_label}“` : null].filter(Boolean).join(" · ")}
+                                {[l.target_group, l.script_label ? `Skript „${l.script_label}“` : null].filter(Boolean).join(" · ")}
                               </span>
                             )}
                           </td>
@@ -315,7 +310,7 @@ export default async function TelefonPage({ searchParams }: { searchParams: Prom
             </section>
           )}
 
-          {(routing.length > 0 || noShowLeads.length > 0) && (
+          {routing.length > 0 && (
             <section className="card tel-card">
               <header className="tel-card-head">
                 <h3>{einePerson ? "Deine Wiedervorlagen" : "Wiedervorlagen"}</h3>
@@ -333,37 +328,6 @@ export default async function TelefonPage({ searchParams }: { searchParams: Prom
                     </tr>
                   </thead>
                   <tbody>
-                    {/* Abgeleitete Liste: keine Zeile in phone_lists, deshalb
-                        kein Löschknopf und nur sichtbar, solange jemand drinsteht. */}
-                    {noShowLeads.length > 0 && (
-                      <tr>
-                        <td className="tel-main">
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                            <UserX size={14} style={{ color: "var(--text-muted)" }} aria-hidden />
-                            <Link href="/telefon/setting-no-show" className="tel-nm tel-link">
-                              Setting No-Show
-                            </Link>
-                          </span>
-                          <span className="tel-co">Erstgespräch nicht erschienen · nochmal anrufen</span>
-                        </td>
-                        <td>
-                          <Avatar name={noShowOwner} />
-                        </td>
-                        <td className="r tnum tel-muted">{noShowLeads.length.toLocaleString("de-DE")}</td>
-                        <td className="r tnum">{noShowLeads.length.toLocaleString("de-DE")}</td>
-                        <td className="r">
-                          <Link
-                            className="ui-btn"
-                            data-variant="secondary"
-                            data-size="sm"
-                            href="/telefon/setting-no-show"
-                            style={{ minHeight: 28, padding: "0 10px" }}
-                          >
-                            <Phone size={13} aria-hidden /> Anrufen
-                          </Link>
-                        </td>
-                      </tr>
-                    )}
                     {routing.map((l) => {
                       const c = countsByList[l.id] ?? EMPTY_COUNTS;
                       const due = dueByList[l.id] ?? 0;

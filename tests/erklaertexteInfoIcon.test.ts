@@ -143,7 +143,7 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
     // ohne den Kasten aus wie „nichts zu tun".
     sichtbar("/nachfassen", NACHFASSEN, [
       "Das Kontakt-Protokoll fehlt noch in der Datenbank",
-      "Die Recycling-Wiedervorlagen konnten nicht geladen werden",
+      "Die Wiedervorlagen konnten nicht geladen werden",
     ]);
     sichtbar("/ablage", ABLAGE, ["Die Ablage ist nicht verfügbar"]);
   });
@@ -160,7 +160,7 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
     assert.doesNotMatch(NACHFASSEN, /ausgeblendet/);
     assert.doesNotMatch(NACHFASSEN, /Trotzdem anzeigen/);
     assert.match(NACHFASSEN, /label: `Aufräumen \$\{aufraeumenAnzahl\}`/);
-    sichtbar("/nachfassen", NACHFASSEN, ["Altbestand vor dem Start des Eingangs", "Noch {aufraeumListe.length} offen."]);
+    sichtbar("/nachfassen", NACHFASSEN, ["Altbestand vor dem Start des Eingangs", "Noch {sammelListe.length} offen."]);
   });
 
   test("Leerzustände sagen weiterhin ohne Klick, was als Nächstes passiert", () => {
@@ -177,11 +177,11 @@ describe("2 · Handlungsrelevantes bleibt ohne Klick sichtbar", () => {
     // Aufgeben (Plan §4.4). Ein Vorschlag hinter einem Icon wäre keiner.
     sichtbar("/nachfassen", NACHFASSEN, [
       "zuletzt ${lastContactLabel(",
-      "nicht erreicht. Aufgeben? Er kommt nach der Wartezeit über das Recycling wieder.",
+      "nicht erreicht. Auf „Tot“ setzen? Er kommt nach der Wartezeit als Wiedervorlage zurück.",
     ]);
     // Die Sätze zu weggelassenen Knöpfen (`hints`) und der Vorgänger-Hinweis
     // hängen an EINER Zeile und entscheiden dort etwas.
-    sichtbar("/ablage", ABLAGE, ["Zweiter Anlauf.", "{hint}", "Wiedervorlage ist fällig — steht in Nachfassen"]);
+    sichtbar("/ablage", ABLAGE, ["Zweiter Anlauf.", "{hint}", "Wiedervorlage ist fällig — steht in „Heute“ unter „Wiedervorlage“"]);
   });
 
   test("DASS die Sperrliste org-weit ist, steht weiter auf dem Schirm — nur das WARUM nicht", () => {

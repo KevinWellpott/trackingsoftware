@@ -148,7 +148,8 @@ describe("Gegenprobe — was NICHT fallen durfte", () => {
     // `recycle_responded_at` und damit an keiner Stufe, keinem Grund und keinem
     // Deckel — sie messen weiter genau das, was die Sektion verspricht.
     assert.match(UEBERSICHT_TAB, /<RecycleSection/);
-    assert.match(RECYCLE_SECTION, /title="Lohnt das Recycling\?"/);
+    // Auf dem Bildschirm heißt es seit dem 28.11. „Wiedervorlage“.
+    assert.match(RECYCLE_SECTION, /title="Lohnt die Wiedervorlage\?"/);
     for (const kachel of ["Kontaktiert", "Reaktionen", "Wiederbelebungsquote", "Gesperrt"]) {
       assert.match(RECYCLE_SECTION, new RegExp(`label: "${kachel}"`), `Kachel fehlt: ${kachel}`);
     }

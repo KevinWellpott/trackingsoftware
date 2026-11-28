@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { CalendarPlus, Check, Phone, PhoneCall, Skull, Undo2 } from "lucide-react";
+import { AtSign, CalendarPlus, Check, Mail, Phone, PhoneCall, Skull, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { DatePicker } from "@/components/ui/DatePicker";
@@ -33,6 +33,9 @@ import {
   AUFGEBEN_AB_VERSUCHEN,
   GRUPPEN_LABEL,
   REITER_GRUPPEN,
+  SAMMEL_PAKET,
+  SEITE_GROESSE,
+  plusWerktage,
   faelligkeitsTag,
   gruppiere,
   istJetztDran,
@@ -169,7 +172,6 @@ function KontaktPopover({
             <button
               key={k.value}
               type="button"
-              className="chip"
               data-active={kanal === k.value}
               aria-pressed={kanal === k.value}
               onClick={() => setKanal(kanal === k.value ? null : k.value)}
@@ -340,8 +342,13 @@ function Zeile({
   const { confirm, dialog } = useConfirm();
   const [pending, start] = useTransition();
   const versuche = versucheInFolge(e.kontakte);
-  const dran = gruppe !== "aufraeumen" && gruppe !== "wartet" && gruppe !== "demnaechst" && istJetztDran(e, today, nowMs);
+  const dran =
+    gruppe !== "aufraeumen" && gruppe !== "wartet" && gruppe !== "demnaechst" && gruppe !== "wiedervorlage" && istJetztDran(e, today, nowMs);
   const listId = e.quelle === "rueckruf" ? e.href?.split("/").pop() ?? "" : "";
+  // Rückruf direkt im Call-Modus öffnen, genau auf diesem Lead (Punkt 4) —
+  // „Beenden“ führt nach „Heute“ zurück. `aktion=termin` öffnet dort gleich
+  // das Termin-Fach.
+  const callModus = listId ? `/telefon/${listId}?lead=${e.id}&from=nachfassen` : null;
 
   const letzter = e.letzterKontakt
     ? `zuletzt ${lastContactLabel(dayDiff(berlinDateISO(e.letzterKontakt.at), today))}${
@@ -354,7 +361,7 @@ function Zeile({
       const res = await setPhoneLeadOutcome({ leadId: e.id, listId, outcome });
       if (res.error) onError(res.error);
       // Der dritte „Nicht erreicht" in Folge beendet den Lead (NICHT_ERREICHT_LIMIT).
-      else if (res.autoDead) onDone(null, `${e.name}: dreimal nicht erreicht — als tot markiert, kommt ins Recycling`);
+      else if (res.autoDead) onDone(null, `${e.name}: dreimal nicht erreicht — als tot markiert, kommt später als Wiedervorlage zurück`);
       else onDone(null, `${e.name}: ${label}`);
     });
 
@@ -401,8 +408,8 @@ function Zeile({
           >
             {e.kontext}
           </span>
-          {e.recycle && (
-            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>Anlauf {e.recycle.attempt + 1}</span>
+          {e.recycle && e.recycle.attempt > 0 && (
+            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-muted)" }}>{e.recycle.attempt}. Wiedervorlage</span>
           )}
         </div>
         <div style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)", display: "flex", gap: "var(--sp-3)", flexWrap: "wrap" }}>
@@ -415,10 +422,20 @@ function Zeile({
               · <Phone size={11} style={{ verticalAlign: "-1px" }} /> {e.telefon}
             </a>
           )}
+          {e.email && (
+            <a href={`mailto:${e.email}`} style={{ color: "var(--text-secondary)" }} title={e.email}>
+              · <Mail size={11} style={{ verticalAlign: "-1px" }} /> Mail
+            </a>
+          )}
+          {e.linkedinUrl && (
+            <a href={e.linkedinUrl} target="_blank" rel="noreferrer" style={{ color: "var(--text-secondary)" }}>
+              · <AtSign size={11} style={{ verticalAlign: "-1px" }} /> LinkedIn
+            </a>
+          )}
         </div>
         {versuche >= AUFGEBEN_AB_VERSUCHEN && e.quelle !== "rueckruf" && (
           <div style={{ fontSize: "var(--fs-sm)", color: "var(--warning-fg)" }}>
-            {versuche}× nicht erreicht. Aufgeben? Er kommt nach der Wartezeit über das Recycling wieder.
+            {versuche}× nicht erreicht. Auf „Tot“ setzen? Er kommt nach der Wartezeit als Wiedervorlage zurück.
           </div>
         )}
       </div>
@@ -432,24 +449,48 @@ function Zeile({
           />
         ) : e.quelle === "rueckruf" ? (
           <>
-            {e.telefon && (
-              <a href={`tel:${e.telefon}`} className="btn-link-anrufen" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, padding: "0 12px", minHeight: 28, borderRadius: "var(--r-md)", background: "var(--accent)", color: "var(--text-on-accent)", fontSize: "var(--fs-sm)", fontWeight: 500 }}>
-                <PhoneCall size={13} /> Anrufen
-              </a>
+            {callModus ? (
+              // Anrufen = Call-Modus auf genau diesem Lead: Wählen, Ergebnis und
+              // Termin an einem Ort (Punkt 4).
+              <span data-nf-key="e">
+                <Button size="sm" variant="primary" icon={<PhoneCall size={13} />} onClick={() => router.push(callModus)}>
+                  Anrufen
+                </Button>
+              </span>
+            ) : (
+              e.telefon && (
+                <a href={`tel:${e.telefon}`} className="ui-btn" data-variant="primary" data-size="sm">
+                  <PhoneCall size={13} /> Anrufen
+                </a>
+              )
+            )}
+            {callModus && (
+              <span data-nf-key="t">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<CalendarPlus size={13} />}
+                  onClick={() => router.push(`${callModus}&aktion=termin`)}
+                  title="Termin legen (T)"
+                >
+                  Termin
+                </Button>
+              </span>
             )}
             <span ref={rueckrufRef as React.RefObject<HTMLSpanElement>}>
-              <Button size="sm" variant="secondary" onClick={rueckrufToggle}>Verschieben</Button>
+              <Button size="sm" variant="ghost" onClick={rueckrufToggle}>Verschieben</Button>
             </span>
             <Button size="sm" variant="ghost" onClick={() => telefonAktion("nicht_erreicht", "nicht erreicht")}>Nicht erreicht</Button>
             <Button size="sm" variant="ghost" onClick={() => telefonAktion("kein_termin", "kein Termin")}>Kein Termin</Button>
-            {e.href && (
-              <Button size="sm" variant="ghost" onClick={() => router.push(e.href!)}>
-                Zur Liste
-              </Button>
-            )}
           </>
         ) : (
           <>
+            {e.telefon && (
+              // Wählen direkt aus der Zeile (Punkt 3); danach „Kontakt eintragen“.
+              <a href={`tel:${e.telefon}`} className="ui-btn" data-variant="secondary" data-size="sm" title={e.telefon}>
+                <PhoneCall size={13} /> Anrufen
+              </a>
+            )}
             <span ref={kontaktRef as React.RefObject<HTMLSpanElement>} data-nf-key="e">
               <Button size="sm" variant="primary" onClick={kontaktToggle} title="Kontakt eintragen (E)">
                 Kontakt eintragen
@@ -479,23 +520,23 @@ function Zeile({
               icon={<Skull size={13} />}
               onClick={async () => {
                 const ok = await confirm({
-                  title: "Aufgeben?",
+                  title: "Auf „Tot“ setzen?",
                   message:
                     e.quelle === "termin"
-                      ? `${e.name} wird als tot markiert. Das Recycling holt ihn nach der Wartezeit wieder.`
-                      : `Dieser Anlauf bei ${e.name} endet. Das Recycling plant den nächsten nach der Wartezeit.`,
-                  confirmLabel: "Aufgeben",
+                      ? `${e.name} wird als tot markiert und kommt nach der Wartezeit als Wiedervorlage zurück.`
+                      : `${e.name} bleibt tot; die nächste Wiedervorlage kommt nach der Wartezeit.`,
+                  confirmLabel: "Tot",
                   destructive: true,
                 });
                 if (!ok) return;
                 start(async () => {
                   const res = await aufgeben(e.art, e.id, e.quelle);
                   if (res.error) onError(res.error);
-                  else onDone(null, `${e.name}: aufgegeben`);
+                  else onDone(null, `${e.name}: tot`);
                 });
               }}
             >
-              Aufgeben
+              Tot
             </Button>
           </>
         )}
@@ -547,7 +588,11 @@ export function NachfassEingang(props: Props) {
   const { eintraege, today, nowMs } = props;
   const [toast, setToast] = useState<{ text: string; undo: NachfassUndo | null; fehler?: boolean } | null>(null);
   const [auswahl, setAuswahl] = useState<Set<string>>(new Set());
-  const [sammelTag, setSammelTag] = useState<string | null>(today);
+  // Vorgabe: nächster Werktag — mit „heute“ sprang der ganze Stapel auf
+  // einmal nach „Fällig“ (Prüfung 28.11.).
+  const [sammelTag, setSammelTag] = useState<string | null>(() => plusWerktage(today, 1));
+  const [fortschritt, setFortschritt] = useState<{ fertig: number; gesamt: number } | null>(null);
+  const [sichtbar, setSichtbar] = useState(SEITE_GROESSE);
   const [pending, start] = useTransition();
   const { confirm, dialog } = useConfirm();
 
@@ -601,6 +646,7 @@ export function NachfassEingang(props: Props) {
   const alleGruppen = useMemo(() => gruppiere(eintraege, today, nowMs), [eintraege, today, nowMs]);
   const kopf = kopfzahlen(alleGruppen, props.heuteErledigt);
   const aufraeumenAnzahl = alleGruppen.get("aufraeumen")?.length ?? 0;
+  const wiedervorlageAnzahl = alleGruppen.get("wiedervorlage")?.length ?? 0;
 
   const setParam = (key: string, value: string | null) => {
     const url = new URL(window.location.href);
@@ -621,38 +667,60 @@ export function NachfassEingang(props: Props) {
     ...(aufraeumenAnzahl > 0 || props.reiter === "aufraeumen"
       ? [{ value: "aufraeumen" as const, label: `Aufräumen ${aufraeumenAnzahl}` }]
       : []),
+    // Eigener Reiter, nie im Badge (Punkt 8). Immer sichtbar: Er ist auch der
+    // Weg zur Ablage, seit die keinen Navigationspunkt mehr hat.
+    { value: "wiedervorlage" as const, label: `Wiedervorlage ${wiedervorlageAnzahl}` },
   ];
 
   const sichtbareGruppen = REITER_GRUPPEN[props.reiter];
-  const imAufraeumen = props.reiter === "aufraeumen";
-  const aufraeumListe = gruppen.get("aufraeumen") ?? [];
+  // Sammelaktion gibt es dort, wo viele Alt- oder Wiedervorlage-Vorgänge auf
+  // einmal zu sichten sind.
+  const sammelGruppe: NachfassGruppe | null =
+    props.reiter === "aufraeumen" ? "aufraeumen" : props.reiter === "wiedervorlage" ? "wiedervorlage" : null;
+  const sammelListe = sammelGruppe ? gruppen.get(sammelGruppe) ?? [] : [];
 
   const sammel = async (aktion: "nochmal" | "aufgeben" | "sperren") => {
-    const ziel = aufraeumListe.filter((e) => auswahl.has(e.key));
+    const ziel = sammelListe.filter((e) => auswahl.has(e.key));
     if (ziel.length === 0) return;
     if (aktion !== "nochmal") {
       const ok = await confirm({
-        title: aktion === "aufgeben" ? `${ziel.length} aufgeben?` : `${ziel.length} sperren?`,
+        title: aktion === "aufgeben" ? `${ziel.length} auf „Tot“ setzen?` : `${ziel.length} sperren?`,
         message:
           aktion === "aufgeben"
-            ? "Die Vorgänge werden als tot markiert; das Recycling holt sie nach der Wartezeit wieder."
+            ? "Die Vorgänge werden als tot markiert und kommen nach der Wartezeit als Wiedervorlage zurück."
             : "Die Vorgänge kommen auf die Sperrliste und werden nie wieder vorgelegt.",
-        confirmLabel: aktion === "aufgeben" ? "Aufgeben" : "Sperren",
+        confirmLabel: aktion === "aufgeben" ? "Tot" : "Sperren",
         destructive: true,
       });
       if (!ok) return;
     }
     start(async () => {
-      const res = await sammelAktion(
-        ziel.map((e) => ({ art: e.art, id: e.id, quelle: e.quelle })),
-        aktion,
-        sammelTag ?? today,
-      );
+      // In Paketen (SAMMEL_PAKET) mit Fortschritt: Jeder Aufruf bleibt kurz,
+      // und ein Fehler mitten im Stapel lässt die erledigten stehen.
+      let ok = 0;
+      const fehler = new Set<string>();
+      setFortschritt({ fertig: 0, gesamt: ziel.length });
+      for (let i = 0; i < ziel.length; i += SAMMEL_PAKET) {
+        const paket = ziel.slice(i, i + SAMMEL_PAKET);
+        try {
+          const res = await sammelAktion(
+            paket.map((e) => ({ art: e.art, id: e.id, quelle: e.quelle })),
+            aktion,
+            sammelTag ?? plusWerktage(today, 1),
+          );
+          ok += res.ok;
+          for (const f of res.fehler) fehler.add(f);
+        } catch {
+          fehler.add("Ein Paket konnte nicht gespeichert werden.");
+        }
+        setFortschritt({ fertig: Math.min(ziel.length, i + paket.length), gesamt: ziel.length });
+      }
+      setFortschritt(null);
       setAuswahl(new Set());
       setToast({
-        text: res.fehler.length ? `${res.ok} erledigt, Fehler: ${res.fehler.join(" · ")}` : `${res.ok} erledigt`,
+        text: fehler.size ? `${ok} erledigt, Fehler: ${[...fehler].join(" · ")}` : `${ok} erledigt`,
         undo: null,
-        fehler: res.fehler.length > 0,
+        fehler: fehler.size > 0,
       });
       router.refresh();
     });
@@ -680,7 +748,7 @@ export function NachfassEingang(props: Props) {
       {!props.protokollVerfuegbar && (
         <div className="card" style={{ padding: "var(--sp-6)", color: "var(--warning-fg)", fontSize: "var(--fs-sm)" }}>
           Das Kontakt-Protokoll fehlt noch in der Datenbank (Migration 0049). Der Eingang zeigt alles, „Kontakt
-          eintragen&ldquo; funktioniert aber erst danach.
+          eintragen&ldquo; und „Tot&ldquo; funktionieren aber erst danach.
         </div>
       )}
       {!props.vollstaendig && (
@@ -689,9 +757,9 @@ export function NachfassEingang(props: Props) {
           laden.
         </div>
       )}
-      {!props.recyclingVerfuegbar && (
+      {!props.recyclingVerfuegbar && props.reiter === "wiedervorlage" && (
         <div className="card" style={{ padding: "var(--sp-6)", color: "var(--warning-fg)", fontSize: "var(--fs-sm)" }}>
-          Die Recycling-Wiedervorlagen konnten nicht geladen werden — sie fehlen in dieser Liste.
+          Die Wiedervorlagen konnten nicht geladen werden — sie fehlen in dieser Liste.
         </div>
       )}
 
@@ -708,7 +776,6 @@ export function NachfassEingang(props: Props) {
             { value: "alle", label: "Alle" },
             { value: "termin", label: "Termine" },
             { value: "rueckruf", label: "Rückrufe" },
-            { value: "recycling", label: "Recycling" },
           ]}
           value={props.filter}
           onChange={(v) => setParam("quelle", v === "alle" ? null : v)}
@@ -729,33 +796,48 @@ export function NachfassEingang(props: Props) {
         )}
       </div>
 
-      {imAufraeumen && (
+      {sammelGruppe && (
         <div className="card" style={{ padding: "var(--sp-6) var(--sp-7)", display: "grid", gap: "var(--sp-4)" }}>
           <div style={{ fontSize: "var(--fs-sm)", color: "var(--text-secondary)" }}>
-            Altbestand vor dem Start des Eingangs: Vorgänge, deren letztes Lebenszeichen mehr als 14 Tage vor dem
-            Stichtag liegt und die seitdem niemand angefasst hat. Einmal sichten — danach startet „Fällig&ldquo;
-            sauber. Noch {aufraeumListe.length} offen.
+            {sammelGruppe === "aufraeumen" ? (
+              <>
+                Altbestand vor dem Start des Eingangs: Vorgänge, deren letztes Lebenszeichen mehr als 14 Tage vor dem
+                Stichtag liegt und die seitdem niemand angefasst hat. Einmal sichten — danach startet „Fällig&ldquo;
+                sauber. Noch {sammelListe.length} offen.
+              </>
+            ) : (
+              <>
+                Tote Leads, deren Wartezeit um ist — ein neuer Versuch lohnt sich. Sie zählen nicht im Badge; arbeite
+                sie ab, wenn „Fällig&ldquo; leer ist. {sammelListe.length} fällig.{" "}
+                <Link href="/ablage" style={{ color: "var(--accent-text)" }}>
+                  Ablage &amp; Sperrliste
+                </Link>
+              </>
+            )}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)", alignItems: "center" }}>
             <Button
               size="sm"
               variant="secondary"
               onClick={() =>
-                setAuswahl(auswahl.size === aufraeumListe.length ? new Set() : new Set(aufraeumListe.map((e) => e.key)))
+                setAuswahl(auswahl.size === sammelListe.length ? new Set() : new Set(sammelListe.map((e) => e.key)))
               }
             >
-              {auswahl.size === aufraeumListe.length && aufraeumListe.length > 0 ? "Keine auswählen" : "Alle auswählen"}
+              {auswahl.size === sammelListe.length && sammelListe.length > 0 ? "Keine auswählen" : "Alle auswählen"}
             </Button>
-            <span style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)" }}>{auswahl.size} ausgewählt</span>
+            <span style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)" }} role="status">
+              {fortschritt ? `${fortschritt.fertig} von ${fortschritt.gesamt} erledigt …` : `${auswahl.size} ausgewählt`}
+            </span>
             <span style={{ marginLeft: "auto", display: "inline-flex", gap: "var(--sp-3)", alignItems: "center" }}>
+              <span style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)" }}>Nächster Kontakt</span>
               <DatePicker value={sammelTag} onChange={setSammelTag} shortFormat />
               <Button size="sm" variant="primary" disabled={!auswahl.size} loading={pending} onClick={() => sammel("nochmal")}>
                 Nochmal versuchen
               </Button>
-              <Button size="sm" variant="secondary" disabled={!auswahl.size} onClick={() => sammel("aufgeben")}>
-                Aufgeben
+              <Button size="sm" variant="secondary" disabled={!auswahl.size || pending} onClick={() => sammel("aufgeben")}>
+                Tot
               </Button>
-              <Button size="sm" variant="danger" disabled={!auswahl.size} onClick={() => sammel("sperren")}>
+              <Button size="sm" variant="danger" disabled={!auswahl.size || pending} onClick={() => sammel("sperren")}>
                 Sperren
               </Button>
             </span>
@@ -764,15 +846,17 @@ export function NachfassEingang(props: Props) {
       )}
 
       {sichtbareGruppen.map((g) => {
-        const liste = gruppen.get(g) ?? [];
-        if (liste.length === 0) return null;
+        const voll = gruppen.get(g) ?? [];
+        if (voll.length === 0) return null;
+        // Lange Reiter seitenweise (Wiedervorlage im Januar: vierstellig).
+        const liste = voll.slice(0, sichtbar);
         return (
           <section key={g} className="card nf-gruppe" style={{ overflow: "hidden" }}>
             {/* Gruppenkopf ohne Band (Prototyp `tr.grp`): ruhiger Text,
                 Gold nur dort, wo die Gruppe selbst „zu spät" sagt. */}
             <div className="nf-grp" data-ton={g === "ueberfaellig" || g === "ergebnis_fehlt" ? "dran" : undefined}>
               {GRUPPEN_LABEL[g]}
-              <span>{liste.length}</span>
+              <span>{voll.length}</span>
             </div>
             {liste.map((e) => (
               <Zeile
@@ -783,7 +867,7 @@ export function NachfassEingang(props: Props) {
                 gruppe={g}
                 auswahl={auswahl.has(e.key)}
                 onAuswahl={
-                  g === "aufraeumen"
+                  g === sammelGruppe
                     ? (v) =>
                         setAuswahl((prev) => {
                           const next = new Set(prev);
@@ -797,6 +881,16 @@ export function NachfassEingang(props: Props) {
                 onError={(text) => setToast({ text, undo: null, fehler: true })}
               />
             ))}
+            {voll.length > liste.length && (
+              <div style={{ padding: "var(--sp-5) var(--sp-7)", display: "flex", gap: "var(--sp-4)", alignItems: "center" }}>
+                <Button size="sm" variant="secondary" onClick={() => setSichtbar((n) => n + SEITE_GROESSE)}>
+                  Weitere {Math.min(SEITE_GROESSE, voll.length - liste.length)} anzeigen
+                </Button>
+                <span style={{ fontSize: "var(--fs-sm)", color: "var(--text-muted)" }}>
+                  {liste.length} von {voll.length}
+                </span>
+              </div>
+            )}
           </section>
         );
       })}
@@ -821,7 +915,9 @@ export function NachfassEingang(props: Props) {
         <div className="card" style={{ padding: "var(--sp-11) var(--sp-7)", textAlign: "center", color: "var(--text-secondary)" }}>
           {props.reiter === "faellig"
             ? "Nichts fällig. Wer offen ist, steht mit seinem nächsten Kontakt unter „Demnächst“ oder „Wartet“."
-            : "Hier steht gerade nichts."}
+            : props.reiter === "wiedervorlage"
+              ? "Keine Wiedervorlage fällig."
+              : "Hier steht gerade nichts."}
         </div>
       )}
 

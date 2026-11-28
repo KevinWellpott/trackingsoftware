@@ -143,7 +143,7 @@ describe("1 · Was in der Ablage liegt, steht nicht zugleich in der Tagesarbeit"
     // Loader dort nimmt genau die Arbeitsmenge auf (Plan §4.2). In der
     // Terminliste leuchtet die Zeile dafür nicht mehr — Gold heißt dort nur
     // noch „Termin-Erinnerung offen" (`istTerminDran`).
-    assert.match(EINGANG, /if \(!istInArbeitsmenge\(zustand\) && !closingNachfassen\) continue;/);
+    assert.match(EINGANG, /if \(!istInArbeitsmenge\(zustand\) && !closingNachfassen && !heuteVorbei\) continue;/);
     assert.equal(istTerminDran(z, null, HEUTE), false);
   });
 
@@ -291,7 +291,12 @@ describe("3 · Was eine Zeile von der Liste nimmt — und was nicht", () => {
 describe("4 · Der Block „Meine Arbeit“", () => {
   // Seit dem Nachfass-Eingang steht /nachfassen oben im Block (die tägliche
   // Arbeit), darunter /termine (Kalender und Erinnerungen), dann /ablage.
-  const termineZeile = () => SIDEBAR.slice(SIDEBAR.indexOf('href="/termine"'), SIDEBAR.indexOf('href="/ablage"'));
+  // Die Ablage hat seit dem 28.11. keine Zeile mehr — die Termine-Zeile reicht
+  // bis zu ihrem eigenen Ende.
+  const termineZeile = () => {
+    const i = SIDEBAR.indexOf('href="/termine"');
+    return i === -1 ? "" : SIDEBAR.slice(i, SIDEBAR.indexOf("/>", i));
+  };
 
   test("/termine trägt einen Tooltip — es war einmal die einzige Zeile ohne", () => {
     // Die Tooltips SIND die Abgrenzung der drei Zeilen; sie sind die einzige

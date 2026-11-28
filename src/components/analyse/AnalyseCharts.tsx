@@ -1,5 +1,6 @@
 "use client";
 
+import { prozent } from "@/lib/zahl";
 import { useState } from "react";
 import { Inbox } from "lucide-react";
 import {
@@ -75,7 +76,7 @@ function SeriesChart({
       <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
         <CartesianGrid {...GRID_PROPS} />
         <XAxis dataKey="label" {...AXIS_PROPS} />
-        <YAxis {...AXIS_PROPS} tickFormatter={isRate ? (v: number) => `${v} %` : undefined} />
+        <YAxis {...AXIS_PROPS} tickFormatter={isRate ? (v: number) => prozent(v, Number.isInteger(v) ? 0 : 1) : undefined} />
         <Tooltip {...TOOLTIP_PROPS} />
         <Legend {...LEGEND_PROPS} />
         {seriesNames.map((name) => (

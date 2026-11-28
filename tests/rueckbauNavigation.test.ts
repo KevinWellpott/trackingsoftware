@@ -139,9 +139,10 @@ describe("Kein Erinnerungs-Zähler mehr", () => {
     // Badge, mit derselben Gruppierung (`gruppiere`) und der Zählregel
     // `badgeZahl` aus src/lib/nachfassRegel.ts. Eine eigene Abfrage daneben
     // wäre eine zweite Definition von „fällig".
-    assert.match(NAVCOUNTS_DATA, /import \{ ladeNachfassen \} from "@\/lib\/nachfassenData";/);
+    // Schlanke Form desselben Loaders (Punkt 5, 28.11.).
+    assert.match(NAVCOUNTS_DATA, /import \{ ladeNachfassenSchlank \} from "@\/lib\/nachfassenData";/);
     assert.match(NAVCOUNTS_DATA, /import \{ badgeZahl, gruppiere \} from "@\/lib\/nachfassRegel";/);
-    assert.match(NAVCOUNTS_DATA, /ladeNachfassen\("mein"\)/);
+    assert.match(NAVCOUNTS_DATA, /ladeNachfassenSchlank\(\)/);
     assert.match(NAVCOUNTS_DATA, /nachfassen: badgeZahl\(gruppiere\(daten\.eintraege, daten\.today, daten\.nowMs\)\)/);
     const nurCode = code(NAVCOUNTS_DATA);
     assert.doesNotMatch(nurCode, /\.rpc\(|\.from\(/, "Das Badge fragt wieder selbst die Datenbank.");
@@ -154,8 +155,9 @@ describe("Kein Erinnerungs-Zähler mehr", () => {
     // nicht angemeldet, Frist abgelaufen, Fehler.
     assert.match(NAVCOUNTS_DATA, /if \(!access\) return EMPTY_NAV_COUNTS;/);
     // Auch eine unvollständige Ladung (gescheiterte Grundabfrage) gibt kein Badge.
-    // Ebenso ein gescheitertes Recycling (Code-Review 27.11.).
-    assert.match(NAVCOUNTS_DATA, /if \(!daten \|\| !daten\.vollstaendig \|\| !daten\.recyclingVerfuegbar\) return EMPTY_NAV_COUNTS;/);
+    // Die Wiedervorlage zählt seit dem 28.11. nicht mehr mit — ihr Ausfall
+    // ändert die Badge-Zahl nicht und nimmt das Badge deshalb nicht weg.
+    assert.match(NAVCOUNTS_DATA, /if \(!daten \|\| !daten\.vollstaendig\) return EMPTY_NAV_COUNTS;/);
     assert.match(NAVCOUNTS_DATA, /\} catch \{\s*return EMPTY_NAV_COUNTS;/);
     assert.match(NAVCOUNTS_DATA, /const DEADLINE_MS = 1500;/);
     assert.doesNotMatch(NAVCOUNTS_DATA, /\?\? 0/);

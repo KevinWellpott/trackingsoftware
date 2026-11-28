@@ -21,7 +21,8 @@ const BACK_TARGETS: Record<string, BackTarget> = {
   // Die Listen der Gruppe „Vertrieb" (Redesign Phase 4).
   setting: { href: "/setting", label: "Setting" },
   closing: { href: "/closing", label: "Closing" },
-  "no-shows": { href: "/no-shows", label: "No-Shows" },
+  // /no-shows ist gestrichen (28.11.) — alte Links führen nach „Heute“.
+  "no-shows": { href: "/nachfassen", label: "Heute" },
   ablage: { href: "/ablage", label: "Ablage" },
 };
 

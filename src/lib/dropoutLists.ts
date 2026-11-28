@@ -496,7 +496,7 @@ export function recycleBlockedReason(gate: RecycleGate): string | null {
     return "Der Vorgang ist bereits zurück im Funnel.";
   }
   if (gate.responded) {
-    return "Der Lead hat auf einen Recycling-Versuch schon reagiert.";
+    return "Der Lead hat auf eine Wiedervorlage schon reagiert.";
   }
   if (gate.reasonCode && NEVER_RECYCLE[gate.entity].includes(gate.reasonCode)) {
     return `„${dropoutReasonLabel(gate.reasonCode)}“ bekommt bewusst nie eine Wiedervorlage.`;
@@ -514,7 +514,7 @@ export function recycleBlockedReason(gate: RecycleGate): string | null {
     return `Der Deckel von ${gate.maxAttempts} Versuchen ist erreicht.`;
   }
   if (!gate.inRecycleBranch) {
-    return "Dieser Vorgang speist keinen Zweig des Recyclings — eine Wiedervorlage bliebe unsichtbar.";
+    return "Dieser Vorgang kommt nie in die Wiedervorlage — ein Datum bliebe unsichtbar.";
   }
   return null;
 }

@@ -39,6 +39,6 @@ export const RECYCLE_REASON_LABELS: Record<string, string> = {
   falsche_zielgruppe: "Falsche Zielgruppe",
   kein_fit: "Kein Fit",
   sonstiges: "Sonstiges",
-  dead: "Dead",
+  dead: "Tot",
   fu_exhausted: "Ohne Antwort",
 };

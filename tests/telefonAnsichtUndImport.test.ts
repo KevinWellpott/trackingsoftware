@@ -135,7 +135,8 @@ describe("3 · Was aus der Ansicht verschwunden ist", () => {
     const i = RUNNER.indexOf("Ergebnis des Anrufs");
     assert.ok(i > 0, "Die Ergebnis-Sektion fehlt");
     const sektion = RUNNER.slice(i);
-    for (const label of ["Termin", "Rückruf", "Nicht erreicht", "Toter Lead", "Kein Termin"]) {
+    // „Tot“ statt „Toter Lead“ — ein Wort je Handlung (28.11.).
+    for (const label of ["Termin", "Rückruf", "Nicht erreicht", "Tot", "Kein Termin"]) {
       assert.ok(sektion.includes("> " + label), `Ergebnis-Knopf fehlt: ${label}`);
     }
     assert.equal((sektion.match(/className="dialer-outcome"/g) ?? []).length, 5);

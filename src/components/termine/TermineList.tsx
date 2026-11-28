@@ -331,7 +331,8 @@ export function TermineList({
           today={today}
           erinnerungsAnsicht={art !== null}
           pending={pending && busyId === e.id}
-          onGenervt={() => onGenervt(e)}
+          // „Erinnert“ nur, wo eine Erinnerung zu schließen ist (28.11.).
+          onGenervt={art !== null || e.erinnerung ? () => onGenervt(e) : undefined}
           onNeuerTermin={(input) => onNeuerTermin(e, input)}
           onTot={() => void onTot(e)}
           ergebnis={schnell(e)}
@@ -407,7 +408,7 @@ export function TermineList({
               today={today}
               erinnerungsSpalte={art !== null}
               pending={pending && busyId === e.id}
-              onGenervt={() => onGenervt(e)}
+              onGenervt={art !== null || e.erinnerung ? () => onGenervt(e) : undefined}
               onNeuerTermin={(input) => onNeuerTermin(e, input)}
               onTot={() => void onTot(e)}
             />
@@ -441,7 +442,7 @@ function TerminKarte({
   erinnerungsAnsicht: boolean;
   pending: boolean;
   ergebnis?: React.ReactNode;
-  onGenervt: () => void;
+  onGenervt?: () => void;
   onNeuerTermin: (berlinInput: string) => void;
   onTot: () => void;
 }) {
@@ -593,7 +594,7 @@ function Row({
   erinnerungsSpalte: boolean;
   pending: boolean;
   ergebnis?: React.ReactNode;
-  onGenervt: () => void;
+  onGenervt?: () => void;
   onNeuerTermin: (berlinInput: string) => void;
   onTot: () => void;
 }) {

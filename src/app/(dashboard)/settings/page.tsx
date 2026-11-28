@@ -301,7 +301,7 @@ export default async function SettingsPage({
       )}
 
       {/* ── Pipeline (pipeline_settings) ──
-          Zwei Zahlen: das Verschiebe-Kontingent und die eine Recycling-Frist.
+          Zwei Zahlen: das Verschiebe-Kontingent und die eine Wartezeit bis zur Wiedervorlage.
           Sichtbarkeits-Gate bewusst STRENGER als bei „Nutzer"/„Ziele" oben
           (dort reicht role='owner') — siehe Kommentar bei canManageOrgSettings. */}
       {canManageOrgSettings && pipeline && (

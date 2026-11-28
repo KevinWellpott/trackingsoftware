@@ -247,7 +247,7 @@ const VERLUST: Record<string, string> = {
 
 /** Die beiden Ursprungs-Token der Lead-Tabellen (kein DB-Enum, docs §4). */
 const RECYCLING_URSPRUNG: Record<string, string> = {
-  dead: "Dead",
+  dead: "Tot",
   fu_exhausted: "Ohne Antwort",
 };
 
@@ -449,7 +449,7 @@ describe("recycleBlockedReason", () => {
     );
     assert.equal(
       recycleBlockedReason({ ...alles, excluded: false, revived: false }),
-      "Der Lead hat auf einen Recycling-Versuch schon reagiert.",
+      "Der Lead hat auf eine Wiedervorlage schon reagiert.",
     );
     assert.equal(
       recycleBlockedReason({ ...alles, excluded: false, revived: false, responded: false }),
@@ -474,7 +474,7 @@ describe("recycleBlockedReason", () => {
         reasonCode: "timing",
         attemptCount: 0,
       }),
-      "Dieser Vorgang speist keinen Zweig des Recyclings — eine Wiedervorlage bliebe unsichtbar.",
+      "Dieser Vorgang kommt nie in die Wiedervorlage — ein Datum bliebe unsichtbar.",
     );
   });
 
@@ -541,7 +541,7 @@ describe("recycleBlockedReason", () => {
       recycleBlockedReason(
         offen({ entity: "closing", inRecycleBranch: listFeedsRecycling("abgesagt", "closing") }),
       ),
-      "Dieser Vorgang speist keinen Zweig des Recyclings — eine Wiedervorlage bliebe unsichtbar.",
+      "Dieser Vorgang kommt nie in die Wiedervorlage — ein Datum bliebe unsichtbar.",
     );
     assert.equal(
       recycleBlockedReason(

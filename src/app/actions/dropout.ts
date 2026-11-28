@@ -627,7 +627,7 @@ export async function pullRecycleForward(
   if (readError) {
     return {
       error: isMissingSchema(readError)
-        ? "Recycling ist nicht verfügbar — Migration 0033 fehlt."
+        ? "Die Wiedervorlage ist nicht verfügbar — Migration 0033 fehlt."
         : readError.message,
     };
   }
@@ -678,7 +678,7 @@ export async function pullRecycleForward(
 
   if (error) {
     return {
-      error: isMissingSchema(error) ? "Recycling ist nicht verfügbar — Migration 0033 fehlt." : error.message,
+      error: isMissingSchema(error) ? "Die Wiedervorlage ist nicht verfügbar — Migration 0033 fehlt." : error.message,
     };
   }
   if (!updated || updated.length === 0) {

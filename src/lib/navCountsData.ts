@@ -1,9 +1,10 @@
 // Die Zahlen der Navigation — serverseitig, einmal je Anfrage (`cache()`).
 //
 // Seit dem Nachfass-Eingang (Plan M8) liest das Badge DENSELBEN Loader wie die
-// Seite `/nachfassen` (`ladeNachfassen`, src/lib/nachfassenData.ts) und zählt
-// mit derselben Gruppierung: überfällig + heute + „Ergebnis fehlt", ohne den
-// Reiter „Aufräumen". Ein Badge, das anders zählt als die Seite darunter, ist
+// Seite `/nachfassen` — in seiner schlanken Form (`ladeNachfassenSchlank`,
+// ohne Wiedervorlage und Kontaktwege, Punkt 5 vom 28.11.) — und zählt
+// mit derselben Gruppierung: überfällig + heute + „Ergebnis fehlt", ohne die
+// Reiter „Aufräumen" und „Wiedervorlage". Ein Badge, das anders zählt als die Seite darunter, ist
 // laut docs §5.4 ein Fehler — deshalb gibt es hier keine eigene Abfrage.
 //
 // Eigene Datei, weil src/lib/navCounts.ts von Client-Komponenten importiert
@@ -12,7 +13,7 @@
 import { cache } from "react";
 
 import { getAccessContext } from "@/lib/access";
-import { ladeNachfassen } from "@/lib/nachfassenData";
+import { ladeNachfassenSchlank } from "@/lib/nachfassenData";
 import { badgeZahl, gruppiere } from "@/lib/nachfassRegel";
 import { EMPTY_NAV_COUNTS, type NavCounts } from "@/lib/navCounts";
 
@@ -29,8 +30,8 @@ export const getNavCounts = cache(async function getNavCounts(): Promise<NavCoun
     timer = setTimeout(() => resolve(null), DEADLINE_MS);
   });
   try {
-    const daten = await Promise.race([ladeNachfassen("mein"), frist]);
-    if (!daten || !daten.vollstaendig || !daten.recyclingVerfuegbar) return EMPTY_NAV_COUNTS;
+    const daten = await Promise.race([ladeNachfassenSchlank(), frist]);
+    if (!daten || !daten.vollstaendig) return EMPTY_NAV_COUNTS;
     return { nachfassen: badgeZahl(gruppiere(daten.eintraege, daten.today, daten.nowMs)) };
   } catch {
     return EMPTY_NAV_COUNTS;

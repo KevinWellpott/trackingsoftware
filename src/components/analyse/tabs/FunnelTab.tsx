@@ -1187,7 +1187,7 @@ export async function FunnelTab({
               </p>
               <p style={INFO_P}>
                 <strong style={INFO_STRONG}>Ohne Aussicht</strong> heißt: kein Ersatztermin in Sicht — der Lead
-                geht in die Ablage und später ins Recycling. <strong style={INFO_STRONG}>Neuer Termin</strong>{" "}
+                geht in die Ablage und kommt später als Wiedervorlage zurück. <strong style={INFO_STRONG}>Neuer Termin</strong>{" "}
                 heißt: verschoben, der Vorgang bleibt in der Terminliste. Zwei sehr verschiedene Ereignisse unter
                 einem Wort, deshalb stehen sie getrennt.
               </p>

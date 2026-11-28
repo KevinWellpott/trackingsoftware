@@ -219,7 +219,7 @@ export async function PhoneDashboard({ zeitraum = "heute" }: { zeitraum?: Telefo
           caption="Telefon-Termine nach Buchungstag"
         />
         <TelModule label="Rückrufe vereinbart" value={totals.callbacks.toLocaleString("de-DE")} caption={`Ergebnis „Rückruf“ ${wort}`} />
-        <TelModule label="Tot" value={totals.dead.toLocaleString("de-DE")} caption="das Recycling holt sie später wieder" />
+        <TelModule label="Tot" value={totals.dead.toLocaleString("de-DE")} caption="kommen später als Wiedervorlage zurück" />
       </div>
 
       {rows.length > 0 && (

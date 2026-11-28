@@ -13,7 +13,7 @@ export const SETTING_STATUS_LABEL: Record<SettingStatus, string> = {
   qualifiziert: "Qualifiziert",
   closing_gelegt: "Closing gelegt",
   unqualifiziert: "Unqualifiziert",
-  dead: "Dead",
+  dead: "Tot",
 };
 
 export const SHOW_STATUS_LABEL: Record<"show" | "no_show", string> = {

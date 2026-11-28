@@ -80,7 +80,7 @@ function isMissingSchema(err: unknown): boolean {
  * Grund steht im Serverlog; die Oberfläche sagt nur, was sie weiß.
  */
 const RECYCLE_UNAVAILABLE =
-  "Recycling ist gerade nicht verfügbar: Die Datenbank kennt die benötigte Funktion oder Spalte nicht. " +
+  "Die Wiedervorlage ist gerade nicht verfügbar: Die Datenbank kennt die benötigte Funktion oder Spalte nicht. " +
   "Wenn das dauerhaft so bleibt, fehlt vermutlich Migration 0033.";
 
 const TABLE_BY_ORIGIN: Record<RecycleOrigin, string> = {

@@ -53,7 +53,7 @@ export function useTerminHandgriffe(onError: (message: string | null) => void, n
     async (e: TerminEvent) => {
       const ok = await confirm({
         title: e.kind === "setting" ? "Lead als tot markieren?" : "Als „Kein Close“ abschließen?",
-        message: `„${e.title}“ ist damit beendet. Das Recycling holt den Lead nach der Wartezeit wieder. Rückgängig geht das nur auf der Detailseite.`,
+        message: `„${e.title}“ ist damit beendet. Nach der Wartezeit kommt der Lead als Wiedervorlage zurück. Rückgängig geht das nur auf der Detailseite.`,
         confirmLabel: e.kind === "setting" ? "Als tot markieren" : "Kein Close",
         destructive: true,
       });

@@ -127,7 +127,7 @@ const RESCHEDULE_FIELD: FieldSpec = {
 const RECYCLE_FIELD: FieldSpec = {
   id: "pipeline-recycling-frist",
   columns: RECYCLE_COLUMNS,
-  label: "Recycling — Wartezeit (Tage)",
+  label: "Wiedervorlage — Wartezeit (Tage)",
   min: DAY_MIN,
   max: DAY_MAX,
 };
@@ -242,7 +242,7 @@ export function PipelineSettingsCard({
       <div style={SECTION_HEAD}>
         <SlidersHorizontal size={16} color="var(--text-muted)" />
         <span style={SECTION_TITLE}>Pipeline</span>
-        <span style={SECTION_META}>Termine &amp; Recycling</span>
+        <span style={SECTION_META}>Termine &amp; Wiedervorlage</span>
       </div>
 
       <div style={SECTION_BODY}>

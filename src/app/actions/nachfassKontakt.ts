@@ -425,7 +425,10 @@ export async function sammelAktion(
 ): Promise<{ ok: number; fehler: string[] }> {
   const fehler: string[] = [];
   let ok = 0;
-  for (const e of (eintraege ?? []).slice(0, 500)) {
+  // Höchstens 100 je Aufruf — die Oberfläche schickt Pakete zu 25
+  // (SAMMEL_PAKET) und zeigt den Fortschritt; ein 500er-Aufruf lief ins
+  // Zeitlimit (Prüfung 28.11.).
+  for (const e of (eintraege ?? []).slice(0, 100)) {
     const res =
       aktion === "nochmal"
         ? await nochmalVersuchen(e.art, e.id, e.quelle, tag ?? "")
