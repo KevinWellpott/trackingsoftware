@@ -1,7 +1,7 @@
 "use client";
 
 import { useOptimistic, useState, useTransition, type ReactNode } from "react";
-import { CornerDownLeft, Square, SquareCheck } from "lucide-react";
+import { ChevronRight, CornerDownLeft, Square, SquareCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { aktionFertig } from "@/components/kunden/AktionsPuls";
 import { Textarea } from "@/components/ui/Textarea";
@@ -143,5 +143,46 @@ export function DialogFuss({
         {label}
       </Button>
     </div>
+  );
+}
+
+/**
+ * Einklappbarer Abschnitt (Vorlagen, 28.11.). Gesteuert von außen, damit ein
+ * „Alle auf-/zuklappen" alle Abschnitte einer Seite zugleich bewegen kann.
+ * `aktion` steht rechts im Kopf, außerhalb des Klappknopfs.
+ */
+export function Abschnitt({
+  offen,
+  onUmschalten,
+  titel,
+  zahl,
+  icon,
+  info,
+  aktion,
+  children,
+}: {
+  offen: boolean;
+  onUmschalten: () => void;
+  titel: string;
+  zahl?: number;
+  icon?: ReactNode;
+  info?: ReactNode;
+  aktion?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="card vl-abschnitt" data-offen={offen || undefined}>
+      <div className="vl-abschnitt-kopf">
+        <button type="button" className="vl-abschnitt-knopf" aria-expanded={offen} onClick={onUmschalten}>
+          <ChevronRight size={16} className="vl-chevron" aria-hidden />
+          {icon}
+          <span className="vl-abschnitt-titel">{titel}</span>
+          {zahl !== undefined && <span className="kd-zahl">{zahl}</span>}
+        </button>
+        {info}
+        {aktion && <span className="vl-abschnitt-aktion">{aktion}</span>}
+      </div>
+      {offen && <div className="vl-abschnitt-inhalt">{children}</div>}
+    </section>
   );
 }

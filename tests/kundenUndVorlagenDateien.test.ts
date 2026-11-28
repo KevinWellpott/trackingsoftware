@@ -43,7 +43,22 @@ describe("Dateien an Vorlagen", () => {
     assert.equal(sichererDateiname("Onboarding Präsentation (v2).pdf"), "Onboarding_Pra_sentation_v2_.pdf");
     assert.equal(sichererDateiname("   "), "_");
   });
-  test("die Seite zeigt die Dateien unter der Vorlage", () => {
-    assert.match(read("src/app/(dashboard)/kunden/vorlagen/page.tsx"), /<VorlagenDateien vorlageId=\{aktiv\.id\}/);
+  test("die Vorlage zeigt ihre Dateien als eigenen Abschnitt", () => {
+    const seite = read("src/app/(dashboard)/kunden/vorlagen/page.tsx");
+    assert.match(seite, /dateien=\{dateien\?\.dateien \?\? \[\]\}/);
+    assert.match(read("src/components/kunden/VorlagenEditor.tsx"), /<VorlagenDateien\s+vorlageId=\{vorlage\.id\}/);
+  });
+  // 28.11.: volle Breite, alles einklappbar, Erklärungen im Info-Icon.
+  test("Vorlagen: volle Breite, Liste links, Phasen und Dateien einklappbar", () => {
+    const seite = read("src/app/(dashboard)/kunden/vorlagen/page.tsx");
+    assert.doesNotMatch(seite, /data-schmal/);
+    assert.match(seite, /className="vl-layout"/);
+    assert.match(seite, /className="vl-archiv-gruppe"/);
+    const editor = read("src/components/kunden/VorlagenEditor.tsx");
+    assert.match(editor, /<Abschnitt key=\{k\} offen=\{!zu\.has\(k\)\}/);
+    assert.match(editor, /\{allesZu \? "Alle aufklappen" : "Alle zuklappen"\}/);
+    assert.match(editor, /offen=\{!zu\.has\(DATEIEN\)\}/);
+    assert.match(editor, /<InfoPopover label="So wirken Änderungen"/);
+    assert.match(read("src/components/kunden/VorlagenDateien.tsx"), /<Abschnitt\s/);
   });
 });

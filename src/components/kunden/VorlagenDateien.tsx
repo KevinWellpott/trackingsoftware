@@ -7,6 +7,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import { Download, FileText, Paperclip, Trash2, Upload } from "lucide-react";
+import { Abschnitt } from "@/components/kunden/bausteine";
 import { deleteVorlageDatei, registerVorlageDatei, vorlageDateiUrl } from "@/app/actions/kunden";
 import { createClient } from "@/lib/supabase/client";
 import { Button, IconButton } from "@/components/ui/Button";
@@ -24,11 +25,15 @@ export function VorlagenDateien({
   vorlageId,
   dateien,
   verfuegbar,
+  offen,
+  onUmschalten,
 }: {
   vorlageId: string;
   dateien: VorlageDatei[];
   /** false = Migration 0052 fehlt. */
   verfuegbar: boolean;
+  offen: boolean;
+  onUmschalten: () => void;
 }) {
   const router = useRouter();
   const { confirm, dialog } = useConfirm();
@@ -84,17 +89,20 @@ export function VorlagenDateien({
     });
 
   return (
-    <section className="card vd-karte">
-      {dialog}
-      <header className="vd-kopf">
-        <Paperclip size={16} aria-hidden />
-        <h2>Dateien</h2>
-        <span className="vd-zahl">{dateien.length}</span>
+    <Abschnitt
+      offen={offen}
+      onUmschalten={onUmschalten}
+      titel="Dateien"
+      zahl={dateien.length}
+      icon={<Paperclip size={15} aria-hidden className="vd-icon" />}
+      info={
         <InfoPopover label="Dateien an der Vorlage" width={300}>
           Unterlagen zu dieser Vorlage — Onboarding-PDF, Briefing, Präsentation. Höchstens {formatBytes(ABLAGE_MAX_BYTES)} je
           Datei. Nur für das Titan-Team sichtbar.
         </InfoPopover>
-        <span style={{ marginLeft: "auto" }}>
+      }
+      aktion={
+        <>
           <Button
             size="sm"
             variant="secondary"
@@ -102,18 +110,13 @@ export function VorlagenDateien({
             disabled={!verfuegbar || pending}
             onClick={() => inputRef.current?.click()}
           >
-            Datei hochladen
+            {fortschritt ?? "Datei hochladen"}
           </Button>
-        </span>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          hidden
-          onChange={(e) => e.target.files && hochladen(e.target.files)}
-        />
-      </header>
-
+          <input ref={inputRef} type="file" multiple hidden onChange={(e) => e.target.files && hochladen(e.target.files)} />
+        </>
+      }
+    >
+      {dialog}
       {!verfuegbar ? (
         <p className="vd-hinweis">Migration 0052 ist noch nicht eingespielt — danach lassen sich hier Dateien hochladen.</p>
       ) : (
@@ -182,6 +185,6 @@ export function VorlagenDateien({
           {fehler}
         </p>
       )}
-    </section>
+    </Abschnitt>
   );
 }

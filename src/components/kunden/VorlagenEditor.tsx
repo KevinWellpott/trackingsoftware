@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Copy, Pencil, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, Copy, ListChecks, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   addVorlagePunkte,
   createVorlage,
@@ -14,14 +14,15 @@ import {
   updateVorlagePunkt,
 } from "@/app/actions/kunden";
 import { Button, IconButton } from "@/components/ui/Button";
-import { Card, CardHeader } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Feld } from "@/components/kunden/Feld";
 import { Textarea } from "@/components/ui/Textarea";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { DialogFuss, Fehler, ZeilenEingabe, useAktion } from "@/components/kunden/bausteine";
-import { nachPhase, verschobeneReihenfolge, zeilenZuPunkten, type Vorlage, type VorlagePunkt } from "@/lib/kunden";
+import { InfoPopover } from "@/components/ui/InfoPopover";
+import { Abschnitt, DialogFuss, Fehler, ZeilenEingabe, useAktion } from "@/components/kunden/bausteine";
+import { VorlagenDateien } from "@/components/kunden/VorlagenDateien";
+import { nachPhase, verschobeneReihenfolge, zeilenZuPunkten, type Vorlage, type VorlageDatei, type VorlagePunkt } from "@/lib/kunden";
 
 // Vorlagen starten leer (Entscheidung 22.11.). Der schnelle Weg hinein: eine
 // ganze Liste einfügen, eine Zeile ist eine Checkbox, „# Titel" eine Phase.
@@ -67,13 +68,40 @@ export function VorlageAnlegenButton() {
   );
 }
 
-export function VorlagenEditor({ vorlage }: { vorlage: Vorlage }) {
+/** Schlüssel des Datei-Abschnitts neben den Phasen ("_" = ohne Phase). */
+const DATEIEN = "__dateien";
+
+export function VorlagenEditor({
+  vorlage,
+  dateien,
+  dateienVerfuegbar,
+}: {
+  vorlage: Vorlage;
+  dateien: VorlageDatei[];
+  dateienVerfuegbar: boolean;
+}) {
   const [name, setName] = useState(vorlage.name);
   const [punkt, setPunkt] = useState<VorlagePunkt | null>(null);
+  const [neuePhase, setNeuePhase] = useState("");
+  // Zugeklappt statt aufgeklappt merken: Eine neu entstandene Phase ist offen.
+  const [zu, setZu] = useState<Set<string>>(() => new Set());
   const { error, pending, run } = useAktion();
   const { confirm, dialog } = useConfirm();
   const router = useRouter();
   const gruppen = nachPhase(vorlage.punkte);
+  const phasen = gruppen.filter((g) => g.phase).length;
+  const schluessel = [...gruppen.map((g) => g.phase ?? "_"), DATEIEN];
+  const allesZu = schluessel.every((k) => zu.has(k));
+  const umschalten = (k: string) =>
+    setZu((alt) => {
+      const neu = new Set(alt);
+      if (neu.has(k)) neu.delete(k);
+      else neu.add(k);
+      return neu;
+    });
+  const umbenennen = () => {
+    if (name.trim() && name !== vorlage.name) run(() => updateVorlage(vorlage.id, { name }));
+  };
 
   const verschiebe = (id: string, richtung: -1 | 1) => {
     const ids = verschobeneReihenfolge(vorlage.punkte, id, richtung);
@@ -81,89 +109,170 @@ export function VorlagenEditor({ vorlage }: { vorlage: Vorlage }) {
   };
 
   return (
-    <Card>
+    <div className="vl-editor">
       {dialog}
-      <CardHeader
-        title={vorlage.name}
-        meta={`${vorlage.punkte.length} Punkte${vorlage.archiviert_at ? " · archiviert" : ""} · Änderungen gelten für neue Zuweisungen, laufende Kunden bleiben unverändert.`}
-      />
-      <div className="ks-stapel">
-        <div className="ks-reihe">
-          <Input value={name} onChange={(e) => setName(e.target.value)} aria-label="Name der Vorlage" className="ks-dehnbar" />
-          {name !== vorlage.name && (
-            <Button variant="secondary" loading={pending} onClick={() => run(() => updateVorlage(vorlage.id, { name }))}>
+      <section className="card vl-kopf">
+        <div className="vl-kopf-zeile">
+          <span className="vl-kopf-icon" aria-hidden>
+            <ListChecks size={18} />
+          </span>
+          <input
+            className="vl-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && umbenennen()}
+            aria-label="Name der Vorlage"
+          />
+          {name !== vorlage.name && name.trim() && (
+            <Button size="sm" variant="primary" loading={pending} onClick={umbenennen}>
               Umbenennen
             </Button>
           )}
-          <Button
-            variant="ghost"
-            icon={<Copy size={14} aria-hidden />}
-            onClick={() =>
-              run(async () => {
-                const r = await duplicateVorlage(vorlage.id);
-                if (r.id) router.push(`/kunden/vorlagen?id=${r.id}`);
-                return r;
-              })
-            }
-          >
-            Duplizieren
-          </Button>
-          <Button
-            variant="ghost"
-            icon={vorlage.archiviert_at ? <ArchiveRestore size={14} aria-hidden /> : <Archive size={14} aria-hidden />}
-            onClick={() => run(() => updateVorlage(vorlage.id, { archiviert: !vorlage.archiviert_at }))}
-          >
-            {vorlage.archiviert_at ? "Zurückholen" : "Archivieren"}
-          </Button>
-          <Button
-            variant="ghost"
-            icon={<Trash2 size={14} aria-hidden />}
-            onClick={async () => {
-              const ja = await confirm({
-                title: `„${vorlage.name}“ löschen?`,
-                message: "Checklisten, die Kunden schon haben, bleiben erhalten.",
-                confirmLabel: "Löschen",
-                destructive: true,
-              });
-              if (ja) run(() => deleteVorlage(vorlage.id), () => router.push("/kunden/vorlagen"));
-            }}
-          >
-            Löschen
-          </Button>
+          {vorlage.archiviert_at && <span className="vl-archiv">Archiviert</span>}
+          <div className="vl-aktionen">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Copy size={14} aria-hidden />}
+              onClick={() =>
+                run(async () => {
+                  const r = await duplicateVorlage(vorlage.id);
+                  if (r.id) router.push(`/kunden/vorlagen?id=${r.id}`);
+                  return r;
+                })
+              }
+            >
+              Duplizieren
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={vorlage.archiviert_at ? <ArchiveRestore size={14} aria-hidden /> : <Archive size={14} aria-hidden />}
+              onClick={() => run(() => updateVorlage(vorlage.id, { archiviert: !vorlage.archiviert_at }))}
+            >
+              {vorlage.archiviert_at ? "Zurückholen" : "Archivieren"}
+            </Button>
+            <IconButton
+              label="Vorlage löschen"
+              tone="danger"
+              size={32}
+              icon={<Trash2 size={15} aria-hidden />}
+              onClick={async () => {
+                const ja = await confirm({
+                  title: `„${vorlage.name}“ löschen?`,
+                  message: "Checklisten, die Kunden schon haben, bleiben erhalten. Die Dateien der Vorlage werden mit gelöscht.",
+                  confirmLabel: "Löschen",
+                  destructive: true,
+                });
+                if (ja) run(() => deleteVorlage(vorlage.id), () => router.push("/kunden/vorlagen"));
+              }}
+            />
+          </div>
         </div>
+        <div className="vl-kopf-meta">
+          <span>
+            <b>{vorlage.punkte.length}</b> {vorlage.punkte.length === 1 ? "Punkt" : "Punkte"}
+          </span>
+          <span>
+            <b>{phasen}</b> {phasen === 1 ? "Phase" : "Phasen"}
+          </span>
+          <span>
+            <b>{dateien.length}</b> {dateien.length === 1 ? "Datei" : "Dateien"}
+          </span>
+          <InfoPopover label="So wirken Änderungen" width={300}>
+            Beim Zuweisen bekommt der Kunde eine eigene Kopie. Änderungen hier gelten für neue Zuweisungen, laufende Kunden
+            bleiben unverändert.
+          </InfoPopover>
+        </div>
+        <Fehler text={error} />
+      </section>
 
-        {gruppen.map((g) => (
-          <div key={g.phase ?? "_"}>
-            {g.phase && <h3 className="ks-zwischen">{g.phase}</h3>}
-            <ul className="ks-liste-schlicht">
+      <div className="vl-leiste">
+        <h2 className="vl-leiste-titel">Checkliste</h2>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={allesZu ? <ChevronsUpDown size={14} aria-hidden /> : <ChevronsDownUp size={14} aria-hidden />}
+          onClick={() => setZu(allesZu ? new Set() : new Set(schluessel))}
+        >
+          {allesZu ? "Alle aufklappen" : "Alle zuklappen"}
+        </Button>
+      </div>
+
+      {gruppen.length === 0 && (
+        <section className="card vl-leer">
+          <p>Noch keine Punkte. Unten eine Phase anlegen oder eine ganze Liste einfügen.</p>
+        </section>
+      )}
+
+      {gruppen.map((g) => {
+        const k = g.phase ?? "_";
+        const titel = g.phase ?? "Ohne Phase";
+        return (
+          <Abschnitt key={k} offen={!zu.has(k)} onUmschalten={() => umschalten(k)} titel={titel} zahl={g.rows.length}>
+            <ul className="vl-punkte">
               {g.rows.map((p, i) => (
-                <li key={p.id} className="ks-punkt">
-                  <span className="ks-punkt-text">
-                    {p.titel}
-                    {p.beschreibung && <span className="ks-herkunft">{p.beschreibung}</span>}
+                <li key={p.id} className="vl-punkt">
+                  <span className="vl-box" aria-hidden />
+                  <span className="vl-punkt-text">
+                    <span className="vl-punkt-titel">{p.titel}</span>
+                    {p.beschreibung && <span className="vl-punkt-beschr">{p.beschreibung}</span>}
                   </span>
-                  <div className="ks-werkzeug">
-                    <IconButton label="Nach oben" icon={<ArrowUp size={14} aria-hidden />} disabled={i === 0 || pending} onClick={() => verschiebe(p.id, -1)} />
-                    <IconButton label="Nach unten" icon={<ArrowDown size={14} aria-hidden />} disabled={i === g.rows.length - 1 || pending} onClick={() => verschiebe(p.id, 1)} />
-                    <IconButton label="Bearbeiten" icon={<Pencil size={14} aria-hidden />} onClick={() => setPunkt(p)} />
-                    <IconButton label="Löschen" tone="danger" icon={<Trash2 size={14} aria-hidden />} onClick={() => run(() => deleteVorlagePunkt(p.id))} />
+                  <div className="vl-werkzeug">
+                    <IconButton label="Nach oben" size={30} icon={<ArrowUp size={14} aria-hidden />} disabled={i === 0 || pending} onClick={() => verschiebe(p.id, -1)} />
+                    <IconButton
+                      label="Nach unten"
+                      size={30}
+                      icon={<ArrowDown size={14} aria-hidden />}
+                      disabled={i === g.rows.length - 1 || pending}
+                      onClick={() => verschiebe(p.id, 1)}
+                    />
+                    <IconButton label="Bearbeiten" size={30} icon={<Pencil size={14} aria-hidden />} onClick={() => setPunkt(p)} />
+                    <IconButton label="Löschen" size={30} tone="danger" icon={<Trash2 size={14} aria-hidden />} onClick={() => run(() => deleteVorlagePunkt(p.id))} />
                   </div>
                 </li>
               ))}
             </ul>
-          </div>
-        ))}
+            <ZeilenEingabe
+              label={`Punkt zu „${titel}“ hinzufügen`}
+              placeholder="Punkt hinzufügen, Enter"
+              onAdd={(t) => addVorlagePunkte(vorlage.id, t, g.phase)}
+            />
+          </Abschnitt>
+        );
+      })}
 
+      <section className="card vl-neu">
+        <div className="vl-neu-kopf">
+          <Plus size={15} aria-hidden />
+          <h3>Neue Phase</h3>
+          <InfoPopover label="Neue Phase anlegen" width={300}>
+            Name eintragen und die Punkte darunter einfügen, eine Zeile je Checkbox. Ohne Namen landen die Punkte unter
+            „Ohne Phase“. Eine Zeile mit # davor beginnt mitten in der Liste eine weitere Phase.
+          </InfoPopover>
+        </div>
+        <Input value={neuePhase} onChange={(e) => setNeuePhase(e.target.value)} placeholder="Name der Phase, z. B. Woche 1" aria-label="Name der neuen Phase" />
         <ZeilenEingabe
-          label="Neue Punkte"
-          placeholder="Punkt oder ganze Liste einfügen, Enter"
-          onAdd={(t) => addVorlagePunkte(vorlage.id, t, gruppen[gruppen.length - 1]?.phase)}
+          label="Punkte der neuen Phase"
+          placeholder="Punkte einfügen, eine Zeile je Checkbox"
+          onAdd={async (t) => {
+            const r = await addVorlagePunkte(vorlage.id, t, neuePhase.trim() || null);
+            if (!r.error) setNeuePhase("");
+            return r;
+          }}
         />
-        <p className="ks-leise">Mehrere Zeilen werden mehrere Checkboxen. Eine Zeile mit # davor beginnt eine Phase.</p>
-        <Fehler text={error} />
-      </div>
+      </section>
+
+      <VorlagenDateien
+        vorlageId={vorlage.id}
+        dateien={dateien}
+        verfuegbar={dateienVerfuegbar}
+        offen={!zu.has(DATEIEN)}
+        onUmschalten={() => umschalten(DATEIEN)}
+      />
+
       {punkt && <PunktDialog punkt={punkt} onClose={() => setPunkt(null)} />}
-    </Card>
+    </div>
   );
 }
 
